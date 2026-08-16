@@ -1,0 +1,30 @@
+{
+    "name": "rokn/form-compat",
+    "description": "A small, application-owned compatibility layer for the legacy Form facade used by Rokn's admin views.",
+    "type": "library",
+    "license": "MIT",
+    "version": "1.0.0",
+    "require": {
+        "php": "^8.2",
+        "illuminate/contracts": "^12.0",
+        "illuminate/http": "^12.0",
+        "illuminate/routing": "^12.0",
+        "illuminate/support": "^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Rokn\\FormCompat\\": "src/",
+            "Collective\\Html\\": "src/Collective/Html/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Rokn\\FormCompat\\FormCompatServiceProvider"
+            ],
+            "aliases": {
+                "Form": "Collective\\Html\\FormFacade"
+            }
+        }
+    }
+}

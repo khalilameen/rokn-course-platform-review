@@ -1,0 +1,206 @@
+        <!-- Order Information -->
+        <div class="col-lg-8">
+            <!-- Main Order Details -->
+            <div class="card order-detail-card">
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5>
+                            <i class="fa fa-receipt"></i>
+                            تفاصيل الطلب #{{ $order->id }}
+                        </h5>
+                        <div>
+                            @if($order->status === 'pending')
+                                <span class="status-badge-large badge-warning">
+                                    <i class="fa fa-clock-o"></i> في الانتظار
+                                </span>
+                            @elseif($order->status === 'approved')
+                                <span class="status-badge-large badge-success">
+                                    <i class="fa fa-check-circle"></i> مُعتمد
+                                </span>
+                            @elseif($order->status === 'rejected')
+                                <span class="status-badge-large badge-danger">
+                                    <i class="fa fa-times-circle"></i> مرفوض
+                                </span>
+                            @elseif($order->status === 'cancelled')
+                                <span class="status-badge-large badge-secondary">
+                                    <i class="fa fa-ban"></i> ملغي
+                                </span>
+                            @endif
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="info-row">
+                        <div class="info-label">
+                            <i class="fa fa-user"></i>
+                            <span>العميل:</span>
+                        </div>
+                        <div class="info-value">
+                            <a href="{{ route('admin.users.show', $order->user->id) }}" class="user-link">
+                                {{ $order->user->name }}
+                            </a>
+                            <div>
+                                <small class="text-muted">
+                                    <i class="fa fa-envelope"></i> {{ $order->user->email }}
+                                </small>
+                            </div>
+                            @if($order->user->phone)
+                                <div>
+                                    <small class="text-muted">
+                                        <i class="fa fa-phone"></i> {{ $order->user->phone }}
+                                    </small>
+                                </div>
+                            @endif
+                        </div>
+                    </div>
+
+                    <div class="info-row">
+                        <div class="info-label">
+                            <i class="fa fa-book"></i>
+                            <span>الدورة:</span>
+                        </div>
+                        <div class="info-value">
+                            <strong>{{ $order->course->title }}</strong>
+                            @if($order->course->price)
+                                <div>
+                                    <small class="text-muted">سعر فتح الكورس: {{ number_format($order->course->price) }} عملة ركن</small>
+                                </div>
+                            @endif
+                        </div>
+                    </div>
+
+                    @if($order->courseCode)
+                    <div class="info-row">
+                        <div class="info-label">
+                            <i class="fa fa-ticket"></i>
+                            <span>كود الدورة:</span>
+                        </div>
+                        <div class="info-value">
+                            <span class="code-badge">{{ $order->courseCode->code }}</span>
+                        </div>
+                    </div>
+                    @endif
+
+                    <div class="info-row">
+                        <div class="info-label">
+                            <i class="fa fa-credit-card"></i>
+                            <span>طريقة الدفع:</span>
+                        </div>
+                        <div class="info-value">
+                            <span class="badge badge-secondary order-payment-method">
+                                <i class="fa fa-money"></i> {{ $order->payment_method }}
+                            </span>
+                        </div>
+                    </div>
+
+                    @if($order->coupon)
+                    <div class="info-row">
+                        <div class="info-label">
+                            <i class="fa fa-tag"></i>
+                            <span>كوبون الخصم:</span>
+                        </div>
+                        <div class="info-value">
+                            <span class="code-badge">{{ $order->coupon->code }}</span>
+                            <div class="mt-2">
+                                <small class="text-success">
+                                    <i class="fa fa-percent"></i>
+                                    خصم: {{ $order->coupon->discount_type === 'percentage' ? $order->coupon->discount_value . '%' : number_format($order->coupon->discount_value, 2) . ' جنيه' }}
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                    @endif
+
+                    @if($order->approved_at && $order->approvedBy)
+                    <div class="info-row">
+                        <div class="info-label">
+                            <i class="fa fa-user-check"></i>
+                            <span>معتمد بواسطة:</span>
+                        </div>
+                        <div class="info-value">
+                            <strong>{{ $order->approvedBy->name }}</strong>
+                            <div>
+                                <small class="text-muted">
+                                    <i class="fa fa-calendar"></i>
+                                    {{ $order->approved_at->format('Y-m-d H:i:s') }}
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                    @endif
+
+                    @if($order->notes)
+                    <div class="info-row">
+                        <div class="info-label">
+                            <i class="fa fa-sticky-note"></i>
+                            <span>ملاحظات:</span>
+                        </div>
+                        <div class="info-value">
+                            <div class="alert alert-info order-notes mb-0">
+                                {{ $order->notes }}
+                            </div>
+                        </div>
+                    </div>
+                    @endif
+
+                    <div class="info-row">
+                        <div class="info-label">
+                            <i class="fa fa-calendar"></i>
+                            <span>تاريخ الإنشاء:</span>
+                        </div>
+                        <div class="info-value">
+                            <strong>{{ $order->created_at->format('Y-m-d') }}</strong>
+                            <small class="text-muted">{{ $order->created_at->format('H:i:s') }}</small>
+                        </div>
+                    </div>
+
+                    <!-- Amount Section -->
+                    <div class="amount-section">
+                        <h6 class="amount-section__heading">
+                            <i class="fa fa-money"></i> تفاصيل المبلغ
+                        </h6>
+                        <div class="amount-row">
+                            <span class="amount-label">المبلغ الأساسي:</span>
+                            <span class="amount-value">{{ number_format($order->amount, 2) }} جنيه</span>
+                        </div>
+                        @if($order->discount_amount > 0)
+                        <div class="amount-row">
+                            <span class="amount-label">مبلغ الخصم:</span>
+                            <span class="amount-value text-success">-{{ number_format($order->discount_amount, 2) }} جنيه</span>
+                        </div>
+                        @endif
+                        <div class="amount-row total">
+                            <span class="amount-label">المبلغ النهائي:</span>
+                            <span class="amount-value">{{ number_format($order->final_amount, 2) }} جنيه</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Payment Screenshot Section -->
+            @if($order->payment_screenshot)
+            <div class="card order-detail-card">
+                <div class="card-header order-receipt-header">
+                    <h5>
+                        <i class="fa fa-image"></i>
+                        إيصال الدفع
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="payment-screenshot-box">
+                        <img src="{{ asset('storage/' . $order->payment_screenshot) }}"
+                             alt="إيصال الدفع"
+                             class="payment-screenshot-large"
+                             onclick="showFullScreenshot('{{ asset('storage/' . $order->payment_screenshot) }}')">
+                        <div class="mt-3">
+                            <a href="{{ asset('storage/' . $order->payment_screenshot) }}"
+                               download
+                               class="btn btn-primary">
+                                <i class="fa fa-download"></i> تحميل الإيصال
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            @endif
+        </div>

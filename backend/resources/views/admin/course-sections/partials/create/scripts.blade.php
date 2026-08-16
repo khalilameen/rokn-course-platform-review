@@ -1,0 +1,894 @@
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const typeOptions = document.querySelectorAll('.type-option');
+    const sectionTypeInput = document.getElementById('section_type');
+    const dynamicForms = document.querySelectorAll('.dynamic-form');
+
+    // Function to update required fields
+    function updateRequiredFields(selectedType) {
+        // Remove required attribute from all dynamic form fields
+        dynamicForms.forEach(form => {
+            const fields = form.querySelectorAll('[data-required="true"]');
+            fields.forEach(field => {
+                field.removeAttribute('required');
+            });
+        });
+
+        // Add required attribute to selected form fields
+        const activeForm = document.getElementById(`${selectedType}-form`);
+        if (activeForm) {
+            const fields = activeForm.querySelectorAll('[data-required="true"]');
+            fields.forEach(field => {
+                // Skip if the field's parent section is hidden (for video source toggle)
+                const parentSection = field.closest('[id$="_section"], [id$="_video_section"]');
+                if (parentSection && parentSection.style.display === 'none') {
+                    return; // Skip this field
+                }
+                field.setAttribute('required', 'required');
+            });
+        }
+
+        // Special handling for quiz questions (if selectedType is not provided, check current active form)
+        if (!selectedType) {
+            const currentActiveForm = document.querySelector('.dynamic-form.active');
+            if (currentActiveForm && currentActiveForm.id === 'quiz-form') {
+                const questionFields = document.querySelectorAll('#questionsContainer [data-required="true"]');
+                questionFields.forEach(field => {
+                    field.setAttribute('required', 'required');
+                });
+            }
+        } else if (selectedType === 'quiz') {
+            const questionFields = document.querySelectorAll('#questionsContainer [data-required="true"]');
+            questionFields.forEach(field => {
+                field.setAttribute('required', 'required');
+            });
+        }
+    }
+
+    // Handle type selection
+    typeOptions.forEach(option => {
+        option.addEventListener('click', function() {
+            const type = this.dataset.type;
+
+            // Update selected state
+            typeOptions.forEach(opt => opt.classList.remove('selected'));
+            this.classList.add('selected');
+
+            // Update hidden input
+            sectionTypeInput.value = type;
+
+            // Show corresponding form
+            dynamicForms.forEach(form => {
+                form.classList.remove('active');
+                if (form.id === `${type}-form`) {
+                    form.classList.add('active');
+
+                    // Auto-add first question when quiz form is shown
+                    if (type === 'quiz') {
+                        const questionsContainer = document.getElementById('questionsContainer');
+                        if (questionsContainer && questionsContainer.querySelectorAll('.question-item').length === 0) {
+                            // Small delay to ensure DOM is ready
+                            setTimeout(() => {
+                                addQuestion();
+                            }, 100);
+                        }
+                    }
+                }
+            });
+
+            // Update required fields
+            updateRequiredFields(type);
+        });
+    });
+
+    // Set initial state from old input or URL parameter
+    const oldType = '{{ old("section_type") }}';
+    const urlParams = new URLSearchParams(window.location.search);
+    const typeParam = urlParams.get('type');
+
+    if (oldType) {
+        const selectedOption = document.querySelector(`[data-type="${oldType}"]`);
+        if (selectedOption) {
+            selectedOption.click();
+        }
+    } else if (typeParam) {
+        // Auto-select type from URL parameter
+        const selectedOption = document.querySelector(`[data-type="${typeParam}"]`);
+        if (selectedOption) {
+            selectedOption.click();
+        }
+    }
+
+    // Form validation
+    document.getElementById('sectionForm').addEventListener('submit', function(e) {
+        const sectionType = sectionTypeInput.value;
+
+        if (!sectionType) {
+            e.preventDefault();
+            alert('يرجى اختيار نوع المحتوى');
+            return false;
+        }
+
+        // Special validation for quiz
+        if (sectionType === 'quiz') {
+            const questions = document.querySelectorAll('#questionsContainer .question-item');
+            if (questions.length === 0) {
+                e.preventDefault();
+                alert('يجب إضافة سؤال واحد على الأقل للاختبار');
+                return false;
+            }
+
+            // Add hidden input for section_id if auto-saved
+            if (autoSavedSectionId) {
+                const sectionIdInput = document.createElement('input');
+                sectionIdInput.type = 'hidden';
+                sectionIdInput.name = 'section_id';
+                sectionIdInput.value = autoSavedSectionId;
+                this.appendChild(sectionIdInput);
+            }
+
+            // Since questions are already saved via auto-save, we can skip validation
+            // Just ensure the last question was saved
+            if (questions.length > 0 && autoSavedSectionId) {
+                // All good, questions are auto-saved
+                return true;
+            }
+        }
+
+        // Validate required fields based on section type
+        const activeForm = document.getElementById(`${sectionType}-form`);
+        if (activeForm) {
+            const requiredFields = activeForm.querySelectorAll('[required]');
+            let isValid = true;
+            let firstInvalidField = null;
+
+            requiredFields.forEach(field => {
+                const value = field.value.trim();
+                if (!value) {
+                    isValid = false;
+                    field.style.borderColor = '#e53e3e';
+                    if (!firstInvalidField) {
+                        firstInvalidField = field;
+                    }
+                } else {
+                    field.style.borderColor = '#e2e8f0';
+                }
+            });
+
+            if (!isValid) {
+                e.preventDefault();
+                alert('يرجى ملء جميع الحقول المطلوبة');
+                // Scroll to first invalid field
+                if (firstInvalidField) {
+                    firstInvalidField.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    firstInvalidField.focus();
+                }
+                return false;
+            }
+        }
+    });
+
+    // Clear error styling on input
+    document.querySelectorAll('.form-control, .form-select').forEach(field => {
+        field.addEventListener('input', function() {
+            if (this.value.trim()) {
+                this.style.borderColor = '#e2e8f0';
+            }
+        });
+    });
+
+    // Toggle additional file links for lesson form
+    const toggleFileLinksBtn = document.getElementById('toggleFileLinks');
+    const additionalFileLinks = document.getElementById('additionalFileLinks');
+
+    if (toggleFileLinksBtn && additionalFileLinks) {
+        toggleFileLinksBtn.addEventListener('click', function() {
+            if (additionalFileLinks.classList.contains('is-hidden')) {
+                additionalFileLinks.classList.remove('is-hidden');
+                this.innerHTML = '<i class="fa fa-minus-circle"></i> إخفاء روابط الملفات الإضافية';
+                this.classList.add('is-active');
+            } else {
+                additionalFileLinks.classList.add('is-hidden');
+                this.innerHTML = '<i class="fa fa-plus-circle"></i> إضافة روابط ملفات إضافية';
+                this.classList.remove('is-active');
+            }
+        });
+    }
+
+    // Show file links if there are old values (after validation error)
+    const fileLink1 = document.getElementById('file_link1');
+    const fileLink2 = document.getElementById('file_link2');
+    if ((fileLink1 && fileLink1.value) || (fileLink2 && fileLink2.value)) {
+        if (toggleFileLinksBtn) {
+            toggleFileLinksBtn.click();
+        }
+    }
+
+    // Video Source Toggle (YouTube / Bunny)
+    const videoSourceYoutube = document.getElementById('video_source_youtube');
+    const videoSourceBunny = document.getElementById('video_source_bunny');
+    const youtubeVideoSection = document.getElementById('youtube_video_section');
+    const bunnyVideoSection = document.getElementById('bunny_video_section');
+    const videoLinkInput = document.getElementById('video_link');
+
+    function updateVideoSourceUI() {
+        const youtubeLabel = document.getElementById('video_source_youtube_label');
+        const bunnyLabel = document.getElementById('video_source_bunny_label');
+        const bunnyVideoInput = document.getElementById('bunny_video');
+
+        if (videoSourceYoutube && videoSourceYoutube.checked) {
+            if (youtubeVideoSection) youtubeVideoSection.style.display = '';
+            if (bunnyVideoSection) bunnyVideoSection.style.display = 'none';
+            // Handle required attributes - remove from hidden fields
+            if (videoLinkInput) {
+                videoLinkInput.setAttribute('data-required', 'true');
+                videoLinkInput.removeAttribute('required'); // Will be set by form validation
+            }
+            if (bunnyVideoInput) {
+                bunnyVideoInput.removeAttribute('data-required');
+                bunnyVideoInput.removeAttribute('required');
+            }
+
+            // Update label styles
+            if (youtubeLabel) {
+                youtubeLabel.style.borderColor = '#e53e3e';
+                youtubeLabel.style.background = '#fff5f5';
+            }
+            if (bunnyLabel) {
+                bunnyLabel.style.borderColor = '#e2e8f0';
+                bunnyLabel.style.background = 'white';
+            }
+        } else if (videoSourceBunny && videoSourceBunny.checked) {
+            if (youtubeVideoSection) youtubeVideoSection.style.display = 'none';
+            if (bunnyVideoSection) bunnyVideoSection.style.display = '';
+            // Handle required attributes - remove from hidden fields
+            if (videoLinkInput) {
+                videoLinkInput.removeAttribute('data-required');
+                videoLinkInput.removeAttribute('required');
+            }
+            if (bunnyVideoInput) {
+                bunnyVideoInput.setAttribute('data-required', 'true');
+                bunnyVideoInput.removeAttribute('required'); // Will be set by form validation
+            }
+
+            // Update label styles
+            if (youtubeLabel) {
+                youtubeLabel.style.borderColor = '#e2e8f0';
+                youtubeLabel.style.background = 'white';
+            }
+            if (bunnyLabel) {
+                bunnyLabel.style.borderColor = '#48bb78';
+                bunnyLabel.style.background = '#f0fff4';
+            }
+        }
+    }
+
+    if (videoSourceYoutube) {
+        videoSourceYoutube.addEventListener('change', function() {
+            updateVideoSourceUI();
+            // Re-run required fields update for lesson form
+            if (sectionTypeInput.value === 'lesson') {
+                updateRequiredFields('lesson');
+            }
+        });
+    }
+    if (videoSourceBunny) {
+        videoSourceBunny.addEventListener('change', function() {
+            updateVideoSourceUI();
+            // Re-run required fields update for lesson form
+            if (sectionTypeInput.value === 'lesson') {
+                updateRequiredFields('lesson');
+            }
+        });
+    }
+
+    // Initialize on page load
+    updateVideoSourceUI();
+
+    // Quiz Questions Management
+    let questionCount = 0;
+    let autoSavedSectionId = null; // Track the auto-saved section ID
+    let isAutoSaving = false; // Flag to prevent concurrent saves
+    const questionsContainer = document.getElementById('questionsContainer');
+    const addQuestionBtn = document.getElementById('addQuestionBtn');
+
+    // Function to validate quiz basic fields
+    function validateQuizBasicFields() {
+        const titleAr = document.getElementById('title_ar').value.trim();
+        const quizTitleAr = document.getElementById('quiz_title_ar').value.trim();
+        const timeMinutes = document.getElementById('time_minutes').value.trim();
+
+        if (!titleAr || !quizTitleAr || !timeMinutes) {
+            return {
+                valid: false,
+                message: 'يرجى ملء عنوان القسم وعنوان الاختبار ومدة الاختبار أولاً'
+            };
+        }
+
+        return { valid: true };
+    }
+
+    // Function to validate current question fields
+    function validateCurrentQuestion(index) {
+        const questionText = document.getElementById(`questions_${index}_text`);
+        const choice1 = document.getElementById(`questions_${index}_choice1`);
+        const choice2 = document.getElementById(`questions_${index}_choice2`);
+        const choice3 = document.getElementById(`questions_${index}_choice3`);
+        const choice4 = document.getElementById(`questions_${index}_choice4`);
+        const correctAnswer = document.getElementById(`questions_${index}_correct_answer`);
+
+        const fields = [
+            { field: questionText, name: 'نص السؤال' },
+            { field: choice1, name: 'الخيار الأول' },
+            { field: choice2, name: 'الخيار الثاني' },
+            { field: choice3, name: 'الخيار الثالث' },
+            { field: choice4, name: 'الخيار الرابع' },
+            { field: correctAnswer, name: 'الإجابة الصحيحة' }
+        ];
+
+        for (let item of fields) {
+            if (!item.field || !item.field.value.trim()) {
+                return {
+                    valid: false,
+                    message: `يرجى ملء حقل "${item.name}" للسؤال ${index + 1} قبل إضافة سؤال جديد`,
+                    field: item.field
+                };
+            }
+        }
+
+        return { valid: true };
+    }
+
+    // Function to get question data
+    function getQuestionData(index) {
+        const questionElement = questionsContainer.querySelector(`[data-question-index="${index}"]`);
+        const questionId = questionElement?.getAttribute('data-question-id');
+
+        const data = {
+            question_title: document.getElementById(`questions_${index}_title`)?.value || null,
+            question_text: document.getElementById(`questions_${index}_text`).value,
+            choice1: document.getElementById(`questions_${index}_choice1`).value,
+            choice2: document.getElementById(`questions_${index}_choice2`).value,
+            choice3: document.getElementById(`questions_${index}_choice3`).value,
+            choice4: document.getElementById(`questions_${index}_choice4`).value,
+            choice5: document.getElementById(`questions_${index}_choice5`)?.value || null,
+            choice6: document.getElementById(`questions_${index}_choice6`)?.value || null,
+            correct_answer: document.getElementById(`questions_${index}_correct_answer`).value
+        };
+
+        // Include question_id if this is an update
+        if (questionId) {
+            data.question_id = questionId;
+        }
+
+        return data;
+    }
+
+    // Function to auto-save quiz and question
+    async function autoSaveQuizAndQuestion(questionIndex) {
+        if (isAutoSaving) {
+            return { success: false, message: 'جاري الحفظ...' };
+        }
+
+        isAutoSaving = true;
+
+        try {
+            // Validate basic quiz fields
+            const basicValidation = validateQuizBasicFields();
+            if (!basicValidation.valid) {
+                alert(basicValidation.message);
+                isAutoSaving = false;
+                return { success: false, message: basicValidation.message };
+            }
+
+            // Prepare data
+            const formData = new FormData();
+            formData.append('_token', '{{ csrf_token() }}');
+            formData.append('title_ar', document.getElementById('title_ar').value);
+            formData.append('title_en', document.getElementById('title_en').value);
+            formData.append('quiz_title_ar', document.getElementById('quiz_title_ar').value);
+            formData.append('quiz_title_en', document.getElementById('quiz_title_en').value);
+            formData.append('quiz_description_ar', document.getElementById('quiz_description_ar')?.value || '');
+            formData.append('quiz_description_en', document.getElementById('quiz_description_en')?.value || '');
+            formData.append('time_minutes', document.getElementById('time_minutes').value);
+            formData.append('order', document.getElementById('order').value);
+
+            // Add section_id if already saved
+            if (autoSavedSectionId) {
+                formData.append('section_id', autoSavedSectionId);
+            }
+
+            // Add question data if provided
+            if (questionIndex !== null && questionIndex !== undefined) {
+                const questionData = getQuestionData(questionIndex);
+                Object.keys(questionData).forEach(key => {
+                    if (questionData[key] !== null) {
+                        formData.append(`question[${key}]`, questionData[key]);
+                    }
+                });
+            }
+
+            // Send AJAX request
+            const response = await fetch('{{ route("admin.courses.sections.autoSaveQuiz", $course) }}', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                // Store section ID for future updates
+                if (result.section_id) {
+                    autoSavedSectionId = result.section_id;
+                }
+
+                // Show success feedback
+                showAutoSaveFeedback(true, result.message);
+
+                isAutoSaving = false;
+                return { success: true, data: result };
+            } else {
+                showAutoSaveFeedback(false, result.message);
+                isAutoSaving = false;
+                return { success: false, message: result.message };
+            }
+
+        } catch (error) {
+            console.error('Auto-save error:', error);
+            showAutoSaveFeedback(false, 'حدث خطأ أثناء الحفظ التلقائي');
+            isAutoSaving = false;
+            return { success: false, message: error.message };
+        }
+    }
+
+    // Function to show auto-save feedback
+    function showAutoSaveFeedback(success, message) {
+        // Create or get feedback element
+        let feedback = document.getElementById('autoSaveFeedback');
+        if (!feedback) {
+            feedback = document.createElement('div');
+            feedback.id = 'autoSaveFeedback';
+            feedback.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 15px 20px;
+                border-radius: 10px;
+                color: white;
+                font-weight: 600;
+                z-index: 9999;
+                animation: slideIn 0.3s ease-out;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            `;
+            document.body.appendChild(feedback);
+        }
+
+        feedback.style.background = success ?
+            'linear-gradient(135deg, #48bb78, #38a169)' :
+            'linear-gradient(135deg, #f56565, #e53e3e)';
+        feedback.innerHTML = `
+            <i class="fa fa-${success ? 'check-circle' : 'exclamation-circle'}"></i>
+            ${message}
+        `;
+        feedback.style.display = 'block';
+
+        // Hide after 3 seconds
+        setTimeout(() => {
+            feedback.style.animation = 'slideOut 0.3s ease-out';
+            setTimeout(() => {
+                feedback.style.display = 'none';
+            }, 300);
+        }, 3000);
+    }
+
+    function createQuestionTemplate(index, questionId = null) {
+        const questionDiv = document.createElement('div');
+        questionDiv.className = 'question-item mb-4';
+        questionDiv.setAttribute('data-question-index', index);
+        if (questionId) {
+            questionDiv.setAttribute('data-question-id', questionId);
+        }
+        questionDiv.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0 question-item__title">السؤال ${index + 1}</h5>
+                ${index > 0 ? `
+                    <button type="button" class="remove-question-btn">
+                        <i class="fa fa-trash"></i> حذف السؤال
+                    </button>
+                ` : ''}
+            </div>
+
+            <div class="form-group mb-3">
+                <label class="form-label" for="questions_${index}_text">نص السؤال *</label>
+                <textarea id="questions_${index}_text" name="questions[${index}][question_text]" class="form-control" rows="3"
+                          placeholder="أدخل نص السؤال" data-required="true"></textarea>
+            </div>
+
+            <div class="row mb-2">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label class="form-label" for="questions_${index}_choice1">الخيار الأول *</label>
+                        <input type="text" id="questions_${index}_choice1" name="questions[${index}][choice1]" class="form-control"
+                               placeholder="الخيار الأول" data-required="true">
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label class="form-label" for="questions_${index}_choice2">الخيار الثاني *</label>
+                        <input type="text" id="questions_${index}_choice2" name="questions[${index}][choice2]" class="form-control"
+                               placeholder="الخيار الثاني" data-required="true">
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mb-2">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label class="form-label" for="questions_${index}_choice3">الخيار الثالث *</label>
+                        <input type="text" id="questions_${index}_choice3" name="questions[${index}][choice3]" class="form-control"
+                               placeholder="الخيار الثالث" data-required="true">
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label class="form-label" for="questions_${index}_choice4">الخيار الرابع *</label>
+                        <input type="text" id="questions_${index}_choice4" name="questions[${index}][choice4]" class="form-control"
+                               placeholder="الخيار الرابع" data-required="true">
+                    </div>
+                </div>
+            </div>
+
+            <div class="extra-choices extra-choices-${index} is-hidden">
+                <div class="row mb-2">
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label class="form-label" for="questions_${index}_choice5">الخيار الخامس</label>
+                            <input type="text" id="questions_${index}_choice5" name="questions[${index}][choice5]" class="form-control"
+                                   placeholder="الخيار الخامس">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="form-group">
+                            <label class="form-label" for="questions_${index}_choice6">الخيار السادس</label>
+                            <input type="text" id="questions_${index}_choice6" name="questions[${index}][choice6]" class="form-control"
+                                   placeholder="الخيار السادس">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <button type="button" class="toggle-extra-choices-btn mb-3" data-question-index="${index}">
+                <i class="fa fa-plus-circle"></i> إضافة خيارات إضافية (حتى 6)
+            </button>
+
+            <div class="form-group">
+                <label class="form-label" for="questions_${index}_correct_answer">الإجابة الصحيحة *</label>
+                <select id="questions_${index}_correct_answer" name="questions[${index}][correct_answer]" class="form-select correct-answer-select" data-required="true">
+                    <option value="">اختر الإجابة الصحيحة</option>
+                    <option value="1">الخيار الأول</option>
+                    <option value="2">الخيار الثاني</option>
+                    <option value="3">الخيار الثالث</option>
+                    <option value="4">الخيار الرابع</option>
+                </select>
+            </div>
+        `;
+
+        return questionDiv;
+    }
+
+    function addQuestion() {
+        const questionElement = createQuestionTemplate(questionCount);
+        questionsContainer.appendChild(questionElement);
+
+        // Set required attributes on question fields if quiz form is active
+        const quizForm = document.getElementById('quiz-form');
+        if (quizForm && quizForm.classList.contains('active')) {
+            const requiredFields = questionElement.querySelectorAll('[data-required="true"]');
+            requiredFields.forEach(field => {
+                field.setAttribute('required', 'required');
+            });
+        }
+
+        // Add event listener for toggle extra choices button
+        const toggleBtn = questionElement.querySelector('.toggle-extra-choices-btn');
+        const extraChoicesDiv = questionElement.querySelector(`.extra-choices-${questionCount}`);
+        const correctAnswerSelect = questionElement.querySelector('.correct-answer-select');
+
+        toggleBtn.addEventListener('click', function() {
+            if (extraChoicesDiv.classList.contains('is-hidden')) {
+                extraChoicesDiv.classList.remove('is-hidden');
+                this.innerHTML = '<i class="fa fa-minus-circle"></i> إخفاء الخيارات الإضافية';
+                this.classList.add('is-active');
+
+                // Add options 5 and 6 to correct answer select
+                if (correctAnswerSelect.options.length < 7) {
+                    const option5 = document.createElement('option');
+                    option5.value = '5';
+                    option5.textContent = 'الخيار الخامس';
+                    correctAnswerSelect.appendChild(option5);
+
+                    const option6 = document.createElement('option');
+                    option6.value = '6';
+                    option6.textContent = 'الخيار السادس';
+                    correctAnswerSelect.appendChild(option6);
+                }
+            } else {
+                extraChoicesDiv.classList.add('is-hidden');
+                this.innerHTML = '<i class="fa fa-plus-circle"></i> إضافة خيارات إضافية (حتى 6)';
+                this.classList.remove('is-active');
+
+                // Remove options 5 and 6 from correct answer select if they exist
+                while (correctAnswerSelect.options.length > 5) {
+                    correctAnswerSelect.remove(correctAnswerSelect.options.length - 1);
+                }
+
+                // Clear choice5 and choice6 values
+                const choice5 = questionElement.querySelector(`#questions_${toggleBtn.dataset.questionIndex}_choice5`);
+                const choice6 = questionElement.querySelector(`#questions_${toggleBtn.dataset.questionIndex}_choice6`);
+                if (choice5) choice5.value = '';
+                if (choice6) choice6.value = '';
+
+                // Reset correct answer if it was 5 or 6
+                if (correctAnswerSelect.value === '5' || correctAnswerSelect.value === '6') {
+                    correctAnswerSelect.value = '';
+                }
+            }
+        });
+
+        // Add event listener for remove button (only if not the first question)
+        if (questionCount > 0) {
+            const removeBtn = questionElement.querySelector('.remove-question-btn');
+
+            removeBtn.addEventListener('click', async function() {
+                const questionId = questionElement.getAttribute('data-question-id');
+
+                // If question has ID, delete from database
+                if (questionId && autoSavedSectionId) {
+                    // Show loading state
+                    const originalText = this.innerHTML;
+                    this.disabled = true;
+                    this.innerHTML = '<i class="fa fa-spinner fa-spin"></i> جاري الحذف...';
+
+                    try {
+                        const formData = new FormData();
+                        formData.append('_token', '{{ csrf_token() }}');
+                        formData.append('question_id', questionId);
+                        formData.append('section_id', autoSavedSectionId);
+
+                        const response = await fetch('{{ route("admin.courses.sections.deleteQuizQuestion", $course) }}', {
+                            method: 'POST',
+                            body: formData,
+                            headers: {
+                                'X-Requested-With': 'XMLHttpRequest'
+                            }
+                        });
+
+                        const result = await response.json();
+
+                        if (result.success) {
+                            showAutoSaveFeedback(true, result.message);
+
+                            // Add animation and remove from DOM
+                            questionElement.style.animation = 'shake 0.3s ease-in-out';
+                            setTimeout(() => {
+                                removeQuestion(questionElement);
+                            }, 300);
+                        } else {
+                            // Restore button on error
+                            this.disabled = false;
+                            this.innerHTML = originalText;
+                            showAutoSaveFeedback(false, result.message);
+                        }
+                    } catch (error) {
+                        console.error('Delete error:', error);
+                        this.disabled = false;
+                        this.innerHTML = originalText;
+                        showAutoSaveFeedback(false, 'حدث خطأ أثناء حذف السؤال');
+                    }
+                } else {
+                    // Question not saved yet, just remove from DOM
+                    questionElement.style.animation = 'shake 0.3s ease-in-out';
+                    setTimeout(() => {
+                        removeQuestion(questionElement);
+                    }, 300);
+                }
+            });
+        }
+
+        // Add auto-save on change for question fields (debounced)
+        let autoSaveTimeout = null;
+        const questionFields = questionElement.querySelectorAll('input, textarea, select');
+
+        questionFields.forEach(field => {
+            field.addEventListener('change', async function() {
+                // Only auto-save if question has been saved before (has question_id)
+                const questionId = questionElement.getAttribute('data-question-id');
+                if (!questionId || !autoSavedSectionId) {
+                    return; // Question not saved yet, skip auto-save
+                }
+
+                // Clear previous timeout
+                if (autoSaveTimeout) {
+                    clearTimeout(autoSaveTimeout);
+                }
+
+                // Debounce auto-save by 1 second
+                autoSaveTimeout = setTimeout(async () => {
+                    const questionIndex = parseInt(questionElement.getAttribute('data-question-index'));
+
+                    // Validate before saving
+                    const validation = validateCurrentQuestion(questionIndex);
+                    if (!validation.valid) {
+                        // Show brief error feedback
+                        showAutoSaveFeedback(false, 'يرجى ملء جميع الحقول المطلوبة');
+                        return;
+                    }
+
+                    // Show subtle saving indicator
+                    showAutoSaveFeedback(true, 'جاري حفظ التعديلات...');
+
+                    // Perform auto-save
+                    const saveResult = await autoSaveQuizAndQuestion(questionIndex);
+
+                    if (saveResult.success && saveResult.data && saveResult.data.question_id) {
+                        // Update question ID in case it changed (shouldn't normally, but just in case)
+                        questionElement.setAttribute('data-question-id', saveResult.data.question_id);
+                    }
+                }, 1000); // Wait 1 second after user stops typing
+            });
+        });
+
+        questionCount++;
+        updateRequiredFields();
+    }
+
+    function removeQuestion(questionElement) {
+        // Add fade-out animation
+        questionElement.style.transition = 'all 0.4s ease-out';
+        questionElement.style.opacity = '0';
+        questionElement.style.transform = 'translateX(-20px) scale(0.95)';
+        questionElement.style.maxHeight = questionElement.offsetHeight + 'px';
+
+        // Collapse the height after fade starts
+        setTimeout(() => {
+            questionElement.style.maxHeight = '0';
+            questionElement.style.padding = '0';
+            questionElement.style.margin = '0';
+            questionElement.style.border = 'none';
+        }, 100);
+
+        // Remove element after animation completes
+        setTimeout(() => {
+            questionElement.remove();
+            reindexQuestions();
+            updateRequiredFields();
+        }, 500);
+    }
+
+    function reindexQuestions() {
+        const questions = questionsContainer.querySelectorAll('.question-item');
+        questionCount = 0;
+
+        questions.forEach((questionDiv, index) => {
+            questionDiv.setAttribute('data-question-index', index);
+
+            // Update question number
+            const questionTitle = questionDiv.querySelector('h5');
+            questionTitle.textContent = `السؤال ${index + 1}`;
+
+            // Update all field names and IDs
+            questionDiv.querySelectorAll('input, textarea, select').forEach(field => {
+                const oldName = field.name;
+                if (oldName && oldName.startsWith('questions[')) {
+                    const fieldType = oldName.match(/\[([^\]]+)\]$/)[1];
+                    field.name = `questions[${index}][${fieldType}]`;
+                    field.id = `questions_${index}_${fieldType}`;
+                }
+            });
+
+            // Update labels
+            questionDiv.querySelectorAll('label').forEach(label => {
+                const forAttr = label.getAttribute('for');
+                if (forAttr && forAttr.startsWith('questions_')) {
+                    const fieldType = forAttr.split('_').pop();
+                    label.setAttribute('for', `questions_${index}_${fieldType}`);
+                }
+            });
+
+            // Update extra choices div class
+            const extraChoicesDiv = questionDiv.querySelector('.extra-choices');
+            if (extraChoicesDiv) {
+                [...extraChoicesDiv.classList]
+                    .filter(className => className.startsWith('extra-choices-'))
+                    .forEach(className => extraChoicesDiv.classList.remove(className));
+                extraChoicesDiv.classList.add(`extra-choices-${index}`);
+            }
+
+            // Update toggle button data attribute
+            const toggleBtn = questionDiv.querySelector('.toggle-extra-choices-btn');
+            if (toggleBtn) {
+                toggleBtn.setAttribute('data-question-index', index);
+            }
+
+            questionCount++;
+        });
+    }
+
+    // Add question button handler with auto-save
+    if (addQuestionBtn) {
+        addQuestionBtn.addEventListener('click', async function() {
+            // If there are existing questions, validate and auto-save the last one
+            const existingQuestions = questionsContainer.querySelectorAll('.question-item');
+
+            if (existingQuestions.length > 0) {
+                const lastQuestionIndex = existingQuestions.length - 1;
+
+                // Validate the last question
+                const validation = validateCurrentQuestion(lastQuestionIndex);
+                if (!validation.valid) {
+                    alert(validation.message);
+                    if (validation.field) {
+                        validation.field.focus();
+                        validation.field.style.borderColor = '#e53e3e';
+                        setTimeout(() => {
+                            validation.field.style.borderColor = '#e2e8f0';
+                        }, 2000);
+                    }
+                    return;
+                }
+
+                // Show loading state on button
+                const originalText = this.innerHTML;
+                this.disabled = true;
+                this.innerHTML = '<i class="fa fa-spinner fa-spin"></i> جاري الحفظ...';
+
+                // Auto-save the quiz and question
+                const saveResult = await autoSaveQuizAndQuestion(lastQuestionIndex);
+
+                // Restore button
+                this.disabled = false;
+                this.innerHTML = originalText;
+
+                if (!saveResult.success) {
+                    return;
+                }
+
+                // Store question ID in the question element
+                if (saveResult.data && saveResult.data.question_id) {
+                    const lastQuestionElement = existingQuestions[lastQuestionIndex];
+                    lastQuestionElement.setAttribute('data-question-id', saveResult.data.question_id);
+                }
+            } else {
+                // First question - just save the quiz structure
+                const basicValidation = validateQuizBasicFields();
+                if (!basicValidation.valid) {
+                    alert(basicValidation.message);
+                    return;
+                }
+
+                // Show loading state
+                const originalText = this.innerHTML;
+                this.disabled = true;
+                this.innerHTML = '<i class="fa fa-spinner fa-spin"></i> جاري الحفظ...';
+
+                // Save quiz structure without question
+                const saveResult = await autoSaveQuizAndQuestion(null);
+
+                // Restore button
+                this.disabled = false;
+                this.innerHTML = originalText;
+
+                if (!saveResult.success) {
+                    return;
+                }
+            }
+
+            // Add new question
+            addQuestion();
+        });
+    }
+});
+</script>

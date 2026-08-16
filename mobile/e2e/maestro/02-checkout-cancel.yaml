@@ -1,0 +1,9 @@
+appId: com.rokn
+---
+- launchApp
+- assertVisible: ${ROKN_SMOKE_PAID_COURSE_TITLE}
+- tapOn: ${ROKN_SMOKE_PAID_COURSE_TITLE}
+- tapOn: ${ROKN_SMOKE_CHECKOUT_CTA}
+- assertVisible: ${ROKN_SMOKE_CHECKOUT_READY_TEXT}
+- pressKey: back
+- assertVisible: ${ROKN_SMOKE_PAID_COURSE_TITLE}

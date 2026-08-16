@@ -1,0 +1,152 @@
+name: Backend CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    services:
+      mysql:
+        image: mysql:8.0.43
+        env:
+          MYSQL_DATABASE: rokn_test
+          MYSQL_ROOT_PASSWORD: ci_database_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      redis:
+        image: redis:7.4.5-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    env:
+      APP_ENV: testing
+      APP_DEBUG: "false"
+      APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      APP_URL: http://localhost
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: rokn_test
+      DB_USERNAME: root
+      DB_PASSWORD: ci_database_password
+      CACHE_DRIVER: redis
+      REDIS_CLIENT: phpredis
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 6379
+      QUEUE_CONNECTION: sync
+      SESSION_DRIVER: array
+      MAIL_MAILER: array
+      KASHIER_MODE: test
+      KASHIER_TEST_API_KEY: ci-only-not-a-secret
+      KASHIER_TEST_MID: MID-CI
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up PHP 8.2.33
+        uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # v2.37.0
+        with:
+          php-version: "8.2.33"
+          extensions: calendar, curl, fileinfo, gd, intl, mbstring, openssl, pdo_mysql, pdo_sqlite, redis
+          coverage: none
+          tools: composer:2.9.8
+        env:
+          fail-fast: true
+
+      - name: Set up Node.js 22.23.2
+        uses: actions/setup-node@1e60f620b9541dca151540d0c0b0c92bdf4a1a70 # v4.0.3
+        with:
+          node-version: "22.23.2"
+          cache: npm
+          cache-dependency-path: package-lock.json
+          registry-url: https://registry.npmjs.org
+
+      - name: Pin and assert build toolchain
+        shell: bash
+        run: |
+          npm install --global npm@10.9.3
+          test "$(node --version)" = "v22.23.2"
+          test "$(npm --version)" = "10.9.3"
+          test "$(php -r 'echo PHP_VERSION;')" = "8.2.33"
+          composer --version --no-ansi | grep -F "Composer version 2.9.8 "
+
+      - name: Reject committed credentials and private keys
+        run: php scripts/verify-repository-secrets.php --history
+
+      - name: Install locked frontend dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Audit locked frontend dependencies
+        run: npm run audit
+
+      - name: Build production frontend assets
+        run: npm run production
+
+      - name: Test public asset and CDN policy regressions
+        run: npm run test:public-assets
+
+      - name: Verify complete frontend legal notices
+        run: npm run notices:frontend:check
+
+      - name: Verify committed frontend build
+        run: npm run verify:frontend-build
+
+      - name: Validate dependency manifests
+        run: composer validate --strict --no-interaction
+
+      - name: Install locked dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist --optimize-autoloader
+
+      - name: Audit all locked dependencies
+        run: composer audit --locked --no-interaction
+
+      - name: Verify clean MySQL schema replay
+        run: php artisan migrate:fresh --force --no-interaction
+
+      - name: Verify disaster-recovery cutover prerequisite contract
+        run: php scripts/verify-dr-runbook.php
+
+      - name: Verify frozen reconciled baseline and forward-only tail
+        run: php scripts/verify-migration-upgrade.php --evidence=storage/app/migration-upgrade-evidence.json
+
+      - name: Verify Redis connection
+        run: php artisan tinker --execute="cache()->store('redis')->put('ci:redis', 'ok', 30); throw_unless(cache()->store('redis')->get('ci:redis') === 'ok');"
+
+      - name: Compile configuration, routes, schedules and views
+        run: |
+          php artisan config:cache
+          php artisan route:cache
+          php artisan schedule:list
+          php artisan view:cache
+          php artisan optimize:clear
+
+      - name: Run full test suite
+        env:
+          CACHE_DRIVER: array
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ":memory:"
+        run: php artisan test

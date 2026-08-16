@@ -1,0 +1,54 @@
+# Local configuration and credentials
+**/.env
+**/.env.local
+**/.env.*.local
+**/*.jks
+**/*.keystore
+**/*.p12
+**/*.mobileprovision
+**/*.pem
+**/*.key
+**/local.properties
+
+# Dependencies and generated outputs
+**/node_modules/
+**/vendor/
+**/Pods/
+**/build/
+**/.gradle/
+**/.cxx/
+**/.kotlin/
+**/DerivedData/
+**/xcuserdata/
+**/coverage/
+**/.expo/
+**/.bundle/
+**/.phpunit.cache/
+**/.phpunit.result.cache
+
+# Runtime data and logs
+backend/storage/app/**
+backend/storage/framework/**
+backend/storage/logs/**
+backend/bootstrap/cache/*.php
+**/*.log
+**/*.sqlite
+**/*.sqlite3
+
+# Release binaries
+**/*.apk
+**/*.aab
+**/*.ipa
+**/*.dSYM.zip
+**/*.symbols.zip
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+**/.claude/
+**/.specify/
+**/.cursor/
+**/.agents/
+**/.codex/

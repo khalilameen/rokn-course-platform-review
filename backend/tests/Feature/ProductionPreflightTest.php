@@ -1,0 +1,267 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Feature;
+
+use App\Models\CourseModule;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Tests\TestCase;
+
+class ProductionPreflightTest extends TestCase
+{
+    public function test_preflight_fails_closed_for_placeholder_runtime_configuration(): void
+    {
+        config([
+            'app.env' => 'production',
+            'app.debug' => false,
+            'app.key' => 'base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+            'app.url' => 'https://api.example.com',
+            'app.app_domain' => 'example.com',
+        ]);
+
+        self::assertSame(1, Artisan::call('rokn:preflight'));
+        $output = Artisan::output();
+        self::assertStringContainsString('APP_KEY', $output);
+        self::assertStringContainsString('APP_URL', $output);
+    }
+
+    public function test_preflight_rejects_local_public_missing_and_unattested_course_pdf_storage(): void
+    {
+        foreach (['', 'local', 'public', 'not-configured'] as $disk) {
+            config(['course_pdfs.disk' => $disk]);
+            self::assertSame(1, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
+            self::assertStringContainsString('COURSE_PDF_DISK', Artisan::output());
+        }
+
+        config([
+            'course_pdfs.disk' => 'course-pdfs',
+            'course_pdfs.shared_storage' => false,
+        ]);
+        self::assertSame(1, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
+        self::assertStringContainsString('COURSE_PDF_SHARED_STORAGE=true', Artisan::output());
+    }
+
+    public function test_preflight_rejects_missing_or_malformed_app_association_identity(): void
+    {
+        config([
+            'app_links.android_package' => '',
+            'app_links.android_sha256_fingerprints' => [],
+            'app_links.apple_app_ids' => [],
+        ]);
+
+        self::assertSame(1, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
+        $output = Artisan::output();
+        self::assertStringContainsString('APP_LINK_ANDROID_PACKAGE', $output);
+        self::assertStringContainsString('APP_LINK_ANDROID_SHA256_FINGERPRINTS', $output);
+        self::assertStringContainsString('APP_LINK_APPLE_APP_IDS', $output);
+
+        config([
+            'app_links.android_package' => 'not-a-package',
+            'app_links.android_sha256_fingerprints' => ['AA:BB'],
+            'app_links.apple_app_ids' => ['ABCDE12345.*'],
+        ]);
+
+        self::assertSame(1, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
+        $output = Artisan::output();
+        self::assertStringContainsString('APP_LINK_ANDROID_PACKAGE', $output);
+        self::assertStringContainsString('APP_LINK_ANDROID_SHA256_FINGERPRINTS', $output);
+        self::assertStringContainsString('APP_LINK_APPLE_APP_IDS', $output);
+    }
+
+    public function test_preflight_fails_closed_for_unsafe_social_auth_and_host_configuration(): void
+    {
+        config([
+            'app.url' => 'https://api.rokn.academy',
+            'trusted_hosts.hosts' => [],
+            'social_auth.public_api_url' => '',
+            'social_auth.allow_legacy_pkce' => true,
+            'social_auth.return_urls' => ['rokn://auth', 'https://attacker.invalid/callback'],
+            'services.facebook.graph_version' => 'v19.0',
+        ]);
+
+        self::assertSame(1, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
+        $output = Artisan::output();
+        self::assertStringContainsString('APP_TRUSTED_HOSTS', $output);
+        self::assertStringContainsString('SOCIAL_AUTH_PUBLIC_API_URL', $output);
+        self::assertStringContainsString('SOCIAL_AUTH_ALLOW_LEGACY_PKCE', $output);
+        self::assertStringContainsString('SOCIAL_AUTH_RETURN_URLS', $output);
+        self::assertStringContainsString('FACEBOOK_GRAPH_VERSION', $output);
+
+        foreach ([
+            'http://api.rokn.academy/api/v1',
+            'https://localhost/api/v1',
+            'https://api.example.com/api/v1',
+            'https://api.rokn.academy/oauth',
+            'https://user:secret@api.rokn.academy/api/v1',
+            'https://api.rokn.academy/api/v1?redirect=evil',
+        ] as $unsafeUrl) {
+            config(['social_auth.public_api_url' => $unsafeUrl]);
+            self::assertSame(1, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
+            self::assertStringContainsString('SOCIAL_AUTH_PUBLIC_API_URL', Artisan::output());
+        }
+
+        config([
+            'trusted_hosts.hosts' => ['api.rokn.academy'],
+            'social_auth.public_api_url' => 'https://oauth.rokn.academy/api/v1',
+        ]);
+        self::assertSame(1, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
+        self::assertStringContainsString(
+            'APP_TRUSTED_HOSTS must include the SOCIAL_AUTH_PUBLIC_API_URL host',
+            Artisan::output()
+        );
+
+        config([
+            'trusted_hosts.hosts' => ['*.rokn.academy'],
+            'social_auth.public_api_url' => 'https://api.rokn.academy/api/v1',
+        ]);
+        self::assertSame(1, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
+        self::assertStringContainsString('APP_TRUSTED_HOSTS', Artisan::output());
+    }
+
+    public function test_preflight_accepts_a_complete_production_contract_without_network_probe(): void
+    {
+        $credentials = tempnam(sys_get_temp_dir(), 'rokn-firebase-');
+        self::assertIsString($credentials);
+        $androidFingerprint = implode(':', array_fill(0, 32, 'AB'));
+
+        try {
+            config([
+                'app.env' => 'production',
+                'app.debug' => false,
+                'app.key' => 'base64:' . base64_encode(random_bytes(32)),
+                'app.url' => 'https://api.rokn.academy',
+                'app.app_domain' => 'rokn.academy',
+                'app.timezone' => 'Africa/Cairo',
+                'trusted_hosts.hosts' => ['api.rokn.academy'],
+                'app_links.android_package' => 'com.rokn',
+                'app_links.android_sha256_fingerprints' => [$androidFingerprint],
+                'app_links.apple_app_ids' => ['ABCDE12345.com.rokn.app'],
+                'social_auth.public_api_url' => 'https://api.rokn.academy/api/v1',
+                'social_auth.allow_legacy_pkce' => false,
+                'social_auth.return_urls' => ['rokn://auth'],
+                'database.default' => 'mysql',
+                'database.redis.default.host' => 'redis.internal',
+                'cache.default' => 'redis',
+                'queue.default' => 'redis',
+                'session.driver' => 'redis',
+                'session.secure' => true,
+                'multiple-tokens-auth.allow_legacy_transports' => false,
+                'trusted_proxies.proxies' => ['10.20.30.0/24'],
+                'bunny.stream_api_key' => 'configured',
+                'bunny.library_id' => 'configured',
+                'bunny.cdn_hostname' => 'cdn.production.test',
+                'bunny.token_auth_key' => 'configured',
+                'kashier.mode' => 'live',
+                'kashier.live.api_key' => 'configured',
+                'kashier.live.mid' => 'configured',
+                'services.facebook.client_id' => 'configured',
+                'services.facebook.client_secret' => 'configured',
+                'services.facebook.graph_version' => 'v999.0',
+                'services.google.client_id' => 'configured',
+                'services.google.client_secret' => 'configured',
+                'services.tiktok.client_key' => 'configured',
+                'services.tiktok.client_secret' => 'configured',
+                'openrouter.api_key' => 'configured',
+                'openrouter.default_model' => 'configured',
+                'openrouter.allowed_models' => ['configured'],
+                'openrouter.global_daily_request_limit' => 1,
+                'openrouter.global_daily_token_budget' => 1,
+                'openrouter.global_monthly_token_budget' => 1,
+                'course_plans.economics_configured' => true,
+                'course_plans.net_usd_per_paid_coin' => 0.001,
+                'course_plans.ai_cost_safety_multiplier' => 1.5,
+                'projects.submission_disk' => 's3',
+                'certificate.disk' => 's3',
+                'course_pdfs.disk' => 's3',
+                'mail.from.address' => 'support@production.test',
+                'firebase.credentials.file' => $credentials,
+            ]);
+
+            config(['multiple-tokens-auth.allow_legacy_transports' => true]);
+            self::assertSame(1, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
+            self::assertStringContainsString('Bearer tokens only', Artisan::output());
+
+            config(['multiple-tokens-auth.allow_legacy_transports' => false]);
+            $status = Artisan::call('rokn:preflight', ['--configuration-only' => true]);
+            $output = Artisan::output();
+            self::assertSame(0, $status, $output);
+            self::assertStringContainsString('passed', $output);
+        } finally {
+            if (is_string($credentials) && is_file($credentials)) {
+                unlink($credentials);
+            }
+        }
+    }
+
+    public function test_preflight_blocks_legacy_public_module_files_and_svg_profiles(): void
+    {
+        Schema::create('attachments', function (Blueprint $table): void {
+            $table->id();
+            $table->string('attachable_type');
+            $table->unsignedBigInteger('attachable_id');
+            $table->string('storage_disk')->nullable();
+        });
+        Schema::create('users', function (Blueprint $table): void {
+            $table->id();
+            $table->string('profile_image')->nullable();
+        });
+        Schema::create('portfolio_media', function (Blueprint $table): void {
+            $table->id();
+            $table->string('file_path')->nullable();
+        });
+        Schema::create('lessons', function (Blueprint $table): void {
+            $table->id();
+            $table->string('thumbnail_path')->nullable();
+        });
+        Schema::create('course_pdfs', function (Blueprint $table): void {
+            $table->id();
+            $table->string('file_path');
+            $table->string('storage_disk')->nullable();
+            $table->softDeletes();
+        });
+
+        try {
+            DB::table('attachments')->insert([
+                'attachable_type' => CourseModule::class,
+                'attachable_id' => 15,
+                'storage_disk' => 'public',
+            ]);
+            DB::table('users')->insert([
+                'profile_image' => 'profile-images/legacy-avatar.SVG',
+            ]);
+            DB::table('portfolio_media')->insert([
+                ['file_path' => 'portfolio/old-collision.jpg'],
+                ['file_path' => 'portfolio/old-collision.jpg'],
+            ]);
+            DB::table('lessons')->insert([
+                ['thumbnail_path' => 'lessons/thumbnails/old-collision.jpg'],
+                ['thumbnail_path' => 'lessons/thumbnails/old-collision.jpg'],
+            ]);
+            DB::table('course_pdfs')->insert([
+                'file_path' => 'course-pdfs/legacy.pdf',
+                'storage_disk' => 'local',
+            ]);
+
+            self::assertSame(1, Artisan::call('rokn:preflight'));
+            $output = Artisan::output();
+            self::assertStringContainsString('public module attachment', $output);
+            self::assertStringContainsString('public SVG profile image', $output);
+            self::assertStringContainsString('attachments:privatize --execute --delete-public', $output);
+            self::assertStringContainsString('security:quarantine-profile-svg --execute', $output);
+            self::assertStringContainsString('duplicate Bunny portfolio image', $output);
+            self::assertStringContainsString('duplicate Bunny lesson thumbnail', $output);
+            self::assertStringContainsString('course PDF', $output);
+            self::assertStringContainsString('course-pdfs:migrate-storage --execute', $output);
+        } finally {
+            Schema::dropIfExists('course_pdfs');
+            Schema::dropIfExists('lessons');
+            Schema::dropIfExists('portfolio_media');
+            Schema::dropIfExists('users');
+            Schema::dropIfExists('attachments');
+        }
+    }
+}

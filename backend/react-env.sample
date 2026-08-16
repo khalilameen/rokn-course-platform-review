@@ -1,0 +1,25 @@
+# Sample .env file for your React app
+# Copy this to your React app directory as .env.local
+
+# Laravel API Base URL
+VITE_API_URL=http://127.0.0.1:8000/api
+
+# App Name
+VITE_APP_NAME=Ostaz
+
+# Default Tenant Subdomain (if applicable)
+VITE_DEFAULT_SUBDOMAIN=demo.ostaz.net
+
+# Environment
+VITE_ENV=development
+
+# Enable API logging (optional)
+VITE_DEBUG_API=true
+
+
+
+
+
+
+
+

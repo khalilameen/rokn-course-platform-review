@@ -1,0 +1,111 @@
+<?php
+
+namespace App\Console;
+
+use App\Jobs\PurgeExpiredApiTokens;
+use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
+
+class Kernel extends ConsoleKernel
+{
+    /**
+     * The Artisan commands provided by your application.
+     *
+     * @var array
+     */
+    protected $commands = [
+        Commands\AuditOrderState::class,
+        Commands\CleanupBunnyVideos::class,
+        Commands\FinalizePendingProjectSubmissions::class,
+    ];
+
+    /**
+     * Define the application's command schedule.
+     *
+     * @param  \Illuminate\Console\Scheduling\Schedule  $schedule
+     * @return void
+     */
+    protected function schedule(Schedule $schedule)
+    {
+        // Dispatch in a background command so a queue connection outage cannot
+        // hold the scheduler loop. The command sends a heartbeat job to each
+        // required queue; only a worker on that queue can write its timestamp.
+        $schedule->command('ops:dispatch-queue-heartbeats')
+            ->everyMinute()
+            ->withoutOverlapping(5)
+            ->onOneServer()
+            ->runInBackground();
+        $schedule->command('orders:audit --limit=5000')
+            ->hourly()
+            ->withoutOverlapping(15)
+            ->onOneServer();
+        $schedule->command('payments:reconcile-kashier --limit=100')
+            ->everyFifteenMinutes()
+            ->withoutOverlapping(20)
+            ->onOneServer();
+        $schedule->command('projects:finalize-pending')
+            ->everyMinute()
+            ->withoutOverlapping(5)
+            ->onOneServer();
+        $schedule->command('ai:release-expired-reservations --limit=500')
+            ->everyMinute()
+            ->withoutOverlapping(5)
+            ->onOneServer();
+        $schedule->command('outbox:maintain --dispatch=500 --prune=0')
+            ->everyMinute()
+            ->withoutOverlapping(5)
+            ->onOneServer();
+        $schedule->command('outbox:maintain --dispatch=0 --prune=5000')
+            ->dailyAt('02:20')
+            ->withoutOverlapping(30)
+            ->onOneServer();
+        $schedule->command('data:prune-operational --limit=5000')
+            ->dailyAt('02:40')
+            ->withoutOverlapping(30)
+            ->onOneServer();
+        $schedule->command('playback:maintain --limit=5000')
+            ->everyFiveMinutes()
+            ->withoutOverlapping(10)
+            ->onOneServer();
+        // The command only processes exact video GUIDs explicitly reviewed by
+        // an administrator and re-checks active course references at runtime.
+        $schedule->command('bunny:cleanup-videos --limit=100')
+            ->everyFifteenMinutes()
+            ->withoutOverlapping(30)
+            ->onOneServer();
+        // Read-only provider checks plus operational state updates. Findings
+        // are quarantined for review; this command never deletes or unpublishes.
+        $schedule->command('media:reconcile --limit=1000')
+            ->dailyAt('03:10')
+            ->withoutOverlapping(180)
+            ->onOneServer();
+        $schedule->job(new PurgeExpiredApiTokens())
+            ->dailyAt('01:00')
+            ->onOneServer();
+        $schedule->command('learning:send-nudges')
+            ->dailyAt('20:00')
+            ->timezone('Africa/Cairo')
+            ->withoutOverlapping(60)
+            ->onOneServer();
+        $schedule->command('privacy:cleanup-portfolio-media')
+            ->everyFifteenMinutes()
+            ->withoutOverlapping(10)
+            ->onOneServer();
+        $schedule->command('privacy:cleanup-account-files')
+            ->everyFiveMinutes()
+            ->withoutOverlapping(10)
+            ->onOneServer();
+    }
+
+    /**
+     * Register the commands for the application.
+     *
+     * @return void
+     */
+    protected function commands()
+    {
+        $this->load(__DIR__.'/Commands');
+
+        require base_path('routes/console.php');
+    }
+}

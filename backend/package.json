@@ -1,0 +1,50 @@
+{
+    "private": true,
+    "packageManager": "npm@10.9.3",
+    "engines": {
+        "node": "22.23.2",
+        "npm": "10.9.3"
+    },
+    "scripts": {
+        "dev": "npm run development",
+        "development": "npm run build:admin-vendor-assets && npm run build:admin-vendor-css && npm run build:js:development && npm run build:css:development",
+        "build:admin-vendor-assets": "node scripts/publish-admin-vendor-assets.mjs",
+        "build:admin-vendor-css": "sass --quiet-deps --silence-deprecation=import --silence-deprecation=global-builtin --silence-deprecation=color-functions --style=expanded --no-source-map resources/vendor/sufee/style.scss public/admin/assets/scss/style.css && node scripts/publish-sufee-source.mjs",
+        "build:js:development": "esbuild resources/js/app.js --bundle --platform=browser --target=es2018 --sourcemap --outfile=public/js/app.js",
+        "build:css:development": "sass --load-path=node_modules --quiet-deps --silence-deprecation=import --style=expanded --source-map resources/sass/app.scss public/css/app.css",
+        "watch": "concurrently --kill-others-on-fail --names js,css \"npm:watch:js\" \"npm:watch:css\"",
+        "watch:js": "esbuild resources/js/app.js --bundle --platform=browser --target=es2018 --sourcemap --outfile=public/js/app.js --watch",
+        "watch:css": "sass --load-path=node_modules --quiet-deps --silence-deprecation=import --style=expanded --source-map --watch resources/sass/app.scss:public/css/app.css",
+        "watch-poll": "npm run watch",
+        "hot": "npm run watch",
+        "prod": "npm run production",
+        "production": "npm run build:admin-vendor-assets && npm run build:admin-vendor-css && npm run build:js:production && npm run build:css:production && npm run notices:frontend && npm run verify:public-assets",
+        "build:js:production": "esbuild resources/js/app.js --bundle --platform=browser --target=es2018 --minify --legal-comments=linked --outfile=public/js/app.js",
+        "build:css:production": "sass --load-path=node_modules --quiet-deps --silence-deprecation=import --style=compressed --no-source-map resources/sass/app.scss public/css/app.css",
+        "audit": "npm audit --audit-level=high",
+        "notices:frontend": "node scripts/generate-frontend-notices.mjs",
+        "notices:frontend:check": "node scripts/generate-frontend-notices.mjs --check",
+        "inventory:public-assets:candidate": "node scripts/render-public-asset-inventory.mjs",
+        "verify:public-assets": "node scripts/verify-public-assets.mjs",
+        "test:public-assets": "node --test scripts/tests/public-asset-policy.test.mjs",
+        "verify:frontend-build": "node scripts/verify-frontend-build.mjs"
+    },
+    "devDependencies": {
+        "bootstrap": "4.6.2",
+        "chart.js": "4.5.1",
+        "concurrently": "^10.0.4",
+        "esbuild": "^0.28.1",
+        "datatables.net": "1.11.5",
+        "datatables.net-bs4": "1.11.5",
+        "jquery": "^3.7.1",
+        "legacy-animate-css": "npm:animate.css@3.5.2",
+        "legacy-bootstrap": "npm:bootstrap@4.0.0-beta.3",
+        "legacy-font-awesome": "npm:font-awesome@4.7.0",
+        "legacy-normalize-css": "npm:normalize.css@3.0.3",
+        "legacy-select2": "npm:select2@4.0.13",
+        "popper.js": "^1.16.1",
+        "sass": "^1.102.0",
+        "sortablejs": "1.15.0",
+        "sweetalert2": "11.26.25"
+    }
+}

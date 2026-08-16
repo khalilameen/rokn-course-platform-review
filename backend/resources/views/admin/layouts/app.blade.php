@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" class="admin-shell-root">
+<head>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>{{ config('settings.site_name_ar') }} | @yield('page.title')</title>
+    <meta name="description" content="{{ config('settings.site_name_ar') }} - لوحة التحكم">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+
+    <link rel="shortcut icon" href="{{ asset('favicon.ico') }}">
+
+    <link rel="stylesheet" href="/admin/assets/css/normalize.css">
+    <link rel="stylesheet" href="/admin/assets/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/admin/assets/css/font-awesome.min.css">
+    <link rel="stylesheet" href="/admin/assets/css/themify-icons.css">
+    <link rel="stylesheet" href="/admin/assets/scss/style.css">
+    <link rel="stylesheet" href="/admin/assets/css/custom-global.css">
+    <link rel="stylesheet" href="{{ asset('admin/assets/js/vendor/select2/select2.min.css') }}">
+    @yield('styles')
+    @stack('styles')
+    <link rel="stylesheet" href="{{ asset('admin/assets/css/admin-shell.css') }}">
+</head>
+<body class="admin-shell">
+@auth
+    @include('admin.includes.aside')
+    <button
+        type="button"
+        id="adminSidebarOverlay"
+        class="admin-sidebar-overlay"
+        aria-label="إغلاق القائمة الرئيسية"
+        aria-hidden="true"
+        tabindex="-1"
+    ></button>
+    <div id="right-panel" class="right-panel">
+        @include('admin.includes.header')
+        @include('admin.includes.alert')
+
+        <div class="breadcrumbs">
+            @yield('breadcrumbs')
+        </div>
+        <div class="content mt-3" id="app">
+            @yield('content')
+        </div>
+    </div>
+@endauth
+<!-- Scripts -->
+<script src="{{ asset('js/app.js') }}"></script>
+<script src="{{ asset('admin/assets/js/vendor/select2/select2.min.js') }}"></script>
+<script src="{{ asset('admin/assets/js/main.js') }}"></script>
+
+@yield('scripts')
+@stack('scripts')
+</body>
+</html>
+

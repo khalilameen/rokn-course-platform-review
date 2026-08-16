@@ -1,0 +1,119 @@
+import React from 'react';
+import {Pressable, StyleSheet, Text, View} from 'react-native';
+import {
+  Palette,
+  Radius,
+  Spacing,
+  Type,
+  rtlRowStyle,
+  textDirection,
+  useResponsiveLayout,
+} from '../../constants/designSystem';
+import RoknCoin, {CoinAmount} from '../ui/RoknCoin';
+import {
+  formatArabicDisplayText,
+  formatArabicNumber,
+  toArabicDigits,
+} from '../../constants/arabicFormatting';
+
+interface PackageProps {
+  title?: string;
+  price: string;
+  rPrice: string;
+  buttonTitle?: string;
+  onPress?: () => void;
+  mostSold?: boolean;
+  disabled?: boolean;
+  width?: number;
+}
+
+const Package = React.memo<PackageProps>(
+  ({
+    title,
+    price,
+    rPrice,
+    buttonTitle = 'اشحن الآن',
+    onPress,
+    disabled = false,
+    width,
+  }) => {
+    const {contentWidth, gutter, isTablet} = useResponsiveLayout();
+    const fallbackWidth = isTablet
+      ? Math.min(260, contentWidth - gutter * 2)
+      : Math.max(0, contentWidth - gutter * 2);
+    const numericPrice = Number(price);
+    const numericCoins = Number(rPrice);
+    const visiblePrice = Number.isFinite(numericPrice)
+      ? formatArabicNumber(numericPrice, {maximumFractionDigits: 2})
+      : toArabicDigits(price);
+    const visibleCoins = Number.isFinite(numericCoins)
+      ? formatArabicNumber(numericCoins)
+      : toArabicDigits(rPrice);
+    return (
+      <Pressable
+        accessibilityLabel={`${title ? `${formatArabicDisplayText(title)}، ` : ''}${visibleCoins} من رصيد ركن مقابل ${visiblePrice} جنيه`}
+        accessibilityRole="button"
+        accessibilityState={{disabled}}
+        disabled={disabled}
+        onPress={onPress}
+        style={({pressed}) => [
+          styles.card,
+          {width: width ?? fallbackWidth},
+          disabled && styles.disabled,
+          pressed && styles.pressed,
+        ]}>
+        <View style={styles.topRow}>
+          <RoknCoin size={24} />
+        </View>
+        {!!title && (
+          <Text style={styles.title}>
+            {formatArabicDisplayText(title)}
+          </Text>
+        )}
+        <CoinAmount
+          size={21}
+          style={styles.coins}
+          textStyle={styles.coinsText}
+          value={numericCoins}
+        />
+        <Text style={styles.price}>
+          {visiblePrice} جنيه
+        </Text>
+        <View style={styles.action}>
+          <Text style={styles.actionLabel}>
+            {formatArabicDisplayText(buttonTitle)}
+          </Text>
+        </View>
+      </Pressable>
+    );
+  },
+);
+
+Package.displayName = 'Package';
+const styles = StyleSheet.create({
+  card: {
+    padding: Spacing.md,
+    minWidth: 0,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Palette.lineSoft,
+    backgroundColor: Palette.surface,
+  },
+  topRow: {minHeight: 32, ...rtlRowStyle, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.xs},
+  title: {...Type.caption, ...textDirection, color: Palette.textMuted, marginTop: Spacing.md, flexShrink: 1},
+  coins: {marginTop: Spacing.xxs},
+  coinsText: {...Type.title, color: Palette.text},
+  price: {...Type.caption, ...textDirection, color: '#E9C66F', marginTop: Spacing.xxs},
+  action: {
+    minHeight: 42,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Palette.action,
+    marginTop: Spacing.md,
+  },
+  actionLabel: {...Type.bodyStrong, color: Palette.text},
+  pressed: {opacity: 0.82, transform: [{scale: 0.985}]},
+  disabled: {opacity: 0.52},
+});
+export default Package;

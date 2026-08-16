@@ -1,0 +1,297 @@
+<?php
+
+use Illuminate\Support\Facades\Route;
+
+/*
+|--------------------------------------------------------------------------
+| Web Routes
+|--------------------------------------------------------------------------
+|
+| Here is where you can register web routes for your application. These
+| routes are loaded by the RouteServiceProvider within a group which
+| contains the "web" middleware group. Now create something great!
+|
+*/
+
+Route::get('/.well-known/assetlinks.json', [\App\Http\Controllers\AppAssociationController::class, 'android'])
+    ->name('app-association.android');
+Route::get('/.well-known/apple-app-site-association', [\App\Http\Controllers\AppAssociationController::class, 'apple'])
+    ->name('app-association.apple');
+Route::get('/apple-app-site-association', [\App\Http\Controllers\AppAssociationController::class, 'apple'])
+    ->name('app-association.apple.root');
+
+Route::get('/', [\App\Http\Controllers\LandingPageController::class, 'index'])->name('landing');
+Route::get('/about', [\App\Http\Controllers\StaticPageController::class, 'about'])->name('about');
+Route::get('/contact', [\App\Http\Controllers\StaticPageController::class, 'contact'])->name('contact');
+Route::get('/privacy-policy', [\App\Http\Controllers\StaticPageController::class, 'privacy'])->name('privacy');
+Route::get('/terms', [\App\Http\Controllers\StaticPageController::class, 'terms'])->name('terms');
+Route::get('/returns-policy', [\App\Http\Controllers\StaticPageController::class, 'returnsPolicy'])->name('returns-policy');
+Route::get('/account-deletion', [\App\Http\Controllers\AccountDeletionRequestController::class, 'show'])
+    ->name('account-deletion.show');
+Route::post('/account-deletion', [\App\Http\Controllers\AccountDeletionRequestController::class, 'store'])
+    ->middleware('throttle:5,1')
+    ->name('account-deletion.store');
+
+Route::get('/@{slug}', [\App\Http\Controllers\PublicPortfolioController::class, 'show'])
+    ->where('slug', '[a-z0-9-]+')
+    ->name('portfolio.public');
+Route::get('/p/{slug}', [\App\Http\Controllers\PublicPortfolioController::class, 'show'])
+    ->where('slug', '[a-z0-9-]+')
+    ->name('portfolio.public.legacy');
+
+// Retire the legacy numeric profile deep link without resolving a User row.
+// Public portfolios have a privacy-aware slug route above; keeping an ID-based
+// lookup here would let anonymous visitors enumerate account names and IDs.
+Route::get('profile/{id}', static function () {
+    abort(410);
+})->whereNumber('id')->name('profile.deeplink.legacy');
+
+Route::group([
+    'prefix' => 'dashboard/mfa',
+    'namespace' => 'Admin',
+    'as' => 'admin.mfa.',
+    'middleware' => ['admin'],
+], function () {
+    Route::get('setup', 'MfaController@setup')->name('setup');
+    Route::post('setup', 'MfaController@confirmSetup')
+        ->middleware('throttle:admin-mfa')->name('setup.confirm');
+    Route::get('challenge', 'MfaController@challenge')->name('challenge');
+    Route::post('challenge', 'MfaController@verifyChallenge')
+        ->middleware('throttle:admin-mfa')->name('challenge.verify');
+    Route::get('backup-codes', 'MfaController@backupCodes')
+        ->middleware('admin.mfa')->name('backup-codes');
+});
+
+Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.', 'middleware' => ['admin', 'admin.mfa', 'admin.audit']], function () {
+    Route::get('/', 'HomeController@index')->name('dashboard');
+    Route::get('product-operations', 'ProductOperationsController@index')
+        ->middleware('admin.only')->name('product-operations.index');
+    Route::post('product-operations/features/{feature}', 'ProductOperationsController@updateFeature')
+        ->whereIn('feature', ['checkout', 'playback', 'project_uploads', 'ai_chat'])
+        ->middleware('admin.only')->name('product-operations.features.update');
+    Route::get('product-operations/playback', 'PlaybackOperationsController@index')
+        ->middleware('admin.only')->name('playback-operations.index');
+    Route::post('product-operations/playback/{playbackSession}/terminate-stale', 'PlaybackOperationsController@terminateStale')
+        ->whereUuid('playbackSession')->middleware('admin.only')->name('playback-operations.terminate-stale');
+    Route::post('media-health/{lesson}/probe', 'MediaHealthController@probe')
+        ->middleware('admin.only')->name('media-health.probe');
+    Route::get('user-sessions', 'UserSessionController@index')
+        ->middleware('admin.only')->name('user-sessions.index');
+    Route::delete('user-sessions/{sessionId}', 'UserSessionController@destroy')
+        ->whereUuid('sessionId')->middleware('admin.only')->name('user-sessions.destroy');
+    Route::get('feedback', 'FeedbackController@index')->middleware('admin.only')->name('feedback.index');
+    Route::get('feedback/{feedback}', 'FeedbackController@show')->middleware('admin.only')->name('feedback.show');
+    Route::patch('feedback/{feedback}', 'FeedbackController@update')->middleware('admin.only')->name('feedback.update');
+    Route::get('feedback/{feedback}/attachments/{attachment}', 'FeedbackController@attachment')->middleware('admin.only')->name('feedback.attachment');
+    Route::delete('feedback/{feedback}', 'FeedbackController@destroy')->middleware('admin.only')->name('feedback.destroy');
+
+    // Urgent Tasks routes
+    Route::get('urgent-tasks', 'UrgentTasksController@index')->middleware('admin.only')->name('urgent-tasks.index');
+    Route::get('urgent-tasks/pending-orders', 'UrgentTasksController@pendingOrders')->middleware('admin.only')->name('urgent-tasks.pending-orders');
+    Route::get('urgent-tasks/inactive-students', 'UrgentTasksController@inactiveStudents')->middleware('admin.only')->name('urgent-tasks.inactive-students');
+    Route::get('urgent-tasks/courses-without-quiz', 'UrgentTasksController@coursesWithoutQuiz')->middleware('admin.only')->name('urgent-tasks.courses-without-quiz');
+    Route::post('urgent-tasks/orders/{order}/approve', 'UrgentTasksController@approveOrder')->middleware('admin.only')->name('urgent-tasks.approve-order');
+    Route::post('urgent-tasks/orders/{order}/reject', 'UrgentTasksController@rejectOrder')->middleware('admin.only')->name('urgent-tasks.reject-order');
+    Route::post('urgent-tasks/students/{user}/activate', 'UrgentTasksController@activateStudent')->middleware('admin.only')->name('urgent-tasks.activate-student');
+
+    // Moderators may inspect course shells, while administrator approval is
+    // required for pricing/publication fields and destructive shell changes.
+    Route::resource('courses', 'CourseController')
+        ->only(['create', 'store', 'edit', 'update', 'destroy'])
+        ->middleware('admin.only');
+    Route::resource('courses', 'CourseController')->only(['index', 'show']);
+
+    // Course Sections routes
+    Route::post('courses/{course}/sections/reorder', 'CourseSectionController@reorder')->name('courses.sections.reorder');
+    Route::post('courses/{course}/sections/auto-save-quiz', 'CourseSectionController@autoSaveQuiz')->name('courses.sections.autoSaveQuiz');
+    Route::post('courses/{course}/quiz-question/delete', 'CourseSectionController@deleteQuizQuestion')->name('courses.sections.deleteQuizQuestion');
+    Route::resource('courses.sections', 'CourseSectionController');
+
+    // Course Modules routes
+    Route::post('courses/{course}/modules/reorder', 'CourseModuleController@reorder')->name('courses.modules.reorder');
+    Route::resource('courses.modules', 'CourseModuleController')->except(['index', 'show']);
+    Route::post('attachments', 'AttachmentController@store')->name('attachments.store');
+    Route::delete('attachments/{attachment}', 'AttachmentController@destroy')->name('attachments.destroy');
+
+    // Course PDFs routes
+    Route::post('courses/{course}/pdfs/reorder', 'CoursePdfController@reorder')->name('courses.pdfs.reorder');
+    Route::post('courses/{course}/pdfs/{pdf}/toggle-status', 'CoursePdfController@toggleStatus')->name('courses.pdfs.toggle-status');
+    Route::get('courses/{course}/pdfs/{pdf}/preview', 'CoursePdfController@preview')->name('courses.pdfs.preview');
+    Route::resource('courses.pdfs', 'CoursePdfController');
+
+    Route::post('quizzes', 'QuizController@store');
+
+    Route::post('quizzes/{quiz}/copy', 'QuizController@copy')->name('quizzes.copy');
+
+    Route::resource('quizzes', 'QuizController');
+
+    Route::post('random-quizzes', 'RandomQuizController@store');
+
+    Route::resource('random-quizzes', 'RandomQuizController');
+
+    // Legacy standalone lessons are read-only redirects. All lesson mutations
+    // must go through the course-section workflow, which owns ordering,
+    // modules, Bunny publication and rollback semantics.
+    Route::get('lessons', 'LessonController@index')->name('lessons.index');
+    Route::get('lessons/create', 'LessonController@create')->name('lessons.create');
+    Route::get('lessons/{lesson}/edit', 'LessonController@edit')->name('lessons.edit');
+    Route::get('lessons/{lesson}', 'LessonController@show')->name('lessons.show');
+
+    Route::resource('questions', 'QuestionController');
+
+    // App Versions routes
+    Route::resource('app-versions', 'AppVersionController')->middleware('admin.only');
+    Route::post('app-versions/{id}/toggle-active', 'AppVersionController@toggleActive')->middleware('admin.only')->name('app-versions.toggle-active');
+
+    // Design Settings
+    Route::resource('design-settings', 'DesignSettingController')->middleware('admin.only');
+
+    Route::post('contacts/{contact}/processing', 'ContactsController@markProcessing')
+        ->middleware('admin.only')->name('contacts.processing');
+    Route::post('contacts/{contact}/read', 'ContactsController@markRead')
+        ->middleware('admin.only')->name('contacts.read');
+    Route::post('contacts/{contact}/close-deletion-request', 'ContactsController@closeDeletionRequest')->middleware('admin.only')
+        ->name('contacts.close-deletion-request');
+    Route::resource('contacts', 'ContactsController', ['only' => ['index', 'show']])->middleware('admin.only');
+    Route::delete('contacts/{contact}', 'ContactsController@destroy')->middleware('admin.only')->name('contacts.destroy');
+
+    Route::resource('admin_notifications', 'AdminNotificationsController')->middleware('admin.only');
+    Route::resource('categories', 'CategoryController')
+        ->only(['create', 'store', 'edit', 'update', 'destroy'])
+        ->middleware('admin.only');
+    Route::resource('categories', 'CategoryController')->only(['index', 'show']);
+    Route::resource('grades', 'GradeController')
+        ->only(['create', 'store', 'edit', 'update', 'destroy'])
+        ->middleware('admin.only');
+    Route::resource('grades', 'GradeController')->only(['index', 'show']);
+    Route::get('grades/{grade}/courses', 'GradeController@courses')->name('grades.courses');
+    Route::resource('coupons', 'CouponController')->middleware('admin.only');
+
+    // Course Codes Management
+    Route::get('course-codes/get-lessons', 'CourseCodeController@getLessons')->middleware('admin.only')->name('course-codes.get-lessons');
+    Route::get('course-codes/export-pdf', 'CourseCodeController@exportToPdf')->middleware('admin.only')->name('course-codes.export-pdf');
+    Route::get('course-codes/export', 'CourseCodeController@export')->middleware('admin.only')->name('course-codes.export');
+    Route::post('course-codes/bulk-action', 'CourseCodeController@bulkAction')->middleware('admin.only')->name('course-codes.bulk-action');
+    Route::resource('course-codes', 'CourseCodeController')->middleware('admin.only');
+
+
+    Route::name('admin_data')->get('admin_data', 'SettingsController@adminData')->middleware('admin.only');
+    Route::name('update_admin_data')->post('update_admin_data', 'SettingsController@updateAdminData')->middleware('admin.only');
+    
+    // Teacher routes
+    Route::resource('teachers', 'TeacherController')->middleware('admin.only');
+    Route::patch('teachers/{teacher}/status', 'TeacherController@deactive')->middleware('admin.only')->name('teachers.deactive');
+
+    // User notes routes
+    Route::name('users.notes.store')->post('users/{user}/notes', 'UsersController@storeNote')->middleware('admin.only');
+    Route::name('users.notes.delete')->delete('notes/{note}', 'UsersController@deleteNote')->middleware('admin.only');
+
+    Route::resource('users', 'UsersController')->middleware('admin.only');
+    Route::resource('packages', 'PackageController')->middleware('admin.only');
+    Route::resource('classifications', 'ClassificationController')
+        ->only(['create', 'store', 'edit', 'update', 'destroy'])
+        ->middleware('admin.only');
+    Route::resource('classifications', 'ClassificationController')->only(['index', 'show']);
+    Route::resource('paths', 'PathController')
+        ->only(['create', 'store', 'edit', 'update', 'destroy'])
+        ->middleware('admin.only');
+    Route::resource('paths', 'PathController')->only(['index', 'show']);
+    Route::resource('levels', 'LevelController')
+        ->only(['create', 'store', 'edit', 'update', 'destroy'])
+        ->middleware('admin.only');
+    Route::resource('levels', 'LevelController')->only(['index', 'show']);
+    Route::resource('coin-earning-methods', 'CoinEarningMethodController')->middleware('admin.only');
+    Route::post('coin-earning-methods/{coinEarningMethod}/toggle-status', 'CoinEarningMethodController@toggleStatus')->middleware('admin.only')->name('coin-earning-methods.toggle-status');
+    Route::post('coin-earning-methods-settings', 'CoinEarningMethodController@updateSettings')->middleware('admin.only')->name('coin-earning-methods.update-settings');
+    Route::name('users.deactive')->patch('users/{user}/status', 'UsersController@deactive')->middleware('admin.only');
+    Route::name('users.send_notification')->post('users/{user}/send_notification', 'UsersController@sendNotification')->middleware('admin.only');
+    Route::name('users.reset-device')->post('users/{user}/reset-device', 'UsersController@resetDevice')->middleware('admin.only');
+
+    /* ====== Student Progress =======*/
+    Route::name('student-progress.index')->get('student-progress', 'StudentProgressController@index');
+    Route::name('student-progress.show')->get('student-progress/{user}', 'StudentProgressController@show');
+    Route::name('student-progress.statistics')->get('student-progress-statistics', 'StudentProgressController@statistics');
+    Route::name('student-progress.compare')->post('student-progress/compare', 'StudentProgressController@compare');
+
+    /* ====== Project Submissions =======*/
+    Route::get('project-submissions', 'ProjectSubmissionController@index')->name('project-submissions.index');
+    Route::get('project-submissions/{projectSubmission}', 'ProjectSubmissionController@show')->name('project-submissions.show');
+    Route::get('project-submissions/{projectSubmission}/download', 'ProjectSubmissionController@download')->name('project-submissions.download');
+    Route::post('project-submissions/{projectSubmission}/pass', 'ProjectSubmissionController@pass')->name('project-submissions.pass');
+    Route::post('project-submissions/{projectSubmission}/reject', 'ProjectSubmissionController@reject')->name('project-submissions.reject');
+
+    /* ====== Orders =======*/
+    Route::resource('orders', 'OrdersController', ['only' => ['index', 'show']])->middleware('admin.only');
+    Route::patch('orders/{order}/status', 'OrdersController@updateStatus')->middleware('admin.only')->name('orders.update-status');
+    Route::post('orders/{order}/financial-resolution', 'OrdersController@resolveFinancialReview')->middleware('admin.only')->name('orders.resolve-financial-review');
+    Route::post('orders/bulk-status', 'OrdersController@bulkUpdateStatus')->middleware('admin.only')->name('orders.bulk-update-status');
+
+    /* ====== Payment Reconciliation Review =======*/
+    Route::get('payment-reconciliation/findings', 'PaymentReconciliationFindingController@index')
+        ->middleware('admin.only')->name('payment-reconciliation-findings.index');
+    Route::patch('payment-reconciliation/findings/{paymentReconciliationFinding}/resolve', 'PaymentReconciliationFindingController@resolve')
+        ->whereNumber('paymentReconciliationFinding')->middleware('admin.only')
+        ->name('payment-reconciliation-findings.resolve');
+    Route::patch('payment-reconciliation/findings/{paymentReconciliationFinding}/ignore', 'PaymentReconciliationFindingController@ignore')
+        ->whereNumber('paymentReconciliationFinding')->middleware('admin.only')
+        ->name('payment-reconciliation-findings.ignore');
+    Route::patch('payment-reconciliation/findings/{paymentReconciliationFinding}/reopen', 'PaymentReconciliationFindingController@reopen')
+        ->whereNumber('paymentReconciliationFinding')->middleware('admin.only')
+        ->name('payment-reconciliation-findings.reopen');
+
+    /* ====== Bills =======*/
+    Route::resource('bills', 'BillsController', ['only' => ['index', 'show']])->middleware('admin.only');
+    Route::patch('bills/{bill}/payment-status', 'BillsController@updatePaymentStatus')->middleware('admin.only')->name('bills.update-payment-status');
+    Route::post('bills/bulk-payment-status', 'BillsController@bulkUpdatePaymentStatus')->middleware('admin.only')->name('bills.bulk-update-payment-status');
+
+    /* ====== Payment Methods =======*/
+    Route::resource('payment-methods', 'PaymentMethodController')->middleware('admin.only');
+
+    /* ====== Settings =======*/
+    Route::get('/settings', 'SettingsController@index')->middleware('admin.only')->name('settings');
+    Route::post('/settings', 'SettingsController@update')->middleware('admin.only')->name('settings.update');
+    Route::post('/settings/test-bunny', 'SettingsController@testBunnyConnection')->middleware('admin.only')->name('settings.test-bunny');
+    Route::post('/settings/bunny-cleanup/{candidate}/approve', 'SettingsController@approveBunnyCleanup')
+        ->middleware('admin.only')->name('settings.bunny-cleanup.approve');
+    Route::post('/settings/bunny-cleanup/approve-batch', 'SettingsController@approveBunnyCleanupBatch')
+        ->middleware('admin.only')->name('settings.bunny-cleanup.approve-batch');
+    Route::get('/student-platform', 'SettingsController@studentPlatform')->middleware('admin.only')->name('student-platform');
+
+    /* ====== About =======*/
+    Route::name('privacy')->get('privacy', 'AboutsController@privacy')->middleware('admin.only');
+    Route::name('policy')->get('policy', 'AboutsController@policy')->middleware('admin.only');
+    Route::name('abouts.update')->patch('abouts/edit', 'AboutsController@update')->middleware('admin.only');
+    /* ====== Send Notification =======*/
+    Route::resource('notifications', 'NotificationsController', ['only' => ['index', 'create', 'store']])->middleware('admin.only');
+
+
+
+    /* ====== Exam Results Management =======*/
+    Route::get('exam-results', 'ExamResultController@index')->name('exam-results.index');
+    Route::get('exam-results/export/csv', 'ExamResultController@export')
+        ->middleware('admin.only')->name('exam-results.export');
+    Route::get('exam-results/stats/data', 'ExamResultController@getStats')->name('exam-results.stats');
+    Route::get('exam-results/{examAttempt}', 'ExamResultController@show')->name('exam-results.show');
+    Route::get('students/{student}/exam-results', 'ExamResultController@getStudentResults')->name('students.exam-results');
+
+});
+Auth::routes();
+
+Route::get('/home', 'HomeController@index')->name('home');
+
+/*
+|--------------------------------------------------------------------------
+| Kashier Payment Web Routes
+|--------------------------------------------------------------------------
+| These are web routes (not API) so Kashier can redirect the browser here
+| and we can render an HTML result page for the mobile WebView.
+| The webhook route is excluded from CSRF in VerifyCsrfToken.php.
+*/
+Route::get('/payment/callback', [\App\Http\Controllers\API\PaymentController::class, 'callback'])
+    ->middleware('throttle:kashier-callback')
+    ->name('payment.callback');
+
+Route::post('/payment/webhook', [\App\Http\Controllers\API\PaymentController::class, 'webhook'])
+    ->middleware('throttle:kashier-webhook')
+    ->name('payment.webhook');
+

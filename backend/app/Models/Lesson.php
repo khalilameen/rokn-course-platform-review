@@ -1,0 +1,107 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class Lesson extends Model
+{
+    use HasFactory;
+    //	id	list_id	title	description	video_link	file_link1	file_link2	created_at	updated_at
+    protected $fillable = [
+        'list_id',
+        'title',
+        'title_ar',
+        'title_en',
+        'description',
+        'description_ar',
+        'description_en',
+        'is_opened',
+        'video_link',
+        'video_source_type',
+        'bunny_video_id',
+        'thumbnail_path',
+        'duration_minutes',
+        'file_link1',
+        'priority',
+        'file_link2',
+        'quiz_id',
+        'created_at',
+        'updated_at'
+    ];
+
+    /**
+     * Get the title attribute based on Accept-Language header.
+     */
+    public function getTitleAttribute()
+    {
+        if (!array_key_exists('title_ar', $this->attributes) && !array_key_exists('title_en', $this->attributes)) {
+            return $this->attributes['title'] ?? null;
+        }
+
+        $lang = request()->header('Accept-Language', 'ar');
+        return str_starts_with($lang, 'en')
+            ? ($this->attributes['title_en'] ?? $this->attributes['title_ar'] ?? null)
+            : ($this->attributes['title_ar'] ?? $this->attributes['title_en'] ?? null);
+    }
+
+    /**
+     * Get the description attribute based on Accept-Language header.
+     */
+    public function getDescriptionAttribute()
+    {
+        if (!array_key_exists('description_ar', $this->attributes) && !array_key_exists('description_en', $this->attributes)) {
+            return $this->attributes['description'] ?? null;
+        }
+
+        $lang = request()->header('Accept-Language', 'ar');
+        return str_starts_with($lang, 'en')
+            ? ($this->attributes['description_en'] ?? $this->attributes['description_ar'] ?? null)
+            : ($this->attributes['description_ar'] ?? $this->attributes['description_en'] ?? null);
+    }
+
+    /**
+     * Check if this lesson uses Bunny.net for video
+     *
+     * @return bool
+     */
+    public function usesBunnyVideo(): bool
+    {
+        return $this->video_source_type === 'bunny' && !empty($this->bunny_video_id);
+    }
+
+    public function course(){
+         return $this->belongsTo('App\Models\Course','list_id','id');
+    }
+
+    public function itemList(){
+         return $this->belongsTo('App\Models\ItemList','id','list_id');
+    }
+
+    public function courseSection()
+    {
+        return $this->morphOne(CourseSection::class, 'sectionable');
+    }
+
+    public function savedFolders()
+    {
+        return $this->belongsToMany(SavedFolder::class, 'saved_folder_lessons')
+            ->withTimestamps();
+    }
+
+    public function mediaState()
+    {
+        return $this->hasOne(LessonMediaState::class);
+    }
+
+    public function playbackSessions()
+    {
+        return $this->hasMany(PlaybackSession::class);
+    }
+
+    public function quiz(){
+         return $this->hasOne('App\Models\ItemList','id', 'quiz_id');
+    }
+}
+

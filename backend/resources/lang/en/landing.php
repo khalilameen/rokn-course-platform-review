@@ -1,0 +1,59 @@
+<?php
+
+return [
+
+    // Hero Section
+    'hero_description' => 'Rokn is a gamified, AI-powered micro-learning EdTech platform designed to solve the high dropout rates in online education. We equip youth with zero-capital gig economy skills through a highly interactive "content-to-project" loop, driven by an empathetic AI learning companion.',
+    'download_app' => 'Download the App',
+    'google_play' => 'Google Play',
+    'app_store' => 'App Store',
+
+    // Features Section
+    'features_title' => 'Why Rokn?',
+    'feature_1_title' => 'Short Video Courses',
+    'feature_1_desc' => 'Learn through focused, bite-sized videos that fit your schedule and deliver knowledge fast.',
+    'feature_2_title' => 'Hands-On Tasks',
+    'feature_2_desc' => 'Apply what you learn immediately with practical assignments designed to build real skills.',
+    'feature_3_title' => 'Certified Credentials',
+    'feature_3_desc' => 'Earn completion certificates that prove your competence and boost your resume.',
+    'feature_4_title' => 'Career Ready',
+    'feature_4_desc' => 'Courses designed to qualify youth, students, and fresh graduates for standout job opportunities.',
+
+    // Skills Section
+    'skills_title' => 'Skills That Get You Hired',
+    'skills' => [
+        'Graphic Design',
+        'Content Writing',
+        'Digital Marketing',
+        'Sales',
+        'Project Management',
+        'Photography & Editing',
+        'Social Media Marketing',
+        'UX Design',
+        'Entrepreneurship',
+        'Communication Skills',
+    ],
+
+    // How It Works Section
+    'how_it_works_default_title' => 'How the Platform Works',
+
+    // Footer
+    'footer_cta' => 'Start Your Learning Journey Today',
+    'footer_contact' => 'Contact Us',
+    'footer_follow' => 'Follow Us',
+    'all_rights_reserved' => 'All Rights Reserved',
+
+    // Language Toggle
+    'switch_lang' => 'العربية',
+
+    // Navigation
+    'nav_home' => 'Home',
+    'nav_about' => 'About Us',
+    'nav_contact' => 'Contact Us',
+    'nav_privacy' => 'Privacy Policy',
+    'nav_terms' => 'Terms of Use',
+    'nav_returns' => 'Returns Policy',
+
+    // Misc
+    'available_on' => 'Available on',
+];

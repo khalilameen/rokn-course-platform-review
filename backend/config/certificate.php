@@ -1,0 +1,101 @@
+<?php
+
+return [
+    /*
+    |--------------------------------------------------------------------------
+    | Generated certificate storage
+    |--------------------------------------------------------------------------
+    | Use a shared disk (for example S3) when more than one application
+    | instance serves traffic. The public disk remains a convenient local
+    | development fallback.
+    */
+    'disk' => env('CERTIFICATE_DISK', env('FILESYSTEM_PUBLIC_DISK', 'public')),
+    'visibility' => env('CERTIFICATE_VISIBILITY', 'public'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Certificate template image
+    |--------------------------------------------------------------------------
+    | Path to the background PNG/JPG that serves as the certificate canvas.
+    | All dynamic text and QR code are drawn on top of this image.
+    */
+    'template_path' => env('CERTIFICATE_TEMPLATE_PATH', null) ?: public_path('images/certificate_template.png'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Deep-link base URL (QR code target)
+    |--------------------------------------------------------------------------
+    | Legacy fallback only. New certificates use the named public portfolio
+    | route and include the certificate public ID so it is highlighted.
+    */
+    'deep_link_base' => env('CERTIFICATE_DEEP_LINK_BASE'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Font paths
+    |--------------------------------------------------------------------------
+    | Cairo variable font (599 KB) covers all weights including bold and has
+    | complete Arabic + Latin glyph sets.
+    */
+    'font_regular' => env('CERTIFICATE_FONT_PATH', resource_path('fonts/Cairo.ttf')),
+    'font_bold'    => env('CERTIFICATE_FONT_BOLD_PATH', resource_path('fonts/Cairo.ttf')),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Date format
+    |--------------------------------------------------------------------------
+    */
+    'date_format' => 'F j, Y',
+
+    /*
+    |--------------------------------------------------------------------------
+    | Text overlay positions
+    |--------------------------------------------------------------------------
+    | Coordinates are expressed as decimal fractions of the template image
+    | dimensions (0.0 – 1.0). This makes them resolution-independent.
+    | Font sizes are absolute pixel values.
+    |
+    | Default values are tuned for the 1200 × 900 certificate template.
+    */
+    'text_positions' => [
+
+        // Student name — centred below "Rokn Certifies That"
+        'name' => [
+            'x'     => 0.50,
+            'y'     => 0.395,
+            'size'  => 36,
+            'color' => '#1a365d',
+        ],
+
+        // Course name — centred below "In The Course Of:"
+        'course' => [
+            'x'     => 0.50,
+            'y'     => 0.615,
+            'size'  => 22,
+            'color' => '#1a365d',
+        ],
+
+        // Certificate ID — below the Rokn logo's "Certificate ID:" label
+        'cert_id' => [
+            'x'     => 0.135,
+            'y'     => 0.87,
+            'size'  => 14,
+            'color' => '#333333',
+        ],
+
+        // Date — next to the "DATE:" label
+        'date' => [
+            'x'     => 0.265,
+            'y'     => 0.78,
+            'size'  => 14,
+            'color' => '#333333',
+        ],
+
+        // QR code — centred under "Scan To View The Graduate's Portfolio"
+        'qr_code' => [
+            'x'    => 0.81,
+            'y'    => 0.825,
+            'size' => 110,   // QR image width/height in pixels
+        ],
+    ],
+];

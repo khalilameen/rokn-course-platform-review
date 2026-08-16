@@ -1,0 +1,134 @@
+{
+  "expo": {
+    "name": "Rokn",
+    "slug": "rokn",
+    "version": "1.0.22",
+    "icon": "./src/assets/images/brand/rokn-app-icon-1024.png",
+    "orientation": "default",
+    "scheme": "rokn",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "color": "#2C69DB",
+          "defaultChannel": "rokn-updates"
+        }
+      ],
+      "expo-secure-store",
+      "expo-apple-authentication"
+    ],
+    "splash": {
+      "image": "./src/assets/images/authLogo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#080B12"
+    },
+    "android": {
+      "package": "com.rokn",
+      "versionCode": 23,
+      "googleServicesFile": "./android/app/google-services.json",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "category": ["BROWSABLE", "DEFAULT"],
+          "data": [
+            {"scheme": "https"},
+            {"host": "rokn.app"},
+            {"path": "/home"},
+            {"path": "/profile"},
+            {"path": "/wallet"},
+            {"path": "/course"},
+            {"path": "/courses"},
+            {"pathPrefix": "/home/"},
+            {"pathPrefix": "/profile/"},
+            {"pathPrefix": "/wallet/"},
+            {"pathPrefix": "/course/"},
+            {"pathPrefix": "/courses/"}
+          ]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "category": ["BROWSABLE", "DEFAULT"],
+          "data": [
+            {"scheme": "https"},
+            {"host": "www.rokn.app"},
+            {"path": "/home"},
+            {"path": "/profile"},
+            {"path": "/wallet"},
+            {"path": "/course"},
+            {"path": "/courses"},
+            {"pathPrefix": "/home/"},
+            {"pathPrefix": "/profile/"},
+            {"pathPrefix": "/wallet/"},
+            {"pathPrefix": "/course/"},
+            {"pathPrefix": "/courses/"}
+          ]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "category": ["BROWSABLE", "DEFAULT"],
+          "data": [
+            {"scheme": "https"},
+            {"host": "rokn.com"},
+            {"path": "/home"},
+            {"path": "/profile"},
+            {"path": "/wallet"},
+            {"path": "/course"},
+            {"path": "/courses"},
+            {"pathPrefix": "/home/"},
+            {"pathPrefix": "/profile/"},
+            {"pathPrefix": "/wallet/"},
+            {"pathPrefix": "/course/"},
+            {"pathPrefix": "/courses/"}
+          ]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "category": ["BROWSABLE", "DEFAULT"],
+          "data": [
+            {"scheme": "https"},
+            {"host": "www.rokn.com"},
+            {"path": "/home"},
+            {"path": "/profile"},
+            {"path": "/wallet"},
+            {"path": "/course"},
+            {"path": "/courses"},
+            {"pathPrefix": "/home/"},
+            {"pathPrefix": "/profile/"},
+            {"pathPrefix": "/wallet/"},
+            {"pathPrefix": "/course/"},
+            {"pathPrefix": "/courses/"}
+          ]
+        }
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./src/assets/images/brand/rokn-app-icon-1024.png",
+        "monochromeImage": "./src/assets/images/authLogo.png",
+        "backgroundColor": "#080B12"
+      },
+      "splash": {
+        "image": "./src/assets/images/authLogo.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#080B12"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "com.rokn",
+      "buildNumber": "21",
+      "googleServicesFile": "./ios/GoogleService-Info.plist",
+      "supportsTablet": true,
+      "usesAppleSignIn": true,
+      "associatedDomains": [
+        "applinks:rokn.app",
+        "applinks:www.rokn.app",
+        "applinks:rokn.com",
+        "applinks:www.rokn.com"
+      ]
+    }
+  }
+}

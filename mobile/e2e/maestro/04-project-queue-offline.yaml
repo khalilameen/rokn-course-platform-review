@@ -1,0 +1,6 @@
+appId: com.rokn
+---
+- launchApp
+- assertVisible: ${ROKN_SMOKE_COURSE_TITLE}
+- tapOn: ${ROKN_SMOKE_PROJECT_SUBMIT_CTA}
+- assertVisible: ${ROKN_SMOKE_QUEUED_PROJECT_TEXT}

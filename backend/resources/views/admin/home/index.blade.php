@@ -1,0 +1,995 @@
+@extends('admin.layouts.app')
+
+@section('styles')
+{{-- Include Dynamic Theme Styles --}}
+@include('admin.home.partials._dynamic_styles')
+<link rel="stylesheet" href="{{ asset('admin/assets/css/home-dashboard.css') }}">
+@endsection
+@section('page.title', 'لوحة التحكم')
+@section('content')
+
+<div class="admin-page dashboard-container">
+    <!-- Welcome Header -->
+    <div class="welcome-header fade-in-up">
+        <h2>مرحباً بك {{ auth()->user()->name }}</h2>
+        <p>إليك نظرة عامة على منصة التعل</p>
+
+        <!-- Student Platform Link -->
+         <!--
+        <div class="platform-link-container">
+            <a href="{{ route('admin.student-platform') }}" class="student-platform-link">
+                <i class="fa fa-user"></i>
+                <div class="platform-link-text">
+                    <span class="platform-link-title">منصة الطالب</span>
+                    <span class="platform-link-subtitle">عرض رابط المنصة</span>
+                </div>
+            </a>
+        </div>-->
+    </div> 
+
+    <!-- Statistics Cards Row -->
+    <div class="row mb-4">
+        <div class="col-xl-4 col-lg-4 col-md-4 col-sm-6 mb-4">
+            <div class="stats-card primary fade-in-up dashboard-delay-1">
+                <div class="stats-card-body">
+                    <div class="stats-icon primary">
+                        <i class="fa fa-graduation-cap"></i>
+                    </div>
+                    <div class="stats-info">
+                        <h3 class="count">{{ \App\Models\Course::whereNull('parent_id')->count() }}</h3>
+                        <p>الكورسات</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+<!--
+        <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 mb-4">
+            <div class="stats-card success fade-in-up dashboard-delay-2">
+                <div class="stats-card-body">
+                    <div class="stats-icon success">
+                        <i class="fa fa-clipboard"></i>
+                    </div>
+                    <div class="stats-info">
+                        <h3 class="count">{{ \App\Models\ItemList::quiz()->count() }}</h3>
+                        <p>الاختبارات</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+-->
+        <div class="col-xl-4 col-lg-4 col-md-4 col-sm-6 mb-4">
+            <div class="stats-card warning fade-in-up dashboard-delay-3">
+                <div class="stats-card-body">
+                    <div class="stats-icon warning">
+                        <i class="fa fa-book"></i>
+                    </div>
+                    <div class="stats-info">
+                        <h3 class="count">{{ \App\Models\Lesson::count() }}</h3>
+                        <p>الدروس</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-4 col-lg-4 col-md-4 col-sm-6 mb-4">
+            <div class="stats-card info fade-in-up dashboard-delay-4">
+                <div class="stats-card-body">
+                    <div class="stats-icon info">
+                        <i class="fa fa-users"></i>
+                    </div>
+                    <div class="stats-info">
+                        <h3 class="count">
+                            {{ \App\Models\User::where('role', 'client')->count() }}
+                        </h3>
+                        <p>الطلاب</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+<!-- {{--
+        <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 mb-4">
+            <div class="stats-card danger fade-in-up dashboard-delay-5">
+                <div class="stats-card-body">
+                    <div class="stats-icon danger">
+                        <i class="fa fa-eye"></i>
+                    </div>
+                    <div class="stats-info">
+                        <h3 class="count">
+                            {{ \App\Models\Visitor::where('tenant_id', auth()->user()->tenant_id)->count() }}
+                        </h3>
+                        <p>الزوار</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+       
+
+        <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 mb-4">
+            <div class="stats-card dark fade-in-up dashboard-delay-6">
+                <div class="stats-card-body">
+                    <div class="stats-icon btn-secondary">
+                        <i class="fa fa-question-circle"></i>
+                    </div>
+                    <div class="stats-info">
+                        <h3 class="count">
+                            {{ \App\Models\Question::whereHas('itemList', function($query) {
+                                $query->where('tenant_id', auth()->user()->tenant_id);
+                            })->count() }}
+                        </h3>
+                        <p>الأسئلة</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+         --}}
+        -->
+    </div>
+
+    <!-- Revenue Statistics Section -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <h3 class="mb-4 dashboard-section-title">
+                <i class="fa fa-money dashboard-section-title__icon"></i>
+                الأموال الفعلية واستهلاك العملات
+            </h3>
+        </div>
+    </div>
+
+    <!-- Revenue Cards -->
+    <div class="row mb-4">
+        <div class="col-xl-3 col-lg-6 col-md-6 mb-4">
+            <div class="stats-card primary fade-in-up dashboard-delay-1">
+                <div class="stats-card-body">
+                    <div class="stats-icon primary">
+                        <i class="fa fa-dollar"></i>
+                    </div>
+                    <div class="stats-info">
+                        <h3 class="revenue-count">{{ number_format($revenueStats['total_revenue'], 0) }}</h3>
+                        <p>إيراد Kashier المحصّل بالجنيه</p>
+                        @if($revenueStats['revenue_growth'] > 0)
+                            <small class="text-success">
+                                <i class="fa fa-arrow-up"></i> {{ number_format($revenueStats['revenue_growth'], 1) }}%
+                            </small>
+                        @elseif($revenueStats['revenue_growth'] < 0)
+                            <small class="text-danger">
+                                <i class="fa fa-arrow-down"></i> {{ number_format(abs($revenueStats['revenue_growth']), 1) }}%
+                            </small>
+                        @else
+                            <small class="text-muted">
+                                <i class="fa fa-minus"></i> 0%
+                            </small>
+                        @endif
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+
+        <div class="col-xl-3 col-lg-6 col-md-6 mb-4">
+            <div class="stats-card warning fade-in-up dashboard-delay-4">
+                <div class="stats-card-body">
+                    <div class="stats-icon warning">
+                        <i class="fa fa-clock-o"></i>
+                    </div>
+                    <div class="stats-info">
+                        <h3 class="revenue-count">{{ number_format($revenueStats['pending_payments'], 0) }}</h3>
+                        <p>مدفوعات Kashier معلقة</p>
+                        <small class="text-muted">{{ $revenueStats['pending_bills_count'] }} عملية</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Revenue Charts Section -->
+    <div class="row mb-4">
+        <!-- Monthly Revenue Trend Chart -->
+        <div class="col-lg-8 mb-4">
+            <div class="chart-card fade-in-left">
+                <div class="chart-card-header">
+                    <h4 class="chart-card-title">
+                        <i class="fa fa-line-chart"></i>
+                        شحن الرصيد النقدي شهريًا
+                    </h4>
+                    <p class="chart-card-subtitle">المبالغ التي حصلتها بوابة Kashier فقط خلال آخر 6 أشهر</p>
+                </div>
+                <div class="chart-card-body">
+                    <div class="chart-container dashboard-chart--large">
+                        <canvas id="monthlyRevenueChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Payment Method & Additional Stats -->
+    <div class="row mb-4">
+        <!-- Payment Method Distribution -->
+       <!-- <div class="col-lg-6 mb-4">
+            <div class="chart-card fade-in-left dashboard-delay-1">
+                <div class="chart-card-header">
+                    <h5 class="chart-card-title">
+                        <i class="fa fa-credit-card"></i>
+                        طرق الدفع
+                    </h5>
+                    <p class="chart-card-subtitle">توزيع الإيرادات حسب طريقة الدفع</p>
+                </div>
+                <div class="chart-card-body">
+                    <div class="chart-container dashboard-chart--medium">
+                        <canvas id="paymentMethodChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div> -->
+
+        <!-- Revenue Summary Cards -->
+        <div class="col-lg-6">
+            <div class="row">
+                <!-- Current Month Total Revenue -->
+                <div class="col-12 mb-3">
+                    <div class="summary-card primary fade-in-right dashboard-delay-1">
+                        <div class="summary-card-content">
+                            <div class="summary-card-info">
+                                <h3>{{ number_format($revenueStats['current_month_revenue'], 0) }}</h3>
+                                <p>المحصل عبر Kashier هذا الشهر</p>
+                                <small class="text-muted">{{ now()->locale('ar')->format('F Y') }}</small>
+                            </div>
+                            <div class="summary-card-icon">
+                                <i class="fa fa-calendar"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+
+                <!-- Previous Month Total Revenue -->
+                <div class="col-12 mb-3">
+                    <div class="summary-card primary fade-in-right dashboard-delay-3">
+                        <div class="summary-card-content">
+                            <div class="summary-card-info">
+                                <h3>{{ number_format($revenueStats['previous_month_revenue'], 0) }}</h3>
+                                <p>المحصل عبر Kashier الشهر السابق</p>
+                                <small class="text-muted">{{ now()->subMonth()->locale('ar')->format('F Y') }}</small>
+                            </div>
+                            <div class="summary-card-icon">
+                                <i class="fa fa-history"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Course Statistics Section -->
+    @if($courseStats->count() > 0)
+    <div class="row mb-4">
+        <div class="col-12">
+            <h3 class="mb-4 dashboard-section-title">
+                <i class="fa fa-graduation-cap dashboard-section-title__icon"></i>
+                إحصائيات الكورسات
+            </h3>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <!-- Course Revenue Chart -->
+        <div class="col-lg-8 mb-4">
+            <div class="chart-card fade-in-left">
+                <div class="chart-card-header">
+                    <h4 class="chart-card-title">
+                        <i class="fa fa-bar-chart"></i>
+                        مصدر العملات المصروفة على الكورسات
+                    </h4>
+                    <p class="chart-card-subtitle">عملات مشتراة بمال مقابل عملات مكافآت — دون تسميتها إيرادًا نقديًا</p>
+                </div>
+                <div class="chart-card-body">
+                    <div class="chart-container dashboard-chart--large">
+                        <canvas id="courseRevenueChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Course Statistics Table -->
+        <div class="col-lg-4 mb-4">
+            <div class="chart-card fade-in-right dashboard-delay-1">
+                <div class="chart-card-header">
+                    <h5 class="chart-card-title">
+                        <i class="fa fa-list"></i>
+                        ملخص فتح الكورسات
+                    </h5>
+                    <p class="chart-card-subtitle">عدد مرات الفتح وتوزيع العملات</p>
+                </div>
+                <div class="chart-card-body dashboard-table-scroll">
+                    <table class="table table-sm course-stats-table dashboard-course-table">
+                        <thead class="dashboard-course-table__head">
+                            <tr>
+                                <th class="dashboard-course-table__heading">الكورس</th>
+                                <th class="text-center dashboard-course-table__heading">الفتح</th>
+                                <th class="text-end dashboard-course-table__heading">مشتراة / مكافآت</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach($courseStats as $course)
+                            <tr class="dashboard-course-table__row">
+                                <td class="dashboard-course-table__cell">
+                                    <div class="dashboard-course-name" title="{{ $course['name'] }}">
+                                        {{ $course['name'] }}
+                                    </div>
+                                    <small class="dashboard-secondary-text">
+                                        الشهر الحالي: {{ $course['current_month_buy_count'] }}
+                                    </small>
+                                </td>
+                                <td class="text-center dashboard-course-table__cell">
+                                    <strong>{{ $course['total_buy_count'] }}</strong>
+                                </td>
+                                <td class="text-end dashboard-course-table__cell">
+                                    <strong>{{ number_format($course['paid_coins'], 0) }}</strong>
+                                    <br>
+                                    <small class="dashboard-secondary-text">
+                                        {{ number_format($course['reward_coins'], 0) }}
+                                    </small>
+                                </td>
+                            </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    @endif
+
+
+
+</div>
+
+    {{-- Legacy e-commerce widgets removed --}}
+
+@endsection
+@section('scripts')
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
+
+    <script type="text/javascript">
+        jQuery(document).ready(function($) {
+            // DataTables initialization
+            if ($.fn.DataTable) {
+                $('#bootstrap-data-table-export').DataTable();
+                $('#bootstrap-data-table-1').DataTable();
+                $('#bootstrap-data-table-2').DataTable();
+            }
+
+            // Datetime picker initialization
+            if ($.fn.datetimepicker) {
+                $('#date_box').datetimepicker({
+                    format: 'YYYY-MM-DD hh:mm'
+                });
+            }
+        });
+
+        // Wait for DOM to be ready
+        document.addEventListener('DOMContentLoaded', function() {
+            // Counter Animation
+            function animateCounters() {
+                const counters = document.querySelectorAll('.count');
+                counters.forEach(counter => {
+                    const target = parseInt(counter.textContent);
+                    const increment = target / 50;
+                    let current = 0;
+
+                    const updateCounter = () => {
+                        if (current < target) {
+                            current += increment;
+                            counter.textContent = Math.ceil(current);
+                            setTimeout(updateCounter, 20);
+                        } else {
+                            counter.textContent = target;
+                        }
+                    };
+
+                    setTimeout(updateCounter, 500);
+                });
+            }
+
+            // Start counter animation
+            setTimeout(animateCounters, 600);
+
+            // The dashboard remains usable if the optional chart CDN is unavailable.
+            if (typeof window.Chart !== 'function') {
+                return;
+            }
+
+            // Modern Visitor Statistics Chart
+            const visitorCtx = document.getElementById('visitorChart');
+            if (visitorCtx) {
+                const gradient = visitorCtx.getContext('2d').createLinearGradient(0, 0, 0, 400);
+                gradient.addColorStop(0, 'rgba(102, 126, 234, 0.8)');
+                gradient.addColorStop(1, 'rgba(118, 75, 162, 0.1)');
+
+                const visitorChart = new Chart(visitorCtx.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels: {!! json_encode(array_column($dailyVisitors, 'date')) !!},
+                        datasets: [{
+                            label: 'عدد الزوار',
+                            data: {!! json_encode(array_column($dailyVisitors, 'count')) !!},
+                            borderColor: '#667eea',
+                            backgroundColor: gradient,
+                            borderWidth: 3,
+                            fill: true,
+                            tension: 0.4,
+                            pointBackgroundColor: '#667eea',
+                            pointBorderColor: '#fff',
+                            pointBorderWidth: 3,
+                            pointRadius: 6,
+                            pointHoverRadius: 10,
+                            pointHoverBackgroundColor: '#764ba2',
+                            pointHoverBorderColor: '#fff',
+                            pointHoverBorderWidth: 3
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false,
+                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                titleColor: '#2c3e50',
+                                bodyColor: '#2c3e50',
+                                borderColor: '#667eea',
+                                borderWidth: 2,
+                                cornerRadius: 10,
+                                displayColors: false,
+                                titleFont: {
+                                    size: 14,
+                                    weight: 'bold'
+                                },
+                                bodyFont: {
+                                    size: 13
+                                },
+                                padding: 15,
+                                callbacks: {
+                                    title: function(context) {
+                                        return 'التاريخ: ' + context[0].label;
+                                    },
+                                    label: function(context) {
+                                        return 'عدد الزوار: ' + context.parsed.y;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                grid: {
+                                    color: 'rgba(102, 126, 234, 0.1)',
+                                    drawBorder: false
+                                },
+                                ticks: {
+                                    color: '#8e9bae',
+                                    font: {
+                                        size: 12
+                                    },
+                                    padding: 10
+                                },
+                                border: {
+                                    display: false
+                                }
+                            },
+                            x: {
+                                grid: {
+                                    display: false
+                                },
+                                ticks: {
+                                    color: '#8e9bae',
+                                    maxRotation: 0,
+                                    font: {
+                                        size: 11
+                                    },
+                                    padding: 10
+                                },
+                                border: {
+                                    display: false
+                                }
+                            }
+                        },
+                        interaction: {
+                            mode: 'nearest',
+                            axis: 'x',
+                            intersect: false
+                        },
+                        elements: {
+                            point: {
+                                hoverRadius: 10
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Modern Browser Statistics Chart
+            const browserCtx = document.getElementById('browserChart');
+            if (browserCtx) {
+                const browserChart = new Chart(browserCtx.getContext('2d'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: {!! json_encode($browserStats->pluck('browser')) !!},
+                        datasets: [{
+                            data: {!! json_encode($browserStats->pluck('count')) !!},
+                            backgroundColor: [
+                                '#667eea',
+                                '#764ba2',
+                                '#4facfe',
+                                '#00f2fe',
+                                '#fa709a',
+                                '#fee140'
+                            ],
+                            borderWidth: 0,
+                            hoverBorderWidth: 3,
+                            hoverBorderColor: '#fff',
+                            hoverOffset: 8
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        cutout: '60%',
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    color: '#6c757d',
+                                    padding: 20,
+                                    usePointStyle: true,
+                                    pointStyle: 'circle',
+                                    font: {
+                                        size: 12,
+                                        family: 'Arial'
+                                    }
+                                }
+                            },
+                            tooltip: {
+                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                titleColor: '#2c3e50',
+                                bodyColor: '#2c3e50',
+                                borderColor: '#e9ecef',
+                                borderWidth: 1,
+                                cornerRadius: 8,
+                                displayColors: true,
+                                padding: 12,
+                                titleFont: {
+                                    size: 13,
+                                    weight: 'bold'
+                                },
+                                bodyFont: {
+                                    size: 12
+                                }
+                            }
+                        },
+                        animation: {
+                            animateScale: true,
+                            animateRotate: true
+                        }
+                    }
+                });
+            }
+
+            // Modern Device Statistics Chart
+            const deviceCtx = document.getElementById('deviceChart');
+            if (deviceCtx) {
+                const deviceChart = new Chart(deviceCtx.getContext('2d'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: {!! json_encode($deviceStats->pluck('device_type')) !!},
+                        datasets: [{
+                            data: {!! json_encode($deviceStats->pluck('count')) !!},
+                            backgroundColor: [
+                                '#a8edea',
+                                '#fed6e3',
+                                '#ff9a9e'
+                            ],
+                            borderWidth: 0,
+                            hoverBorderWidth: 3,
+                            hoverBorderColor: '#fff',
+                            hoverOffset: 10
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        cutout: '50%',
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    color: '#6c757d',
+                                    padding: 20,
+                                    usePointStyle: true,
+                                    pointStyle: 'rect',
+                                    font: {
+                                        size: 12,
+                                        family: 'Arial'
+                                    }
+                                }
+                            },
+                            tooltip: {
+                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                titleColor: '#2c3e50',
+                                bodyColor: '#2c3e50',
+                                borderColor: '#e9ecef',
+                                borderWidth: 1,
+                                cornerRadius: 8,
+                                displayColors: true,
+                                padding: 12,
+                                titleFont: {
+                                    size: 13,
+                                    weight: 'bold'
+                                },
+                                bodyFont: {
+                                    size: 12
+                                }
+                            }
+                        },
+                        animation: {
+                            animateScale: true,
+                            animateRotate: true
+                        }
+                    }
+                });
+            }
+
+            // ============================================
+            // REVENUE CHARTS
+            // ============================================
+
+            // Monthly Revenue Trend Chart
+            const monthlyRevenueCtx = document.getElementById('monthlyRevenueChart');
+            if (monthlyRevenueCtx) {
+                const monthlyRevenueChart = new Chart(monthlyRevenueCtx.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels: {!! json_encode(array_column($monthlyRevenue, 'month')) !!},
+                        datasets: [
+                            {
+                                label: 'شحن رصيد عبر Kashier (جنيه)',
+                                data: {!! json_encode(array_column($monthlyRevenue, 'course_revenue')) !!},
+                                borderColor: '#667eea',
+                                backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                                borderWidth: 3,
+                                fill: true,
+                                tension: 0.4,
+                                pointBackgroundColor: '#667eea',
+                                pointBorderColor: '#fff',
+                                pointBorderWidth: 2,
+                                pointRadius: 5,
+                                pointHoverRadius: 8
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top',
+                                labels: {
+                                    color: '#6c757d',
+                                    padding: 15,
+                                    usePointStyle: true,
+                                    font: {
+                                        size: 12,
+                                        family: 'Arial'
+                                    }
+                                }
+                            },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false,
+                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                titleColor: '#2c3e50',
+                                bodyColor: '#2c3e50',
+                                borderColor: '#e9ecef',
+                                borderWidth: 1,
+                                cornerRadius: 8,
+                                padding: 12,
+                                callbacks: {
+                                    label: function(context) {
+                                        return context.dataset.label + ': ' + context.parsed.y.toFixed(2);
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                grid: {
+                                    color: 'rgba(102, 126, 234, 0.1)'
+                                },
+                                ticks: {
+                                    color: '#8e9bae',
+                                    callback: function(value) {
+                                        return value.toFixed(0);
+                                    }
+                                }
+                            },
+                            x: {
+                                grid: {
+                                    display: false
+                                },
+                                ticks: {
+                                    color: '#8e9bae'
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Revenue by Source Chart (Doughnut)
+            const revenueSourceCtx = document.getElementById('revenueSourceChart');
+            if (revenueSourceCtx) {
+                const revenueSourceChart = new Chart(revenueSourceCtx.getContext('2d'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['شحن Kashier النقدي'],
+                        datasets: [{
+                            data: [
+                                {{ $revenueStats['course_revenue'] }}
+                            ],
+                            backgroundColor: [
+                                '#667eea'
+                            ],
+                            borderWidth: 0,
+                            hoverBorderWidth: 3,
+                            hoverBorderColor: '#fff',
+                            hoverOffset: 10
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        cutout: '65%',
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    color: '#6c757d',
+                                    padding: 20,
+                                    usePointStyle: true,
+                                    pointStyle: 'circle',
+                                    font: {
+                                        size: 12
+                                    }
+                                }
+                            },
+                            tooltip: {
+                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                titleColor: '#2c3e50',
+                                bodyColor: '#2c3e50',
+                                borderColor: '#e9ecef',
+                                borderWidth: 1,
+                                cornerRadius: 8,
+                                padding: 12,
+                                callbacks: {
+                                    label: function(context) {
+                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = ((context.parsed / total) * 100).toFixed(1);
+                                        return context.label + ': ' + context.parsed.toFixed(2) + ' (' + percentage + '%)';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Payment Method Distribution Chart
+            const paymentMethodCtx = document.getElementById('paymentMethodChart');
+            if (paymentMethodCtx && {!! json_encode($paymentMethods->count()) !!} > 0) {
+                const paymentMethodChart = new Chart(paymentMethodCtx.getContext('2d'), {
+                    type: 'pie',
+                    data: {
+                        labels: {!! json_encode($paymentMethods->pluck('method')) !!},
+                        datasets: [{
+                            data: {!! json_encode($paymentMethods->pluck('total')) !!},
+                            backgroundColor: [
+                                '#667eea',
+                                '#48bb78',
+                                '#f6ad55',
+                                '#fc8181',
+                                '#4facfe'
+                            ],
+                            borderWidth: 0,
+                            hoverBorderWidth: 3,
+                            hoverBorderColor: '#fff',
+                            hoverOffset: 8
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    color: '#6c757d',
+                                    padding: 20,
+                                    usePointStyle: true,
+                                    pointStyle: 'circle',
+                                    font: {
+                                        size: 12
+                                    }
+                                }
+                            },
+                            tooltip: {
+                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                titleColor: '#2c3e50',
+                                bodyColor: '#2c3e50',
+                                borderColor: '#e9ecef',
+                                borderWidth: 1,
+                                cornerRadius: 8,
+                                padding: 12,
+                                callbacks: {
+                                    label: function(context) {
+                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = ((context.parsed / total) * 100).toFixed(1);
+                                        return context.label + ': ' + context.parsed.toFixed(2) + ' (' + percentage + '%)';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // ============================================
+            // COURSE STATISTICS CHART
+            // ============================================
+
+            // Course Revenue Chart
+            const courseRevenueCtx = document.getElementById('courseRevenueChart');
+            if (courseRevenueCtx && {!! json_encode($courseStats->count()) !!} > 0) {
+                const courseRevenueChart = new Chart(courseRevenueCtx.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: {!! json_encode($courseStats->pluck('name')) !!},
+                        datasets: [
+                            {
+                                label: 'عملات مشتراة بمال',
+                                data: {!! json_encode($courseStats->pluck('paid_coins')) !!},
+                                backgroundColor: 'rgba(102, 126, 234, 0.8)',
+                                borderColor: '#667eea',
+                                borderWidth: 2,
+                                borderRadius: 6,
+                                barThickness: 'flex',
+                                maxBarThickness: 40
+                            },
+                            {
+                                label: 'عملات مكافآت',
+                                data: {!! json_encode($courseStats->pluck('reward_coins')) !!},
+                                backgroundColor: 'rgba(72, 187, 120, 0.8)',
+                                borderColor: '#48bb78',
+                                borderWidth: 2,
+                                borderRadius: 6,
+                                barThickness: 'flex',
+                                maxBarThickness: 40
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top',
+                                labels: {
+                                    color: '#6c757d',
+                                    padding: 15,
+                                    usePointStyle: true,
+                                    font: {
+                                        size: 12,
+                                        family: 'Arial'
+                                    }
+                                }
+                            },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false,
+                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                titleColor: '#2c3e50',
+                                bodyColor: '#2c3e50',
+                                borderColor: '#e9ecef',
+                                borderWidth: 1,
+                                cornerRadius: 8,
+                                padding: 12,
+                                callbacks: {
+                                    label: function(context) {
+                                        return context.dataset.label + ': ' + Math.round(context.parsed.y).toLocaleString('en-US');
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                grid: {
+                                    color: 'rgba(102, 126, 234, 0.1)'
+                                },
+                                ticks: {
+                                    color: '#8e9bae',
+                                    callback: function(value) {
+                                        return Math.round(value).toLocaleString('en-US');
+                                    }
+                                }
+                            },
+                            x: {
+                                grid: {
+                                    display: false
+                                },
+                                ticks: {
+                                    color: '#8e9bae',
+                                    maxRotation: 45,
+                                    minRotation: 45,
+                                    font: {
+                                        size: 10
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Counter Animation for Revenue
+            function animateRevenueCounters() {
+                const counters = document.querySelectorAll('.revenue-count');
+                counters.forEach(counter => {
+                    const target = parseFloat(counter.textContent.replace(/,/g, ''));
+                    const increment = target / 50;
+                    let current = 0;
+
+                    const updateCounter = () => {
+                        if (current < target) {
+                            current += increment;
+                            counter.textContent = Math.round(current).toLocaleString('en-US');
+                            setTimeout(updateCounter, 20);
+                        } else {
+                            counter.textContent = Math.round(target).toLocaleString('en-US');
+                        }
+                    };
+
+                    setTimeout(updateCounter, 500);
+                });
+            }
+
+            // Start revenue counter animation
+            setTimeout(animateRevenueCounters, 600);
+
+            // Add hover effects to cards
+            const cards = document.querySelectorAll('.stats-card, .summary-card, .chart-card');
+            cards.forEach(card => {
+                card.addEventListener('mouseenter', function() {
+                    this.style.transform = 'translateY(-5px) scale(1.02)';
+                });
+
+                card.addEventListener('mouseleave', function() {
+                    this.style.transform = 'translateY(0) scale(1)';
+                });
+            });
+        });
+    </script>
+@endsection

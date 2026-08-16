@@ -1,0 +1,21 @@
+<?php
+
+return [
+    'economics_configured' => trim((string) env('ROKN_NET_USD_PER_PAID_COIN', '')) !== ''
+        && trim((string) env('ROKN_AI_COST_SAFETY_MULTIPLIER', '')) !== '',
+
+    /*
+     * Net USD retained by Rokn for one purchased coin after payment fees and
+     * taxes. Finance should update this whenever coin packages or FX change.
+     */
+    'net_usd_per_paid_coin' => (float) env('ROKN_NET_USD_PER_PAID_COIN', 0.001),
+
+    /* Covers provider price movement, retries and normal usage variance. */
+    'ai_cost_safety_multiplier' => (float) env('ROKN_AI_COST_SAFETY_MULTIPLIER', 2.0),
+
+    /*
+     * Releases a reservation left behind by a killed HTTP process or queue
+     * worker. Keep this above both provider and queue execution timeouts.
+     */
+    'ai_reservation_ttl_seconds' => (int) env('ROKN_AI_RESERVATION_TTL_SECONDS', 120),
+];

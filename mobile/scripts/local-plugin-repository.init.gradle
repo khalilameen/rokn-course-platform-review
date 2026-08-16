@@ -1,0 +1,22 @@
+// Gradle init script used only when the optional, git-ignored local plugin
+// cache exists. It is applied before every Settings script, including the
+// React Native included build whose settings plugin needs Foojay. Normal CI
+// and fresh online machines keep using the official repositories unchanged.
+def localRepository = System.getenv('ROKN_LOCAL_GRADLE_PLUGIN_REPOSITORY')
+
+if (localRepository) {
+    gradle.beforeSettings { settings ->
+        settings.pluginManagement.repositories {
+            // Declaring any custom plugin repository removes Gradle's implicit
+            // Plugin Portal default. Keep the local Foojay fallback first, then
+            // restore the complete official repository chain required by the
+            // React Native and Expo included builds.
+            maven {
+                url = settings.uri(localRepository)
+            }
+            google()
+            mavenCentral()
+            gradlePluginPortal()
+        }
+    }
+}

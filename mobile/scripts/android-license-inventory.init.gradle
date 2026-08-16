@@ -1,0 +1,209 @@
+import groovy.json.JsonOutput
+import org.gradle.api.artifacts.FileCollectionDependency
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier
+import org.gradle.api.artifacts.result.UnresolvedDependencyResult
+import org.gradle.api.attributes.Attribute
+import org.gradle.maven.MavenModule
+import org.gradle.maven.MavenPomArtifact
+
+gradle.projectsEvaluated {
+    def appProject = gradle.rootProject.findProject(':app')
+    if (appProject == null) {
+        return
+    }
+
+    appProject.tasks.register('roknResolvedReleaseLicenseInputs') {
+        group = 'verification'
+        description = 'Writes resolved release Maven artifacts and POMs for the Rokn OSS gate.'
+
+        doLast {
+            def outputValue = gradle.startParameter.projectProperties['roknLicenseInventoryOutput']
+            if (!outputValue) {
+                throw new GradleException('roknLicenseInventoryOutput is required.')
+            }
+            def outputFile = new File(outputValue).absoluteFile
+            def configuration = appProject.configurations.getByName('releaseRuntimeClasspath')
+            def artifactsByCoordinate = [:].withDefault { [] }
+            def resolutionResult = configuration.incoming.resolutionResult
+            def unresolved = resolutionResult.allDependencies
+                .findAll { it instanceof UnresolvedDependencyResult }
+                .collect { dependency ->
+                    [
+                        attempted: dependency.attempted.displayName,
+                        failure  : dependency.failure?.message,
+                    ]
+                }
+            if (!unresolved.isEmpty()) {
+                throw new GradleException(
+                    "Unresolved release dependencies are forbidden: ${JsonOutput.toJson(unresolved)}"
+                )
+            }
+
+            def localFileDependencies = configuration.allDependencies
+                .findAll { it instanceof FileCollectionDependency }
+                .collectMany { dependency ->
+                    dependency.files.files.collect { file -> file.absolutePath }
+                }
+                .toSet()
+                .sort()
+            if (!localFileDependencies.isEmpty()) {
+                throw new GradleException(
+                    "Unclassified local-file release dependencies are forbidden: ${localFileDependencies.join(', ')}"
+                )
+            }
+
+            def projectComponents = resolutionResult.allComponents
+                .findAll { component ->
+                    component.id instanceof ProjectComponentIdentifier &&
+                        component.id != resolutionResult.root.id
+                }
+                .collect { component ->
+                    def id = component.id
+                    def sourceProject = gradle.rootProject.findProject(id.projectPath)
+                    [
+                        buildPath      : id.build.buildPath,
+                        displayName    : id.displayName,
+                        projectPath    : id.projectPath,
+                        sourceDirectory: sourceProject?.projectDir?.absolutePath,
+                    ]
+                }
+                .sort { left, right ->
+                    "${left.buildPath}/${left.projectPath}" <=> "${right.buildPath}/${right.projectPath}"
+                }
+
+            def unexpectedComponents = resolutionResult.allComponents
+                .findAll { component ->
+                    component.id != resolutionResult.root.id &&
+                        !(component.id instanceof ModuleComponentIdentifier) &&
+                        !(component.id instanceof ProjectComponentIdentifier)
+                }
+                .collect { it.id.displayName }
+                .toSet()
+                .sort()
+            if (!unexpectedComponents.isEmpty()) {
+                throw new GradleException(
+                    "Unclassified release component types are forbidden: ${unexpectedComponents.join(', ')}"
+                )
+            }
+
+            // Resolve once without a component filter. This is deliberately
+            // non-lenient so an opaque/transitive files() artifact cannot be
+            // hidden by the Maven-only inventory below.
+            // Classify one artifact for every selected runtime component. AGP
+            // exposes many secondary project artifacts, so request its common
+            // classes-JAR view while deliberately leaving the component set
+            // unfiltered. Local files still retain an opaque component ID and
+            // are rejected below.
+            def artifactType = Attribute.of('artifactType', String)
+            def allResolvedArtifacts = configuration.incoming.artifactView {
+                attributes {
+                    attribute(artifactType, 'android-classes-jar')
+                }
+                lenient = false
+            }.artifacts.artifacts
+            def moduleArtifactCount = 0
+            def projectArtifactCount = 0
+            def unclassifiedResolvedArtifacts = []
+            allResolvedArtifacts.each { artifact ->
+                def id = artifact.id.componentIdentifier
+                if (id instanceof ModuleComponentIdentifier) {
+                    moduleArtifactCount += 1
+                } else if (id instanceof ProjectComponentIdentifier) {
+                    def classified = projectComponents.any { project ->
+                        project.buildPath == id.build.buildPath &&
+                            project.projectPath == id.projectPath &&
+                            project.sourceDirectory != null
+                    }
+                    if (classified) {
+                        projectArtifactCount += 1
+                    } else {
+                        unclassifiedResolvedArtifacts << id.displayName
+                    }
+                } else {
+                    unclassifiedResolvedArtifacts << id.displayName
+                }
+            }
+            unclassifiedResolvedArtifacts = unclassifiedResolvedArtifacts
+                .toSet()
+                .sort()
+            if (!unclassifiedResolvedArtifacts.isEmpty()) {
+                throw new GradleException(
+                    "Unclassified resolved release artifacts are forbidden: ${unclassifiedResolvedArtifacts.join(', ')}"
+                )
+            }
+
+            // Resolve original Maven artifacts separately so LICENSE/NOTICE
+            // files are extracted from the distributed AAR/JAR, not from the
+            // transformed classes view used only for closure classification.
+            def externalArtifacts = configuration.incoming.artifactView {
+                componentFilter { identifier ->
+                    identifier instanceof ModuleComponentIdentifier
+                }
+                lenient = false
+            }.artifacts.artifacts
+            externalArtifacts.each { artifact ->
+                def id = artifact.id.componentIdentifier
+                if (id instanceof ModuleComponentIdentifier) {
+                    def coordinate = "${id.group}:${id.module}:${id.version}"
+                    artifactsByCoordinate[coordinate] << [
+                        classifier: null,
+                        extension : artifact.file.name.contains('.')
+                            ? artifact.file.name.substring(artifact.file.name.lastIndexOf('.') + 1)
+                            : '',
+                        file      : artifact.file.absolutePath,
+                        type      : artifact.file.name.contains('.')
+                            ? artifact.file.name.substring(artifact.file.name.lastIndexOf('.') + 1)
+                            : '',
+                    ]
+                }
+            }
+
+            def componentIds = resolutionResult.allComponents
+                .collect { it.id }
+                .findAll { it instanceof ModuleComponentIdentifier }
+            def pomByCoordinate = [:]
+            if (!componentIds.isEmpty()) {
+                def query = appProject.dependencies.createArtifactResolutionQuery()
+                    .forComponents(componentIds)
+                    .withArtifacts(MavenModule, MavenPomArtifact)
+                    .execute()
+                query.resolvedComponents.each { component ->
+                    def id = component.id
+                    def coordinate = "${id.group}:${id.module}:${id.version}"
+                    def pom = component.getArtifacts(MavenPomArtifact)
+                        .find { it.file != null && it.file.exists() }
+                    if (pom != null) {
+                        pomByCoordinate[coordinate] = pom.file.absolutePath
+                    }
+                }
+            }
+
+            def coordinates = (artifactsByCoordinate.keySet() + pomByCoordinate.keySet())
+                .toSet()
+                .sort()
+                .collect { coordinate ->
+                    [
+                        coordinate: coordinate,
+                        artifacts : artifactsByCoordinate[coordinate].sort { left, right ->
+                            "${left.file}" <=> "${right.file}"
+                        },
+                        pom       : pomByCoordinate[coordinate],
+                    ]
+                }
+
+            outputFile.parentFile.mkdirs()
+            outputFile.setText(JsonOutput.prettyPrint(JsonOutput.toJson([
+                configuration: configuration.name,
+                coordinates  : coordinates,
+                projectComponents: projectComponents,
+                resolvedArtifactCount: allResolvedArtifacts.size(),
+                moduleArtifactCount: moduleArtifactCount,
+                projectArtifactCount: projectArtifactCount,
+                unresolvedDependencies: unresolved,
+                unclassifiedLocalFiles: localFileDependencies,
+                unclassifiedResolvedArtifacts: unclassifiedResolvedArtifacts,
+            ])) + System.lineSeparator(), 'UTF-8')
+        }
+    }
+}

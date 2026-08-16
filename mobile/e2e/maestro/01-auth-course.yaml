@@ -1,0 +1,14 @@
+appId: com.rokn
+---
+- launchApp:
+    clearState: true
+- tapOn: ${ROKN_SMOKE_AUTH_PROVIDER_LABEL}
+- tapOn: ${ROKN_SMOKE_OAUTH_EMAIL_FIELD}
+- inputText: ${ROKN_SMOKE_EMAIL}
+- tapOn: ${ROKN_SMOKE_OAUTH_PASSWORD_FIELD}
+- inputText: ${ROKN_SMOKE_PASSWORD}
+- assertVisible: ${ROKN_SMOKE_COURSE_TITLE}
+- tapOn: ${ROKN_SMOKE_COURSE_TITLE}
+- assertVisible: ${ROKN_SMOKE_LEARN_CTA}
+- tapOn: ${ROKN_SMOKE_LEARN_CTA}
+- assertVisible: ${ROKN_SMOKE_COURSE_TITLE}

@@ -1,0 +1,108 @@
+# OSX
+#
+.DS_Store
+
+# Xcode
+#
+build/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata
+*.xccheckout
+*.moved-aside
+DerivedData
+*.hmap
+*.ipa
+*.xcuserstate
+**/.xcode.env.local
+
+.codex-*
+# __tests__
+# Android/IntelliJ
+#
+build/
+.idea
+.gradle
+local.properties
+*.iml
+*.hprof
+.cxx/
+*.keystore
+!debug.keystore
+.kotlin/
+
+# node.js
+#
+node_modules/
+.env
+.env.*
+!.env.example
+.jdk17/
+.gradle-local/
+npm-debug.log
+yarn-error.log
+/yarn.lock
+
+# fastlane
+#
+# It is recommended to not store the screenshots in the git repo. Instead, use fastlane to re-generate the
+# screenshots whenever they are needed.
+# For more information about the recommended setup visit:
+# https://docs.fastlane.tools/best-practices/source-control/
+
+**/fastlane/report.xml
+**/fastlane/Preview.html
+**/fastlane/screenshots
+**/fastlane/test_output
+
+# Bundle artifact
+*.jsbundle
+
+# Ruby / CocoaPods
+**/Pods/
+/vendor/bundle/
+
+# Temporary files created by Metro to check the health of the file watcher
+.metro-health-check*
+.expo/
+
+# testing
+/coverage
+.codex-build/
+.codex-export-*/
+/artifacts/
+/dist/
+/.cache/
+/.tools/
+/.codex-remote-attachments/
+/.codex-tsc-errors*.txt
+
+# Local reconciliation notes contain workstation-specific paths and are not
+# part of the production source handoff.
+/docs/NEW_BASE_RECONCILIATION_HANDOFF_AR.md
+
+# Signing/server credentials stay out of source history. Firebase's mobile
+# client configs are public app identifiers and are intentionally versioned at
+# the exact paths consumed by native and EAS builds; ignore accidental copies.
+**/google-services.json
+**/GoogleService-Info.plist
+!android/app/google-services.json
+!ios/GoogleService-Info.plist
+!ios/Rokn/GoogleService-Info.plist
+*.mobileprovision
+*.p12
+*.cer
+
+# Yarn
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions

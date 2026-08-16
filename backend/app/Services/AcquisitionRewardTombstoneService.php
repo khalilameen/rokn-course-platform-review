@@ -1,0 +1,180 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services;
+
+use App\Models\CoinEarningMethod;
+use App\Models\DeletedSocialRewardTombstone;
+use App\Models\User;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use RuntimeException;
+
+final class AcquisitionRewardTombstoneService
+{
+    public const WELCOME_REWARD = 'welcome_bonus';
+
+    /** Persist only consumed acquisition offers, never identity PII. */
+    public function rememberConsumedRewards(User $user): void
+    {
+        if (! Schema::hasTable('deleted_social_reward_tombstones') || ! Schema::hasTable('social_accounts')) {
+            throw new RuntimeException('Account reward tombstone storage is not ready.');
+        }
+
+        $keys = $this->consumedRewardKeysForDeletedUser((int) $user->id);
+        if ($keys === []) {
+            return;
+        }
+
+        $identities = DB::table('social_accounts')
+            ->where('user_id', $user->id)
+            ->get(['provider', 'provider_user_id']);
+
+        foreach ($identities as $identity) {
+            $provider = strtolower(trim((string) $identity->provider));
+            $providerUserId = trim((string) $identity->provider_user_id);
+            if ($provider === '' || $providerUserId === '') {
+                continue;
+            }
+
+            $hmac = $this->identityHmac($provider, $providerUserId);
+            $existing = DeletedSocialRewardTombstone::query()
+                ->where('provider', $provider)
+                ->where('identity_hmac', $hmac)
+                ->lockForUpdate()
+                ->first();
+            $merged = array_values(array_unique(array_merge(
+                $existing?->consumed_reward_keys ?? [],
+                $keys
+            )));
+            sort($merged, SORT_STRING);
+
+            if ($existing) {
+                $existing->forceFill(['consumed_reward_keys' => $merged])->save();
+            } else {
+                DeletedSocialRewardTombstone::query()->create([
+                    'provider' => $provider,
+                    'identity_hmac' => $hmac,
+                    'consumed_reward_keys' => $merged,
+                ]);
+            }
+        }
+    }
+
+    public function userHasConsumed(User $user, string $rewardKey): bool
+    {
+        return $rewardKey !== '' && in_array($rewardKey, $this->consumedRewardKeys($user), true);
+    }
+
+    /** @return list<string> */
+    public function consumedRewardKeys(User $user): array
+    {
+        if (! Schema::hasTable('deleted_social_reward_tombstones') || ! Schema::hasTable('social_accounts')) {
+            return [];
+        }
+
+        $keys = DB::table('social_accounts')
+            ->where('user_id', $user->id)
+            ->get(['provider', 'provider_user_id'])
+            ->flatMap(function ($identity): array {
+                $provider = strtolower(trim((string) $identity->provider));
+                $providerUserId = trim((string) $identity->provider_user_id);
+                if ($provider === '' || $providerUserId === '') {
+                    return [];
+                }
+
+                $tombstone = DeletedSocialRewardTombstone::query()
+                    ->where('provider', $provider)
+                    ->where('identity_hmac', $this->identityHmac($provider, $providerUserId))
+                    ->first();
+
+                return $tombstone?->consumed_reward_keys ?? [];
+            })
+            ->filter(fn ($key): bool => is_string($key) && $key !== '')
+            ->unique()
+            ->values()
+            ->all();
+
+        sort($keys, SORT_STRING);
+        return $keys;
+    }
+
+    public function userHasConsumedMethod(User $user, CoinEarningMethod $method): bool
+    {
+        if ((bool) $method->is_repeatable) {
+            return false;
+        }
+
+        $key = $this->rewardKeyForMethod($method);
+
+        return $key !== null && $this->userHasConsumed($user, $key);
+    }
+
+    public function rewardKeyForMethod(CoinEarningMethod $method): ?string
+    {
+        return (bool) $method->is_repeatable
+            ? null
+            : $this->methodRewardKey((string) $method->action_key, (int) $method->id);
+    }
+
+    private function consumedRewardKeysForDeletedUser(int $userId): array
+    {
+        $keys = [];
+        if (Schema::hasTable('wallet_transactions') && DB::table('wallet_transactions')
+            ->where('user_id', $userId)
+            ->where('category', self::WELCOME_REWARD)
+            ->exists()) {
+            $keys[] = self::WELCOME_REWARD;
+        }
+
+        if (Schema::hasTable('user_coin_earnings') && Schema::hasTable('coin_earning_methods')) {
+            $methods = DB::table('user_coin_earnings as earnings')
+                ->join('coin_earning_methods as methods', 'methods.id', '=', 'earnings.coin_earning_method_id')
+                ->where('earnings.user_id', $userId)
+                ->where('methods.is_repeatable', false)
+                ->get(['methods.id as method_id', 'methods.action_key']);
+            foreach ($methods as $method) {
+                $key = $this->methodRewardKey((string) $method->action_key, (int) $method->method_id);
+                if ($key !== null) {
+                    $keys[] = $key;
+                }
+            }
+        }
+
+        if (Schema::hasTable('user_coin_task_attempts') && Schema::hasTable('coin_earning_methods')) {
+            $claimedMethods = DB::table('user_coin_task_attempts as attempts')
+                ->join('coin_earning_methods as methods', 'methods.id', '=', 'attempts.coin_earning_method_id')
+                ->where('attempts.user_id', $userId)
+                ->where('attempts.status', 'claimed')
+                ->where('methods.is_repeatable', false)
+                ->get(['methods.id as method_id', 'methods.action_key']);
+            foreach ($claimedMethods as $method) {
+                $key = $this->methodRewardKey((string) $method->action_key, (int) $method->method_id);
+                if ($key !== null) {
+                    $keys[] = $key;
+                }
+            }
+        }
+
+        return array_values(array_unique($keys));
+    }
+
+    private function methodRewardKey(string $actionKey, int $methodId): ?string
+    {
+        $actionKey = strtolower(trim($actionKey));
+        if ($actionKey === '') return $methodId > 0 ? 'method:' . $methodId : null;
+
+        return $actionKey === 'register' ? self::WELCOME_REWARD : 'task:' . $actionKey;
+    }
+
+    private function identityHmac(string $provider, string $providerUserId): string
+    {
+        $key = trim((string) (config('social_auth.reward_tombstone_hmac_key') ?: config('app.key')));
+        if ($key === '') {
+            throw new RuntimeException('Reward tombstone HMAC key is not configured.');
+        }
+
+        return hash_hmac('sha256', $provider . "\0" . $providerUserId, $key);
+    }
+}

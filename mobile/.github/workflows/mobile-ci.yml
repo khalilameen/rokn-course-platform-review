@@ -1,0 +1,244 @@
+name: Mobile quality gates
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+  push:
+    branches: [main, khalil]
+  workflow_dispatch:
+    inputs:
+      run_staging_smoke:
+        description: 'Run the protected Android staging smoke gate'
+        required: false
+        default: false
+        type: boolean
+      staging_apk_sha256:
+        description: 'Required with staging smoke: exact candidate APK SHA-256'
+        required: false
+        type: string
+      staging_apk_version_code:
+        description: 'Required with staging smoke: exact candidate Android versionCode'
+        required: false
+        type: string
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  # A protected smoke run may hold a short forced-update lease. Let its finally
+  # teardown execute; a second smoke dispatch also serializes at the job level.
+  cancel-in-progress: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_staging_smoke) }}
+
+jobs:
+  javascript:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      EXPO_PUBLIC_API_URL: https://ci.invalid/api/v1/
+      EXPO_PUBLIC_DISTRIBUTION_CHANNEL: play
+      EXPO_PUBLIC_BUILD_PROFILE: production
+      EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@1e60f620b9541dca151540d0c0b0c92bdf4a1a70 # v4.0.3
+        with:
+          node-version: 24.19.0
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - name: Use the pinned npm toolchain
+        run: |
+          npm install --global npm@10.9.3
+          test "$(npm --version)" = "10.9.3"
+      - name: Reject committed credentials and private keys
+        run: node scripts/verify-repository-secrets.js --history
+      - run: npm ci
+      - name: Verify mobile CI provenance and fixture contracts
+        run: npm run test:release-scripts
+      - run: npm run verify:release
+
+  android-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      EXPO_PUBLIC_API_URL: https://ci.invalid/api/v1/
+      EXPO_PUBLIC_DISTRIBUTION_CHANNEL: play
+      EXPO_PUBLIC_BUILD_PROFILE: production
+      EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@1e60f620b9541dca151540d0c0b0c92bdf4a1a70 # v4.0.3
+        with:
+          node-version: 24.19.0
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - name: Use the pinned npm toolchain
+        run: |
+          npm install --global npm@10.9.3
+          test "$(npm --version)" = "10.9.3"
+      - uses: actions/setup-java@7a445ee88d4e23b52c33d445a3d967e191a6e008 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: '17.0.20+8'
+          cache: gradle
+      - run: npm ci
+      - name: Create an ephemeral CI signing key
+        run: >-
+          keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/ci-upload.jks"
+          -storepass ci-password -keypass ci-password -alias ci-upload
+          -keyalg RSA -keysize 2048 -validity 2 -dname "CN=Rokn CI"
+      - name: Android production-mode lint, tests and R8 bundle
+        working-directory: android
+        run: >-
+          ./gradlew :app:lintRelease :app:testReleaseUnitTest :app:bundleRelease --no-daemon
+          -PreactNativeArchitectures=arm64-v8a
+          -ProknDistributionChannel=play
+          -ProknBuildProfile=production
+          -ProknRequireReleaseSigning=true
+          -ProknRequireApiUrl=true
+          -ProknEnableMinify=true
+          -ProknEnableResourceShrink=true
+          -PUPLOAD_STORE_FILE="$RUNNER_TEMP/ci-upload.jks"
+          -PUPLOAD_STORE_PASSWORD=ci-password
+          -PUPLOAD_KEY_ALIAS=ci-upload
+          -PUPLOAD_KEY_PASSWORD=ci-password
+
+  ios-native:
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      EXPO_PUBLIC_API_URL: https://ci.invalid/api/v1/
+      EXPO_PUBLIC_DISTRIBUTION_CHANNEL: appstore
+      EXPO_PUBLIC_BUILD_PROFILE: production
+      EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@1e60f620b9541dca151540d0c0b0c92bdf4a1a70 # v4.0.3
+        with:
+          node-version: 24.19.0
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - name: Use the pinned npm toolchain
+        run: |
+          npm install --global npm@10.9.3
+          test "$(npm --version)" = "10.9.3"
+      - run: npm ci
+      - name: Verify the checked-in iOS dependency lock
+        run: npm run verify:ios-lock
+      - name: Resolve pinned CocoaPods dependencies
+        working-directory: ios
+        run: pod install --deployment
+      - name: Build the unsigned Release target for the iOS Simulator
+        run: >-
+          xcodebuild -workspace ios/Rokn.xcworkspace -scheme Rokn
+          -configuration Release -sdk iphonesimulator
+          -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+
+  android-staging-smoke:
+    # This is intentionally a dispatched, protected-environment gate. It must
+    # fail closed when its staging secrets/fixtures are unavailable rather than
+    # reporting a green mocked smoke test on ordinary pull requests.
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_staging_smoke }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: mobile-staging-smoke
+    concurrency:
+      group: android-staging-smoke
+      cancel-in-progress: false
+    env:
+      ROKN_SMOKE_EMAIL: ${{ secrets.ROKN_SMOKE_EMAIL }}
+      ROKN_SMOKE_PASSWORD: ${{ secrets.ROKN_SMOKE_PASSWORD }}
+      ROKN_SMOKE_AUTH_PROVIDER_LABEL: ${{ vars.ROKN_SMOKE_AUTH_PROVIDER_LABEL }}
+      ROKN_SMOKE_OAUTH_EMAIL_FIELD: ${{ vars.ROKN_SMOKE_OAUTH_EMAIL_FIELD }}
+      ROKN_SMOKE_OAUTH_PASSWORD_FIELD: ${{ vars.ROKN_SMOKE_OAUTH_PASSWORD_FIELD }}
+      ROKN_SMOKE_LEARN_CTA: ${{ vars.ROKN_SMOKE_LEARN_CTA }}
+      ROKN_SMOKE_COURSE_TITLE: ${{ vars.ROKN_SMOKE_COURSE_TITLE }}
+      ROKN_SMOKE_PAID_COURSE_TITLE: ${{ vars.ROKN_SMOKE_PAID_COURSE_TITLE }}
+      ROKN_SMOKE_CHECKOUT_CTA: ${{ vars.ROKN_SMOKE_CHECKOUT_CTA }}
+      ROKN_SMOKE_CHECKOUT_READY_TEXT: ${{ vars.ROKN_SMOKE_CHECKOUT_READY_TEXT }}
+      ROKN_SMOKE_OFFLINE_NOTICE_TEXT: ${{ vars.ROKN_SMOKE_OFFLINE_NOTICE_TEXT }}
+      ROKN_SMOKE_PROJECT_SUBMIT_CTA: ${{ vars.ROKN_SMOKE_PROJECT_SUBMIT_CTA }}
+      ROKN_SMOKE_QUEUED_PROJECT_TEXT: ${{ vars.ROKN_SMOKE_QUEUED_PROJECT_TEXT }}
+      ROKN_SMOKE_FORCED_UPDATE_TEXT: ${{ vars.ROKN_SMOKE_FORCED_UPDATE_TEXT }}
+      ROKN_SMOKE_PROFILE_TAB: ${{ vars.ROKN_SMOKE_PROFILE_TAB }}
+      ROKN_SMOKE_EDIT_ACCOUNT_CTA: ${{ vars.ROKN_SMOKE_EDIT_ACCOUNT_CTA }}
+      ROKN_SMOKE_DELETE_ACCOUNT_CTA: ${{ vars.ROKN_SMOKE_DELETE_ACCOUNT_CTA }}
+      ROKN_SMOKE_DELETE_ACCOUNT_TEXT: ${{ vars.ROKN_SMOKE_DELETE_ACCOUNT_TEXT }}
+      ROKN_SMOKE_API_BASE: ${{ vars.ROKN_SMOKE_API_BASE }}
+      ROKN_SMOKE_COURSE_ID: ${{ vars.ROKN_SMOKE_COURSE_ID }}
+      ROKN_SMOKE_LESSON_ID: ${{ vars.ROKN_SMOKE_LESSON_ID }}
+      ROKN_SMOKE_PROJECT_ID: ${{ vars.ROKN_SMOKE_PROJECT_ID }}
+      ROKN_SMOKE_APK_URL: ${{ secrets.ROKN_SMOKE_APK_URL }}
+      ROKN_SMOKE_APK_PROVENANCE_URL: ${{ secrets.ROKN_SMOKE_APK_PROVENANCE_URL }}
+      ROKN_SMOKE_APK_VERSION_CODE: ${{ inputs.staging_apk_version_code }}
+      ROKN_SMOKE_FORCED_UPDATE_FIXTURE_URL: ${{ secrets.ROKN_SMOKE_FORCED_UPDATE_FIXTURE_URL }}
+      ROKN_SMOKE_FIXTURE_TOKEN: ${{ secrets.ROKN_SMOKE_FIXTURE_TOKEN }}
+      ROKN_SMOKE_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      ROKN_PROVENANCE_REQUIRE_PINNED: '1'
+      ROKN_PROVENANCE_EXPECTED_SHA256: ${{ inputs.staging_apk_sha256 }}
+      ROKN_PROVENANCE_EXPECTED_VERSION_CODE: ${{ inputs.staging_apk_version_code }}
+      ROKN_PROVENANCE_EXPECTED_SIGNER_SHA256: ${{ secrets.ROKN_SMOKE_APK_SIGNER_SHA256 }}
+      ROKN_PROVENANCE_EXPECTED_GIT_COMMIT: ${{ github.sha }}
+      ROKN_PROVENANCE_EXPECTED_PROFILE: production
+      ROKN_PROVENANCE_EXPECTED_CHANNEL: direct
+      ROKN_PROVENANCE_EXPECTED_FORMAT: apk
+      ROKN_PROVENANCE_EXPECTED_APPLICATION_ID: com.rokn
+      ROKN_PROVENANCE_EXPECTED_API_BASE: https://rokn.app/api/
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@1e60f620b9541dca151540d0c0b0c92bdf4a1a70 # v4.0.3
+        with:
+          node-version: 24.19.0
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - name: Use the pinned npm toolchain
+        run: |
+          npm install --global npm@10.9.3
+          test "$(npm --version)" = "10.9.3"
+      - uses: actions/setup-java@7a445ee88d4e23b52c33d445a3d967e191a6e008 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: '17.0.20+8'
+      - uses: reactivecircus/android-emulator-runner@1dcd0090116d15e7c562f8db72807de5e036a4ed # v2.34.0
+        with:
+          api-level: 35
+          arch: x86_64
+          script: |
+            MAESTRO_ZIP="$RUNNER_TEMP/maestro-1.39.0.zip"
+            MAESTRO_DIST="$RUNNER_TEMP/maestro-1.39.0"
+            curl --fail --location --proto '=https' \
+              --output "$MAESTRO_ZIP" \
+              https://github.com/mobile-dev-inc/Maestro/releases/download/cli-1.39.0/maestro.zip
+            echo '9ef9f19378b2928da981a8e640ef05ecdf44a4fb5ede0da2e72f96cacb75e265  '"$MAESTRO_ZIP" \
+              | sha256sum --check --strict
+            mkdir -p "$HOME/.maestro" "$MAESTRO_DIST"
+            unzip -q "$MAESTRO_ZIP" -d "$MAESTRO_DIST"
+            cp -R "$MAESTRO_DIST/maestro/." "$HOME/.maestro/"
+            echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.maestro/bin:$PATH"
+            maestro --version | grep -F '1.39.0'
+            test -n "$ROKN_SMOKE_APK_URL" || { echo 'ROKN_SMOKE_APK_URL is required; staging smoke did not run.' >&2; exit 2; }
+            test -n "$ROKN_SMOKE_APK_PROVENANCE_URL" || { echo 'ROKN_SMOKE_APK_PROVENANCE_URL is required; staging smoke did not run.' >&2; exit 2; }
+            test -n "$ROKN_PROVENANCE_EXPECTED_SHA256" || { echo 'staging_apk_sha256 is required; staging smoke did not run.' >&2; exit 2; }
+            test -n "$ROKN_PROVENANCE_EXPECTED_VERSION_CODE" || { echo 'staging_apk_version_code is required; staging smoke did not run.' >&2; exit 2; }
+            test -n "$ROKN_PROVENANCE_EXPECTED_SIGNER_SHA256" || { echo 'ROKN_SMOKE_APK_SIGNER_SHA256 is required; staging smoke did not run.' >&2; exit 2; }
+            node scripts/verify-staging-api-contract.js
+            test "${#ROKN_PROVENANCE_EXPECTED_SHA256}" -eq 64 || { echo 'staging_apk_sha256 must contain 64 hexadecimal characters.' >&2; exit 2; }
+            case "$ROKN_PROVENANCE_EXPECTED_SHA256" in *[!0-9a-fA-F]*) echo 'staging_apk_sha256 must be hexadecimal.' >&2; exit 2;; esac
+            case "$ROKN_PROVENANCE_EXPECTED_VERSION_CODE" in ''|*[!0-9]*) echo 'staging_apk_version_code must be a positive integer.' >&2; exit 2;; esac
+            SOURCE_VERSION_CODE="$(node -p "require('./app.json').expo.android.versionCode")"
+            test "$ROKN_PROVENANCE_EXPECTED_VERSION_CODE" = "$SOURCE_VERSION_CODE" || { echo 'Candidate versionCode does not match app.json at github.sha.' >&2; exit 2; }
+            CANDIDATE_APK="$RUNNER_TEMP/Rokn-direct.apk"
+            CANDIDATE_PROVENANCE="$CANDIDATE_APK.json"
+            curl --fail --location --proto '=https' --proto-redir '=https' \
+              --connect-timeout 20 --max-time 600 --max-filesize 500000000 \
+              --output "$CANDIDATE_APK" "$ROKN_SMOKE_APK_URL"
+            curl --fail --location --proto '=https' --proto-redir '=https' \
+              --connect-timeout 20 --max-time 60 --max-filesize 65536 \
+              --output "$CANDIDATE_PROVENANCE" "$ROKN_SMOKE_APK_PROVENANCE_URL"
+            node scripts/verify-artifact-provenance.js \
+              "$CANDIDATE_APK" "$CANDIDATE_PROVENANCE"
+            npm ci
+            ROKN_SMOKE_APK="$CANDIDATE_APK" npm run e2e:android:staging

@@ -1,0 +1,126 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Feature\API;
+
+use Illuminate\Support\Facades\DB;
+
+/**
+ * Feature tests covering Course Code API endpoints:
+ * redeeming codes, checking code validity, and listing user redeemed codes.
+ */
+class CourseCodeEndpointTest extends ApiTestCase
+{
+    public function test_can_redeem_course_code(): void
+    {
+        $response = $this->actingAs($this->user, 'api')->postJson('/api/v1/course-codes/redeem', ['code' => 'TESTCODE']);
+        $this->assertNotEquals(404, $response->status());
+    }
+
+    public function test_can_check_course_code(): void
+    {
+        $response = $this->actingAs($this->user, 'api')->postJson('/api/v1/course-codes/check', ['code' => 'TESTCODE']);
+        $this->assertNotEquals(404, $response->status());
+    }
+
+    public function test_can_view_my_codes(): void
+    {
+        $response = $this->actingAs($this->user, 'api')->getJson('/api/v1/course-codes/my-codes');
+        $this->assertNotEquals(404, $response->status());
+    }
+
+    public function test_wrong_course_does_not_consume_grant_code(): void
+    {
+        DB::table('course_codes')->where('code', 'TESTCODE')->update(['is_grant' => true]);
+        $otherCourseId = DB::table('courses')->insertGetId([
+            'name_ar' => 'كورس مختلف',
+            'name_en' => 'Different course',
+            'price' => 100,
+            'active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->user, 'api')->postJson(
+            '/api/v1/course-codes/redeem',
+            ['code' => 'TESTCODE', 'course_id' => $otherCourseId]
+        );
+
+        $response->assertStatus(409)
+            ->assertJsonPath('code', 'course_code_course_mismatch');
+        $this->assertDatabaseHas('course_codes', [
+            'code' => 'TESTCODE',
+            'used_count' => 0,
+        ]);
+        $this->assertDatabaseCount('course_grant_claims', 0);
+    }
+
+    public function test_one_account_can_claim_only_one_course_grant(): void
+    {
+        DB::table('course_codes')->where('code', 'TESTCODE')->update(['is_grant' => true]);
+        $secondCourseId = DB::table('courses')->insertGetId([
+            'name_ar' => 'كورس ثان',
+            'name_en' => 'Second course',
+            'price' => 100,
+            'active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('course_codes')->insert([
+            'code' => 'SECOND-GRANT',
+            'type' => 'course',
+            'course_id' => $secondCourseId,
+            'is_grant' => true,
+            'is_active' => true,
+            'used_count' => 0,
+            'max_uses' => 10,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->actingAs($this->user, 'api')->postJson('/api/v1/course-codes/redeem', [
+            'code' => 'TESTCODE',
+            'course_id' => $this->courseId,
+        ])->assertOk();
+
+        $this->actingAs($this->user, 'api')->postJson('/api/v1/course-codes/redeem', [
+            'code' => 'SECOND-GRANT',
+            'course_id' => $secondCourseId,
+        ])->assertStatus(400)->assertJsonPath('code', 'grant_already_claimed');
+
+        $this->assertDatabaseCount('course_grant_claims', 1);
+        $this->assertDatabaseHas('course_codes', [
+            'code' => 'SECOND-GRANT',
+            'used_count' => 0,
+        ]);
+    }
+
+    public function test_multiple_lesson_code_is_serialized_without_relation_errors(): void
+    {
+        $codeId = DB::table('course_codes')->insertGetId([
+            'code' => 'MULTI-LESSON',
+            'type' => 'multiple_lessons',
+            'course_id' => $this->courseId,
+            'is_active' => true,
+            'used_count' => 1,
+            'max_uses' => 10,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('course_code_usages')->insert([
+            'course_code_id' => $codeId,
+            'user_id' => $this->user->id,
+            'used_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->user, 'api')
+            ->getJson('/api/v1/course-codes/my-codes');
+
+        $response->assertOk()
+            ->assertJsonPath('data.0.code', 'MULTI-LESSON')
+            ->assertJsonPath('data.0.lessons', []);
+    }
+}

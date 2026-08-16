@@ -1,0 +1,146 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class CourseModule extends Model
+{
+    use HasFactory;
+
+    protected $fillable = [
+        'course_id',
+        'title',
+        'description',
+        'title_ar',
+        'title_en',
+        'description_ar',
+        'description_en',
+        'attachments_link',
+        'attachment_platform',
+        'order',
+    ];
+
+    /**
+     * Get the title attribute based on Accept-Language header.
+     */
+    public function getTitleAttribute()
+    {
+        // Check if we're accessing the raw attribute (to avoid infinite loop)
+        if (!array_key_exists('title_ar', $this->attributes) && !array_key_exists('title_en', $this->attributes)) {
+            return $this->attributes['title'] ?? null;
+        }
+
+        $lang = request()->header('Accept-Language', 'ar');
+        return str_starts_with($lang, 'en')
+            ? ($this->attributes['title_en'] ?? $this->attributes['title_ar'] ?? null)
+            : ($this->attributes['title_ar'] ?? $this->attributes['title_en'] ?? null);
+    }
+
+    /**
+     * Get the description attribute based on Accept-Language header.
+     */
+    public function getDescriptionAttribute()
+    {
+        // Check if we're accessing the raw attribute (to avoid infinite loop)
+        if (!array_key_exists('description_ar', $this->attributes) && !array_key_exists('description_en', $this->attributes)) {
+            return $this->attributes['description'] ?? null;
+        }
+
+        $lang = request()->header('Accept-Language', 'ar');
+        return str_starts_with($lang, 'en')
+            ? ($this->attributes['description_en'] ?? $this->attributes['description_ar'] ?? null)
+            : ($this->attributes['description_ar'] ?? $this->attributes['description_en'] ?? null);
+    }
+
+    /**
+     * Get the course that owns this module.
+     */
+    public function course()
+    {
+        return $this->belongsTo(Course::class);
+    }
+
+    /**
+     * Get the sections in this module.
+     */
+    public function sections()
+    {
+        return $this->hasMany(CourseSection::class, 'module_id')->orderBy('order');
+    }
+
+    /**
+     * Get the attachments for this module.
+     */
+    public function attachments()
+    {
+        return $this->morphMany(Attachment::class, 'attachable')->orderBy('order');
+    }
+
+    /**
+     * Get the project section in this module (if any).
+     */
+    public function projectSection()
+    {
+        return $this->hasOne(CourseSection::class, 'module_id')->where('section_type', 'project');
+    }
+
+    /**
+     * Check if this module has a project section.
+     */
+    public function hasProject(): bool
+    {
+        return $this->sections()->where('section_type', 'project')->exists();
+    }
+
+    /**
+     * Get the project for this module (through project section).
+     */
+    public function getProjectAttribute()
+    {
+        $projectSection = $this->projectSection;
+        return $projectSection ? $projectSection->project : null;
+    }
+
+    /**
+     * Check if a user has passed this module's project.
+     */
+    public function userPassedProject(int $userId): bool
+    {
+        $project = $this->project;
+
+        if (!$project) {
+            return true; // No project means module is passable
+        }
+
+        return UserProjectEvaluation::where('user_id', $userId)
+            ->where('project_id', $project->id)
+            ->where('passed', true)
+            ->exists();
+    }
+
+    /**
+     * Get user's evaluation for this module's project.
+     */
+    public function getUserEvaluation(int $userId)
+    {
+        $project = $this->project;
+
+        if (!$project) {
+            return null;
+        }
+
+        return UserProjectEvaluation::where('user_id', $userId)
+            ->where('project_id', $project->id)
+            ->first();
+    }
+
+    /**
+     * Scope to order modules.
+     */
+    public function scopeOrdered($query)
+    {
+        return $query->orderBy('order');
+    }
+}

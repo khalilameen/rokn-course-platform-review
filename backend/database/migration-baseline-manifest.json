@@ -1,0 +1,9 @@
+{
+    "baseline": "reconciled-replay-v1",
+    "cutoff": "2026_08_11_235959",
+    "tailStartsAt": "2026_08_12_000000",
+    "fileCount": 249,
+    "aggregateSha256": "59b9280502f639fa28ca258dd11a01a86712d3b70fcbb68cdd0e2808fd22b1db",
+    "aggregateFormat": "relative-path<TAB>sha256(lf-normalized-file)<LF>",
+    "firstCutoverRequiresRestoreDrillEvidence": true
+}

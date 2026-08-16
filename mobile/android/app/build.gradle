@@ -1,0 +1,297 @@
+apply plugin: "com.android.application"
+apply plugin: "org.jetbrains.kotlin.android"
+apply plugin: "com.facebook.react"
+
+// Test builds deliberately remain usable without Firebase credentials. A
+// production build is stopped earlier by the release script unless the real
+// project file exists, and then this plugin generates the FCM resources that
+// expo-notifications needs to obtain a remote push token.
+if (file("google-services.json").exists()) {
+    apply plugin: "com.google.gms.google-services"
+}
+
+import groovy.json.JsonSlurper
+
+def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
+// Keep a direct APK lean by honoring the architecture selected by the build
+// command. Play bundles can still be built with all architectures when needed.
+def targetArchitectures = (findProperty("reactNativeArchitectures") ?: "armeabi-v7a,arm64-v8a,x86,x86_64")
+    .split(",")
+    .collect { it.trim() }
+    .findAll { it }
+// A bare release invocation must fail toward the store-safe consumption-only
+// artifact. Local debug builds stay convenient, while explicit direct/test
+// builds are supplied by the checked-in release script.
+def releaseTaskRequested = gradle.startParameter.taskNames.any {
+    it.toString().toLowerCase().contains("release")
+}
+def roknDistributionChannel = (findProperty("roknDistributionChannel")
+    ?: (releaseTaskRequested ? "play" : "direct")).toString()
+def roknBuildProfile = (findProperty("roknBuildProfile")
+    ?: (releaseTaskRequested ? "production" : "test")).toString()
+def roknRequireReleaseSigning = (findProperty("roknRequireReleaseSigning") ?: "false").toBoolean()
+def roknRequireApiUrl = (findProperty("roknRequireApiUrl") ?: "false").toBoolean()
+def roknEnableMinify = (findProperty("roknEnableMinify") ?: "false").toBoolean()
+def roknEnableResourceShrink = (findProperty("roknEnableResourceShrink") ?: "false").toBoolean()
+def expoConfig = new JsonSlurper().parse(file("${projectRoot}/app.json")).expo
+
+if (!(roknDistributionChannel in ["direct", "play"])) {
+    throw new GradleException("Unknown Rokn distribution channel: ${roknDistributionChannel}")
+}
+if (!(roknBuildProfile in ["test", "production"])) {
+    throw new GradleException("Unknown Rokn build profile: ${roknBuildProfile}")
+}
+if (roknDistributionChannel == "play" && roknBuildProfile != "production") {
+    throw new GradleException("Google Play builds must use the production profile.")
+}
+
+def productionContractRequired = roknBuildProfile == "production" || roknDistributionChannel == "play"
+def configuredApiUrl = System.getenv("EXPO_PUBLIC_API_URL")?.trim()
+if ((productionContractRequired || roknRequireApiUrl) && !configuredApiUrl) {
+    throw new GradleException("A production build requires EXPO_PUBLIC_API_URL.")
+}
+if (productionContractRequired || roknRequireApiUrl) {
+    def parsedApiUrl
+    try {
+        parsedApiUrl = new URI(configuredApiUrl)
+    } catch (Exception ignored) {
+        throw new GradleException("EXPO_PUBLIC_API_URL must be a valid absolute HTTPS URL.")
+    }
+    if (parsedApiUrl.scheme != "https" || !parsedApiUrl.host) {
+        throw new GradleException("Production EXPO_PUBLIC_API_URL must be an absolute HTTPS URL.")
+    }
+}
+
+/**
+ * This is the configuration block to customize your React Native Android app.
+ * By default you don't need to apply any configuration, just uncomment the lines you need.
+ */
+react {
+    entryFile = file(["node", "-e", "require('expo/scripts/resolveAppEntry')", projectRoot, "android", "absolute"].execute(null, rootDir).text.trim())
+    reactNativeDir = new File(["node", "--print", "require.resolve('react-native/package.json')"].execute(null, rootDir).text.trim()).getParentFile().getAbsoluteFile()
+    hermesCommand = new File(["node", "--print", "require.resolve('hermes-compiler/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()).getParentFile().getAbsolutePath() + "/hermesc/%OS-BIN%/hermesc"
+    codegenDir = new File(["node", "--print", "require.resolve('@react-native/codegen/package.json', { paths: [require.resolve('react-native/package.json')] })"].execute(null, rootDir).text.trim()).getParentFile().getAbsoluteFile()
+    enableBundleCompression = (findProperty('android.enableBundleCompression') ?: false).toBoolean()
+    cliFile = new File(["node", "--print", "require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })"].execute(null, rootDir).text.trim())
+    bundleCommand = "export:embed"
+    hermesFlags = ["-O", "-output-source-map"]
+    /* Folders */
+    //   The root of your project, i.e. where "package.json" lives. Default is '../..'
+    // root = file("../../")
+    //   The folder where the react-native NPM package is. Default is ../../node_modules/react-native
+    // reactNativeDir = file("../../node_modules/react-native")
+    //   The folder where the react-native Codegen package is. Default is ../../node_modules/@react-native/codegen
+    // codegenDir = file("../../node_modules/@react-native/codegen")
+    //   The cli.js file which is the React Native CLI entrypoint. Default is ../../node_modules/react-native/cli.js
+    // cliFile = file("../../node_modules/react-native/cli.js")
+
+    /* Variants */
+    //   The list of variants to that are debuggable. For those we're going to
+    //   skip the bundling of the JS bundle and the assets. By default is just 'debug'.
+    //   If you add flavors like lite, prod, etc. you'll have to list your debuggableVariants.
+    // debuggableVariants = ["liteDebug", "prodDebug"]
+
+    /* Bundling */
+    //   A list containing the node command and its flags. Default is just 'node'.
+    // nodeExecutableAndArgs = ["node"]
+    //
+    //   The command to run when bundling. By default is 'bundle'
+    // bundleCommand = "ram-bundle"
+    //
+    //   The path to the CLI configuration file. Default is empty.
+    // bundleConfig = file(../rn-cli.config.js)
+    //
+    //   The name of the generated asset file containing your JS bundle
+    // bundleAssetName = "MyApplication.android.bundle"
+    //
+    //   The entry file for bundle generation. Default is 'index.android.js' or 'index.js'
+    // entryFile = file("../js/MyApplication.android.js")
+    //
+    //   A list of extra flags to pass to the 'bundle' commands.
+    //   See https://github.com/react-native-community/cli/blob/main/docs/commands.md#bundle
+    // extraPackagerArgs = []
+
+    /* Hermes Commands */
+    //   The hermes compiler command to run. By default it is 'hermesc'
+    // hermesCommand = "$rootDir/my-custom-hermesc/bin/hermesc"
+    //
+    //   The list of flags to pass to the Hermes compiler. By default is "-O", "-output-source-map"
+    // hermesFlags = ["-O", "-output-source-map"]
+
+    /* Autolinking */
+    autolinkLibrariesWithApp()
+}
+
+/**
+ * Production scripts explicitly enable R8 and resource shrinking. Test APKs
+ * remain unminified so they are quick to build and easy to inspect.
+ */
+def enableProguardInReleaseBuilds = roknEnableMinify
+
+/**
+ * The preferred build flavor of JavaScriptCore (JSC)
+ *
+ * For example, to use the international variant, you can use:
+ * `def jscFlavor = io.github.react-native-community:jsc-android-intl:2026004.+`
+ *
+ * The international variant includes ICU i18n library and necessary data
+ * allowing to use e.g. `Date.toLocaleString` and `String.localeCompare` that
+ * give correct results when using with locales other than en-US. Note that
+ * this variant is about 6MiB larger per architecture than default.
+ */
+def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
+
+android {
+    ndkVersion = rootProject.ext.ndkVersion
+    buildToolsVersion = rootProject.ext.buildToolsVersion
+    compileSdk = rootProject.ext.compileSdkVersion
+
+    namespace = "com.rokn"
+    defaultConfig {
+        applicationId = "com.rokn"
+        minSdk = rootProject.ext.minSdkVersion
+        targetSdk = rootProject.ext.targetSdkVersion
+        // app.json is the single source of truth used by Android and Expo.
+        versionCode = expoConfig.android.versionCode as Integer
+        versionName = expoConfig.version.toString()
+        buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
+        manifestPlaceholders = [
+            usesCleartextTraffic: "false",
+            checkoutActivityEnabled: roknDistributionChannel != "play" ? "true" : "false"
+        ]
+        ndk {
+            abiFilters(*targetArchitectures)
+        }
+    }
+    signingConfigs {
+        debug {
+            storeFile = file('debug.keystore')
+            storePassword = 'android'
+            keyAlias = 'androiddebugkey'
+            keyPassword = 'android'
+        }
+        release {
+            def releaseKeystorePath = findProperty('UPLOAD_STORE_FILE')
+            def releaseStorePassword = findProperty('UPLOAD_STORE_PASSWORD')
+            def releaseKeyAlias = findProperty('UPLOAD_KEY_ALIAS')
+            def releaseKeyPassword = findProperty('UPLOAD_KEY_PASSWORD')
+            def signingValues = [
+                releaseKeystorePath,
+                releaseStorePassword,
+                releaseKeyAlias,
+                releaseKeyPassword
+            ]
+            def hasAnySigningValue = signingValues.any { it != null && it.toString().trim() }
+            def hasAllSigningValues = signingValues.every { it != null && it.toString().trim() }
+            if (hasAnySigningValue && !hasAllSigningValues) {
+                throw new GradleException(
+                    "Release signing is incomplete. Configure UPLOAD_STORE_FILE, " +
+                    "UPLOAD_STORE_PASSWORD, UPLOAD_KEY_ALIAS and UPLOAD_KEY_PASSWORD."
+                )
+            }
+            if (hasAllSigningValues) {
+                def releaseKeystore = file(releaseKeystorePath)
+                if (!releaseKeystore.isFile()) {
+                    throw new GradleException("Release keystore was not found: ${releaseKeystore}")
+                }
+                storeFile = releaseKeystore
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+    def releaseSigningReady = signingConfigs.release.storeFile != null
+    def easBuild = System.getenv("EAS_BUILD") == "true"
+    if ((productionContractRequired || roknRequireReleaseSigning) && !releaseSigningReady && !easBuild) {
+        throw new GradleException(
+            "Production and Google Play builds refuse debug signing. " +
+            "Configure the upload key outside the repository."
+        )
+    }
+    buildTypes {
+        debug {
+            signingConfig = signingConfigs.debug
+            // Android emulators reach the local development API over HTTP.
+            manifestPlaceholders["usesCleartextTraffic"] = "true"
+        }
+        release {
+            // EAS injects the release credentials after evaluating this file.
+            // Only the explicit local test profile may fall back to the debug key.
+            signingConfig = releaseSigningReady || easBuild
+                ? signingConfigs.release
+                : signingConfigs.debug
+            minifyEnabled = enableProguardInReleaseBuilds
+            shrinkResources = roknEnableResourceShrink && enableProguardInReleaseBuilds
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+    }
+    packagingOptions {
+        jniLibs {
+            def enableLegacyPackaging = findProperty('expo.useLegacyPackaging') ?: 'false'
+            useLegacyPackaging = enableLegacyPackaging.toBoolean()
+        }
+    }
+    androidResources {
+        // Old linked Bitter files may still exist in a developer checkout, but
+        // the app uses Cairo exclusively. Do not ship those unused fonts.
+        ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~:!Bitter-*.ttf'
+    }
+    lint {
+        // A locally shared test APK is already covered by the checked-in JS,
+        // Kotlin and focused release gates. Keep the expensive Android release
+        // lint mandatory for production/Play artifacts, where the build script
+        // also invokes :app:lintRelease explicitly.
+        checkReleaseBuilds = productionContractRequired
+        abortOnError = true
+    }
+}
+
+// Apply optional comma-separated packaging rules used by Expo modules.
+["pickFirsts", "excludes", "merges", "doNotStrip"].each { prop ->
+    def options = (findProperty("android.packagingOptions.$prop") ?: "").split(",")
+    for (i in 0..<options.size()) options[i] = options[i].trim()
+    options -= ""
+    options.each { android.packagingOptions[prop] += it }
+}
+
+dependencies {
+    // The version of react-native is set by the React Native Gradle Plugin
+    implementation("com.facebook.react:react-android")
+    // Used by RoknPushTokens to invalidate this installation after logout,
+    // even when the API cannot remove its device-token row.
+    implementation("com.google.firebase:firebase-messaging:25.0.1")
+
+    def isGifEnabled = (findProperty('expo.gif.enabled') ?: '') == 'true'
+    def isWebpEnabled = (findProperty('expo.webp.enabled') ?: '') == 'true'
+    def isWebpAnimatedEnabled = (findProperty('expo.webp.animated') ?: '') == 'true'
+
+    if (isGifEnabled) {
+        implementation("com.facebook.fresco:animated-gif:${expoLibs.versions.fresco.get()}")
+    }
+    if (isWebpEnabled) {
+        implementation("com.facebook.fresco:webpsupport:${expoLibs.versions.fresco.get()}")
+        if (isWebpAnimatedEnabled) {
+            implementation("com.facebook.fresco:animated-webp:${expoLibs.versions.fresco.get()}")
+        }
+    }
+
+    if (hermesEnabled.toBoolean()) {
+        implementation("com.facebook.react:hermes-android")
+    } else {
+        implementation jscFlavor
+    }
+}
+
+// Expo embeds every EXPO_PUBLIC_* value into the release JavaScript bundle.
+// Declare the complete public environment as Gradle inputs so switching API,
+// profile, or distribution channel invalidates the bundle without deleting
+// generated files or rewriting dependencies.
+def roknPublicBuildEnvironment = System.getenv()
+    .findAll { key, ignored -> key.startsWith("EXPO_PUBLIC_") }
+    .collectEntries { key, value -> [("env.${key}".toString()): value ?: ""] }
+tasks.matching { it.name == "createBundleReleaseJsAndAssets" }.configureEach {
+    inputs.properties(roknPublicBuildEnvironment)
+    inputs.property("rokn.distributionChannel", roknDistributionChannel)
+    inputs.property("rokn.buildProfile", roknBuildProfile)
+}

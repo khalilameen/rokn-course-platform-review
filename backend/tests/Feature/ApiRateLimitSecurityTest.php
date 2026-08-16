@@ -1,0 +1,63 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Feature;
+
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
+use Tests\TestCase;
+
+final class ApiRateLimitSecurityTest extends TestCase
+{
+    public function test_rotating_bogus_bearer_tokens_cannot_bypass_the_ip_ceiling(): void
+    {
+        $ip = '198.51.100.77';
+        config([
+            'rate_limits.api_read_identity_per_minute' => 100,
+            'rate_limits.api_read_ip_per_minute' => 3,
+        ]);
+        Route::middleware('api')->get('/_api-rate-limit-test', static fn () => response()->json(['ok' => true]));
+        RateLimiter::clear('read:ip:'.$ip);
+
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            $this->withHeaders(['Authorization' => 'Bearer forged-token-'.$attempt])
+                ->withServerVariables(['REMOTE_ADDR' => $ip])
+                ->get('/_api-rate-limit-test')
+                ->assertOk();
+        }
+
+        $this->withHeaders(['Authorization' => 'Bearer forged-token-4'])
+            ->withServerVariables(['REMOTE_ADDR' => $ip])
+            ->get('/_api-rate-limit-test')
+            ->assertStatus(429);
+    }
+
+    public function test_read_and_write_ip_ceilings_use_separate_buckets(): void
+    {
+        $ip = '198.51.100.78';
+        config([
+            'rate_limits.api_read_identity_per_minute' => 100,
+            'rate_limits.api_read_ip_per_minute' => 1,
+            'rate_limits.api_write_identity_per_minute' => 100,
+            'rate_limits.api_write_ip_per_minute' => 1,
+        ]);
+        Route::middleware('api')->match(['GET', 'POST'], '/_api-split-rate-limit-test', static fn () => response('ok'));
+        RateLimiter::clear('read:ip:'.$ip);
+        RateLimiter::clear('write:ip:'.$ip);
+
+        $this->withServerVariables(['REMOTE_ADDR' => $ip])
+            ->get('/_api-split-rate-limit-test')
+            ->assertOk();
+        $this->withServerVariables(['REMOTE_ADDR' => $ip])
+            ->post('/_api-split-rate-limit-test')
+            ->assertOk();
+
+        $this->withServerVariables(['REMOTE_ADDR' => $ip])
+            ->get('/_api-split-rate-limit-test')
+            ->assertStatus(429);
+        $this->withServerVariables(['REMOTE_ADDR' => $ip])
+            ->post('/_api-split-rate-limit-test')
+            ->assertStatus(429);
+    }
+}

@@ -1,0 +1,5 @@
+appId: com.rokn
+---
+- launchApp
+- assertNotVisible: ${ROKN_SMOKE_OFFLINE_NOTICE_TEXT}
+- assertVisible: ${ROKN_SMOKE_COURSE_TITLE}

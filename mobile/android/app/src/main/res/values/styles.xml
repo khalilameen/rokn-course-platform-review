@@ -1,0 +1,28 @@
+<resources>
+
+    <!--
+      Keep the AppCompat parent on a uniquely named base style. Android picks
+      the most specific values-vNN declaration as a complete style; declaring
+      AppTheme without a parent in values-v27/v29 therefore dropped AppCompat
+      on modern phones and crashed before React Native could mount.
+    -->
+    <style name="RoknBaseTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <!-- Customize your theme here. -->
+        <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
+        <item name="android:windowBackground">@color/app_background</item>
+        <item name="android:statusBarColor">@color/app_background</item>
+        <item name="android:navigationBarColor">@color/app_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <style name="AppTheme" parent="RoknBaseTheme" />
+
+    <!-- Drawn by Android before React Native exists, so launch never flashes
+         white or looks frozen on slower devices. -->
+    <style name="RoknLaunchTheme" parent="AppTheme">
+        <item name="android:windowBackground">@drawable/rokn_launch_screen</item>
+        <item name="android:windowDisablePreview">false</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+
+</resources>

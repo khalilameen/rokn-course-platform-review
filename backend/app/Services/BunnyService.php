@@ -1,0 +1,875 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services;
+
+use App\Models\Setting;
+use App\Models\Lesson;
+use App\Models\BunnyVideoCleanupCandidate;
+use App\Models\LessonMediaState;
+use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Exception;
+use RuntimeException;
+use Throwable;
+
+class BunnyService
+{
+    private ?Setting $settings = null;
+
+    /**
+     * Get the current settings
+     */
+    private function getSettings(): ?Setting
+    {
+        if ($this->settings === null) {
+            $this->settings = Setting::first();
+        }
+        return $this->settings;
+    }
+
+    /**
+     * Check if Bunny.net integration is enabled
+     */
+    public function isEnabled(): bool
+    {
+        $settings = $this->getSettings();
+        return $settings && $settings->isBunnyConfigured();
+    }
+
+    /**
+     * Get the API key
+     */
+    private function getApiKey(): ?string
+    {
+        return config('bunny.stream_api_key')
+            ?: $this->getSettings()?->bunny_api_key_secret
+            ?: $this->getSettings()?->bunny_api_key;
+    }
+
+    /**
+     * Get the library ID
+     */
+    private function getLibraryId(): ?string
+    {
+        return config('bunny.library_id') ?: $this->getSettings()?->bunny_library_id;
+    }
+
+    /**
+     * Get the CDN hostname
+     */
+    private function getCdnHostname(): ?string
+    {
+        return config('bunny.cdn_hostname') ?: $this->getSettings()?->bunny_cdn_hostname;
+    }
+
+    private function getFallbackCdnHostname(): ?string
+    {
+        $hostname = strtolower(trim((string) config('bunny.fallback_cdn_hostname')));
+        if ($hostname === '' || $hostname === strtolower((string) $this->getCdnHostname())) {
+            return null;
+        }
+
+        // Configuration is trusted, but refusing paths, ports and schemes here
+        // prevents an accidental value from becoming a signed arbitrary URL.
+        return preg_match('/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/', $hostname)
+            ? $hostname
+            : null;
+    }
+
+    /**
+     * Get the storage zone name
+     */
+    private function getStorageZoneName(): ?string
+    {
+        return config('bunny.storage_zone') ?: $this->getSettings()?->bunny_storage_zone_name;
+    }
+
+    /**
+     * Get the storage password (API Key for storage)
+     */
+    private function getStoragePassword(): ?string
+    {
+        return config('bunny.storage_password')
+            ?: $this->getSettings()?->bunny_storage_password_secret
+            ?: $this->getSettings()?->bunny_storage_password;
+    }
+
+    private function getSecurityKey(): ?string
+    {
+        return config('bunny.token_auth_key')
+            ?: $this->getSettings()?->bunny_security_key_secret;
+    }
+
+    /**
+     * Create a new video in Bunny Stream and get upload URL
+     *
+     * @param string $title Video title
+     * @return array|null Returns video data with guid and upload URL, or null on failure
+     */
+    public function createVideo(string $title): ?array
+    {
+        if (!$this->isEnabled()) {
+            return null;
+        }
+
+        try {
+            $response = $this->client()->withHeaders([
+                'AccessKey' => $this->getApiKey(),
+                'Content-Type' => 'application/json',
+            ])->post("https://video.bunnycdn.com/library/{$this->getLibraryId()}/videos", [
+                'title' => $title,
+            ]);
+
+            if ($response->successful()) {
+                $data = $response->json();
+                return [
+                    'guid' => $data['guid'],
+                    'title' => $data['title'],
+                ];
+            }
+
+            Log::error('Bunny.net create video failed', [
+                'status' => $response->status(),
+                'response_fingerprint' => hash('sha256', $response->body()),
+            ]);
+            return null;
+        } catch (Throwable $e) {
+            Log::error('Bunny.net create video exception', [
+                'exception' => $e::class,
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Upload a video file to Bunny Stream
+     *
+     * @param string $videoGuid The video GUID from createVideo
+     * @param UploadedFile $file The video file to upload
+     * @return bool
+     */
+    public function uploadVideo(string $videoGuid, UploadedFile $file): bool
+    {
+        if (!$this->isEnabled()) {
+            return false;
+        }
+
+        $stream = null;
+        try {
+            $stream = fopen($file->getRealPath(), 'rb');
+            if ($stream === false) {
+                throw new RuntimeException('Unable to open the uploaded video stream.');
+            }
+
+            $response = Http::withHeaders([
+                'AccessKey' => $this->getApiKey(),
+            ])
+                ->connectTimeout(max(1, (int) config('bunny.connect_timeout_seconds', 15)))
+                ->timeout(max(1, (int) config('bunny.upload_timeout_seconds', 3600)))
+                ->withBody(
+                    $stream,
+                    $file->getMimeType() ?: 'application/octet-stream'
+                )->put("https://video.bunnycdn.com/library/{$this->getLibraryId()}/videos/{$videoGuid}");
+
+            if ($response->successful()) {
+                return true;
+            }
+
+            Log::error('Bunny.net upload video failed', [
+                'status' => $response->status(),
+                'response_fingerprint' => hash('sha256', $response->body()),
+            ]);
+            return false;
+        } catch (Throwable $e) {
+            Log::error('Bunny.net upload video exception', [
+                'exception' => $e::class,
+            ]);
+            return false;
+        } finally {
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+        }
+    }
+
+    /**
+     * Confirm that Bunny accepted the upload and the new remote video exists.
+     */
+    public function verifyVideoUpload(string $videoGuid): bool
+    {
+        if (!$this->isEnabled()) {
+            return false;
+        }
+
+        try {
+            $response = $this->client()->withHeaders([
+                'AccessKey' => $this->getApiKey(),
+            ])->get("https://video.bunnycdn.com/library/{$this->getLibraryId()}/videos/{$videoGuid}");
+
+            if (!$response->successful()) {
+                Log::error('Bunny.net video verification failed', [
+                    'video_guid' => $videoGuid,
+                    'status' => $response->status(),
+                ]);
+                return false;
+            }
+
+            $remoteGuid = (string) ($response->json('guid') ?? '');
+            return $remoteGuid === '' || hash_equals($videoGuid, $remoteGuid);
+        } catch (Throwable $exception) {
+            Log::error('Bunny.net video verification exception', [
+                'video_guid' => $videoGuid,
+                'exception' => $exception::class,
+            ]);
+            return false;
+        }
+    }
+
+    /** Read-only provider probe used by Media Health; never publishes content. */
+    public function getRemoteVideoDetails(string $videoGuid): ?array
+    {
+        if (!$this->isEnabled()) {
+            return null;
+        }
+        try {
+            $response = $this->client(10)
+                ->withHeaders(['AccessKey' => $this->getApiKey()])
+                ->get("https://video.bunnycdn.com/library/{$this->getLibraryId()}/videos/{$videoGuid}");
+            return $response->successful() ? (array) $response->json() : null;
+        } catch (Throwable $exception) {
+            Log::warning('Bunny media probe failed', [
+                'video_guid' => $videoGuid,
+                'exception' => $exception::class,
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Atomically publish a newly uploaded Bunny video for a lesson.
+     *
+     * The old remote object and database pointer stay untouched until the new
+     * object has been created, streamed, and verified. A compare-and-swap
+     * protects concurrent dashboard edits. The superseded object is retained
+     * deliberately; a separate reviewed retention job may remove it later.
+     */
+    public function replaceLessonVideo(Lesson $lesson, UploadedFile $file): bool
+    {
+        if (!$this->isEnabled() || !$lesson->exists) {
+            return false;
+        }
+
+        $oldVideoGuid = $lesson->bunny_video_id
+            ? (string) $lesson->bunny_video_id
+            : null;
+        $newVideoGuid = $this->uploadVerifiedVideo(
+            (string) ($lesson->title ?: 'Rokn lesson') . ' - ' . $lesson->getKey(),
+            $file,
+            $lesson
+        );
+
+        if (!$newVideoGuid) {
+            return false;
+        }
+
+        try {
+            DB::transaction(function () use ($lesson, $oldVideoGuid, $newVideoGuid): void {
+                $lockedLesson = Lesson::query()->lockForUpdate()->findOrFail($lesson->getKey());
+                $currentVideoGuid = $lockedLesson->bunny_video_id
+                    ? (string) $lockedLesson->bunny_video_id
+                    : null;
+
+                if ($currentVideoGuid !== $oldVideoGuid) {
+                    throw new RuntimeException('The lesson video changed while the replacement was uploading.');
+                }
+
+                $lockedLesson->update([
+                    'bunny_video_id' => $newVideoGuid,
+                    'video_source_type' => 'bunny',
+                    'video_link' => null,
+                ]);
+                LessonMediaState::query()->updateOrCreate(
+                    ['lesson_id' => $lockedLesson->id],
+                    [
+                        'provider' => 'bunny',
+                        'provider_media_id' => $newVideoGuid,
+                        'status' => 'processing',
+                        'protocol' => 'hls',
+                        'available_qualities' => ['auto'],
+                        'last_error_code' => null,
+                        'last_error_message' => null,
+                        'retry_count' => 0,
+                    ]
+                );
+            });
+
+            $lesson->forceFill([
+                'bunny_video_id' => $newVideoGuid,
+                'video_source_type' => 'bunny',
+                'video_link' => null,
+            ]);
+        } catch (Throwable $exception) {
+            $this->queueVideoCleanup($newVideoGuid, $lesson, 'publish_race_or_failure', 24);
+            Log::warning('Verified Bunny candidate was not published and requires reviewed cleanup', [
+                'lesson_id' => $lesson->getKey(),
+                'video_guid' => $newVideoGuid,
+                'exception' => $exception::class,
+            ]);
+            return false;
+        }
+
+        if ($oldVideoGuid) {
+            $this->queueVideoCleanup($oldVideoGuid, $lesson, 'superseded_video', 168);
+            Log::info('Superseded Bunny lesson video retained by safety policy', [
+                'lesson_id' => $lesson->getKey(),
+                'video_guid' => $oldVideoGuid,
+            ]);
+        }
+
+        return true;
+    }
+
+    /**
+     * Upload and verify a remote video without publishing a database pointer.
+     *
+     * Controllers use this two-phase primitive so the expensive remote upload
+     * happens before the short database transaction that atomically publishes
+     * the lesson and its course-section pointer.
+     */
+    public function uploadVerifiedVideo(
+        string $title,
+        UploadedFile $file,
+        ?Lesson $lesson = null
+    ): ?string {
+        if (!$this->isEnabled()) {
+            return null;
+        }
+
+        $videoData = $this->createVideo(trim($title) !== '' ? trim($title) : 'Rokn lesson');
+        $videoGuid = (string) ($videoData['guid'] ?? '');
+        if ($videoGuid === '') {
+            return null;
+        }
+
+        if (!$this->uploadVideo($videoGuid, $file) || !$this->verifyVideoUpload($videoGuid)) {
+            $this->queueVideoCleanup($videoGuid, $lesson, 'unpublished_upload', 24);
+            Log::warning('Unpublished Bunny upload retained for safe cleanup', [
+                'lesson_id' => $lesson?->getKey(),
+                'video_guid' => $videoGuid,
+            ]);
+
+            return null;
+        }
+
+        return $videoGuid;
+    }
+
+    /**
+     * Delete a video from Bunny Stream
+     *
+     * @param string $videoGuid The video GUID
+     * @return bool
+     */
+    public function deleteVideo(string $videoGuid): bool
+    {
+        if (!$this->isEnabled()) {
+            return false;
+        }
+
+        try {
+            $response = $this->client()->withHeaders([
+                'AccessKey' => $this->getApiKey(),
+            ])->delete("https://video.bunnycdn.com/library/{$this->getLibraryId()}/videos/{$videoGuid}");
+
+            // A retry after a successful remote delete receives 404. Treat it
+            // as success so cleanup remains idempotent across worker crashes.
+            return $response->successful() || $response->status() === 404;
+        } catch (Exception $e) {
+            Log::error('Bunny.net delete video exception', [
+                'exception' => $e::class,
+            ]);
+            return false;
+        }
+    }
+
+    /**
+     * Get video details from Bunny Stream
+     *
+     * @param string $videoGuid The video GUID
+     * @return array|null
+     */
+    public function getVideo(string $videoGuid): ?array
+    {
+        if (!$this->playbackIsSecurelyConfigured()) {
+            return null;
+        }
+
+        $cdnHostname = $this->getCdnHostname();
+        if (!$cdnHostname) {
+            return null;
+        }
+
+        $expiresAt = time() + 7200;
+        $path = "/{$videoGuid}/playlist.m3u8";
+        $directoryPath = "/{$videoGuid}/";
+        $url = "https://{$cdnHostname}{$path}";
+
+        // HLS playlists load many relative segment files. A query-string token
+        // only signs the manifest and leaves every segment unauthorised, so use
+        // Bunny's directory/path token format whenever CDN token auth is enabled.
+        if ($this->getSecurityKey()) {
+            $url = $this->generateSignedDirectoryUrl(
+                $cdnHostname,
+                $path,
+                $directoryPath,
+                $expiresAt
+            );
+        }
+
+        return [
+            'url' => $url,
+            'type' => 'hls',
+            'expires_at' => date('c', $expiresAt),
+        ];
+    }
+
+    /**
+     * Issue a signed HLS URL through an independently configured CDN hostname.
+     * This is streaming failover, not an offline/download URL.
+     */
+    public function getFallbackVideo(string $videoGuid): ?array
+    {
+        if (!$this->playbackIsSecurelyConfigured()) {
+            return null;
+        }
+
+        $hostname = $this->getFallbackCdnHostname();
+        if (!$hostname) {
+            return null;
+        }
+
+        $expiresAt = time() + 7200;
+        $path = "/{$videoGuid}/playlist.m3u8";
+        $directoryPath = "/{$videoGuid}/";
+
+        return [
+            'url' => $this->generateSignedDirectoryUrl(
+                $hostname,
+                $path,
+                $directoryPath,
+                $expiresAt
+            ),
+            'type' => 'hls',
+            'expires_at' => date('c', $expiresAt),
+        ];
+    }
+
+    /**
+     * Generate a signed URL for video playback (iframe embed)
+     *
+     * @param string $videoGuid The video GUID
+     * @param int $expiresInSeconds URL expiration time in seconds (default 2 hours)
+     * @return array|null Returns array with url and expires_at, or null on failure
+     */
+    public function getSignedEmbedUrl(string $videoGuid, int $expiresInSeconds = 7200): ?array
+    {
+        if (!$this->playbackIsSecurelyConfigured()) {
+            return null;
+        }
+
+        $libraryId = $this->getLibraryId();
+        // Calculate expiration timestamp
+        $expiresAt = time() + $expiresInSeconds;
+
+        // Embed-view authentication is intentionally different from Bunny
+        // CDN authentication: SHA256_HEX(token key + video id + expiry).
+        $securityKey = $this->getSecurityKey();
+        $token = $securityKey
+            ? hash('sha256', $securityKey . $videoGuid . $expiresAt)
+            : '';
+
+        // Build the embed URL
+        $embedUrl = "https://iframe.mediadelivery.net/embed/{$libraryId}/{$videoGuid}";
+        $signedUrl = $embedUrl . ($token ? "?token={$token}&expires={$expiresAt}" : '');
+
+        return [
+            'url' => $signedUrl,
+            'expires_at' => date('c', $expiresAt), // ISO 8601 format
+        ];
+    }
+
+    /**
+     * Generate a signed URL for direct HLS playback
+     *
+     * @param string $videoGuid The video GUID
+     * @param int $expiresInSeconds URL expiration time in seconds (default 2 hours)
+     * @return array|null Returns array with url and expires_at, or null on failure
+     */
+    public function getSignedPlayUrl(string $videoGuid, int $expiresInSeconds = 7200): ?array
+    {
+        if (!$this->playbackIsSecurelyConfigured()) {
+            return null;
+        }
+
+        $cdnHostname = $this->getCdnHostname();
+        if (!$cdnHostname) {
+            // Fallback to default CDN hostname
+            $cdnHostname = "vz-{$this->getLibraryId()}.b-cdn.net";
+        }
+
+        $expiresAt = time() + $expiresInSeconds;
+        $path = "/{$videoGuid}/playlist.m3u8";
+        $directoryPath = "/{$videoGuid}/";
+        $signedUrl = $this->getSecurityKey()
+            ? $this->generateSignedDirectoryUrl($cdnHostname, $path, $directoryPath, $expiresAt)
+            : "https://{$cdnHostname}{$path}";
+
+        return [
+            'url' => $signedUrl,
+            'expires_at' => date('c', $expiresAt),
+        ];
+    }
+
+    /**
+     * Generate signed token for Bunny CDN URLs
+     *
+     * @param string $videoGuid
+     * @param int $expiresAt
+     * @return string
+     */
+    private function generateSignedToken(string $path, int $expiresAt, string $signingData = ''): string
+    {
+        $securityKey = $this->getSecurityKey();
+        if (!$securityKey) {
+            return '';
+        }
+
+        return self::advancedToken($securityKey, $path, $expiresAt, $signingData);
+    }
+
+    /**
+     * Bunny Advanced Token Authentication reference implementation.
+     * Keeping the pure token primitive public makes the production signer
+     * testable against a fixed official-format vector without network calls.
+     */
+    public static function advancedToken(
+        string $securityKey,
+        string $signaturePath,
+        int $expiresAt,
+        string $signingData = ''
+    ): string {
+        $digest = hash_hmac(
+            'sha256',
+            $signaturePath . $expiresAt . $signingData,
+            $securityKey,
+            true
+        );
+
+        return 'HS256-' . rtrim(strtr(base64_encode($digest), '+/', '-_'), '=');
+    }
+
+    private function generateSignedDirectoryUrl(
+        string $hostname,
+        string $filePath,
+        string $directoryPath,
+        int $expiresAt
+    ): string {
+        $signingData = 'token_path=' . $directoryPath;
+        $token = $this->generateSignedToken($directoryPath, $expiresAt, $signingData);
+        if ($token === '') {
+            throw new RuntimeException('Bunny playback signing is not configured.');
+        }
+
+        return sprintf(
+            'https://%s/bcdn_token=%s&token_path=%s&expires=%d%s',
+            $hostname,
+            $token,
+            rawurlencode($directoryPath),
+            $expiresAt,
+            $filePath
+        );
+    }
+
+    private function playbackIsSecurelyConfigured(): bool
+    {
+        $ready = $this->isEnabled()
+            && (bool) $this->getCdnHostname()
+            && (bool) $this->getSecurityKey();
+        if (!$ready) {
+            Log::critical('Bunny playback refused because signed delivery is incomplete.');
+        }
+
+        return $ready;
+    }
+
+    public function queueVideoCleanup(
+        string $videoGuid,
+        ?Lesson $lesson,
+        string $reason,
+        int $delayHours
+    ): ?BunnyVideoCleanupCandidate {
+        $videoGuid = trim($videoGuid);
+        if ($videoGuid === '') {
+            return null;
+        }
+
+        try {
+            return BunnyVideoCleanupCandidate::query()->updateOrCreate(
+                ['video_guid' => $videoGuid],
+                [
+                    'lesson_id' => $lesson && $lesson->exists ? $lesson->getKey() : null,
+                    'reason' => $reason,
+                    'requires_review' => true,
+                    'eligible_after' => now()->addHours(max(1, $delayHours)),
+                    'reviewed_at' => null,
+                    'reviewed_by' => null,
+                    'remote_deleted_at' => null,
+                    'last_error' => null,
+                ]
+            );
+        } catch (Throwable $exception) {
+            Log::error('Unable to record Bunny cleanup candidate', [
+                'video_guid' => $videoGuid,
+                'lesson_id' => $lesson?->getKey(),
+                'exception' => $exception::class,
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
+     * Get video data for a lesson, including signed URLs if using Bunny
+     *
+     * @param Lesson $lesson
+     * @return array
+     */
+    public function getVideoDataForLesson(Lesson $lesson): array
+    {
+        $data = [
+            'video_source_type' => $lesson->video_source_type ?? 'youtube',
+            'video_link' => null,
+            'bunny_video_url' => null,
+            'bunny_video_expires_at' => null,
+        ];
+
+        if ($lesson->video_source_type === 'bunny' && !empty($lesson->bunny_video_id)) {
+            // Get signed embed URL for Bunny video
+            $signedUrl = $this->getVideo($lesson->bunny_video_id);
+            if ($signedUrl) {
+                $data['bunny_video_url'] = $signedUrl['url'];
+                $data['bunny_video_expires_at'] = $signedUrl['expires_at'];
+            }
+        } else {
+            // YouTube or other external link
+            $data['video_link'] = $lesson->video_link;
+        }
+
+        return $data;
+    }
+
+    /**
+     * Upload a file to Bunny Storage
+     *
+     * @param UploadedFile $file
+     * @param string $folder
+     * @return string|null Returns the file path/URL on success, or null on failure
+     */
+    public function uploadFileToStorage(\Illuminate\Http\UploadedFile $file, string $folder = 'general'): ?string
+    {
+        if (!$this->isEnabled()) {
+            return null;
+        }
+
+        $storageZone = $this->getStorageZoneName();
+        $password = $this->getStoragePassword();
+        if (!$storageZone || !$password) {
+            Log::error('Bunny Storage not configured');
+            return null;
+        }
+
+        $folder = trim(str_replace('\\', '/', $folder), '/');
+        if ($folder === '' || preg_match('#^(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+$#', $folder) !== 1) {
+            Log::warning('Rejected unsafe Bunny Storage folder.');
+            return null;
+        }
+
+        $mimeType = strtolower(trim((string) ($file->getMimeType() ?: 'application/octet-stream')));
+        $extension = $this->extensionForMimeType($mimeType);
+        // A cryptographically random, server-owned object key prevents
+        // same-second collisions and never exposes or trusts the client name.
+        $fileName = Str::uuid()->toString() . '.' . $extension;
+        $path = "{$folder}/{$fileName}";
+        $stream = null;
+        try {
+            $stream = fopen($file->getRealPath(), 'rb');
+            if ($stream === false) {
+                throw new RuntimeException('Unable to open the uploaded file stream.');
+            }
+
+            $response = Http::withHeaders([
+                'AccessKey' => $password,
+                'Content-Type' => $mimeType,
+            ])
+                ->connectTimeout(max(1, (int) config('bunny.connect_timeout_seconds', 15)))
+                ->timeout(max(1, (int) config('bunny.upload_timeout_seconds', 3600)))
+                ->withBody(
+                    $stream,
+                    $mimeType
+                )->put("https://storage.bunnycdn.com/{$storageZone}/{$path}");
+            if ($response->successful()) {
+                // Return the CDN URL
+                $cdnHostname = $this->getCdnHostname() ?: "{$storageZone}.b-cdn.net";
+                return $path;
+            }
+
+            Log::error('Bunny Storage upload failed', [
+                'status' => $response->status(),
+                'response_fingerprint' => hash('sha256', $response->body()),
+            ]);
+            return null;
+        } catch (Throwable $e) {
+            Log::error('Bunny Storage upload exception', [
+                'exception' => $e::class,
+            ]);
+            return null;
+        } finally {
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+        }
+    }
+
+    private function extensionForMimeType(string $mimeType): string
+    {
+        return match ($mimeType) {
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/webp' => 'webp',
+            'image/gif' => 'gif',
+            'application/pdf' => 'pdf',
+            'application/zip', 'application/x-zip-compressed' => 'zip',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+            'text/plain' => 'txt',
+            default => 'bin',
+        };
+    }
+
+    /**
+     * Delete a file from Bunny Storage
+     *
+     * @param string $fileUrl Full URL of the file
+     * @return bool
+     */
+    public function deleteFileFromStorage(string $fileUrl): bool
+    {
+        if (!$this->isEnabled()) {
+            return false;
+        }
+
+        $storageZone = $this->getStorageZoneName();
+        $password = $this->getStoragePassword();
+        $cdnHostname = $this->getCdnHostname() ?: "{$storageZone}.b-cdn.net";
+
+        if (!$storageZone || !$password) {
+            return false;
+        }
+
+        // Extract path from URL
+        $path = str_replace("https://{$cdnHostname}/", "", $fileUrl);
+
+        try {
+            $response = $this->client()->withHeaders([
+                'AccessKey' => $password,
+            ])->delete("https://storage.bunnycdn.com/{$storageZone}/{$path}");
+
+            // Missing already means the requested end state and makes retries
+            // safe if a worker died after Bunny deleted the object.
+            return $response->successful() || $response->status() === 404;
+        } catch (Exception $e) {
+            Log::error('Bunny Storage delete exception', [
+                'exception' => $e::class,
+            ]);
+            return false;
+        }
+    }
+
+    /**
+     * Generate a signed URL for a BunnyCDN private storage file
+     *
+     * @param string $filePath    Path to the file in storage (must start with /)
+     * @param string $accessKey   Storage Zone Access Key
+     * @param int    $ttl         Time-to-live in seconds (default 3600)
+     * @return string             Signed URL
+     */
+    public function generateBunnySignedUrl($filePath, $ttl = 3600): ?string
+    {
+        $expires = time() + max(60, (int) $ttl);
+        $securityKey = $this->getSecurityKey();
+        $hostname = $this->getCdnHostname()
+            ?: ($this->getStorageZoneName() ? $this->getStorageZoneName() . '.b-cdn.net' : null);
+        if (!$hostname || !$securityKey) {
+            Log::critical('Bunny private asset signing refused because delivery configuration is incomplete.');
+            return null;
+        }
+
+        $path = '/' . ltrim((string) $filePath, '/');
+        if ($path === '/' || str_contains($path, "\0") || str_contains($path, '?')) {
+            return null;
+        }
+        $token = self::advancedToken($securityKey, $path, $expires);
+
+        return rtrim("https://{$hostname}", '/') . $path
+            . '?token=' . rawurlencode($token)
+            . '&expires=' . $expires;
+    }
+
+    private function client(int $timeoutSeconds = 30): PendingRequest
+    {
+        return Http::connectTimeout(max(1, (int) config('bunny.connect_timeout_seconds', 15)))
+            ->timeout(max(1, $timeoutSeconds));
+    }
+
+    /**
+     * Test connection to Bunny.net API
+     *
+     * @param string $apiKey
+     * @param string $libraryId
+     * @return array
+     */
+    public static function testConnection(string $apiKey, string $libraryId): array
+    {
+        try {
+            $response = Http::connectTimeout(max(1, (int) config('bunny.connect_timeout_seconds', 15)))
+                ->timeout(max(1, (int) config('bunny.request_timeout_seconds', 30)))
+                ->withHeaders(['AccessKey' => $apiKey])
+                ->get("https://video.bunnycdn.com/library/{$libraryId}");
+
+            if ($response->successful()) {
+                $data = $response->json();
+                return [
+                    'success' => true,
+                    'message' => 'تم الاتصال بنجاح',
+                    'library_name' => $data['Name'] ?? 'Unknown',
+                ];
+            }
+
+            return [
+                'success' => false,
+                'message' => 'فشل الاتصال: ' . $response->status(),
+            ];
+        } catch (Exception) {
+            return [
+                'success' => false,
+                'message' => 'تعذر الاتصال بخدمة الفيديو.',
+            ];
+        }
+    }
+}
+

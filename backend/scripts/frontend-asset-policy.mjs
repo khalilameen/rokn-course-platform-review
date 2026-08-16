@@ -1,0 +1,222 @@
+export const thirdPartyFamilies = [
+    {
+        id: 'frontend-bundle',
+        name: 'Compiled frontend bundle',
+        version: 'bootstrap 4.6.2; jQuery 3.7.1; Popper.js 1.16.1',
+        license: 'MIT',
+        source: 'npm lockfile packages bootstrap, jquery, popper.js',
+        artifacts: ['public/css/app.css', 'public/js/app.js', 'public/js/app.js.LEGAL.txt'],
+        legal: [
+            ['bootstrap 4.6.2', 'node_modules/bootstrap/LICENSE'],
+            ['jQuery 3.7.1', 'node_modules/jquery/LICENSE.txt'],
+            ['Popper.js 1.16.1', 'node_modules/popper.js/dist/umd/popper.js'],
+        ],
+        modifications: 'Built from resources/sass/app.scss and resources/js/app.js.',
+    },
+    {
+        id: 'normalize', name: 'normalize.css', version: '3.0.3', license: 'MIT',
+        source: 'https://github.com/necolas/normalize.css/tree/3.0.3',
+        artifacts: ['public/admin/assets/css/normalize.css'],
+        legal: [['normalize.css 3.0.3', 'node_modules/legacy-normalize-css/LICENSE.md']],
+        modifications: 'Distribution comments were stripped by the legacy build.',
+    },
+    {
+        id: 'bootstrap-admin', name: 'Bootstrap admin stylesheet', version: '4.0.0-beta.3', license: 'MIT',
+        source: 'https://github.com/twbs/bootstrap/tree/v4.0.0-beta.3',
+        artifacts: ['public/admin/assets/css/bootstrap.min.css'],
+        legal: [['Bootstrap 4.0.0-beta.3', 'node_modules/legacy-bootstrap/LICENSE']],
+        modifications: 'Legacy RTL and project adjustments; exact distributed bytes are hash-pinned.',
+    },
+    {
+        id: 'animate', name: 'animate.css', version: '3.5.2', license: 'MIT',
+        source: 'https://github.com/animate-css/animate.css/tree/3.5.2',
+        artifacts: ['public/admin/assets/css/animate.css'],
+        legal: [['animate.css 3.5.2', 'node_modules/legacy-animate-css/LICENSE']],
+        modifications: 'None known.',
+    },
+    {
+        id: 'font-awesome', name: 'Font Awesome', version: '4.7.0', license: 'MIT (CSS) and OFL-1.1 (font)',
+        source: 'https://github.com/FortAwesome/Font-Awesome/tree/v4.7.0',
+        artifacts: [
+            'public/admin/assets/css/font-awesome.min.css',
+            'public/admin/assets/fonts/fontawesome-webfont.eot',
+            'public/admin/assets/fonts/fontawesome-webfont.svg',
+            'public/admin/assets/fonts/fontawesome-webfont.ttf',
+            'public/admin/assets/fonts/fontawesome-webfont.woff',
+            'public/admin/assets/fonts/fontawesome-webfont.woff2',
+        ],
+        legal: [
+            ['Font Awesome upstream notice', 'resources/legal/frontend/FONT-AWESOME-4.7-UPSTREAM-NOTICE.md'],
+            ['MIT license', 'resources/legal/frontend/MIT.txt'],
+            ['SIL Open Font License 1.1', 'resources/legal/frontend/OFL-1.1.txt'],
+        ],
+        modifications: 'CSS formatting differs from npm source; font binaries are the 4.7.0 family.',
+    },
+    {
+        id: 'themify', name: 'Themify Icons', version: '1.0.1 / commit 9600186', license: 'MIT (CSS) and OFL-1.1 (font)',
+        source: 'https://github.com/lykmapipo/themify-icons/tree/9600186b24a7242f0e1e0a186983e6253301bb5d',
+        artifacts: [
+            'public/admin/assets/css/themify-icons.css',
+            'public/admin/assets/fonts/themify.eot',
+            'public/admin/assets/fonts/themify.svg',
+            'public/admin/assets/fonts/themify.ttf',
+            'public/admin/assets/fonts/themify.woff',
+        ],
+        legal: [
+            ['Themify upstream notice', 'resources/legal/frontend/THEMIFY-UPSTREAM-NOTICE.md'],
+            ['MIT license', 'resources/legal/frontend/MIT.txt'],
+            ['SIL Open Font License 1.1', 'resources/legal/frontend/OFL-1.1.txt'],
+        ],
+        modifications: 'None; active CSS and font files were matched to the pinned upstream commit.',
+    },
+    {
+        id: 'select2', name: 'Select2', version: '4.0.13', license: 'MIT',
+        source: 'https://github.com/select2/select2/tree/4.0.13',
+        artifacts: [
+            'public/admin/assets/js/vendor/select2/select2.min.css',
+            'public/admin/assets/js/vendor/select2/select2.min.js',
+        ],
+        legal: [['Select2 4.0.13', 'node_modules/legacy-select2/LICENSE.md']],
+        modifications: 'None; active CSS and JavaScript match the 4.0.13 distribution.',
+    },
+    {
+        id: 'sufee', name: 'Sufee Admin Dashboard', version: '1.0.0 / commit dcae40f7', license: 'GPL-2.0-or-later file notice; upstream repository MIT notice retained',
+        source: 'https://github.com/puikinsh/sufee-admin-dashboard/tree/dcae40f7d2afea4fc0e8480fa4b3558ef4d2cc38',
+        artifacts: [
+            'public/admin/assets/scss/style.css',
+            'public/admin/assets/js/main.js',
+            'public/images/admin.jpg',
+            'public/legal/source/sufee-1.0.0-rokn/COPYING.GPL-2.0.txt',
+            'public/legal/source/sufee-1.0.0-rokn/LICENSE.upstream-MIT.txt',
+            'public/legal/source/sufee-1.0.0-rokn/README.txt',
+            'public/legal/source/sufee-1.0.0-rokn/SOURCE_MANIFEST.json',
+            'public/legal/source/sufee-1.0.0-rokn/style.scss',
+            'public/legal/source/sufee-1.0.0-rokn/_gauge.scss',
+            'public/legal/source/sufee-1.0.0-rokn/_switches.scss',
+            'public/legal/source/sufee-1.0.0-rokn/_variables.scss',
+            'public/legal/source/sufee-1.0.0-rokn/_widgets.scss',
+        ],
+        legal: [
+            ['GNU GPL version 2', 'resources/vendor/sufee/COPYING.GPL-2.0.txt'],
+            ['Sufee upstream repository MIT notice', 'resources/vendor/sufee/LICENSE.upstream-MIT.txt'],
+        ],
+        modifications: 'Removed unlicensed JF Flat/Helvetica fonts, selected a system font stack, removed missing decorative image references, made the animate.css import route-safe, and adapted the public main.js navigation for the current accessible shell. The retained admin portrait matches the upstream asset. Hash-bound corresponding SCSS is publicly delivered under /legal/source/sufee-1.0.0-rokn/.',
+    },
+    {
+        id: 'datatables-i18n', name: 'DataTables Arabic localization', version: '1.11.5', license: 'MIT',
+        source: 'https://cdn.datatables.net/plug-ins/1.11.5/i18n/ar.json',
+        artifacts: ['public/admin/assets/vendor/datatables/i18n/ar.json'],
+        legal: [['DataTables 1.11.5', 'node_modules/datatables.net/License.txt']],
+        modifications: 'JSON formatting compacted; translated values are unchanged.',
+    },
+];
+
+export const externalStaticAssets = [
+    {
+        name: 'SortableJS', version: '1.15.0', license: 'MIT',
+        url: 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js',
+        integrity: 'sha384-eeLEhtwdMwD3X9y+8P3Cn7Idl/M+w8H4uZqkgD/2eJVkWIN1yKzEj6XegJ9dL3q0',
+        legal: [['SortableJS 1.15.0', 'node_modules/sortablejs/LICENSE']],
+    },
+    {
+        name: 'Chart.js', version: '4.5.1', license: 'MIT',
+        url: 'https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js',
+        integrity: 'sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ',
+        legal: [['Chart.js 4.5.1', 'node_modules/chart.js/LICENSE.md']],
+    },
+    {
+        name: 'SweetAlert2', version: '11.26.25', license: 'MIT',
+        url: 'https://cdn.jsdelivr.net/npm/sweetalert2@11.26.25/dist/sweetalert2.all.min.js',
+        integrity: 'sha384-nLoOnA/BDh8A/jxqtckg4DumuCGOBYUnNJLZdQz/zfYNp3wcjGSoWTAzgko06G/2',
+        legal: [['SweetAlert2 11.26.25', 'node_modules/sweetalert2/LICENSE']],
+    },
+    {
+        name: 'DataTables Bootstrap CSS', version: '1.11.5', license: 'MIT',
+        url: 'https://cdn.datatables.net/1.11.5/css/dataTables.bootstrap4.min.css',
+        integrity: 'sha384-JMAAyYCa30ppXdV7yVd0xvCueC8MkzDGdJhVfdB5a0cLZB632nCcG+t8jtFM/3rf',
+        legal: [['DataTables Bootstrap 1.11.5', 'node_modules/datatables.net-bs4/License.txt']],
+    },
+    {
+        name: 'DataTables core', version: '1.11.5', license: 'MIT',
+        url: 'https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js',
+        integrity: 'sha384-ficRBwtap/VLzILv81vIvgp30PoJYnlCm96tPpNYHXAf+h9SIThOZxxIzRUzbpAh',
+        legal: [['DataTables 1.11.5', 'node_modules/datatables.net/License.txt']],
+    },
+    {
+        name: 'DataTables Bootstrap JavaScript', version: '1.11.5', license: 'MIT',
+        url: 'https://cdn.datatables.net/1.11.5/js/dataTables.bootstrap4.min.js',
+        integrity: 'sha384-bX64nQ/u/Jovgh0rdhdtHy2BMWv9TOOds6b4reiVcJ0KcA76JdIxmwar1pN2NsUj',
+        legal: [['DataTables Bootstrap 1.11.5', 'node_modules/datatables.net-bs4/License.txt']],
+    },
+];
+
+export const dynamicExternalExceptions = [
+    {
+        name: 'Google Maps JavaScript API',
+        prefix: 'https://maps.googleapis.com/maps/api/js?key={{',
+        reason: 'Runtime API URL contains a server-side key and callback; SRI cannot cover this dynamic licensed service.',
+    },
+];
+
+export const deadPaths = [
+    'public/index.html',
+    'resources/views/welcome.blade.php',
+    'resources/views/react-app.blade.php',
+    'public/admin/assets/bootstrap',
+    'public/admin/assets/user',
+    'public/admin/assets/image',
+    'public/admin/assets/images',
+    'public/admin/assets/js/lib',
+    'public/fonts',
+    'public/image',
+    'public/merchant',
+    'public/merchant - Copy',
+    'public/react',
+    'public/images/flags',
+    'public/images/flag',
+];
+
+export const deadReferenceTokens = [
+    'admin/assets/bootstrap/', 'admin/assets/user/', 'admin/assets/image/',
+    'admin/assets/images/', 'admin/assets/js/lib/', 'admin/assets/css/datepicker/',
+    'admin/assets/css/font-awesome/', 'admin/assets/css/font-awesome-4.7/',
+    'admin/assets/css/fonts/', 'admin/assets/css/jquery/', 'admin/assets/css/lib/',
+    'admin/assets/css/mdi-font/', 'admin/assets/css/select2/',
+    'merchant/style.css', 'merchant - Copy/style.css', 'public/react/',
+];
+
+export const forbiddenAssetName = /(?:panama|quenda|gedinar|jf[- _]?flat|helveticaneue|dinnext|bornaddict)/i;
+
+export const forbiddenAssetHashes = new Set([
+    '01b7a9dfb6544df53727b59d830b3d522716278a6dd1db99d32a0debda6e08b8',
+    '123c860e6f6e0e6a9c77b97b6809bb56e7281e6f0541da31e3d8f3c9bd17ce35',
+    '133a83eff5f4a23983f1224bf250e53eb683f40c5ec10e9640986115e5fcaef6',
+    '13634da87d9e23f8c3ed9108ce1724d183a39ad072e73e1b3d8cbf646d2d0407',
+    '3e1878948092fbc2d238f34b8e803f25dd3f89d870325ebd6379165c95498e7d',
+    '40f95fb007b08e5735daaee49934e75aa5c0db2c8e5d6c098b5bb55bdb51bf16',
+    '4243a0d7771f5fd8d804dbf7f2bcb63aa286bfa08607daa9aa87cdb52649c158',
+    '444dd4366615ffc4a16d012b2fa90137065d3ccb410fa6fd5e4ddd7b5e4ffcd5',
+    '56eb00ddcdd61c5a33651856ab085f185eac9c08a996374cdce6d9de51092117',
+    '7fd8130ba1e403506c948c0644ac705816de8d1a36266b2b5aac89eb4c331207',
+    '8178265c72dbc8d735d42e870cf63d9b22d52d9c3c2645a3a9edee4cc247fb2c',
+    '8985d10ea03b54907539a7a28c16fe6243f2c560fdb524bd5a2a24046230fca2',
+    '8f3cfa64db0735c21ac031f0c5a2b53085bffc5d38847f7f8fe792d9941e5f4c',
+    '90bcc1dbb182129d04ebfd8caccb1df7eb02bc1e48b42e30437debeaacda4b86',
+    '9a14ebb1885b508662ebc7ac2cd1b147c104c69602df0d29f2ffa71bd81ea2eb',
+    '9e540a087924a6e64790149d735cac022640e4fa6bff6bd65f5e9f41529bf0b3',
+    'a26394f7ede100ca118eff2eda08596275a9839b959c226e15439557a5a80742',
+    'a88dd599ae5df1766c94de9e122b69e656c3f742bdfefd1be3ad8cfa3ca00c7d',
+    'aadc3580d2b64ff5a7e6f1425587db4e8b033efcbf8f5c332ca52a5ed580c87c',
+    'ac53171ff6e5c6323731adf1f17eb5235d9e40c1488f2c21677de82cac8cecba',
+    'ae57aea1cb701121475bcd38a9264115c401927701f4b04a54f9166143c52fe0',
+    'b5390acd9a5ce07b858a81f248e50c31abda69e6688f5af53896665e5336a2ff',
+    'bc1839d52abe1ba334319eb8151c98374adfebdc711293d670497a5025bc5ade',
+    'bdc5d0b9f397be83e886c74b0141d1954aa4384b359dce49829994c4a2e1f7bf',
+    'cbb644d0ee730ea57dd5fbae35ef5ba4a41d57a254a6b1215de5c9ff8a321c2d',
+    'd0643a4ae6db4ba7e0b781e81d71640363c41b4e95fad4606c654d0283b21910',
+    'dc159ac640a73b80832268fb4b9aac669166db4efd801f49ae7470316e841a3c',
+    'e3870de89716b72cb61a4bba0e17c75783b361cdaba35ea96961c3070bd8ca18',
+    'e395044093757d82afcb138957d06a1ea9361bdcf0b442d06a18a8051af57456',
+    'e7f45b42dc0afdfca69646342e02165bb71ae9cc770c4f5fc2e4c5076f823dbd',
+    'fe185d11a49676890d47bb783312a0cda5a44c4039214094e7957b4c040ef11c',
+]);

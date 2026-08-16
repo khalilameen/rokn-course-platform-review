@@ -1,0 +1,60 @@
+@extends('admin.layouts.app')
+
+@section('page.title', 'الباقات')
+
+@section('content')
+<div class="admin-page card">
+    <div class="card-header">
+        <strong class="card-title">قائمة الباقات</strong>
+        <a href="{{ route('admin.packages.create') }}" class="btn btn-primary float-left">
+            <i class="fa fa-plus"></i> إضافة باقة
+        </a>
+    </div>
+    <div class="card-body">
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>الاسم (AR)</th>
+                    <th>الاسم (EN)</th>
+                    <th>السعر</th>
+                    <th>العملات (Coins)</th>
+                    <th>تاريخ الإنشاء</th>
+                    <th>العمليات</th>
+                </tr>
+            </thead>
+            <tbody>
+                @forelse($packages as $package)
+                <tr>
+                    <td>{{ $package->id }}</td>
+                    <td>{{ $package->name_ar }}</td>
+                    <td>{{ $package->name_en }}</td>
+                    <td>{{ $package->price }}</td>
+                    <td>{{ $package->coins }}</td>
+                    <td>{{ $package->created_at->format('Y-m-d') }}</td>
+                    <td>
+                        <a href="{{ route('admin.packages.show', $package->id) }}" class="btn btn-info btn-sm">
+                            <i class="fa fa-eye"></i>
+                        </a>
+                        <a href="{{ route('admin.packages.edit', $package->id) }}" class="btn btn-warning btn-sm">
+                            <i class="fa fa-edit"></i>
+                        </a>
+                        <form action="{{ route('admin.packages.destroy', $package->id) }}" method="POST" class="d-inline-block" onsubmit="return confirm('هل أنت متأكد؟');">
+                            @csrf
+                            @method('DELETE')
+                            <button type="submit" class="btn btn-danger btn-sm">
+                                <i class="fa fa-trash"></i>
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                @empty
+                <tr>
+                    <td colspan="7" class="text-center">لا توجد باقات حالياً</td>
+                </tr>
+                @endforelse
+            </tbody>
+        </table>
+    </div>
+</div>
+@endsection

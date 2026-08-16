@@ -1,0 +1,73 @@
+const mockFetch = jest.fn(
+  async (_url: string, _request: {body?: string}) => ({ok: true}),
+);
+const mockDigest = jest.fn(
+  async (_algorithm: string, _value: string) => 'a'.repeat(64),
+);
+
+jest.mock('react-native', () => ({
+  NativeModules: {},
+  Platform: {OS: 'android', Version: 34},
+}));
+
+jest.mock('expo/virtual/env', () => ({env: {}}));
+
+jest.mock('expo-crypto', () => ({
+  CryptoDigestAlgorithm: {SHA256: 'SHA-256'},
+  digestStringAsync: (algorithm: string, value: string) =>
+    mockDigest(algorithm, value),
+  randomUUID: () => '8d78f65e-8385-4b8b-8ea1-ccf985a4a191',
+}));
+
+describe('operational telemetry contract', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (globalThis as any).fetch = mockFetch;
+  });
+
+  it('sends only the allowlisted backend schema without free-form diagnostics', async () => {
+    (globalThis as any).__DEV__ = false;
+    const {reportClientError} = require('../src/services/operationalTelemetry');
+
+    await reportClientError(
+      new Error('payment_status_timeout user@example.com token=secret'),
+      {source: 'coin_checkout'},
+    );
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [, request] = mockFetch.mock.calls[0];
+    const payload = JSON.parse(String(request.body));
+
+    expect(payload).toMatchObject({
+      client_event_id: '8d78f65e-8385-4b8b-8ea1-ccf985a4a191',
+      event_name: 'payment_flow_failure',
+      severity: 'error',
+      platform: 'android',
+      os_major: 34,
+      device_tier: 'unknown',
+      screen_key: 'coin_checkout',
+      error_code: 'PAYMENT_STATUS_TIMEOUT',
+      error_fingerprint: 'a'.repeat(64),
+    });
+    expect(payload).not.toHaveProperty('message');
+    expect(payload).not.toHaveProperty('stack');
+    expect(payload).not.toHaveProperty('component_stack');
+    expect(JSON.stringify(payload)).not.toContain('user@example.com');
+    expect(JSON.stringify(payload)).not.toContain('secret');
+    expect(mockDigest.mock.calls[0][1]).not.toContain('user@example.com');
+    expect(mockDigest.mock.calls[0][1]).not.toContain('secret');
+
+    const diagnostics = await require('../src/services/operationalTelemetry')
+      .getOperationalDiagnosticsSnapshot();
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        event: 'payment_flow_failure',
+        severity: 'error',
+        code: 'PAYMENT_STATUS_TIMEOUT',
+        attempts: 0,
+      }),
+    ]);
+    expect(JSON.stringify(diagnostics)).not.toContain('user@example.com');
+    expect(JSON.stringify(diagnostics)).not.toContain('secret');
+  });
+});

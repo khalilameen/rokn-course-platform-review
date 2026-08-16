@@ -1,0 +1,593 @@
+{
+  "schemaVersion": 1,
+  "policy": "Every distributed public file is explicitly classified and SHA-256 pinned; additions fail CI until reviewed.",
+  "assets": [
+    {
+      "path": "public/.htaccess",
+      "sha256": "76a7bf886d3fa11f707753fc5d0fbbe4d820ee03fceb5834a5df7b7bfce8f1cd",
+      "classification": "deployment"
+    },
+    {
+      "path": "public/admin/assets/css/admin-learning-views.css",
+      "sha256": "d7ea84420c5e12bb0672f6604926013bc22efb9c83246d38b5e3dc566da14d7f",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/admin-shell.css",
+      "sha256": "396d3fae69eb6ab789b0a74f070d2e2aeff2bdfc596d4b35db02c0f683524ced",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/animate.css",
+      "sha256": "cb09ab0572c6a6549a782e2843218c00285cb737ae50fe29a5061ca96aff0234",
+      "classification": "third_party",
+      "family": "animate"
+    },
+    {
+      "path": "public/admin/assets/css/app-versions.css",
+      "sha256": "36c467f4dd038fc00da935204c636e0a08a457db9de6ee87be4f683cab93cfd9",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/bills-index.css",
+      "sha256": "e6dfd0328111d2fd3d442852e7f6801894a209cb3985555d898f24ddf6c115a9",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/bills-show.css",
+      "sha256": "6cd0bae3a388b5f750d3f5e39c8c9c480ccb9bcf4b15c99fd1ab17b4f5118abb",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/bootstrap.min.css",
+      "sha256": "5947e011dfd520b3f979a3e24b07aa00380d20c2eb70ab19b338a93be2ca7e35",
+      "classification": "third_party",
+      "family": "bootstrap-admin"
+    },
+    {
+      "path": "public/admin/assets/css/course-codes-create.css",
+      "sha256": "f66eb8b2e8bdc136adb196babbb935f293625dbcf411e6ba412b5e04e63b5ef2",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/course-codes-edit.css",
+      "sha256": "2cab4718550b1bef8553d9f1e51ad11615aab6758a7801574f3fa7d12a968d50",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/course-codes-index.css",
+      "sha256": "fe89a50f83dd93e4c35a479ad4a9cb73944879ddb1a5fe05c23e957f5ee0d24c",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/course-codes-show.css",
+      "sha256": "b9e40f1af4066bbd5d39055fb743b5183e2064b8237b763015c92d72e7b9cf43",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/course-create.css",
+      "sha256": "d8ed30f75dd6759d5ed5df5d8a0063895a88a74d4194d0b369c5392eb822cfe8",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/course-editor.css",
+      "sha256": "e7d181171b72fed3f7301d75927eb8dddb8d6fafd52b10aa0ca8415692b258a4",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/course-modules.css",
+      "sha256": "4fff8f62c884067d9df4c7f542f3f070c18bd5e9f3c6f21d6b62ac38d3591187",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/course-pdfs-create.css",
+      "sha256": "ed8fb10a8a44383b2274b9e10a715d73ff2c15dee724011240d306d62749674e",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/course-pdfs-edit.css",
+      "sha256": "abc10717011930cef6e569c63981bcc85697ecbe45373037e6fdc098d4e04a56",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/course-pdfs-index.css",
+      "sha256": "6c3385137e62ad2dcdce76b378cf6af48cde0d5d49ad19d84faf1383e7bfaea3",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/course-sections-create.css",
+      "sha256": "893fbad4a906263b09f064e3df292daa9db04d6fe464d650bf6fd5b80486df2c",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/course-sections-edit.css",
+      "sha256": "4b086b934d8d7c339da958b1586ef72d2bb8e1d2d17f986aab2ca376d2d818fc",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/course-sections-editor.css",
+      "sha256": "160650891337bcc1571bb79c216c26c6c0a05756d5fa74f31e940290778bd2fa",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/course-sections-index.css",
+      "sha256": "2628c4bc7d57fea1946b5081986089545c010fb65db0a4943c5076d80ea217e3",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/course-sections-show.css",
+      "sha256": "05b117b4cfbe9054fc4b219a4c17cccf67fdc92d50fe5afb3fdf542f9fad78c1",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/courses-exist.css",
+      "sha256": "0891d03fb14f6c72a2029a008c177e1936ce9475d792a972fef6888a0997670e",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/courses-index.css",
+      "sha256": "119d4fb78c9a21e811fa5701e15f4bce696a55ea1260ab87174f2c786f181437",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/courses-show.css",
+      "sha256": "c41f8e55a9154cdd0da4fe7f19105f6688537d53bbc4ce19bc4031e3ef1d9a3e",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/custom-global.css",
+      "sha256": "7bee615d16ebe8070890c849a179ebcd68dad6f2c547c97106aed5ca8efd3fd3",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/design-settings.css",
+      "sha256": "d715348abd498aa71bbe97ade92b264c0bfc6e8e6b776acddb24456017fd59f9",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/exam-results-index.css",
+      "sha256": "631f2ee9e291c4f3b19e72ca4f8a43b45f6cf850002382ba174f4a437d588e01",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/exam-results-student-results.css",
+      "sha256": "875672a33701308fa7418c9d1d53390e59517f226eae97c361520ff558468112",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/exam-results-theme.css",
+      "sha256": "cf42fd8e0fe8c447b63b9d772063fbc8ba6fd9e1e4d92224915903b341021267",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/font-awesome.min.css",
+      "sha256": "820e169ce24824066d9973fd4b6561aae9dcd6dbef6435da905d5a1d6482997c",
+      "classification": "third_party",
+      "family": "font-awesome"
+    },
+    {
+      "path": "public/admin/assets/css/grades-courses.css",
+      "sha256": "1fa18ad361c4d4200fd2d1c3ec54c1b3ddf76db3113f63728998ac4a641779d7",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/grades-create.css",
+      "sha256": "c486377386e0078a3a96a4fc2d1ab41a5c9032f4780ebb693b15949c234c26d4",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/grades-edit.css",
+      "sha256": "6bd537efca95dfef8ae836c9cb1210872403e266107e802e45bc480c78538514",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/grades-form.css",
+      "sha256": "f3d2dd2b2185840faed0217141c6b1e2d1a5e6b47691e20ab71a6877122bc5e3",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/grades-index.css",
+      "sha256": "0fc54d285f6c964e9f8bfd154e071019ef90fa106871b7ba3c37565f2c928d77",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/grades-theme.css",
+      "sha256": "154ea7a8b76c8f0d4eb01c13a8c0e5b9c71acc0f3aae4e3ea804f942a2e60d41",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/home-dashboard.css",
+      "sha256": "88942a4bc7b737334e8cdafa6c28ad1d8d89a1a65e7e903791132f316a247bc0",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/levels-dashboard.css",
+      "sha256": "6a600146550aac3e4e77164dee1aca6a301cfe15a45bf59a748baed28021f24b",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/login.css",
+      "sha256": "2fd82a9d2d4e4ab4a4143e5db5221381e49dedcce05e576fc59e9fc08093693c",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/normalize.css",
+      "sha256": "212d07e9b694600a01f15b40e4b72ffe774040baa3fd0c53ec324b747c204f6b",
+      "classification": "third_party",
+      "family": "normalize"
+    },
+    {
+      "path": "public/admin/assets/css/notifications-dashboard.css",
+      "sha256": "c62138849c6bc39fbfd65e63aab61bcb83ead3ca4f003d3cbf9771c59da112d4",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/orders-index.css",
+      "sha256": "25d9bc9235c476e2b6924348f72b00aa95757a059e43ac27c90aabbc04405a08",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/orders-show.css",
+      "sha256": "ae8c6656aefff083e0ab17c9a5955f401617df32cc9df5359f0067f30e86970f",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/payment-methods-form.css",
+      "sha256": "7203ac3d99f5c8ca56e46c8e44d57fd2f3e0333706bf46c54884becc6c272715",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/payment-methods-index.css",
+      "sha256": "301a902bbcfdfbef6918f86db7cd363c16b788ccf327894d70df27e490fe4ba1",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/settings-admin-data.css",
+      "sha256": "dcb6bfee102662c0f62f93a0bc4a5de9ea3e6beafdf4ccffb2ee9d2b9ddddfa1",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/settings-dashboard.css",
+      "sha256": "33284fdd4f1a98b616417fa7304e62eb164d3defaec25514f0dd4eab6e9e7a3e",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/settings-student-platform.css",
+      "sha256": "1d19149f2f5dc234c4dba0debb52d8ea5b740d412d884df96b3da9c7a0787cf7",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/student-progress-index.css",
+      "sha256": "6bdeac9ab57e0bdec8743722aba8b6af7f0e12f3dc5661cac380b2313daf6edb",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/student-progress-show.css",
+      "sha256": "dac2e7f3885cc96ef95db26cb6cdbe31a1124dd214bb9b115524d9d635aa4f22",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/themify-icons.css",
+      "sha256": "119f7b78c115e1879d2a7eb3d1ca45696b4cf77c39d80508d81a21d8e90cc90b",
+      "classification": "third_party",
+      "family": "themify"
+    },
+    {
+      "path": "public/admin/assets/css/urgent-tasks-courses-without-quiz.css",
+      "sha256": "bd6eca5b61907bb792447f4ad73e72a6fec404473f2c70cf0e6f3d780f28937d",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/urgent-tasks-inactive-students.css",
+      "sha256": "507293fe36baaae3eaeb6e9370c2b6fab654f51cabfd8e99e5bc20eb2105de9f",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/urgent-tasks-index.css",
+      "sha256": "afc98c2fa8ed5813550b0e264cb067e6986348ed0f14469eae367066d19636c2",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/urgent-tasks-pending-orders.css",
+      "sha256": "2c8d8d5c63fb80cda74439755248bc6f968737eb395f7e0a50b05704548d9ed7",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/urgent-tasks-shared.css",
+      "sha256": "b15d59af646caacf013a3d87ab7c3eaba0779f25f4e3657d16c3e5f28b3c5f46",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/users-editor.css",
+      "sha256": "13932f2dd460749b589b2a461c52eef75da0f133060be6de3d919bcbade5ab0b",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/users-form.css",
+      "sha256": "911b1b276c1c629ba3b3325cefa8059c53ee1903bed6b7361addb4f0a9f218d7",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/users-index.css",
+      "sha256": "08a7d31411b129c463ff3c95479155d87b971cc5e1ca78b046a0377eeb73b076",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/users-show.css",
+      "sha256": "61076b7fb2ec29eb8d83d51251e4bb0c158a91c75c7c3b124cbb6254eb4c9899",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/css/users-theme.css",
+      "sha256": "33d8415afd11b78a8ef3b90d6a2c31e1631dc1baad9df30d873ef3e9b2d7b863",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/admin/assets/fonts/fontawesome-webfont.eot",
+      "sha256": "7bfcab6db99d5cfbf1705ca0536ddc78585432cc5fa41bbd7ad0f009033b2979",
+      "classification": "third_party",
+      "family": "font-awesome"
+    },
+    {
+      "path": "public/admin/assets/fonts/fontawesome-webfont.svg",
+      "sha256": "fc378232f9dad500890aa9e0bdd030a53d2f317d517393a3b91400b4ddce4c7c",
+      "classification": "third_party",
+      "family": "font-awesome"
+    },
+    {
+      "path": "public/admin/assets/fonts/fontawesome-webfont.ttf",
+      "sha256": "aa58f33f239a0fb02f5c7a6c45c043d7a9ac9a093335806694ecd6d4edc0d6a8",
+      "classification": "third_party",
+      "family": "font-awesome"
+    },
+    {
+      "path": "public/admin/assets/fonts/fontawesome-webfont.woff",
+      "sha256": "ba0c59deb5450f5cb41b3f93609ee2d0d995415877ddfa223e8a8a7533474f07",
+      "classification": "third_party",
+      "family": "font-awesome"
+    },
+    {
+      "path": "public/admin/assets/fonts/fontawesome-webfont.woff2",
+      "sha256": "2adefcbc041e7d18fcf2d417879dc5a09997aa64d675b7a3c4b6ce33da13f3fe",
+      "classification": "third_party",
+      "family": "font-awesome"
+    },
+    {
+      "path": "public/admin/assets/fonts/themify.eot",
+      "sha256": "dff415daec911b65dca5be02071a1825b75508ff158de5b8d85976957db931cb",
+      "classification": "third_party",
+      "family": "themify"
+    },
+    {
+      "path": "public/admin/assets/fonts/themify.svg",
+      "sha256": "2e2421027bbae2dddf9dd7f0374ad7eb9c3d75fbfa12eb64d32100d377eecf8c",
+      "classification": "third_party",
+      "family": "themify"
+    },
+    {
+      "path": "public/admin/assets/fonts/themify.ttf",
+      "sha256": "350663a4665e00072c68a87ad3fa0be47b8a91424127f5f3e09f664197295f01",
+      "classification": "third_party",
+      "family": "themify"
+    },
+    {
+      "path": "public/admin/assets/fonts/themify.woff",
+      "sha256": "0db5c5a1475eb7a3e5028983ea1e642d1b2c00faff6a250a37502b0f3832a4a7",
+      "classification": "third_party",
+      "family": "themify"
+    },
+    {
+      "path": "public/admin/assets/js/main.js",
+      "sha256": "234067235d27fae6b134f31ed03885e0a34909e9381f88736d14578190f8b183",
+      "classification": "third_party",
+      "family": "sufee"
+    },
+    {
+      "path": "public/admin/assets/js/vendor/select2/select2.min.css",
+      "sha256": "15d6ad4dfdb43d0affad683e70029f97a8f8fc8637a28845009ee0542dccdf81",
+      "classification": "third_party",
+      "family": "select2"
+    },
+    {
+      "path": "public/admin/assets/js/vendor/select2/select2.min.js",
+      "sha256": "00501810e93307a8882a74d864e7547fd1458deea539361dc1124ac133799a4b",
+      "classification": "third_party",
+      "family": "select2"
+    },
+    {
+      "path": "public/admin/assets/scss/style.css",
+      "sha256": "55efe609d8ce6d4cf6bb09ab8c87ae4b6ad8015b3ab7f207ce6516b6ae62e9ee",
+      "classification": "third_party",
+      "family": "sufee"
+    },
+    {
+      "path": "public/admin/assets/vendor/datatables/i18n/ar.json",
+      "sha256": "2e3453f87a7d896077de11682f6a2eca8a77dc5b926315c379937c16f3a7a2ef",
+      "classification": "third_party",
+      "family": "datatables-i18n"
+    },
+    {
+      "path": "public/assets/img/badges/junior.png",
+      "sha256": "1932ce42dae5b03d55dc6f334f3efd0f4765932235788b754290869d09d7f980",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/assets/img/badges/mid-level.png",
+      "sha256": "f2d0a814156d98445bff395841198d98e49771fe2297f8b8b79616d7f62ce190",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/assets/img/badges/senior.png",
+      "sha256": "859dfc3891fa66f0f687627169ba213343b2a92a42836892750fed049cff86c4",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/css/app.css",
+      "sha256": "5e03f6808d2948a181062cebf54b459ed7f65c90e0385399eb9a283d1a43d858",
+      "classification": "third_party",
+      "family": "frontend-bundle"
+    },
+    {
+      "path": "public/css/landing.css",
+      "sha256": "5de894c613976b8bed682fc073e2e20a05f6754d55f7a85b49e84e3e4b13b6d3",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/favicon.ico",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/images/5.png",
+      "sha256": "330c8f05fcc3893e2877001da64495787b3abad48fb5eaa696aa2ea645428538",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/images/6.png",
+      "sha256": "9b08541a294a362b13b9a4024ea3626becbcbedd52cd580b3cd5c793dc988585",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/images/admin.jpg",
+      "sha256": "77817998cc8f02a942815903eb78465957593e4478de154f52d6cccc5335c5c9",
+      "classification": "third_party",
+      "family": "sufee"
+    },
+    {
+      "path": "public/images/avatar/customer_blank.png",
+      "sha256": "60f4ddba4688f232aae522362d6b7b50f4409493657563207aae202fa3aee263",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/images/cars/car-1.png",
+      "sha256": "01db6c8e199c2f414a519733e1f30f22b3f28d458cb3c7c1bc2c7de5371efe05",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/images/certificate_template.png",
+      "sha256": "46c3648df784b3d9e32c4225ba3fd1b48b4be63f00da678d5dcaa37f7a1abeb3",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/images/default-folder.png",
+      "sha256": "b525683c32779c5f7cad733c5ca0865314a52f0e7d9087d74eedbce0583bf312",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/images/demo-course-cover.svg",
+      "sha256": "9181998e95fb72e91d80023e6931d0b1b257f77ca922b525387d74d6ccee9b47",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/images/logo.png",
+      "sha256": "b525683c32779c5f7cad733c5ca0865314a52f0e7d9087d74eedbce0583bf312",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/images/markerImg.png",
+      "sha256": "868dc8ae80491e5dc69fe469b3a18b46f0435f2650a24ddcf80a4ed0b224a6d9",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/images/service.jpg",
+      "sha256": "0523486a6f7ec77842a8612d203d603bc10bfebf84b0fd9eaf2a9d987cb1e744",
+      "classification": "first_party"
+    },
+    {
+      "path": "public/index.php",
+      "sha256": "2bd9d83acf6015264ad0b96ecbab2cd2f6925dcfa9739351f4bfbbdaf566530e",
+      "classification": "deployment"
+    },
+    {
+      "path": "public/js/app.js",
+      "sha256": "f9f1a973c8accf8fd33010a043facf578c97398494410e76f3931738d6fa743a",
+      "classification": "third_party",
+      "family": "frontend-bundle"
+    },
+    {
+      "path": "public/js/app.js.LEGAL.txt",
+      "sha256": "80d0b480d1956f162c06cef0b79a260b587192bd1b2d4de2c77cfe59261bbed3",
+      "classification": "third_party",
+      "family": "frontend-bundle"
+    },
+    {
+      "path": "public/legal/source/sufee-1.0.0-rokn/_gauge.scss",
+      "sha256": "facbb853e6a17eb7b88f539a0c5ae0e394ea9d7197d74df5d9a3281024ffd3d5",
+      "classification": "third_party",
+      "family": "sufee"
+    },
+    {
+      "path": "public/legal/source/sufee-1.0.0-rokn/_switches.scss",
+      "sha256": "d68993c6413f052bf4e84db68b70b139d58bcf4785c613ce94aad6983c82c289",
+      "classification": "third_party",
+      "family": "sufee"
+    },
+    {
+      "path": "public/legal/source/sufee-1.0.0-rokn/_variables.scss",
+      "sha256": "5d58bc882ef864bcf909eca689afa62723c13abb3b70639e20a349bea8e5c5f3",
+      "classification": "third_party",
+      "family": "sufee"
+    },
+    {
+      "path": "public/legal/source/sufee-1.0.0-rokn/_widgets.scss",
+      "sha256": "ffa121508291cc4d0888053a7ae35f03e88aee52075cd1fd6fd48870f6af872b",
+      "classification": "third_party",
+      "family": "sufee"
+    },
+    {
+      "path": "public/legal/source/sufee-1.0.0-rokn/COPYING.GPL-2.0.txt",
+      "sha256": "c1dd2970ee89f6e55b1b6513129abd703cd7f58175cd61720414061b20279bff",
+      "classification": "third_party",
+      "family": "sufee"
+    },
+    {
+      "path": "public/legal/source/sufee-1.0.0-rokn/LICENSE.upstream-MIT.txt",
+      "sha256": "5c4d8f0417f44c799e1f10e75267c5add198ac820cbc31829c00411ccd506029",
+      "classification": "third_party",
+      "family": "sufee"
+    },
+    {
+      "path": "public/legal/source/sufee-1.0.0-rokn/README.txt",
+      "sha256": "e1550faf7ca9278a23b982eab8f93f02e66d8bad1779583972393ba8664f1ca1",
+      "classification": "third_party",
+      "family": "sufee"
+    },
+    {
+      "path": "public/legal/source/sufee-1.0.0-rokn/SOURCE_MANIFEST.json",
+      "sha256": "d9bc97b75783f1bd6fb260e184816172b1031e09703dd0a4c51d86d5914ebee0",
+      "classification": "third_party",
+      "family": "sufee"
+    },
+    {
+      "path": "public/legal/source/sufee-1.0.0-rokn/style.scss",
+      "sha256": "0488ab897ed7adbde0f9ce62b33a22b08a3dabda6e5b1372b3efea3450774119",
+      "classification": "third_party",
+      "family": "sufee"
+    },
+    {
+      "path": "public/mix-manifest.json",
+      "sha256": "5ee977651c5f79fbcb0b888315b22fba78b200d74e0a0c60997f6e95641fa4e8",
+      "classification": "generated"
+    },
+    {
+      "path": "public/public/.gitignore",
+      "sha256": "4bb38be6d6d9ef0d2f9bcc339850ff48d821eccfa739369402b354c9ba946ea2",
+      "classification": "deployment"
+    },
+    {
+      "path": "public/robots.txt",
+      "sha256": "9133ceedd6bece0761cc791489df7a3fdbfaaa32d6316d98b92e6f8ff76e397a",
+      "classification": "deployment"
+    },
+    {
+      "path": "public/THIRD_PARTY_NOTICES.frontend.md",
+      "sha256": "a1d724b7a4766bffc07d4acbcc02a70ba549eecbf2d2903abf2ac4bcb4926745",
+      "classification": "generated"
+    },
+    {
+      "path": "public/web.config",
+      "sha256": "2bb3d01d32244dcee9dfc4b505e9b386f82294e48d0ad7c048cc999d5b3ee9f5",
+      "classification": "deployment"
+    }
+  ]
+}

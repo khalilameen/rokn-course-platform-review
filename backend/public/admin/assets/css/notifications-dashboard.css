@@ -1,0 +1,20 @@
+.notifications-page {
+    direction: rtl;
+    text-align: right;
+}
+
+.notifications-page .notifications-page__card {
+    overflow: hidden;
+    border-radius: var(--rokn-admin-radius, 15px);
+}
+
+.notifications-page code {
+    direction: ltr;
+    unicode-bidi: plaintext;
+}
+
+.notification-form-page .card {
+    border: 1px solid var(--rokn-admin-border, #e5e7eb);
+    border-radius: var(--rokn-admin-radius, 15px);
+    box-shadow: var(--rokn-admin-shadow, 0 4px 16px rgba(15, 23, 42, .07));
+}

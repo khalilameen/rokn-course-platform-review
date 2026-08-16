@@ -1,0 +1,109 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "src/assets/fonts/Bitter/Bitter-ExtraBoldItalic.ttf",
+      "sha1": "ec26fe832984754a3db8ca309d971429e27add0f"
+    },
+    {
+      "path": "src/assets/fonts/Bitter/Bitter-Bold.ttf",
+      "sha1": "b98a041c785b854030ce948dcadaeacaf8dfcfe3"
+    },
+    {
+      "path": "src/assets/fonts/Bitter/Bitter-Black.ttf",
+      "sha1": "e1173aaadf1e5a477c5dbb8df444ff4f0606388a"
+    },
+    {
+      "path": "src/assets/fonts/Bitter/Bitter-Medium.ttf",
+      "sha1": "48dddca2b32480450d6e1ddb281abaebd4b4666c"
+    },
+    {
+      "path": "src/assets/fonts/Bitter/Bitter-Thin.ttf",
+      "sha1": "59fa9a4d20289a69fab140bd0ad10a7aa43ad505"
+    },
+    {
+      "path": "src/assets/fonts/Bitter/Bitter-BlackItalic.ttf",
+      "sha1": "773f719cac1d6bae4329b4b227091eca6288e25d"
+    },
+    {
+      "path": "src/assets/fonts/Bitter/Bitter-LightItalic.ttf",
+      "sha1": "b7b10f4cb6299d1e03574d17c116f0bc249fc44f"
+    },
+    {
+      "path": "src/assets/fonts/Bitter/Bitter-SemiBold.ttf",
+      "sha1": "f204dd7e569bc9ba56e7e2dffec2a53f79453a14"
+    },
+    {
+      "path": "src/assets/fonts/Bitter/Bitter-BoldItalic.ttf",
+      "sha1": "32aa8374790ac7ff247fa1448bb1e00be5ea8bb4"
+    },
+    {
+      "path": "src/assets/fonts/Bitter/Bitter-ThinItalic.ttf",
+      "sha1": "cfefac992744af4b9bb42af727ce6650afd4ba8c"
+    },
+    {
+      "path": "src/assets/fonts/Bitter/Bitter-ExtraLight.ttf",
+      "sha1": "27ca717d9e68f2e99e7980331ead04a9c431c063"
+    },
+    {
+      "path": "src/assets/fonts/Bitter/Bitter-ExtraBold.ttf",
+      "sha1": "5324cc9eaab8ee92a3fcf3bcd424d33d76c7464d"
+    },
+    {
+      "path": "src/assets/fonts/Bitter/Bitter-ExtraLightItalic.ttf",
+      "sha1": "0bd7b28895fad6c425c3af1016797f51b2cb3aed"
+    },
+    {
+      "path": "src/assets/fonts/Bitter/Bitter-Regular.ttf",
+      "sha1": "6a1da16746c6f2eeb9d11ee53962cdb1384a764c"
+    },
+    {
+      "path": "src/assets/fonts/Bitter/Bitter-SemiBoldItalic.ttf",
+      "sha1": "2bc1b49bce8ea89724c0a8156d3109032d321341"
+    },
+    {
+      "path": "src/assets/fonts/Bitter/Bitter-Italic.ttf",
+      "sha1": "866866eeb580f1f2823e1279585fe84cefc95b12"
+    },
+    {
+      "path": "src/assets/fonts/Bitter/Bitter-Light.ttf",
+      "sha1": "083216d13bf3c9acb037a6a0c40c9a09a36f2c50"
+    },
+    {
+      "path": "src/assets/fonts/Bitter/Bitter-MediumItalic.ttf",
+      "sha1": "fd736e96ab12328d0a6074be15dc684b0d1cf076"
+    },
+    {
+      "path": "src/assets/fonts/Cairo/Cairo-ExtraBold.ttf",
+      "sha1": "35edba902298f72ed1d47c93201d2517169a0004"
+    },
+    {
+      "path": "src/assets/fonts/Cairo/Cairo-ExtraLight.ttf",
+      "sha1": "9c3787a7b847c6d1749e69f574829623834e1626"
+    },
+    {
+      "path": "src/assets/fonts/Cairo/Cairo-SemiBold.ttf",
+      "sha1": "30dc3ec8aba45f975411bc675494c59b5c227f47"
+    },
+    {
+      "path": "src/assets/fonts/Cairo/Cairo-Medium.ttf",
+      "sha1": "35fb6c639d86475e0ba6f1883001310d0ab4076d"
+    },
+    {
+      "path": "src/assets/fonts/Cairo/Cairo-Regular.ttf",
+      "sha1": "ff06dbd8c8a0fef12b0668cb7b849c209a21b435"
+    },
+    {
+      "path": "src/assets/fonts/Cairo/Cairo-Light.ttf",
+      "sha1": "cef35f6061ab86fc969e4be4568914e3bebdfb80"
+    },
+    {
+      "path": "src/assets/fonts/Cairo/Cairo-Black.ttf",
+      "sha1": "daf7d75a54160134031c1f4c7ed3aa8f80b33f9d"
+    },
+    {
+      "path": "src/assets/fonts/Cairo/Cairo-Bold.ttf",
+      "sha1": "dd70862b408a084a4e55aa03529eb8e06641165e"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "component": "Sufee Admin Dashboard 1.0.0 (Rokn-modified)",
+  "upstream": "https://github.com/puikinsh/sufee-admin-dashboard/tree/dcae40f7d2afea4fc0e8480fa4b3558ef4d2cc38",
+  "compiledArtifact": "public/admin/assets/scss/style.css",
+  "compiledSha256": "55efe609d8ce6d4cf6bb09ab8c87ae4b6ad8015b3ab7f207ce6516b6ae62e9ee",
+  "build": "npm ci && npm run build:admin-vendor-css",
+  "correspondingSource": {
+    "style.scss": "0488ab897ed7adbde0f9ce62b33a22b08a3dabda6e5b1372b3efea3450774119",
+    "_variables.scss": "5d58bc882ef864bcf909eca689afa62723c13abb3b70639e20a349bea8e5c5f3",
+    "_gauge.scss": "facbb853e6a17eb7b88f539a0c5ae0e394ea9d7197d74df5d9a3281024ffd3d5",
+    "_switches.scss": "d68993c6413f052bf4e84db68b70b139d58bcf4785c613ce94aad6983c82c289",
+    "_widgets.scss": "ffa121508291cc4d0888053a7ae35f03e88aee52075cd1fd6fd48870f6af872b",
+    "COPYING.GPL-2.0.txt": "c1dd2970ee89f6e55b1b6513129abd703cd7f58175cd61720414061b20279bff",
+    "LICENSE.upstream-MIT.txt": "5c4d8f0417f44c799e1f10e75267c5add198ac820cbc31829c00411ccd506029"
+  }
+}

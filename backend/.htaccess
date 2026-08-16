@@ -1,0 +1,24 @@
+Options -Indexes
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Never expose application source, dependencies or runtime data when the
+    # hosting document root cannot be pointed directly at /public.
+    RewriteRule ^(?:app|bootstrap|config|database|resources|routes|storage|tests|vendor|specs)(?:/|$) - [R=404,L,NC]
+
+    # Keep ACME validation available while rejecting every other dotfile.
+    RewriteRule (^|/)\.(?!well-known(?:/|$)) - [F,L]
+
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^ index.php [L]
+</IfModule>
+
+<FilesMatch "^(?:artisan|composer\.(?:json|lock|phar)|package(?:-lock)?\.json|phpunit\.xml|server\.php|webpack\.mix\.js|.*\.(?:md|yml|yaml|lock|log|sql))$">
+    Require all denied
+</FilesMatch>

@@ -1,0 +1,9 @@
+appId: com.rokn
+---
+- launchApp
+- tapOn: ${ROKN_SMOKE_PROFILE_TAB}
+- tapOn: ${ROKN_SMOKE_EDIT_ACCOUNT_CTA}
+- tapOn: ${ROKN_SMOKE_DELETE_ACCOUNT_CTA}
+- assertVisible: ${ROKN_SMOKE_DELETE_ACCOUNT_TEXT}
+- pressKey: back
+- assertVisible: ${ROKN_SMOKE_EDIT_ACCOUNT_CTA}

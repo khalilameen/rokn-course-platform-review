@@ -1,0 +1,58 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "requireCommit": true,
+    "appVersionSource": "local"
+  },
+  "build": {
+    "production-play": {
+      "distribution": "store",
+      "channel": "production",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://rokn.app/api/",
+        "EXPO_PUBLIC_DISTRIBUTION_CHANNEL": "play",
+        "EXPO_PUBLIC_BUILD_PROFILE": "production",
+        "EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS": "1",
+        "EXPO_PUBLIC_ENABLE_LOCAL_DEMO": "0",
+        "ORG_GRADLE_PROJECT_roknDistributionChannel": "play",
+        "ORG_GRADLE_PROJECT_roknBuildProfile": "production",
+        "ORG_GRADLE_PROJECT_roknEnableMinify": "true",
+        "ORG_GRADLE_PROJECT_roknEnableResourceShrink": "true"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "buildArtifactPaths": [
+        "artifacts/eas/**/*"
+      ]
+    },
+    "production-ios": {
+      "distribution": "store",
+      "channel": "production",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://rokn.app/api/",
+        "EXPO_PUBLIC_DISTRIBUTION_CHANNEL": "appstore",
+        "EXPO_PUBLIC_BUILD_PROFILE": "production",
+        "EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS": "1",
+        "EXPO_PUBLIC_ENABLE_LOCAL_DEMO": "0"
+      },
+      "ios": {
+        "resourceClass": "m-medium"
+      }
+    },
+    "preview-direct": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://rokn.app/api/",
+        "EXPO_PUBLIC_DISTRIBUTION_CHANNEL": "direct",
+        "EXPO_PUBLIC_BUILD_PROFILE": "test",
+        "EXPO_PUBLIC_ENABLE_LOCAL_DEMO": "0",
+        "ORG_GRADLE_PROJECT_roknDistributionChannel": "direct",
+        "ORG_GRADLE_PROJECT_roknBuildProfile": "test"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    }
+  }
+}

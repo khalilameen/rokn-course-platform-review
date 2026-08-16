@@ -1,0 +1,252 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Feature\API;
+
+use App\Models\User;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * End-to-end Feature flow test simulating a realistic student journey in the Rokn e-learning platform.
+ * This covers major business flows after social sign-in: course browsing, code redemption,
+ * section completion, taking exams, checking results, submitting ratings, and managing saved folders & portfolio.
+ */
+class StudentElearningFlowTest extends ApiTestCase
+{
+    public function test_one_second_client_duration_cannot_unlock_a_lesson_with_unknown_server_duration(): void
+    {
+        DB::table('lessons')->where('id', 10)->update(['duration_minutes' => 0]);
+        DB::table('course_sections')->where('id', $this->sectionId)->update([
+            'sectionable_type' => \App\Models\Lesson::class,
+            'sectionable_id' => 10,
+            'section_type' => 'lesson',
+        ]);
+        DB::table('course_enrollments')->insert([
+            'user_id' => $this->user->id,
+            'course_id' => $this->courseId,
+            'is_active' => true,
+            'enrolled_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->actingAs($this->user, 'api')->postJson('/api/v1/user/watch-history', [
+            'lesson_id' => 10,
+            'position_seconds' => 0,
+            'duration_seconds' => 1,
+        ])->assertOk()->assertJsonPath('data.learning_evidence.required_seconds', null);
+
+        $this->travel(1)->seconds();
+        $this->actingAs($this->user, 'api')->postJson('/api/v1/user/watch-history', [
+            'lesson_id' => 10,
+            'position_seconds' => 1,
+            'duration_seconds' => 1,
+        ])->assertOk()
+            ->assertJsonPath('data.learning_evidence.required_seconds', null)
+            ->assertJsonPath('data.learning_evidence.eligible_for_completion', false);
+
+        $this->actingAs($this->user, 'api')
+            ->postJson("/api/v1/courses/{$this->courseId}/sections/{$this->sectionId}/complete")
+            ->assertStatus(409)
+            ->assertJsonPath('code', 'verified_watch_required');
+        $this->assertDatabaseMissing('student_section_progress', [
+            'user_id' => $this->user->id,
+            'course_section_id' => $this->sectionId,
+        ]);
+    }
+
+    /**
+     * Test complete student journey from registration to course progress and exam completion.
+     */
+    public function test_complete_elearning_journey_from_social_sign_in_to_certification(): void
+    {
+        // Social-provider identity verification itself is covered by the OAuth
+        // contract tests. Start this journey with the verified identity that
+        // the social callback persists, without reviving the removed OTP flow.
+        $student = User::create([
+            'name' => 'Sara Student',
+            'email' => 'sara@rokn.com',
+            'role' => 'client',
+            'active' => true,
+            'social_provider' => 'google',
+            'social_id' => 'google-sara-001',
+            'wallet_coins' => 20,
+        ]);
+
+        $this->assertDatabaseHas('users', [
+            'id' => $student->id,
+            'email' => 'sara@rokn.com',
+            'social_provider' => 'google',
+        ]);
+
+        // 2. Student browses courses and checks access before enrolling
+        $browseResponse = $this->actingAs($student, 'api')->getJson('/api/v1/courses');
+        $browseResponse->assertStatus(200);
+
+        $accessCheckBefore = $this->actingAs($student, 'api')->postJson('/api/v1/courses/check-access', [
+            'course_id' => $this->courseId
+        ]);
+        $accessCheckBefore->assertStatus(200);
+
+        // 3. Student redeems a course code to gain full access
+        $redeemResponse = $this->actingAs($student, 'api')->postJson('/api/v1/course-codes/redeem', [
+            'code' => 'TESTCODE'
+        ]);
+        $redeemResponse->assertStatus(200)
+            ->assertJsonPath('success', true);
+
+        // Verify enrollment and free order creation
+        $this->assertDatabaseHas('course_enrollments', [
+            'user_id' => $student->id,
+            'course_id' => $this->courseId,
+            'is_active' => 1
+        ]);
+
+        $this->assertDatabaseHas('orders', [
+            'user_id' => $student->id,
+            'course_id' => $this->courseId,
+            'status' => 'approved'
+        ]);
+
+        // 4. The player sends server-timed evidence before completing a lesson.
+        DB::table('lessons')->where('id', 10)->update(['duration_minutes' => 1]);
+        DB::table('course_sections')->where('id', $this->sectionId)->update([
+            'sectionable_type' => \App\Models\Lesson::class,
+            'sectionable_id' => 10,
+            'section_type' => 'lesson',
+        ]);
+        $this->actingAs($student, 'api')->postJson('/api/v1/user/watch-history', [
+            'lesson_id' => 10,
+            'position_seconds' => 0,
+            'duration_seconds' => 60,
+        ])->assertOk();
+        // Production heartbeats are intentionally bounded to short gaps.
+        // Reproduce a real player cadence instead of one synthetic 48-second
+        // jump, while accumulating the same verified watch time.
+        $this->travel(24)->seconds();
+        $this->actingAs($student, 'api')->postJson('/api/v1/user/watch-history', [
+            'lesson_id' => 10,
+            'position_seconds' => 24,
+            'duration_seconds' => 60,
+        ])->assertOk();
+        $this->travel(24)->seconds();
+        $this->actingAs($student, 'api')->postJson('/api/v1/user/watch-history', [
+            'lesson_id' => 10,
+            'position_seconds' => 48,
+            'duration_seconds' => 60,
+        ])->assertOk();
+
+        // The completion endpoint now validates that evidence rather than a
+        // client-supplied "completed" boolean.
+        $progressResponse = $this->actingAs($student, 'api')->postJson("/api/v1/courses/{$this->courseId}/sections/{$this->sectionId}/complete");
+        $progressResponse->assertStatus(200);
+
+        // Check student section progress recorded in DB
+        $this->assertDatabaseHas('student_section_progress', [
+            'user_id' => $student->id,
+            'course_section_id' => $this->sectionId,
+        ]);
+
+        // Verify course progress calculation
+        $courseProgressResponse = $this->actingAs($student, 'api')->getJson("/api/v1/courses/{$this->courseId}/progress");
+        $courseProgressResponse->assertStatus(200);
+
+        // 5. Student takes the course exam
+        $startExamResponse = $this->actingAs($student, 'api')->postJson('/api/v1/exams/start', [
+            'quiz_id' => 1
+        ]);
+        $startExamResponse->assertStatus(200);
+        $examAttemptId = (int) $startExamResponse->json('data.exam_attempt_id');
+        $this->assertGreaterThan(0, $examAttemptId, 'Exam attempt should be created');
+
+        // Submit an answer to question 1 (selected_answer must match choice index: 2 = '4')
+        $submitAnswerResponse = $this->actingAs($student, 'api')->postJson('/api/v1/exams/submit-answer', [
+            'exam_attempt_id' => $examAttemptId,
+            'question_id' => 1,
+            'selected_answer' => 2
+        ]);
+        $submitAnswerResponse->assertStatus(200);
+
+        // End exam
+        $endExamResponse = $this->actingAs($student, 'api')->postJson('/api/v1/exams/end', [
+            'exam_attempt_id' => $examAttemptId
+        ]);
+        $endExamResponse->assertStatus(200);
+
+        // Check exam history
+        $historyResponse = $this->actingAs($student, 'api')->getJson('/api/v1/exams/history');
+        $historyResponse->assertStatus(200);
+
+        // 6. Student submits course rating and checks profile
+        $rateResponse = $this->actingAs($student, 'api')->postJson("/api/v1/courses/{$this->courseId}/rate", [
+            'rating' => 5,
+            'comment' => 'ممتازة جدا وشرح رائع'
+        ]);
+        $rateResponse->assertStatus(200);
+
+        $profileResponse = $this->actingAs($student, 'api')->getJson('/api/v1/user/profile');
+        $profileResponse->assertStatus(200)
+            ->assertJsonPath('success', true);
+    }
+
+    /**
+     * Test student study organization (saved folders/lessons) and portfolio showcase workflow.
+     */
+    public function test_student_study_organization_and_portfolio_flow(): void
+    {
+        $student = $this->user;
+
+        // Saved learning material may only reference a course the student can
+        // actually open. Grant the same scholarship-code access used by the
+        // real app before exercising folder organisation.
+        $this->actingAs($student, 'api')->postJson('/api/v1/course-codes/redeem', [
+            'code' => 'TESTCODE',
+        ])->assertOk();
+
+        // 1. Create a study folder to organize saved lessons
+        $createFolderResponse = $this->actingAs($student, 'api')->postJson('/api/v1/saved-folders', [
+            'name' => 'مفضلاتي في الرياضيات'
+        ]);
+        $createFolderResponse->assertStatus(201)
+            ->assertJsonPath('success', true);
+
+        $folderId = (int) $createFolderResponse->json('data.id');
+        $this->assertDatabaseHas('saved_folders', ['id' => $folderId, 'name' => 'مفضلاتي في الرياضيات']);
+
+        // 2. Save a lesson into the newly created folder
+        $saveLessonResponse = $this->actingAs($student, 'api')->postJson("/api/v1/saved-folders/{$folderId}/lessons", [
+            'lesson_id' => 10
+        ]);
+        $saveLessonResponse->assertStatus(200);
+
+        // Retrieve folder contents to ensure lesson was added
+        $getFolderResponse = $this->actingAs($student, 'api')->getJson("/api/v1/saved-folders/{$folderId}");
+        $getFolderResponse->assertStatus(200);
+
+        // 3. Create a portfolio item to showcase achievements
+        $portfolioResponse = $this->actingAs($student, 'api')->postJson('/api/v1/portfolio', [
+            'title' => 'مشروع التخرج في البرمجة',
+            'description' => 'وصف تفصيلي للمشروع وما تم إنجازه',
+        ]);
+        $portfolioResponse->assertStatus(200)
+            ->assertJsonPath('status', true);
+
+        $portfolioId = (int) $portfolioResponse->json('data.id');
+        $this->assertDatabaseHas('portfolio_items', [
+            'id' => $portfolioId,
+            'user_id' => $student->id,
+            'title' => 'مشروع التخرج في البرمجة'
+        ]);
+
+        // Retrieve user portfolio list
+        $listPortfolioResponse = $this->actingAs($student, 'api')->getJson('/api/v1/portfolio');
+        $listPortfolioResponse->assertStatus(200);
+
+        // 4. Student updates classification interests (API requires at least one valid classification_id)
+        $updateInterestsResponse = $this->actingAs($student, 'api')->postJson('/api/v1/user/interests', [
+            'classification_ids' => [1]
+        ]);
+        $updateInterestsResponse->assertStatus(200);
+    }
+}

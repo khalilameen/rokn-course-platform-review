@@ -1,0 +1,348 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services;
+
+use App\Exceptions\InsufficientWalletBalanceException;
+use App\Models\Course;
+use App\Models\User;
+use App\Models\WalletTransaction;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+
+final readonly class WalletService
+{
+    /**
+     * @return array{cap:int,used:int,remaining:int}
+     */
+    public function courseRewardContribution(
+        int $userId,
+        int $courseId,
+        int $cap
+    ): array {
+        $normalizedCap = max(0, $cap);
+        $used = max(0, (int) WalletTransaction::query()
+            ->where('user_id', $userId)
+            ->where('direction', WalletTransaction::DIRECTION_DEBIT)
+            ->where('source_type', Course::class)
+            ->where('source_id', $courseId)
+            ->whereIn('category', [
+                'course_purchase',
+                'course_chat_upgrade',
+                'course_full_track_upgrade',
+            ])
+            ->sum('reward_amount'));
+
+        return [
+            'cap' => $normalizedCap,
+            'used' => $used,
+            'remaining' => max(0, $normalizedCap - $used),
+        ];
+    }
+
+    public function credit(
+        int $userId,
+        int $amount,
+        string $category,
+        string $idempotencyKey,
+        ?Model $source = null,
+        array $metadata = [],
+        string $bucket = WalletTransaction::BUCKET_REWARD
+    ): WalletTransaction {
+        return $this->recordTransaction(
+            $userId,
+            $amount,
+            WalletTransaction::DIRECTION_CREDIT,
+            $category,
+            $idempotencyKey,
+            $source,
+            $metadata,
+            $bucket
+        );
+    }
+
+    public function debit(
+        int $userId,
+        int $amount,
+        string $category,
+        string $idempotencyKey,
+        ?Model $source = null,
+        array $metadata = [],
+        ?int $maxRewardAmount = null
+    ): WalletTransaction {
+        return $this->recordTransaction(
+            $userId,
+            $amount,
+            WalletTransaction::DIRECTION_DEBIT,
+            $category,
+            $idempotencyKey,
+            $source,
+            $metadata,
+            null,
+            null,
+            null,
+            $maxRewardAmount
+        );
+    }
+
+    /** Refunds preserve the original paid and reward attribution. */
+    public function refundDebit(
+        int $userId,
+        int $amount,
+        string $category,
+        string $idempotencyKey,
+        WalletTransaction $originalDebit,
+        ?Model $source = null,
+        array $metadata = []
+    ): WalletTransaction {
+        if (
+            (int) $originalDebit->user_id !== $userId
+            || $originalDebit->direction !== WalletTransaction::DIRECTION_DEBIT
+            || $amount > (int) $originalDebit->amount
+        ) {
+            throw new \InvalidArgumentException('Invalid wallet debit refund.');
+        }
+
+        $rewardAmount = min($amount, (int) $originalDebit->reward_amount);
+        $paidAmount = min(
+            $amount - $rewardAmount,
+            (int) $originalDebit->paid_amount
+        );
+
+        // Unattributed legacy value remains reward value.
+        $rewardAmount += max(0, $amount - $rewardAmount - $paidAmount);
+
+        return $this->recordTransaction(
+            $userId,
+            $amount,
+            WalletTransaction::DIRECTION_CREDIT,
+            $category,
+            $idempotencyKey,
+            $source ?? $originalDebit,
+            $metadata + ['refunded_transaction_id' => $originalDebit->public_id],
+            $paidAmount > 0 && $rewardAmount > 0
+                ? WalletTransaction::BUCKET_MIXED
+                : ($paidAmount > 0 ? WalletTransaction::BUCKET_PAID : WalletTransaction::BUCKET_REWARD),
+            $paidAmount,
+            $rewardAmount
+        );
+    }
+
+    private function recordTransaction(
+        int $userId,
+        int $amount,
+        string $direction,
+        string $category,
+        string $idempotencyKey,
+        ?Model $source,
+        array $metadata,
+        ?string $creditBucket,
+        ?int $forcedPaidAmount = null,
+        ?int $forcedRewardAmount = null,
+        ?int $maxRewardDebitAmount = null
+    ): WalletTransaction {
+        if ($amount < 0) {
+            throw new \InvalidArgumentException('Wallet amount must be zero or greater.');
+        }
+
+        $fingerprint = $this->operationFingerprint(
+            $amount,
+            $direction,
+            $category,
+            $source,
+            $creditBucket,
+            $forcedPaidAmount,
+            $forcedRewardAmount,
+            $maxRewardDebitAmount
+        );
+
+        return DB::transaction(function () use (
+            $userId,
+            $amount,
+            $direction,
+            $category,
+            $idempotencyKey,
+            $source,
+            $metadata,
+            $creditBucket,
+            $forcedPaidAmount,
+            $forcedRewardAmount,
+            $maxRewardDebitAmount,
+            $fingerprint
+        ): WalletTransaction {
+            $existing = WalletTransaction::query()
+                ->where('user_id', $userId)
+                ->where('idempotency_key', $idempotencyKey)
+                ->first();
+            if ($existing) {
+                $this->assertIdempotentReplay($existing, $fingerprint, $amount, $direction, $category, $source);
+                return $existing;
+            }
+
+            /** @var User $user */
+            $user = User::query()->lockForUpdate()->findOrFail($userId);
+
+            // Recheck idempotency after acquiring the aggregate lock.
+            $existing = WalletTransaction::query()
+                ->where('user_id', $userId)
+                ->where('idempotency_key', $idempotencyKey)
+                ->first();
+            if ($existing) {
+                $this->assertIdempotentReplay($existing, $fingerprint, $amount, $direction, $category, $source);
+                return $existing;
+            }
+
+            [$paidBalance, $rewardBalance] = $this->normalizedBucketBalances($user);
+            $balance = $paidBalance + $rewardBalance;
+
+            if ($direction === WalletTransaction::DIRECTION_DEBIT) {
+                $rewardSpendable = $maxRewardDebitAmount === null
+                    ? $rewardBalance
+                    : min($rewardBalance, max(0, $maxRewardDebitAmount));
+                $effectiveSpendable = $paidBalance + $rewardSpendable;
+                if ($effectiveSpendable < $amount) {
+                    throw new InsufficientWalletBalanceException($amount, $effectiveSpendable);
+                }
+            }
+
+            if ($direction === WalletTransaction::DIRECTION_CREDIT) {
+                if ($forcedPaidAmount !== null || $forcedRewardAmount !== null) {
+                    $paidAmount = max(0, (int) $forcedPaidAmount);
+                    $rewardAmount = max(0, (int) $forcedRewardAmount);
+                    if ($paidAmount + $rewardAmount !== $amount) {
+                        throw new \InvalidArgumentException('Wallet credit allocation must equal amount.');
+                    }
+                } elseif ($creditBucket === WalletTransaction::BUCKET_PAID) {
+                    $paidAmount = $amount;
+                    $rewardAmount = 0;
+                } elseif ($creditBucket === WalletTransaction::BUCKET_REWARD) {
+                    $paidAmount = 0;
+                    $rewardAmount = $amount;
+                } else {
+                    throw new \InvalidArgumentException('Wallet credit bucket must be paid or reward.');
+                }
+
+                $paidBalance += $paidAmount;
+                $rewardBalance += $rewardAmount;
+            } else {
+                // Debits consume reward value before paid value.
+                $rewardLimit = $maxRewardDebitAmount === null
+                    ? $amount
+                    : max(0, min($amount, $maxRewardDebitAmount));
+                $rewardAmount = min($rewardBalance, $amount, $rewardLimit);
+                $paidAmount = $amount - $rewardAmount;
+                $rewardBalance -= $rewardAmount;
+                $paidBalance -= $paidAmount;
+            }
+
+            $newBalance = $paidBalance + $rewardBalance;
+            $bucket = $paidAmount > 0 && $rewardAmount > 0
+                ? WalletTransaction::BUCKET_MIXED
+                : ($paidAmount > 0 ? WalletTransaction::BUCKET_PAID : WalletTransaction::BUCKET_REWARD);
+
+            $user->forceFill([
+                'wallet_coins' => $newBalance,
+                'wallet_purchased_coins' => $paidBalance,
+                'wallet_reward_coins' => $rewardBalance,
+            ])->save();
+
+            $metadata = array_merge($metadata, [
+                'request_fingerprint' => $fingerprint,
+                'allocation_policy' => $direction === WalletTransaction::DIRECTION_DEBIT
+                    ? 'reward_first_then_paid'
+                    : 'source_bucket',
+                'paid_coins' => $paidAmount,
+                'reward_coins' => $rewardAmount,
+            ]);
+
+            return WalletTransaction::create([
+                'public_id' => (string) Str::uuid(),
+                'user_id' => $userId,
+                'direction' => $direction,
+                'category' => $category,
+                'bucket' => $bucket,
+                'amount' => $amount,
+                'paid_amount' => $paidAmount,
+                'reward_amount' => $rewardAmount,
+                'balance_after' => $newBalance,
+                'paid_balance_after' => $paidBalance,
+                'reward_balance_after' => $rewardBalance,
+                'source_type' => $source ? get_class($source) : null,
+                'source_id' => $source?->getKey(),
+                'idempotency_key' => $idempotencyKey,
+                'metadata' => $metadata ?: null,
+                'occurred_at' => now(),
+            ]);
+        });
+    }
+
+    private function assertIdempotentReplay(
+        WalletTransaction $existing,
+        string $fingerprint,
+        int $amount,
+        string $direction,
+        string $category,
+        ?Model $source
+    ): void {
+        $storedFingerprint = (string) data_get($existing->metadata, 'request_fingerprint', '');
+        $sameLegacyOperation = (int) $existing->amount === $amount
+            && hash_equals((string) $existing->direction, $direction)
+            && hash_equals((string) $existing->category, $category)
+            && (string) $existing->source_type === ($source ? get_class($source) : '')
+            && (string) ($existing->source_id ?? '') === (string) ($source?->getKey() ?? '');
+
+        if (
+            ($storedFingerprint !== '' && !hash_equals($storedFingerprint, $fingerprint))
+            || ($storedFingerprint === '' && !$sameLegacyOperation)
+        ) {
+            throw new \UnexpectedValueException(
+                'Wallet idempotency key was reused for a different operation.'
+            );
+        }
+    }
+
+    private function operationFingerprint(
+        int $amount,
+        string $direction,
+        string $category,
+        ?Model $source,
+        ?string $creditBucket,
+        ?int $forcedPaidAmount,
+        ?int $forcedRewardAmount,
+        ?int $maxRewardDebitAmount
+    ): string {
+        return hash('sha256', json_encode([
+            'amount' => $amount,
+            'direction' => $direction,
+            'category' => $category,
+            'source_type' => $source ? get_class($source) : null,
+            'source_id' => $source?->getKey(),
+            'credit_bucket' => $creditBucket,
+            'forced_paid_amount' => $forcedPaidAmount,
+            'forced_reward_amount' => $forcedRewardAmount,
+            'max_reward_debit_amount' => $maxRewardDebitAmount,
+        ], JSON_THROW_ON_ERROR));
+    }
+
+    /** @return array{0:int,1:int} Paid and reward balances. */
+    private function normalizedBucketBalances(User $user): array
+    {
+        $total = max(0, (int) $user->wallet_coins);
+        $paid = max(0, (int) $user->wallet_purchased_coins);
+        $reward = max(0, (int) $user->wallet_reward_coins);
+        $allocated = $paid + $reward;
+
+        if ($allocated < $total) {
+            $reward += $total - $allocated;
+        } elseif ($allocated > $total) {
+            $overage = $allocated - $total;
+            $rewardReduction = min($reward, $overage);
+            $reward -= $rewardReduction;
+            $paid = max(0, $paid - ($overage - $rewardReduction));
+        }
+
+        return [$paid, $reward];
+    }
+}

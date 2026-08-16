@@ -1,0 +1,26 @@
+* text=auto
+
+# Markdown uses upstream hard line breaks and is copied without reflowing docs.
+*.md whitespace=-trailing-space,-blank-at-eof
+
+# Preserve the imported Laravel baseline byte-for-byte for review.
+backend/** whitespace=-trailing-space,-blank-at-eof,-space-before-tab
+
+# Preserve upstream legal texts verbatim, including meaningful line endings/spaces.
+**/THIRD_PARTY_NOTICES.md -text whitespace=-trailing-space
+**/NATIVE_THIRD_PARTY_NOTICES.md -text whitespace=-trailing-space
+**/scripts/licenses/**/*.txt -text whitespace=-trailing-space
+**/resources/legal/**/* -text whitespace=-trailing-space
+**/public/legal/**/* -text whitespace=-trailing-space
+
+# Binary assets.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.pdf binary

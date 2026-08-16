@@ -1,0 +1,1221 @@
+{
+  "info": {
+    "_postman_id": "rokn-full-api-collection",
+    "name": "Rokn API - Full Collection",
+    "description": "Complete API endpoints for the Rokn educational platform: authentication, courses, certificates, levels, grades, paths, exams, notifications, and more.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost/Rokn/public/api", "type": "string" },
+    { "key": "api_token", "value": "", "type": "string" },
+    { "key": "phone", "value": "01234567890", "type": "string" },
+    { "key": "course_id", "value": "1", "type": "string" },
+    { "key": "section_id", "value": "1", "type": "string" },
+    { "key": "grade_id", "value": "1", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Authentication",
+      "description": "User registration, login, phone verification, and password management.",
+      "item": [
+        {
+          "name": "1. Register",
+          "event": [{ "listen": "test", "script": { "exec": ["var jsonData = pm.response.json();", "if (jsonData.data && jsonData.data.user && jsonData.data.user.api_token) { pm.collectionVariables.set('api_token', jsonData.data.user.api_token); }", "if (jsonData.data && jsonData.data.user && jsonData.data.user.phone) { pm.collectionVariables.set('phone', jsonData.data.user.phone); }"], "type": "text/javascript" } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"name\": \"Test User\",\n    \"phone\": \"{{phone}}\",\n    \"password\": \"password123\",\n    \"password_confirmation\": \"password123\"\n}" },
+            "url": { "raw": "{{base_url}}/register", "host": ["{{base_url}}"], "path": ["register"] },
+            "description": "Register a new user. A verification code is sent via WhatsApp."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Send Verification Code",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"phone\": \"{{phone}}\"\n}" },
+            "url": { "raw": "{{base_url}}/send-verification", "host": ["{{base_url}}"], "path": ["send-verification"] },
+            "description": "Resend verification code via WhatsApp."
+          },
+          "response": []
+        },
+        {
+          "name": "3. Verify Phone",
+          "event": [{ "listen": "test", "script": { "exec": ["var jsonData = pm.response.json();", "if (jsonData.data && jsonData.data.api_token) { pm.collectionVariables.set('api_token', jsonData.data.api_token); }"], "type": "text/javascript" } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"phone\": \"{{phone}}\",\n    \"code\": \"123456\"\n}" },
+            "url": { "raw": "{{base_url}}/verify-phone", "host": ["{{base_url}}"], "path": ["verify-phone"] },
+            "description": "Verify phone with the code received via WhatsApp."
+          },
+          "response": []
+        },
+        {
+          "name": "4. Login",
+          "event": [{ "listen": "test", "script": { "exec": ["var jsonData = pm.response.json();", "if (jsonData.data && jsonData.data.api_token) { pm.collectionVariables.set('api_token', jsonData.data.api_token); }"], "type": "text/javascript" } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"phone\": \"{{phone}}\",\n    \"password\": \"password123\"\n}" },
+            "url": { "raw": "{{base_url}}/login", "host": ["{{base_url}}"], "path": ["login"] },
+            "description": "Login with phone and password. Phone must be verified first."
+          },
+          "response": []
+        },
+        {
+          "name": "5. Social Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"provider\": \"google\",\n    \"social_id\": \"GOOGLE_USER_ID\",\n    \"email\": \"user@gmail.com\",\n    \"name\": \"Test User\"\n}" },
+            "url": { "raw": "{{base_url}}/social-login", "host": ["{{base_url}}"], "path": ["social-login"] },
+            "description": "Login via social provider (google, facebook, apple)."
+          },
+          "response": []
+        },
+        {
+          "name": "6. Forgot Password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"phone\": \"{{phone}}\"\n}" },
+            "url": { "raw": "{{base_url}}/forgot-password", "host": ["{{base_url}}"], "path": ["forgot-password"] },
+            "description": "Request password reset code via WhatsApp."
+          },
+          "response": []
+        },
+        {
+          "name": "7. Reset Password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"phone\": \"{{phone}}\",\n    \"code\": \"123456\",\n    \"password\": \"newpassword123\",\n    \"password_confirmation\": \"newpassword123\"\n}" },
+            "url": { "raw": "{{base_url}}/reset-password", "host": ["{{base_url}}"], "path": ["reset-password"] },
+            "description": "Reset password with verification code."
+          },
+          "response": []
+        },
+        {
+          "name": "8. Logout",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/logout", "host": ["{{base_url}}"], "path": ["logout"] },
+            "description": "Logout the authenticated user."
+          },
+          "response": []
+        },
+        {
+          "name": "9. Delete Account",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/delete-account", "host": ["{{base_url}}"], "path": ["delete-account"] },
+            "description": "Permanently delete the authenticated user's account."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Main Page",
+      "description": "Home/main page endpoints for landing page and mobile app main screen.",
+      "item": [
+        {
+          "name": "Mobile Main Page",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/mobile-main-page", "host": ["{{base_url}}"], "path": ["mobile-main-page"] },
+            "description": "Returns main_courses (is_main_course=true), coming soon courses (is_coming_soon=true), and courses grouped by classification. Used for the mobile app home screen."
+          },
+          "response": []
+        },
+        {
+          "name": "Main Page (Legacy)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/main", "host": ["{{base_url}}"], "path": ["main"] },
+            "description": "Returns all courses and grades. Legacy endpoint."
+          },
+          "response": []
+        },
+        {
+          "name": "App Settings",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/settings", "host": ["{{base_url}}"], "path": ["settings"] },
+            "description": "Returns platform name, social media links, support contacts, and app store URLs."
+          },
+          "response": []
+        },
+        {
+          "name": "Check App Version",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"platform\": \"android\",\n    \"version\": \"1.0.0\"\n}" },
+            "url": { "raw": "{{base_url}}/app/check-version", "host": ["{{base_url}}"], "path": ["app", "check-version"] },
+            "description": "Check if the app version is still supported. platform: android or ios."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Courses",
+      "description": "Course listing, details, progress tracking, and section completion.",
+      "item": [
+        {
+          "name": "List Courses (Paginated)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/courses/list?grade_id=&course_type=&search=&per_page=15&page=1",
+              "host": ["{{base_url}}"],
+              "path": ["courses", "list"],
+              "query": [
+                { "key": "grade_id", "value": "", "description": "Filter by grade ID (optional)" },
+                { "key": "course_type", "value": "", "description": "Filter by type: online, center, both (optional)" },
+                { "key": "search", "value": "", "description": "Search by name_ar or name_en (optional)" },
+                { "key": "per_page", "value": "15" },
+                { "key": "page", "value": "1" }
+              ]
+            },
+            "description": "Returns paginated list of courses. Each course includes is_coming_soon flag. Supports filtering by grade, course_type, and search query."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Courses (All)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/courses?grade_id=&course_type=&search=&per_page=20&page=1",
+              "host": ["{{base_url}}"],
+              "path": ["courses"],
+              "query": [
+                { "key": "grade_id", "value": "" },
+                { "key": "course_type", "value": "" },
+                { "key": "search", "value": "" },
+                { "key": "per_page", "value": "20" },
+                { "key": "page", "value": "1" }
+              ]
+            },
+            "description": "Returns paginated courses using BaseCourseResource. Includes is_coming_soon flag for each course."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Course Details",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/courses/{{course_id}}/details", "host": ["{{base_url}}"], "path": ["courses", "{{course_id}}", "details"] },
+            "description": "Get full course details. If enrolled: returns full CourseResource with locked section status and video URLs. If not enrolled: returns BaseCourseResource preview. Includes is_coming_soon flag."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Course (Legacy)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/course/{{course_id}}", "host": ["{{base_url}}"], "path": ["course", "{{course_id}}"] },
+            "description": "Legacy endpoint. Returns BaseCourseResource or CourseResource based on enrollment."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Course Progress",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/courses/{{course_id}}/progress", "host": ["{{base_url}}"], "path": ["courses", "{{course_id}}", "progress"] },
+            "description": "Get current user's progress in a course. Returns total/completed sections, percentage, and lock status per section. Requires enrollment."
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Section Complete",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/courses/{{course_id}}/sections/{{section_id}}/complete", "host": ["{{base_url}}"], "path": ["courses", "{{course_id}}", "sections", "{{section_id}}", "complete"] },
+            "description": "Mark a course section as completed. Returns updated section info and overall course progress. Fires CourseCompleted event if all sections are done (triggers certificate generation)."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Best Students",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/courses/{{course_id}}/best-students", "host": ["{{base_url}}"], "path": ["courses", "{{course_id}}", "best-students"] },
+            "description": "Get top-performing students in a course (public endpoint)."
+          },
+          "response": []
+        },
+        {
+          "name": "Rate a Course",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"rating\": 5,\n    \"comment\": \"Excellent course!\"\n}" },
+            "url": { "raw": "{{base_url}}/courses/{{course_id}}/rate", "host": ["{{base_url}}"], "path": ["courses", "{{course_id}}", "rate"] },
+            "description": "Submit or update a course rating (1-5 stars). Requires enrollment."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Project Evaluations for Course",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/courses/{{course_id}}/project-evaluations", "host": ["{{base_url}}"], "path": ["courses", "{{course_id}}", "project-evaluations"] },
+            "description": "Get all project evaluations for the current user in a specific course."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Course Authorization & Enrollment",
+      "description": "Purchase courses with coins, check access, and view billing history.",
+      "item": [
+        {
+          "name": "Get Payment Methods",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/courses/payment-methods", "host": ["{{base_url}}"], "path": ["courses", "payment-methods"] },
+            "description": "Get all active payment methods available for course purchase."
+          },
+          "response": []
+        },
+        {
+          "name": "Authorize / Purchase Course",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"course_id\": {{course_id}},\n    \"payment_method\": \"wallet\",\n    \"coupon_code\": \"\",\n    \"notes\": \"\"\n}" },
+            "url": { "raw": "{{base_url}}/courses/authorize", "host": ["{{base_url}}"], "path": ["courses", "authorize"] },
+            "description": "Purchase course access using wallet coins. Deducts coins, creates order, bill, and enrollment. payment_method: wallet | online | course_code."
+          },
+          "response": []
+        },
+        {
+          "name": "Check Course Access",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"course_id\": {{course_id}}\n}" },
+            "url": { "raw": "{{base_url}}/courses/check-access", "host": ["{{base_url}}"], "path": ["courses", "check-access"] },
+            "description": "Check if the current user has direct or parent-course access to a course. Returns has_access, access_type (direct|parent), and enrollment details."
+          },
+          "response": []
+        },
+        {
+          "name": "My Enrollments",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/courses/my-enrollments", "host": ["{{base_url}}"], "path": ["courses", "my-enrollments"] },
+            "description": "List all active course enrollments for the current user with per-course progress percentage."
+          },
+          "response": []
+        },
+        {
+          "name": "My Course Orders",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/courses/my-orders?per_page=15&page=1",
+              "host": ["{{base_url}}"],
+              "path": ["courses", "my-orders"],
+              "query": [{ "key": "per_page", "value": "15" }, { "key": "page", "value": "1" }]
+            },
+            "description": "Get all course purchase orders for the current user with pagination."
+          },
+          "response": []
+        },
+        {
+          "name": "My Bills",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/courses/my-bills?per_page=15&page=1",
+              "host": ["{{base_url}}"],
+              "path": ["courses", "my-bills"],
+              "query": [{ "key": "per_page", "value": "15" }, { "key": "page", "value": "1" }]
+            },
+            "description": "Get billing history for the current user with payment status and bill numbers."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Course Codes",
+      "description": "Redeem and manage course access codes.",
+      "item": [
+        {
+          "name": "Redeem Course Code",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"code\": \"COURSE-CODE-HERE\"\n}" },
+            "url": { "raw": "{{base_url}}/course-codes/redeem", "host": ["{{base_url}}"], "path": ["course-codes", "redeem"] },
+            "description": "Redeem a course access code to enroll in a course."
+          },
+          "response": []
+        },
+        {
+          "name": "Check Course Code",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"code\": \"COURSE-CODE-HERE\"\n}" },
+            "url": { "raw": "{{base_url}}/course-codes/check", "host": ["{{base_url}}"], "path": ["course-codes", "check"] },
+            "description": "Validate a course code before redeeming it."
+          },
+          "response": []
+        },
+        {
+          "name": "My Course Codes",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/course-codes/my-codes", "host": ["{{base_url}}"], "path": ["course-codes", "my-codes"] },
+            "description": "List all course codes redeemed by the current user."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Course PDFs",
+      "description": "Secure PDF access for enrolled students.",
+      "item": [
+        {
+          "name": "List Course PDFs",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/courses/{{course_id}}/pdfs", "host": ["{{base_url}}"], "path": ["courses", "{{course_id}}", "pdfs"] },
+            "description": "List all active PDFs for a course. Requires enrollment."
+          },
+          "response": []
+        },
+        {
+          "name": "Get PDF Details",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/courses/{{course_id}}/pdfs/1", "host": ["{{base_url}}"], "path": ["courses", "{{course_id}}", "pdfs", "1"] },
+            "description": "Get details for a specific PDF. Requires enrollment."
+          },
+          "response": []
+        },
+        {
+          "name": "Stream PDF",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/pdf" }],
+            "url": { "raw": "{{base_url}}/courses/{{course_id}}/pdfs/1/stream", "host": ["{{base_url}}"], "path": ["courses", "{{course_id}}", "pdfs", "1", "stream"] },
+            "description": "Stream/download a PDF securely. Requires enrollment. No direct file URL exposed."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Exams & Quizzes",
+      "description": "Exam data retrieval, submission flow, results, and history.",
+      "item": [
+        {
+          "name": "List All Quizzes (Public)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/quizzes", "host": ["{{base_url}}"], "path": ["quizzes"] },
+            "description": "Get all available quizzes (public)."
+          },
+          "response": []
+        },
+        {
+          "name": "List All Exams (Public)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/exams", "host": ["{{base_url}}"], "path": ["exams"] },
+            "description": "Get all available exams (public)."
+          },
+          "response": []
+        },
+        {
+          "name": "List Random Quizzes",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/random-quizzes", "host": ["{{base_url}}"], "path": ["random-quizzes"] },
+            "description": "Get all random quizzes."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Random Quiz",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/random-quizzes/1", "host": ["{{base_url}}"], "path": ["random-quizzes", "1"] },
+            "description": "Get a specific random quiz by ID."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Exam Data by Quiz ID",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/exams/1/data", "host": ["{{base_url}}"], "path": ["exams", "1", "data"] },
+            "description": "Get exam questions (without correct answers). Choices are randomized. Requires course enrollment."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Exam Data by Section",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/courses/{{course_id}}/sections/{{section_id}}/exam", "host": ["{{base_url}}"], "path": ["courses", "{{course_id}}", "sections", "{{section_id}}", "exam"] },
+            "description": "Get exam data for a specific course section. Requires enrollment."
+          },
+          "response": []
+        },
+        {
+          "name": "Start Exam",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"quiz_id\": 1\n}" },
+            "url": { "raw": "{{base_url}}/exams/start", "host": ["{{base_url}}"], "path": ["exams", "start"] },
+            "description": "Start an exam attempt. Returns exam_attempt_id used for subsequent answer submission."
+          },
+          "response": []
+        },
+        {
+          "name": "Submit Answer",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"exam_attempt_id\": 1,\n    \"question_id\": 1,\n    \"answer\": 2\n}" },
+            "url": { "raw": "{{base_url}}/exams/submit-answer", "host": ["{{base_url}}"], "path": ["exams", "submit-answer"] },
+            "description": "Submit a single answer during an ongoing exam attempt. answer is the choice ID."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Exam Progress",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/exams/1/progress", "host": ["{{base_url}}"], "path": ["exams", "1", "progress"] },
+            "description": "Get progress of an ongoing exam attempt. Replace 1 with the exam_attempt_id."
+          },
+          "response": []
+        },
+        {
+          "name": "End Exam",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"exam_attempt_id\": 1\n}" },
+            "url": { "raw": "{{base_url}}/exams/end", "host": ["{{base_url}}"], "path": ["exams", "end"] },
+            "description": "End an exam attempt and calculate results. Returns score and passed status."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Exam Results",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/exams/1/results", "host": ["{{base_url}}"], "path": ["exams", "1", "results"] },
+            "description": "Get results for a specific exam attempt. Replace 1 with exam_attempt_id."
+          },
+          "response": []
+        },
+        {
+          "name": "Get All My Exam Results",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/exams/results/", "host": ["{{base_url}}"], "path": ["exams", "results", ""] },
+            "description": "Get all exam results for the current user."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Exam History",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/exams/history", "host": ["{{base_url}}"], "path": ["exams", "history"] },
+            "description": "Get exam attempt history for the current user."
+          },
+          "response": []
+        },
+        {
+          "name": "Log Security Event",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"exam_attempt_id\": 1,\n    \"event_type\": \"tab_switch\",\n    \"details\": \"User switched tabs during exam\"\n}" },
+            "url": { "raw": "{{base_url}}/exams/security-log", "host": ["{{base_url}}"], "path": ["exams", "security-log"] },
+            "description": "Log a security event during an exam (e.g., tab_switch, copy_paste, window_blur)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Certificates",
+      "description": "View earned certificates after completing courses.",
+      "item": [
+        {
+          "name": "List My Certificates",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/certificates", "host": ["{{base_url}}"], "path": ["certificates"] },
+            "description": "List all certificates earned by the current user. Returns certificate_number, issue_date, course title, and download info."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Certificate for Course",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/certificates/{{course_id}}", "host": ["{{base_url}}"], "path": ["certificates", "{{course_id}}"] },
+            "description": "Get certificate for a specific course. Returns 404 if certificate not yet earned, 403 if not enrolled."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Grades (Levels)",
+      "description": "Grade/academic year levels used to categorize and filter courses.",
+      "item": [
+        {
+          "name": "List All Grades",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/grades", "host": ["{{base_url}}"], "path": ["grades"] },
+            "description": "List all active grades ordered by sort order. Returns id, name_ar, name_en, description, and courses_count."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Grade Details",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/grades/{{grade_id}}", "host": ["{{base_url}}"], "path": ["grades", "{{grade_id}}"] },
+            "description": "Get a specific grade with all its associated courses."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Courses by Grade",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/grades/{{grade_id}}/courses", "host": ["{{base_url}}"], "path": ["grades", "{{grade_id}}", "courses"] },
+            "description": "Get all courses belonging to a specific grade."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Paths",
+      "description": "Learning paths that group related courses into a structured journey.",
+      "item": [
+        {
+          "name": "List Paths",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/paths", "host": ["{{base_url}}"], "path": ["paths"] },
+            "description": "List all learning paths. Returns id, title_ar, title_en, image, description, and course count."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Path Details",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/paths/1", "host": ["{{base_url}}"], "path": ["paths", "1"] },
+            "description": "Get a specific path with title_ar, title_en, interests, and associated courses."
+          },
+          "response": []
+        },
+        {
+          "name": "My Paths",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/user/paths", "host": ["{{base_url}}"], "path": ["user", "paths"] },
+            "description": "Get paths relevant to the current user based on their selected interests."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Interests & Classifications",
+      "description": "Browse and update user interest classifications.",
+      "item": [
+        {
+          "name": "List Interests",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/interests", "host": ["{{base_url}}"], "path": ["interests"] },
+            "description": "List all available interest classifications (public)."
+          },
+          "response": []
+        },
+        {
+          "name": "List Classifications",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/classifications", "host": ["{{base_url}}"], "path": ["classifications"] },
+            "description": "Alias for interests. Returns all classifications with their course groups."
+          },
+          "response": []
+        },
+        {
+          "name": "Update My Interests",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"classification_ids\": [1, 2, 3]\n}" },
+            "url": { "raw": "{{base_url}}/user/interests", "host": ["{{base_url}}"], "path": ["user", "interests"] },
+            "description": "Set or update the current user's interests. Replaces all existing interests with the provided IDs."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Profile",
+      "description": "View and update user profile information.",
+      "item": [
+        {
+          "name": "Get Profile",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/user/profile", "host": ["{{base_url}}"], "path": ["user", "profile"] },
+            "description": "Get user profile: name, phone, email, wallet_coins, enrolled courses, interests, and level info."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Profile",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "PUT",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"name\": \"Updated Name\",\n    \"email\": \"user@example.com\"\n}" },
+            "url": { "raw": "{{base_url}}/user/profile", "host": ["{{base_url}}"], "path": ["user", "profile"] },
+            "description": "Update profile fields. Changing phone requires re-verification."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "description": "Student notification management.",
+      "item": [
+        {
+          "name": "Get Unread Count",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/notifications/unread-count", "host": ["{{base_url}}"], "path": ["notifications", "unread-count"] },
+            "description": "Get the number of unread notifications. Used for the bell icon badge."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Last 10 Notifications",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/notifications/last-ten", "host": ["{{base_url}}"], "path": ["notifications", "last-ten"] },
+            "description": "Get the 10 most recent notifications for the dropdown/bell icon."
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Notifications",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/notifications", "host": ["{{base_url}}"], "path": ["notifications"] },
+            "description": "Get all notifications for the current user (paginated)."
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Notification Read",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/notifications/1/mark-read", "host": ["{{base_url}}"], "path": ["notifications", "1", "mark-read"] },
+            "description": "Mark a specific notification as read. Replace 1 with notification ID."
+          },
+          "response": []
+        },
+        {
+          "name": "Mark All Notifications Read",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/notifications/mark-all-read", "host": ["{{base_url}}"], "path": ["notifications", "mark-all-read"] },
+            "description": "Mark all notifications as read for the current user."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Saved Folders (Bookmarks)",
+      "description": "Bookmark lessons into folders for later review.",
+      "item": [
+        {
+          "name": "Get Folders",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/saved-folders", "host": ["{{base_url}}"], "path": ["saved-folders"] },
+            "description": "List all bookmark folders for the current user."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Folder",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"name\": \"Important Lessons\"\n}" },
+            "url": { "raw": "{{base_url}}/saved-folders", "host": ["{{base_url}}"], "path": ["saved-folders"] },
+            "description": "Create a new bookmark folder."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Folder Contents",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/saved-folders/1", "host": ["{{base_url}}"], "path": ["saved-folders", "1"] },
+            "description": "Get the lessons saved in a specific folder."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Folder",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "DELETE",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/saved-folders/1", "host": ["{{base_url}}"], "path": ["saved-folders", "1"] },
+            "description": "Delete a folder and all its bookmarks."
+          },
+          "response": []
+        },
+        {
+          "name": "Save Lesson to Folder",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"lesson_id\": 1\n}" },
+            "url": { "raw": "{{base_url}}/saved-folders/1/lessons", "host": ["{{base_url}}"], "path": ["saved-folders", "1", "lessons"] },
+            "description": "Add a lesson to a saved folder."
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Lesson from Folder",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "DELETE",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/saved-folders/1/lessons/1", "host": ["{{base_url}}"], "path": ["saved-folders", "1", "lessons", "1"] },
+            "description": "Remove a specific lesson from a saved folder."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Portfolio",
+      "description": "Manage user portfolio items (text, images, videos).",
+      "item": [
+        {
+          "name": "List Portfolio Items",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/portfolio", "host": ["{{base_url}}"], "path": ["portfolio"] },
+            "description": "List all portfolio items for the authenticated user."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Portfolio Item (Text)",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"title\": \"My Project\",\n    \"description\": \"This is a description of my project.\",\n    \"file_type\": \"text\"\n}" },
+            "url": { "raw": "{{base_url}}/portfolio", "host": ["{{base_url}}"], "path": ["portfolio"] },
+            "description": "Create a new text-only portfolio item."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Portfolio Item (Image/Video)",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "title", "value": "My Work Sample", "type": "text" },
+                { "key": "description", "value": "Sample description", "type": "text" },
+                { "key": "file_type", "value": "image", "type": "text" },
+                { "key": "file", "type": "file", "src": [] }
+              ]
+            },
+            "url": { "raw": "{{base_url}}/portfolio", "host": ["{{base_url}}"], "path": ["portfolio"] },
+            "description": "Create a portfolio item with an image or video file."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Portfolio Item",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/portfolio/1", "host": ["{{base_url}}"], "path": ["portfolio", "1"] },
+            "description": "Get a specific portfolio item by ID."
+          },
+          "response": []
+        },
+        {
+          "name": "Append Media to Portfolio Item",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": [] },
+                { "key": "file_type", "value": "image", "type": "text" }
+              ]
+            },
+            "url": { "raw": "{{base_url}}/portfolio/1/media", "host": ["{{base_url}}"], "path": ["portfolio", "1", "media"] },
+            "description": "Add additional media files to an existing portfolio item."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Media from Portfolio Item",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "DELETE",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/portfolio/1/media/1", "host": ["{{base_url}}"], "path": ["portfolio", "1", "media", "1"] },
+            "description": "Remove a specific media file from a portfolio item."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Portfolio Item",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "DELETE",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/portfolio/1", "host": ["{{base_url}}"], "path": ["portfolio", "1"] },
+            "description": "Delete a portfolio item permanently."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Coin Earning Methods",
+      "description": "Wallet coin earning mechanism.",
+      "item": [
+        {
+          "name": "List Coin Earning Methods",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/coin-earning-methods", "host": ["{{base_url}}"], "path": ["coin-earning-methods"] },
+            "description": "List all active coin earning methods (e.g., register, complete course, daily login)."
+          },
+          "response": []
+        },
+        {
+          "name": "Claim Coins",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"method_id\": 1\n}" },
+            "url": { "raw": "{{base_url}}/claim-coins", "host": ["{{base_url}}"], "path": ["claim-coins"] },
+            "description": "Claim coins for a specific earning method. Returns updated wallet balance."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Streaks",
+      "description": "Daily learning streak tracking.",
+      "item": [
+        {
+          "name": "Get My Streaks",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/streaks", "host": ["{{base_url}}"], "path": ["streaks"] },
+            "description": "Get the current user's streak information (current streak days, longest streak, last active date)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Projects",
+      "description": "Course project evaluation via AI.",
+      "item": [
+        {
+          "name": "Get Project Details",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/projects/1", "host": ["{{base_url}}"], "path": ["projects", "1"] },
+            "description": "Get project requirements, instructions, and AI model configuration."
+          },
+          "response": []
+        },
+        {
+          "name": "Submit Project for Evaluation",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"submission_text\": \"My project solution goes here...\"\n}" },
+            "url": { "raw": "{{base_url}}/projects/1/evaluate", "host": ["{{base_url}}"], "path": ["projects", "1", "evaluate"] },
+            "description": "Submit project answer for AI evaluation. Returns score (0-100) and passed boolean."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Packages & Payments",
+      "description": "Coin packages and Kashier payment gateway integration.",
+      "item": [
+        {
+          "name": "List Packages",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/packages", "host": ["{{base_url}}"], "path": ["packages"] },
+            "description": "List all available coin packages for purchase."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Package Details",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/packages/1", "host": ["{{base_url}}"], "path": ["packages", "1"] },
+            "description": "Get details of a specific coin package."
+          },
+          "response": []
+        },
+        {
+          "name": "Initiate Kashier Payment",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"package_id\": 1\n}" },
+            "url": { "raw": "{{base_url}}/payment/initiate", "host": ["{{base_url}}"], "path": ["payment", "initiate"] },
+            "description": "Initiate a Kashier payment for a package. Returns a checkout_url to open in a WebView."
+          },
+          "response": []
+        },
+        {
+          "name": "Check Payment Status",
+          "request": {
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{api_token}}", "type": "string" }] },
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Authorization", "value": "Bearer {{api_token}}" }],
+            "url": { "raw": "{{base_url}}/payment/status/ORDER-REF-HERE", "host": ["{{base_url}}"], "path": ["payment", "status", "ORDER-REF-HERE"] },
+            "description": "Poll payment status by order reference after WebView returns. Returns order state."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Centers & Groups",
+      "description": "Physical learning centers and student groups.",
+      "item": [
+        {
+          "name": "List Centers",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/centers", "host": ["{{base_url}}"], "path": ["centers"] },
+            "description": "List all learning centers."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Center Details",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/centers/1", "host": ["{{base_url}}"], "path": ["centers", "1"] },
+            "description": "Get details of a specific center including address and contact info."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Groups by Center",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/centers/1/groups", "host": ["{{base_url}}"], "path": ["centers", "1", "groups"] },
+            "description": "Get all student groups belonging to a specific center."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Attendance",
+      "description": "QR code-based attendance recording for groups.",
+      "item": [
+        {
+          "name": "Get User QR Code",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/users/1/qr-code", "host": ["{{base_url}}"], "path": ["users", "1", "qr-code"] },
+            "description": "Get the QR code image for a user's attendance token. Replace 1 with user ID."
+          },
+          "response": []
+        },
+        {
+          "name": "Get User Attendance",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/users/1/attendance", "host": ["{{base_url}}"], "path": ["users", "1", "attendance"] },
+            "description": "Get attendance records for a specific user."
+          },
+          "response": []
+        },
+        {
+          "name": "Record Attendance",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Accept", "value": "application/json" }, { "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"qr_token\": \"USER_QR_TOKEN_HERE\",\n    \"group_id\": 1\n}" },
+            "url": { "raw": "{{base_url}}/attendance/record", "host": ["{{base_url}}"], "path": ["attendance", "record"] },
+            "description": "Record attendance by scanning QR code token. Used by teacher devices."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

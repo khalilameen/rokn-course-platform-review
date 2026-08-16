@@ -1,0 +1,5 @@
+appId: com.rokn
+---
+- launchApp:
+    clearState: true
+- assertVisible: ${ROKN_SMOKE_FORCED_UPDATE_TEXT}

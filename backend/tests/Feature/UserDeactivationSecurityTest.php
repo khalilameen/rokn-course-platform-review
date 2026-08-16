@@ -1,0 +1,65 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Feature;
+
+use App\Http\Controllers\Admin\UsersController;
+use App\Models\User;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+use Tests\TestCase;
+
+final class UserDeactivationSecurityTest extends TestCase
+{
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Schema::create('users', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->string('email')->unique();
+            $table->string('password')->nullable();
+            $table->string('role')->default('client');
+            $table->boolean('active')->default(true);
+            $table->string('api_token')->nullable();
+            $table->timestamps();
+            $table->softDeletes();
+        });
+        Schema::create('api_tokens', function (Blueprint $table): void {
+            $table->string('token')->primary();
+            $table->unsignedBigInteger('user_id');
+            $table->timestamp('issued_at')->nullable();
+            $table->timestamp('expired_at');
+        });
+    }
+
+    protected function tearDown(): void
+    {
+        Schema::dropIfExists('api_tokens');
+        Schema::dropIfExists('users');
+        parent::tearDown();
+    }
+
+    public function test_admin_deactivation_atomically_revokes_all_mobile_credentials(): void
+    {
+        $user = User::query()->forceCreate([
+            'name' => 'Student',
+            'email' => 'student@rokn.test',
+            'role' => 'client',
+            'active' => true,
+            'api_token' => 'retired-legacy-token',
+        ]);
+        $user->generateApiToken();
+        $user->generateApiToken();
+        self::assertSame(2, $user->apiTokens()->count());
+
+        app(UsersController::class)->deactive($user);
+
+        $user->refresh();
+        self::assertFalse((bool) $user->active);
+        self::assertNull($user->getRawOriginal('api_token'));
+        self::assertSame(0, $user->apiTokens()->count());
+    }
+}

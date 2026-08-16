@@ -1,0 +1,10 @@
+# Add these lines to your .gitignore file
+
+# React App Build Files
+/public/react/
+!/public/react/.gitkeep
+
+# If you want to track the React build in Git, remove the above lines
+# and the files will be committed to your repository
+
+

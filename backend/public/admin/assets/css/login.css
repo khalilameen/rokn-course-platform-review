@@ -1,0 +1,426 @@
+:root {
+    --rokn-login-primary: var(--rokn-admin-primary, #2563eb);
+    --rokn-login-primary-dark: var(--rokn-admin-primary-dark, #172554);
+    --rokn-login-surface: var(--rokn-admin-surface, #ffffff);
+    --rokn-login-surface-soft: var(--rokn-admin-surface-soft, #f8f9fa);
+    --rokn-login-border: var(--rokn-admin-border, #e5e7eb);
+    --rokn-login-muted: var(--rokn-admin-muted, #6c757d);
+    --rokn-login-danger: var(--rokn-admin-danger, #c53030);
+}
+
+body.rokn-login,
+body.rokn-login *,
+body.rokn-login *::before,
+body.rokn-login *::after {
+    box-sizing: border-box;
+}
+
+body.rokn-login {
+    position: relative;
+    display: flex;
+    min-height: 100vh;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    padding: 20px;
+    direction: rtl;
+    overflow-x: hidden;
+    color: #1f2937;
+    background: linear-gradient(
+        135deg,
+        var(--rokn-login-primary-dark) 0%,
+        var(--rokn-login-primary) 100%
+    );
+    background-attachment: fixed;
+    font-family: Tahoma, Arial, "Segoe UI", sans-serif;
+}
+
+body.rokn-login::before,
+body.rokn-login::after {
+    position: fixed;
+    content: "";
+    background: rgba(255, 255, 255, .1);
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+body.rokn-login::before {
+    top: -250px;
+    right: -250px;
+    width: 500px;
+    height: 500px;
+    animation: rokn-login-float 6s ease-in-out infinite;
+}
+
+body.rokn-login::after {
+    bottom: -200px;
+    left: -200px;
+    width: 400px;
+    height: 400px;
+    animation: rokn-login-float 8s ease-in-out infinite;
+}
+
+body.rokn-login .login-container {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 450px;
+    animation: rokn-login-slide-up .6s ease-out;
+}
+
+body.rokn-login .login-card {
+    overflow: hidden;
+    background: var(--rokn-login-surface);
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 20px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .3);
+}
+
+body.rokn-login .login-header {
+    position: relative;
+    padding: 40px 30px;
+    overflow: hidden;
+    text-align: center;
+    background: linear-gradient(
+        135deg,
+        var(--rokn-login-primary-dark) 0%,
+        var(--rokn-login-primary) 100%
+    );
+}
+
+body.rokn-login .login-header::before {
+    position: absolute;
+    inset: 0;
+    content: "";
+    background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%23ffffff" fill-opacity="0.1" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,112C672,96,768,96,864,112C960,128,1056,160,1152,160C1248,160,1344,128,1392,112L1440,96L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"></path></svg>') no-repeat bottom;
+    background-size: cover;
+    opacity: .3;
+}
+
+body.rokn-login .logo-icon {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    width: 80px;
+    height: 80px;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 20px;
+    background: rgba(255, 255, 255, .2);
+    border: 3px solid rgba(255, 255, 255, .3);
+    border-radius: 50%;
+    backdrop-filter: blur(10px);
+}
+
+body.rokn-login .logo-icon i {
+    color: #ffffff;
+    font-size: 40px;
+}
+
+body.rokn-login .login-title,
+body.rokn-login .login-subtitle {
+    position: relative;
+    z-index: 1;
+    color: #ffffff;
+}
+
+body.rokn-login .login-title {
+    margin: 0 0 10px;
+    font-size: 28px;
+    font-weight: 700;
+}
+
+body.rokn-login .login-subtitle {
+    margin: 0;
+    color: rgba(255, 255, 255, .9);
+    font-size: 14px;
+    font-weight: 300;
+}
+
+body.rokn-login .login-body {
+    padding: 40px 30px;
+}
+
+body.rokn-login .form-group {
+    margin-bottom: 25px;
+}
+
+body.rokn-login .form-label {
+    display: block;
+    margin-bottom: 8px;
+    color: #333333;
+    font-size: 14px;
+    font-weight: 600;
+    transition: color .3s;
+}
+
+body.rokn-login .form-group:focus-within .form-label {
+    color: var(--rokn-login-primary);
+}
+
+body.rokn-login .input-wrapper {
+    position: relative;
+}
+
+body.rokn-login .input-icon,
+body.rokn-login .password-toggle {
+    position: absolute;
+    top: 50%;
+    color: #7b8494;
+    font-size: 18px;
+    transform: translateY(-50%);
+    transition: color .3s, transform .3s;
+}
+
+body.rokn-login .input-icon {
+    right: 15px;
+    pointer-events: none;
+}
+
+body.rokn-login .password-toggle {
+    left: 15px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    user-select: none;
+}
+
+body.rokn-login .password-toggle:hover,
+body.rokn-login .password-toggle:focus-visible {
+    color: var(--rokn-login-primary);
+}
+
+body.rokn-login .password-toggle:focus-visible {
+    outline: 2px solid var(--rokn-login-primary);
+    outline-offset: 4px;
+}
+
+body.rokn-login .password-toggle:active {
+    transform: translateY(-50%) scale(.95);
+}
+
+body.rokn-login .form-control {
+    width: 100%;
+    padding: 14px 45px 14px 15px;
+    color: #1f2937;
+    background: var(--rokn-login-surface-soft);
+    border: 2px solid var(--rokn-login-border);
+    border-radius: 10px;
+    font-family: Tahoma, Arial, "Segoe UI", sans-serif;
+    font-size: 15px;
+    transition: border-color .3s, background-color .3s, box-shadow .3s;
+}
+
+body.rokn-login .form-control.has-toggle {
+    padding: 14px 45px;
+}
+
+body.rokn-login .form-control:focus {
+    background: var(--rokn-login-surface);
+    border-color: var(--rokn-login-primary);
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, .12);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--rokn-login-primary) 12%, transparent);
+    outline: none;
+}
+
+body.rokn-login .form-control:focus + .input-icon {
+    color: var(--rokn-login-primary);
+}
+
+body.rokn-login .form-control.is-invalid {
+    background: #fff5f5;
+    border-color: var(--rokn-login-danger);
+}
+
+body.rokn-login .invalid-feedback {
+    display: block;
+    margin-top: 6px;
+    color: var(--rokn-login-danger);
+    font-size: 13px;
+    animation: rokn-login-shake .3s;
+}
+
+body.rokn-login .remember-section {
+    margin-bottom: 30px;
+}
+
+body.rokn-login .custom-checkbox {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+}
+
+body.rokn-login .custom-checkbox input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin-left: 8px;
+    accent-color: var(--rokn-login-primary);
+    cursor: pointer;
+}
+
+body.rokn-login .custom-checkbox label {
+    margin: 0;
+    color: var(--rokn-login-muted);
+    cursor: pointer;
+    font-size: 14px;
+}
+
+body.rokn-login .btn-login {
+    position: relative;
+    width: 100%;
+    padding: 14px;
+    overflow: hidden;
+    color: #ffffff;
+    background: linear-gradient(
+        135deg,
+        var(--rokn-login-primary-dark) 0%,
+        var(--rokn-login-primary) 100%
+    );
+    border: 0;
+    border-radius: 10px;
+    box-shadow: 0 4px 15px rgba(15, 23, 42, .3);
+    cursor: pointer;
+    font-family: Tahoma, Arial, "Segoe UI", sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    transition: transform .3s, box-shadow .3s;
+}
+
+body.rokn-login .btn-login::before {
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    content: "";
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .3), transparent);
+    transition: left .5s;
+}
+
+body.rokn-login .btn-login:hover::before {
+    left: 100%;
+}
+
+body.rokn-login .btn-login:hover {
+    box-shadow: 0 6px 20px rgba(15, 23, 42, .4);
+    transform: translateY(-2px);
+}
+
+body.rokn-login .btn-login:focus-visible {
+    outline: 3px solid rgba(255, 255, 255, .75);
+    outline-offset: 3px;
+}
+
+body.rokn-login .btn-login:active {
+    transform: translateY(0);
+}
+
+body.rokn-login .btn-login i {
+    margin-right: 8px;
+}
+
+body.rokn-login .btn-login.loading {
+    pointer-events: none;
+}
+
+body.rokn-login .alert {
+    padding: 12px 15px;
+    margin-bottom: 20px;
+    border-radius: 8px;
+    font-size: 14px;
+}
+
+body.rokn-login .alert-success {
+    color: #155724;
+    background: #d4edda;
+    border: 1px solid #c3e6cb;
+}
+
+body.rokn-login .alert-danger {
+    color: #721c24;
+    background: #f8d7da;
+    border: 1px solid #f5c6cb;
+}
+
+body.rokn-login .fa-circle-notch {
+    animation: rokn-login-spin .8s linear infinite;
+}
+
+@keyframes rokn-login-float {
+    0%,
+    100% {
+        transform: translateY(0) rotate(0deg);
+    }
+
+    50% {
+        transform: translateY(-20px) rotate(10deg);
+    }
+}
+
+@keyframes rokn-login-slide-up {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes rokn-login-shake {
+    0%,
+    100% {
+        transform: translateX(0);
+    }
+
+    25% {
+        transform: translateX(-5px);
+    }
+
+    75% {
+        transform: translateX(5px);
+    }
+}
+
+@keyframes rokn-login-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (max-width: 480px) {
+    body.rokn-login .login-container {
+        max-width: 100%;
+    }
+
+    body.rokn-login .login-header {
+        padding: 30px 20px;
+    }
+
+    body.rokn-login .login-title {
+        font-size: 24px;
+    }
+
+    body.rokn-login .login-body {
+        padding: 30px 20px;
+    }
+
+    body.rokn-login .remember-section {
+        margin-bottom: 25px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body.rokn-login *,
+    body.rokn-login *::before,
+    body.rokn-login *::after {
+        scroll-behavior: auto !important;
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+    }
+}

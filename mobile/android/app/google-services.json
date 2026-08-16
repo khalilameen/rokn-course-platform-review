@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "317088967671",
+    "project_id": "rokn-425d1",
+    "storage_bucket": "rokn-425d1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:317088967671:android:cc33839b377baf9a6a9cf2",
+        "android_client_info": {
+          "package_name": "com.rokn"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAo2VdYPc6h1q-JCcEfipbF6RsxhfSVIQE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

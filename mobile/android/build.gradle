@@ -1,0 +1,48 @@
+buildscript {
+    ext {
+        buildToolsVersion = "36.0.0"
+        minSdkVersion = 24
+        compileSdkVersion = 36
+        targetSdkVersion = 36
+        ndkVersion = "27.1.12297006"
+        kotlinVersion = "2.1.20"
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle")
+        classpath("com.facebook.react:react-native-gradle-plugin")
+        classpath("com.google.gms:google-services:4.5.0")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+    }
+    configurations.classpath {
+        resolutionStrategy.activateDependencyLocking()
+    }
+}
+
+// Dependency verification authenticates downloaded bytes; locking also fixes
+// every transitive version selected for the root and application projects.
+// Regeneration is an explicit release-maintenance operation (see
+// scripts/ANDROID_DEPENDENCY_PROVENANCE.md), never an implicit build step.
+allprojects {
+    dependencyLocking {
+        lockAllConfigurations()
+    }
+}
+
+// Windows file indexers can briefly lock AAPT/Kotlin intermediates inside a
+// watched checkout. CI and normal builds keep Gradle's defaults; local agents
+// may opt into an external, disposable output root without moving source code.
+def externalBuildRoot = System.getenv("ROKN_ANDROID_BUILD_ROOT")
+if (externalBuildRoot) {
+    subprojects { project ->
+        if (project.path == ":app") {
+            project.layout.buildDirectory.set(file("${externalBuildRoot}/app"))
+        }
+    }
+}
+
+apply plugin: "expo-root-project"
+apply plugin: "com.facebook.react.rootproject"

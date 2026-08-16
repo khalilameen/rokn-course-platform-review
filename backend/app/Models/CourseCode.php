@@ -1,0 +1,849 @@
+<?php
+
+namespace App\Models;
+
+use App\Services\StudentNotificationService;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
+
+class CourseCode extends Model
+{
+    use HasFactory;
+
+    protected $fillable = [
+        'code',
+        'name',
+        'type',
+        'course_id',
+        'lesson_ids',
+        'lesson_id',
+        'start_date',
+        'expiry_date',
+        'max_uses',
+        'used_count',
+        'is_active',
+        'is_grant',
+        'description',
+        'allowed_email_domains',
+    ];
+
+    protected $casts = [
+        'lesson_ids' => 'array',
+        'start_date' => 'datetime',
+        'expiry_date' => 'datetime',
+        'is_active' => 'boolean',
+        'is_grant' => 'boolean',
+        'allowed_email_domains' => 'array',
+    ];
+
+    /**
+     * Generate a unique code
+     */
+    public static function generateUniqueCode(): string
+    {
+        do {
+            $code = strtoupper(Str::random(8));
+        } while (self::where('code', $code)->exists());
+
+        return $code;
+    }
+
+    /**
+     * Check if code is valid (not expired, not exceeded max uses, is active)
+     */
+    public function isValid(): bool
+    {
+        if (!$this->is_active) {
+            return false;
+        }
+
+        if ($this->used_count >= $this->max_uses) {
+            return false;
+        }
+
+        $now = now();
+
+        if ($this->start_date && $now->lt($this->start_date)) {
+            return false;
+        }
+
+        if ($this->expiry_date && $now->gt($this->expiry_date)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Check if code can be used by a specific user
+     */
+    public function canBeUsedByUser(int $userId): bool
+    {
+        if (
+            !$this->isValid()
+            || !$this->isEligibleForUser($userId)
+            || $this->hasReachedInstitutionalGrantLimit($userId)
+        ) {
+            return false;
+        }
+
+        // Check if user has already used this code
+        return !$this->usages()->where('user_id', $userId)->exists();
+    }
+
+    public function isEligibleForUser(int $userId): bool
+    {
+        $domains = collect($this->allowed_email_domains ?? [])
+            ->map(fn ($domain) => ltrim(mb_strtolower(trim((string) $domain)), '@'))
+            ->filter()
+            ->values();
+        if ($domains->isEmpty()) {
+            return true;
+        }
+
+        $user = User::query()->select(['email', 'email_verified_at'])->find($userId);
+        if (!$user || !$user->email_verified_at) {
+            return false;
+        }
+
+        $email = mb_strtolower((string) $user->email);
+        $domain = str_contains($email, '@') ? substr(strrchr($email, '@'), 1) : '';
+        return $domain !== '' && $domains->contains($domain);
+    }
+
+    /**
+     * Institution-restricted codes are grants, not general promo codes. A
+     * verified learner may consume one such course grant in total so a grant
+     * campaign does not erase their ability to become a paying learner later.
+     */
+    public function hasReachedInstitutionalGrantLimit(int $userId): bool
+    {
+        if (!$this->isInstitutionalGrant()) {
+            return false;
+        }
+
+        $user = User::query()->select(['id', 'email'])->find($userId);
+        if (!$user) {
+            return true;
+        }
+
+        $normalizedEmail = mb_strtolower(trim((string) $user->email));
+
+        if (Schema::hasTable('course_grant_claims')) {
+            return CourseGrantClaim::query()
+                ->where(function ($query) use ($userId, $normalizedEmail): void {
+                    $query->where('user_id', $userId);
+                    if ($normalizedEmail !== '') {
+                        $query->orWhere(
+                            'normalized_email_hash',
+                            CourseGrantClaim::emailHash($normalizedEmail)
+                        );
+                    }
+                })
+                ->exists();
+        }
+
+        if (
+            !Schema::hasColumn('course_codes', 'is_grant')
+            && !Schema::hasColumn('course_codes', 'allowed_email_domains')
+        ) {
+            return false;
+        }
+
+        return CourseCodeUsage::query()
+            ->whereHas('courseCode', function ($query): void {
+                $query->where(function ($grants): void {
+                    if (Schema::hasColumn('course_codes', 'is_grant')) {
+                        $grants->where('is_grant', true)->orWhere(function ($legacy): void {
+                            $legacy->whereNotNull('allowed_email_domains')
+                                ->where('allowed_email_domains', '!=', '[]');
+                        });
+                        return;
+                    }
+                    if (Schema::hasColumn('course_codes', 'allowed_email_domains')) {
+                        $grants->whereNotNull('allowed_email_domains')
+                            ->where('allowed_email_domains', '!=', '[]');
+                    }
+                });
+            })
+            ->where(function ($query) use ($userId, $normalizedEmail): void {
+                $query->where('user_id', $userId);
+                if ($normalizedEmail !== '') {
+                    // The users table already has a unique email constraint;
+                    // this second condition also protects imported/legacy
+                    // accounts whose email casing was not normalised.
+                    $query->orWhereHas('user', function ($users) use ($normalizedEmail): void {
+                        $users->whereRaw('LOWER(email) = ?', [$normalizedEmail]);
+                    });
+                }
+            })
+            ->exists();
+    }
+
+    /**
+     * College/institution codes are full learning grants. They intentionally
+     * exclude variable-cost services (Rokn AI and certificate rendering) until
+     * the learner upgrades this one course to a paid support plan.
+     */
+    public function isInstitutionalGrant(): bool
+    {
+        return (bool) $this->is_grant || collect($this->allowed_email_domains ?? [])
+            ->map(fn ($domain) => trim((string) $domain))
+            ->filter()
+            ->isNotEmpty();
+    }
+
+    /**
+     * Use the code for a specific user
+     */
+    public function useForUser(int $userId): bool
+    {
+        return DB::transaction(function () use ($userId): bool {
+            // One lock per learner serializes redemption of different grant
+            // codes as well as repeated taps on the same code.
+            User::query()->whereKey($userId)->lockForUpdate()->firstOrFail();
+
+            /** @var self|null $lockedCode */
+            $lockedCode = self::query()->lockForUpdate()->find($this->getKey());
+            if (!$lockedCode || !$lockedCode->canBeUsedByUser($userId)) {
+                return false;
+            }
+
+            $usage = $lockedCode->usages()->create([
+                'user_id' => $userId,
+                'used_at' => now(),
+                'ip_address' => request()->ip(),
+                'user_agent' => request()->userAgent(),
+            ]);
+
+            if ($lockedCode->isInstitutionalGrant() && Schema::hasTable('course_grant_claims')) {
+                $user = User::query()->findOrFail($userId);
+                CourseGrantClaim::query()->create([
+                    'user_id' => $userId,
+                    'normalized_email_hash' => CourseGrantClaim::emailHash($user->email),
+                    'email_hint' => CourseGrantClaim::emailHint($user->email),
+                    'course_code_id' => $lockedCode->id,
+                    'course_code_usage_id' => $usage->id,
+                    'course_id' => $lockedCode->getCourseIdForEnrollment(),
+                    'status' => CourseGrantClaim::STATUS_ACTIVE,
+                    'claimed_at' => now(),
+                ]);
+            }
+            $lockedCode->increment('used_count');
+
+            if (!$lockedCode->enrollUserInCourse($userId)) {
+                throw new \RuntimeException('Course-code enrollment could not be completed.');
+            }
+
+            $this->setRawAttributes($lockedCode->fresh()->getAttributes(), true);
+            return true;
+        }, 3);
+    }
+
+    /**
+     * Enroll user in course based on code type
+     *
+     * This method automatically enrolls a user in the appropriate course
+     * based on the code type:
+     * - 'course': Enrolls in the course directly
+     * - 'multiple_lessons': Enrolls in the course containing the lessons
+     * - 'lesson': Enrolls in the course that contains the lesson
+     *
+     * @param int $userId The user ID to enroll
+     * @return bool True if enrollment was successful or user already enrolled
+     */
+    public function enrollUserInCourse(int $userId): bool
+    {
+        $courseId = $this->getCourseIdForEnrollment();
+
+        \Log::info('CourseCode enrollUserInCourse', [
+            'code_id' => $this->id,
+            'code_type' => $this->type,
+            'user_id' => $userId,
+            'course_id' => $courseId
+        ]);
+
+        if (!$courseId) {
+            \Log::warning('No course ID found for enrollment', [
+                'code_id' => $this->id,
+                'code_type' => $this->type
+            ]);
+            return false;
+        }
+
+        // Check if user is already enrolled
+        $existingEnrollment = CourseEnrollment::where('user_id', $userId)
+            ->where('course_id', $courseId)
+            ->first();
+
+        if ($existingEnrollment) {
+            if (!$existingEnrollment->isActive()) {
+                // Reactivation is a new grant event. Keep its zero-cost order
+                // on the enrolment so CourseChatAccessService cannot inherit a
+                // historical paid order and accidentally enable AI chat for an
+                // institutional scholarship.
+                $order = $this->createOrderForCodeRedemption($userId, $courseId);
+                if (!$order) {
+                    return false;
+                }
+
+                $existingEnrollment->forceFill([
+                    'order_id' => $order->id,
+                    'is_active' => true,
+                    'access_granted_at' => now(),
+                    'expires_at' => null,
+                ])->save();
+            }
+            return true;
+        }
+
+        // Create order and billing for course code redemption
+        $order = $this->createOrderForCodeRedemption($userId, $courseId);
+
+        if (!$order) {
+            \Log::error('Failed to create order for course code redemption', [
+                'code_id' => $this->id,
+                'user_id' => $userId,
+                'course_id' => $courseId
+            ]);
+            return false;
+        }
+
+        try {
+            // Create new enrollment with order_id
+            $enrollment = CourseEnrollment::create([
+                'user_id' => $userId,
+                'course_id' => $courseId,
+                'order_id' => $order->id,
+                'enrolled_at' => now(),
+                'is_active' => true,
+                'access_granted_at' => now(),
+            ]);
+
+            \Log::info('Course enrollment created successfully', [
+                'enrollment_id' => $enrollment->id,
+                'user_id' => $userId,
+                'course_id' => $courseId,
+                'order_id' => $order->id
+            ]);
+
+            $user = \App\Models\User::find($userId);
+            $course = \App\Models\Course::find($courseId);
+            if ($user && $course) {
+                $grant = $this->isInstitutionalGrant();
+                StudentNotificationService::notifyUser(
+                    $user,
+                    StudentNotificationService::TYPE_COURSE_ENROLLED,
+                    $grant ? 'منحتك اتفعّلت' : 'الكورس أصبح لك',
+                    $grant ? 'Your grant is active' : 'Course access active',
+                    $grant
+                        ? 'الكورس والمشاريع كاملين متاحين لك. ابدأ أول خطوة وقت ما يناسبك.'
+                        : 'تقدر تبدأ ' . $course->name_ar . ' وتكمل من مكانك في أي وقت.',
+                    $grant
+                        ? 'The complete course and projects are ready whenever you are.'
+                        : 'You can start ' . $course->name_en . ' and resume at any time.',
+                    '/courses/' . $course->id,
+                    'App\Models\Course',
+                    $course->id,
+                    'course-enrolled:order:' . $order->id
+                );
+            }
+
+            return true;
+        } catch (\Exception $e) {
+            \Log::error('Failed to create course enrollment', [
+                'exception' => $e::class,
+                'error_fingerprint' => hash('sha256', $e->getMessage()),
+                'user_id' => $userId,
+                'course_id' => $courseId,
+                'order_id' => $order->id
+            ]);
+            return false;
+        }
+    }
+
+    /**
+     * Create order for course code redemption
+     *
+     * @param int $userId The user ID
+     * @param int $courseId The course ID
+     * @return Order|null The created order or null if failed
+     */
+    private function createOrderForCodeRedemption(int $userId, int $courseId): ?Order
+    {
+        // Check if order already exists for this code redemption
+        $existingOrder = $this->getOrderForUser($userId);
+        if ($existingOrder) {
+            \Log::info('Existing order found for user', [
+                'user_id' => $userId,
+                'order_id' => $existingOrder->id
+            ]);
+            return $existingOrder;
+        }
+
+        try {
+            \Log::info('Creating order for course code redemption', [
+                'user_id' => $userId,
+                'course_id' => $courseId,
+                'course_code_id' => $this->id
+            ]);
+
+            // Create order
+            $order = Order::create([
+                'user_id' => $userId,
+                'course_id' => $courseId,
+                'course_code_id' => $this->id,
+                'coupon_id' => null,
+                'coupon_code' => $this->code, // Empty string instead of null for course code redemption
+                'payment_method' => Order::PAYMENT_METHOD_COURSE_CODE,
+                'amount' => 0, // Course code redemption is free
+                'discount_amount' => 0,
+                'final_amount' => 0,
+                'status' => Order::STATUS_APPROVED,
+                'financial_status' => Order::FINANCIAL_SETTLED,
+                'notes' => 'Course code redemption: ' . $this->code,
+                'approved_at' => now(),
+            ]);
+
+            \Log::info('Order created successfully', [
+                'order_id' => $order->id,
+                'user_id' => $userId,
+                'course_id' => $courseId
+            ]);
+
+            // Create billing
+            $bill = Bill::create([
+                'order_id' => $order->id,
+                'user_id' => $userId,
+                'course_id' => $courseId,
+                'bill_number' => Bill::generateBillNumber(),
+                'amount' => 0,
+                'tax_amount' => 0,
+                'total_amount' => 0,
+                'payment_status' => Bill::PAYMENT_STATUS_PAID,
+                'payment_method' => Order::PAYMENT_METHOD_COURSE_CODE,
+                'paid_at' => now(),
+                'notes' => 'Course code redemption: ' . $this->code,
+            ]);
+
+            \Log::info('Bill created successfully', [
+                'bill_id' => $bill->id,
+                'order_id' => $order->id,
+                'bill_number' => $bill->bill_number
+            ]);
+
+            return $order;
+        } catch (\Exception $e) {
+            \Log::error('Failed to create order for course code redemption', [
+                'exception' => $e::class,
+                'error_fingerprint' => hash('sha256', $e->getMessage()),
+                'user_id' => $userId,
+                'course_id' => $courseId
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Get the course ID for enrollment based on code type
+     *
+     * @return int|null The course ID for enrollment, or null if no course is associated
+     */
+    public function getCourseIdForEnrollment(): ?int
+    {
+        \Log::info('Getting course ID for enrollment', [
+            'code_id' => $this->id,
+            'code_type' => $this->type,
+            'course_id' => $this->course_id,
+            'lesson_id' => $this->lesson_id
+        ]);
+
+        switch ($this->type) {
+            case 'course':
+                \Log::info('Course type - returning course_id', ['course_id' => $this->course_id]);
+                return $this->course_id;
+
+            case 'multiple_lessons':
+                \Log::info('Multiple lessons type - returning course_id', ['course_id' => $this->course_id]);
+                return $this->course_id;
+
+            case 'lesson':
+                if ($this->lesson && $this->lesson->course) {
+                    \Log::info('Lesson type - returning lesson course_id', [
+                        'lesson_id' => $this->lesson->id,
+                        'course_id' => $this->lesson->course->id
+                    ]);
+                    return $this->lesson->course->id;
+                }
+                \Log::warning('Lesson type but no lesson or course found', [
+                    'lesson_id' => $this->lesson_id,
+                    'has_lesson' => $this->lesson ? 'yes' : 'no',
+                    'has_course' => $this->lesson && $this->lesson->course ? 'yes' : 'no'
+                ]);
+                return null;
+
+            default:
+                \Log::warning('Unknown code type', ['type' => $this->type]);
+                return null;
+        }
+    }
+
+    /**
+     * Check if user is enrolled in the course associated with this code
+     *
+     * @param int $userId The user ID to check
+     * @return bool True if user is enrolled in the associated course
+     */
+    public function isUserEnrolled(int $userId): bool
+    {
+        $courseId = $this->getCourseIdForEnrollment();
+
+        if (!$courseId) {
+            return false;
+        }
+
+        return CourseEnrollment::where('user_id', $userId)
+            ->where('course_id', $courseId)
+            ->where('is_active', true)
+            ->where(function ($query): void {
+                $query->whereNull('expires_at')->orWhere('expires_at', '>', now());
+            })
+            ->exists();
+    }
+
+    /**
+     * Get enrollment status for a user
+     *
+     * @param int $userId The user ID to check
+     * @return array Array containing enrollment status and message
+     */
+    public function getEnrollmentStatus(int $userId): array
+    {
+        $courseId = $this->getCourseIdForEnrollment();
+
+        if (!$courseId) {
+            return [
+                'enrolled' => false,
+                'message' => 'لا يوجد دورة مرتبطة بهذا الكود'
+            ];
+        }
+
+        $enrollment = CourseEnrollment::where('user_id', $userId)
+            ->where('course_id', $courseId)
+            ->first();
+
+        if ($enrollment) {
+            $orderInfo = null;
+            $billingInfo = null;
+
+            if ($enrollment->order_id) {
+                $order = Order::with('bill')->find($enrollment->order_id);
+                if ($order) {
+                    $orderInfo = [
+                        'id' => $order->id,
+                        'status' => $order->status,
+                        'payment_method' => $order->payment_method,
+                        'amount' => $order->amount,
+                        'final_amount' => $order->final_amount,
+                        'approved_at' => $order->approved_at ? $order->approved_at->format('Y-m-d H:i:s') : null
+                    ];
+
+                    if ($order->bill) {
+                        $billingInfo = [
+                            'bill_number' => $order->bill->bill_number,
+                            'payment_status' => $order->bill->payment_status,
+                            'total_amount' => $order->bill->total_amount,
+                            'paid_at' => $order->bill->paid_at ? $order->bill->paid_at->format('Y-m-d H:i:s') : null
+                        ];
+                    }
+                }
+            }
+
+            return [
+                'enrolled' => true,
+                'message' => 'أنت مسجل بالفعل في هذه الدورة',
+                'enrollment' => $enrollment,
+                'order' => $orderInfo,
+                'billing' => $billingInfo
+            ];
+        }
+
+        return [
+            'enrolled' => false,
+            'message' => 'لم يتم التسجيل في الدورة بعد'
+        ];
+    }
+
+    /**
+     * Get order and billing information for a user
+     *
+     * @param int $userId The user ID
+     * @return array Array containing order and billing information
+     */
+    public function getOrderAndBillingInfo(int $userId): array
+    {
+        $courseId = $this->getCourseIdForEnrollment();
+
+        if (!$courseId) {
+            return [
+                'order' => null,
+                'billing' => null
+            ];
+        }
+
+        $enrollment = CourseEnrollment::where('user_id', $userId)
+            ->where('course_id', $courseId)
+            ->first();
+
+        if (!$enrollment || !$enrollment->order_id) {
+            return [
+                'order' => null,
+                'billing' => null
+            ];
+        }
+
+        $order = Order::with('bill')->find($enrollment->order_id);
+
+        if (!$order) {
+            return [
+                'order' => null,
+                'billing' => null
+            ];
+        }
+
+        $orderInfo = [
+            'id' => $order->id,
+            'status' => $order->status,
+            'payment_method' => $order->payment_method,
+            'amount' => $order->amount,
+            'final_amount' => $order->final_amount,
+            'approved_at' => $order->approved_at ? $order->approved_at->format('Y-m-d H:i:s') : null
+        ];
+
+        $billingInfo = null;
+        if ($order->bill) {
+            $billingInfo = [
+                'bill_number' => $order->bill->bill_number,
+                'payment_status' => $order->bill->payment_status,
+                'total_amount' => $order->bill->total_amount,
+                'paid_at' => $order->bill->paid_at ? $order->bill->paid_at->format('Y-m-d H:i:s') : null
+            ];
+        }
+
+        return [
+            'order' => $orderInfo,
+            'billing' => $billingInfo
+        ];
+    }
+
+    /**
+     * Get comprehensive information about code redemption for a user
+     *
+     * @param int $userId The user ID
+     * @return array Array containing all redemption information
+     */
+    public function getRedemptionInfo(int $userId): array
+    {
+        $enrollmentStatus = $this->getEnrollmentStatus($userId);
+        $orderAndBilling = $this->getOrderAndBillingInfo($userId);
+
+        return [
+            'code' => $this->code,
+            'name' => $this->name,
+            'type' => $this->type,
+            'target_content_name' => $this->target_content_name,
+            'enrollment_status' => $enrollmentStatus,
+            'order' => $orderAndBilling['order'],
+            'billing' => $orderAndBilling['billing'],
+            'usage_info' => [
+                'used_count' => $this->used_count,
+                'max_uses' => $this->max_uses,
+                'remaining_uses' => $this->remaining_uses,
+                'is_valid' => $this->isValid(),
+                'can_use' => $this->canBeUsedByUser($userId)
+            ]
+        ];
+    }
+
+    /**
+     * Get the course associated with this code
+     */
+    public function course()
+    {
+        return $this->belongsTo(Course::class);
+    }
+
+    /**
+     * Get the lesson associated with this code
+     */
+    public function lesson()
+    {
+        return $this->belongsTo(Lesson::class);
+    }
+
+    /**
+     * Get multiple lessons if this code is for multiple lessons
+     */
+    public function lessons()
+    {
+        if ($this->lesson_ids && is_array($this->lesson_ids)) {
+            return Lesson::whereIn('id', $this->lesson_ids)->get();
+        }
+        return collect();
+    }
+
+    /**
+     * Get multiple lessons as a collection (for direct access)
+     */
+    public function getLessonsCollection()
+    {
+        if ($this->lesson_ids && is_array($this->lesson_ids)) {
+            return Lesson::whereIn('id', $this->lesson_ids)->get();
+        }
+        return collect();
+    }
+
+    /**
+     * Get multiple lessons as a query builder (for eager loading compatibility)
+     */
+    public function lessonsQuery()
+    {
+        if ($this->lesson_ids && is_array($this->lesson_ids)) {
+            return Lesson::whereIn('id', $this->lesson_ids);
+        }
+        return Lesson::whereRaw('1 = 0'); // Return empty query
+    }
+
+    /**
+     * Get all usages of this code
+     */
+    public function usages()
+    {
+        return $this->hasMany(CourseCodeUsage::class);
+    }
+
+    /**
+     * Get users who have used this code
+     */
+    public function users()
+    {
+        return $this->belongsToMany(User::class, 'course_code_usages', 'course_code_id', 'user_id')
+                    ->withPivot('used_at', 'ip_address')
+                    ->withTimestamps();
+    }
+
+    /**
+     * Scope for active codes
+     */
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
+    }
+
+    /**
+     * Scope for valid codes (not expired, not exceeded max uses)
+     */
+    public function scopeValid($query)
+    {
+        return $query->where('is_active', true)
+                    ->where('used_count', '<', \DB::raw('max_uses'))
+                    ->where(function($q) {
+                        $q->whereNull('start_date')
+                          ->orWhere('start_date', '<=', now());
+                    })
+                    ->where(function($q) {
+                        $q->whereNull('expiry_date')
+                          ->orWhere('expiry_date', '>=', now());
+                    });
+    }
+
+    /**
+     * Get the target content (course or lesson) for this code
+     */
+    public function getTargetContent()
+    {
+        switch ($this->type) {
+            case 'course':
+                return $this->course;
+            case 'lesson':
+                return $this->lesson;
+            case 'multiple_lessons':
+                return $this->lessons;
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * Get the target content name
+     */
+    public function getTargetContentNameAttribute()
+    {
+        switch ($this->type) {
+            case 'course':
+                return $this->course ? $this->course->name_ar : 'غير محدد';
+            case 'lesson':
+                return $this->lesson ? $this->lesson->title : 'غير محدد';
+            case 'multiple_lessons':
+                $lessons = $this->lessons();
+                $lessonNames = $lessons->pluck('title')->toArray();
+                return implode(', ', $lessonNames) ?: 'غير محدد';
+            default:
+                return 'غير محدد';
+        }
+    }
+
+    /**
+     * Get remaining uses
+     */
+    public function getRemainingUsesAttribute()
+    {
+        return max(0, $this->max_uses - $this->used_count);
+    }
+
+    /**
+     * Check if code is expired
+     */
+    public function getIsExpiredAttribute()
+    {
+        return $this->expiry_date && now()->gt($this->expiry_date);
+    }
+
+    /**
+     * Check if code is not yet active
+     */
+    public function getIsNotYetActiveAttribute()
+    {
+        return $this->start_date && now()->lt($this->start_date);
+    }
+
+    /**
+     * Check if an order already exists for this code redemption by a user
+     *
+     * @param int $userId The user ID
+     * @return bool True if order exists
+     */
+    public function hasOrderForUser(int $userId): bool
+    {
+        return Order::where('user_id', $userId)
+            ->where('course_code_id', $this->id)
+            ->exists();
+    }
+
+    /**
+     * Get existing order for this code redemption by a user
+     *
+     * @param int $userId The user ID
+     * @return Order|null The existing order or null
+     */
+    public function getOrderForUser(int $userId): ?Order
+    {
+        return Order::where('user_id', $userId)
+            ->where('course_code_id', $this->id)
+            ->first();
+    }
+}
+
