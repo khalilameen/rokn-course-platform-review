@@ -308,6 +308,8 @@ test('native lock refresh captures the production Android metadata closure', () 
   assert.match(workflow, /-ProknBuildProfile=production/);
   assert.match(workflow, /-ProknRequireReleaseSigning=true/);
   assert.match(workflow, /--write-verification-metadata sha256/);
+  assert.equal([...workflow.matchAll(/git rebase origin\/main/g)].length, 3);
+  assert.equal([...workflow.matchAll(/git push origin HEAD:main/g)].length, 3);
 });
 
 test('workflow is discoverable from the monorepo root and preserves native checks', () => {

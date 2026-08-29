@@ -20,8 +20,9 @@ final class ContinuousIntegrationLayoutTest extends TestCase
         self::assertStringContainsString('working-directory: backend', $contents);
         self::assertStringContainsString('cache-dependency-path: backend/package-lock.json', $contents);
         self::assertMatchesRegularExpression('/-[ ]+["\']backend\/\*\*["\']/', $contents);
-        self::assertStringContainsString('php-version: "8.4.24"', $contents);
-        self::assertStringContainsString('test "$(php -r \'echo PHP_VERSION;\')" = "8.4.24"', $contents);
+        self::assertStringContainsString('php-version: "8.4"', $contents);
+        self::assertStringContainsString('PHP_MAJOR_VERSION, \\".\\", PHP_MINOR_VERSION', $contents);
+        self::assertStringContainsString('PHP_VERSION_ID;\')" -ge 80424', $contents);
         self::assertStringContainsString('tools: composer:2.10.3', $contents);
         self::assertStringContainsString('php scripts/verify-repository-secrets.php --history', $contents);
         self::assertStringContainsString('php artisan test', $contents);
@@ -32,7 +33,7 @@ final class ContinuousIntegrationLayoutTest extends TestCase
             flags: JSON_THROW_ON_ERROR,
         );
 
-        self::assertSame('^8.4.1', $composer['require']['php'] ?? null);
+        self::assertSame('^8.4.24', $composer['require']['php'] ?? null);
         self::assertSame('8.4.24', $composer['config']['platform']['php'] ?? null);
     }
 }

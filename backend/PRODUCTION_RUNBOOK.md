@@ -4,7 +4,7 @@ This backend is prepared for the first production load, but capacity is an opera
 
 ## Required production topology
 
-- PHP 8.4.24 with OPcache, managed MySQL 8.0.17 or newer (8.0.43 is the
+- PHP 8.4.24 or newer within the PHP 8.4 release line, with OPcache; managed MySQL 8.0.17 or newer (8.0.43 is the
   release-tested target), and Redis shared by every app instance. The plan
   snapshot integrity constraints use enforced JSON schema checks unavailable
   on older MySQL releases.
