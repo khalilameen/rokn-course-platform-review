@@ -67,10 +67,14 @@ class HomeEndpointTest extends ApiTestCase
     {
         $this->getJson('/api/v1/settings')
             ->assertOk()
+            ->assertJsonPath('data.0.about_url', url('/about'))
+            ->assertJsonPath('data.0.contact_url', url('/contact'))
             ->assertJsonPath('data.0.privacy_url', url('/privacy-policy'))
             ->assertJsonPath('data.0.terms_url', url('/terms'))
             ->assertJsonPath('data.0.returns_policy_url', url('/returns-policy'))
-            ->assertJsonPath('data.0.account_deletion_url', url('/account-deletion'));
+            ->assertJsonPath('data.0.account_deletion_url', url('/account-deletion'))
+            ->assertJsonPath('data.0.about_us_url', url('/about'))
+            ->assertJsonPath('data.0.privacy_policy_url', url('/privacy-policy'));
     }
 
     public function test_can_get_independent_public_content_pages_as_structured_json(): void

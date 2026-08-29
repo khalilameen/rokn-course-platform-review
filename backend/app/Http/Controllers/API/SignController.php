@@ -446,6 +446,10 @@ class SignController extends Controller
         ));
 
         $publicApiUrl = rtrim(trim((string) config('social_auth.public_api_url')), '/');
+        $preferredProvider = (string) config('social_auth.recommended_provider', 'facebook');
+        $recommendedProvider = $providers->contains($preferredProvider)
+            ? $preferredProvider
+            : $providers->first();
 
         return response()->json([
             'status' => 200,
@@ -465,8 +469,10 @@ class SignController extends Controller
                 'otp_enabled' => false,
                 'password_login_visible' => false,
                 'welcome_bonus_coins' => max(0, $welcomeBonus),
-                'recommended_provider' => config('social_auth.recommended_provider', 'facebook'),
-                'recommendation_badge' => config('social_auth.recommendation_badge'),
+                'recommended_provider' => $recommendedProvider,
+                'recommendation_badge' => $recommendedProvider
+                    ? config('social_auth.recommendation_badge')
+                    : null,
             ],
         ]);
     }

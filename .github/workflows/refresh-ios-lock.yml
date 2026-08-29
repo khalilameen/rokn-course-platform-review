@@ -37,12 +37,9 @@ jobs:
           bundle _4.0.19_ install
       - name: Regenerate native locks and macOS verification metadata
         working-directory: mobile
+        env:
+          EXPO_PUBLIC_API_URL: https://rokn.app/api/
         run: |
-          cd ios
-          rm -rf Pods Podfile.lock
-          bundle _4.0.19_ exec pod install
-          cd ..
-          npm run verify:ios-lock
           cd android
           ./gradlew -q \
             -I ../scripts/android-license-inventory.init.gradle \
@@ -52,6 +49,11 @@ jobs:
           test -s "$RUNNER_TEMP/android-license-inputs.json"
           cd ..
           npm run test:release-scripts -- --test-name-pattern="Gradle dependency provenance"
+          cd ios
+          rm -rf Pods Podfile.lock
+          bundle _4.0.19_ exec pod install
+          cd ..
+          npm run verify:ios-lock
       - name: Commit native locks before the slower legal inventory
         run: |
           git config user.name "Rokn Release Automation"

@@ -184,14 +184,16 @@ final class HomeController extends Controller
                     // surfaces on the exact same published legal documents.
                     // The legacy content fields below remain for old clients.
                     "support_whatsapp_url" => $supportWhatsAppUrl,
+                    "about_url" => route('about'),
+                    "contact_url" => route('contact'),
                     "privacy_url" => route('privacy'),
                     "terms_url" => route('terms'),
                     "returns_policy_url" => route('returns-policy'),
                     "account_deletion_url" => route('account-deletion.show'),
                     "android_app_url" => $generalSettings->android_app_url,
                     "ios_app_url" => $generalSettings->ios_app_url,
-                    "about_us_url" => $generalSettings->about_us_url,
-                    "privacy_policy_url" => $generalSettings->privacy_policy_url,
+                    "about_us_url" => $generalSettings->about_us_url ?: route('about'),
+                    "privacy_policy_url" => $generalSettings->privacy_policy_url ?: route('privacy'),
                     "policy_content" => $designSettings->policy_content_ar,
                     "coin_rules" => $generalSettings->how_to_use_coins,
                 ]

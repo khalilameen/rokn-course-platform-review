@@ -26,13 +26,24 @@ class AuthEndpointTest extends ApiTestCase
 
     public function test_auth_methods_advertise_social_only_sign_in(): void
     {
+        config()->set([
+            'services.google.client_id' => 'configured',
+            'services.google.client_secret' => 'configured',
+            'services.facebook.client_id' => null,
+            'services.facebook.client_secret' => null,
+            'services.tiktok.client_key' => null,
+            'services.tiktok.client_secret' => null,
+            'services.apple.client_id' => null,
+        ]);
+
         $this->getJson('/api/v1/auth-methods')
             ->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.otp_enabled', false)
             ->assertJsonPath('data.password_login_visible', false)
             ->assertJsonPath('data.welcome_bonus_coins', 20)
-            ->assertJsonPath('data.recommended_provider', 'facebook')
+            ->assertJsonPath('data.providers', ['google'])
+            ->assertJsonPath('data.recommended_provider', 'google')
             ->assertJsonStructure([
                 'data' => ['providers', 'authorization_urls', 'recommendation_badge'],
             ]);
