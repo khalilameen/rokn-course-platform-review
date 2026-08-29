@@ -26,6 +26,7 @@ final class ProductionCapabilityService
      *     bunny: array{ready: bool, stream: array, upload: array, playback: array, signing: array},
      *     payment: array{ready: bool, reason: string},
      *     ai: array{ready: bool, reason: string},
+     *     mail: array{ready: bool, reason: string},
      *     queue: array{ready: bool, reason: string, required_queues: list<string>, queues: array<string, array>}
      *   }
      * }
@@ -83,12 +84,13 @@ final class ProductionCapabilityService
 
         $payment = $this->paymentCapability();
         $ai = $this->aiCapability();
+        $mail = $this->mailCapability();
         $queue = $this->queueCapability();
 
         return [
-            'ready' => $bunny['ready'] && $payment['ready'] && $ai['ready'] && $queue['ready'],
+            'ready' => $bunny['ready'] && $payment['ready'] && $ai['ready'] && $mail['ready'] && $queue['ready'],
             'checked_at' => now()->toIso8601String(),
-            'capabilities' => compact('bunny', 'payment', 'ai', 'queue'),
+            'capabilities' => compact('bunny', 'payment', 'ai', 'mail', 'queue'),
         ];
     }
 
@@ -126,6 +128,30 @@ final class ProductionCapabilityService
             $ready
                 ? 'المفتاح والنموذج وقائمة السماح وحدود التكلفة مضبوطة'
                 : 'مفتاح OpenRouter أو النموذج المسموح أو حدود التكلفة ناقصة'
+        );
+    }
+
+    private function mailCapability(): array
+    {
+        $mailer = strtolower(trim((string) config('mail.default')));
+        $host = trim((string) config("mail.mailers.{$mailer}.host"));
+        $port = (int) config("mail.mailers.{$mailer}.port");
+        $username = trim((string) config("mail.mailers.{$mailer}.username"));
+        $password = trim((string) config("mail.mailers.{$mailer}.password"));
+        $from = trim((string) config('mail.from.address'));
+        $ready = $mailer === 'smtp'
+            && $this->validHostname($host)
+            && $port > 0
+            && $port <= 65535
+            && $username !== ''
+            && $password !== ''
+            && filter_var($from, FILTER_VALIDATE_EMAIL) !== false;
+
+        return $this->item(
+            $ready,
+            $ready
+                ? 'SMTP transactional mail and sender are configured'
+                : 'Transactional mail host, credentials, port, or sender is incomplete'
         );
     }
 

@@ -13,7 +13,7 @@ return [
     |
     */
 
-    'default' => env('MAIL_MAILER', 'smtp'),
+    'default' => env('TRANSACTIONAL_MAIL_MAILER', env('MAIL_MAILER', 'smtp')),
 
     /*
     |--------------------------------------------------------------------------
@@ -36,11 +36,11 @@ return [
     'mailers' => [
         'smtp' => [
             'transport' => 'smtp',
-            'host' => env('MAIL_HOST', 'smtp.mailgun.org'),
-            'port' => env('MAIL_PORT', 587),
-            'encryption' => env('MAIL_ENCRYPTION', 'tls'),
-            'username' => env('MAIL_USERNAME'),
-            'password' => env('MAIL_PASSWORD'),
+            'host' => env('TRANSACTIONAL_MAIL_HOST', env('MAIL_HOST', 'smtp.mailgun.org')),
+            'port' => env('TRANSACTIONAL_MAIL_PORT', env('MAIL_PORT', 587)),
+            'encryption' => env('TRANSACTIONAL_MAIL_ENCRYPTION', env('MAIL_ENCRYPTION', 'tls')),
+            'username' => env('TRANSACTIONAL_MAIL_USERNAME', env('MAIL_USERNAME')),
+            'password' => env('TRANSACTIONAL_MAIL_PASSWORD', env('MAIL_PASSWORD')),
         ],
 
         'ses' => [
@@ -74,8 +74,8 @@ return [
     */
 
     'from' => [
-        'address' => env('MAIL_FROM_ADDRESS'),
-        'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Rokn')),
+        'address' => env('TRANSACTIONAL_MAIL_FROM_ADDRESS', env('MAIL_FROM_ADDRESS')),
+        'name' => env('TRANSACTIONAL_MAIL_FROM_NAME', env('MAIL_FROM_NAME', env('APP_NAME', 'Rokn'))),
     ],
 
     /*

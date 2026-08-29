@@ -71,6 +71,7 @@ final class OperationalHealthController extends Controller
             'bunny_signing' => (bool) data_get($report, 'capabilities.bunny.signing.ready'),
             'payment' => (bool) data_get($report, 'capabilities.payment.ready'),
             'ai' => (bool) data_get($report, 'capabilities.ai.ready'),
+            'mail' => (bool) data_get($report, 'capabilities.mail.ready'),
             'queue' => (bool) data_get($report, 'capabilities.queue.ready'),
         ];
         $ready = !in_array(false, $checks, true);

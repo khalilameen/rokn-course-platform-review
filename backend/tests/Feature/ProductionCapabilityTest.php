@@ -55,6 +55,12 @@ final class ProductionCapabilityTest extends TestCase
             'openrouter.global_daily_request_limit' => 100,
             'openrouter.global_daily_token_budget' => 10000,
             'openrouter.global_monthly_token_budget' => 100000,
+            'mail.default' => 'smtp',
+            'mail.mailers.smtp.host' => 'smtp.production.test',
+            'mail.mailers.smtp.port' => 587,
+            'mail.mailers.smtp.username' => 'mailer',
+            'mail.mailers.smtp.password' => 'mail-secret',
+            'mail.from.address' => 'hello@production.test',
             'operations.queue_heartbeat_key' => 'test:queue-heartbeat',
             'operations.queue_heartbeat_required_queues' => self::REQUIRED_QUEUES,
             'operations.queue_heartbeat_ttl_seconds' => 600,
@@ -104,6 +110,7 @@ final class ProductionCapabilityTest extends TestCase
         self::assertTrue($report['capabilities']['bunny']['signing']['ready']);
         self::assertTrue($report['capabilities']['payment']['ready']);
         self::assertTrue($report['capabilities']['ai']['ready']);
+        self::assertTrue($report['capabilities']['mail']['ready']);
         self::assertTrue($report['capabilities']['queue']['ready']);
         self::assertSame(self::REQUIRED_QUEUES, $report['capabilities']['queue']['required_queues']);
         foreach (self::REQUIRED_QUEUES as $queue) {
@@ -113,10 +120,12 @@ final class ProductionCapabilityTest extends TestCase
         $response = $this->getJson('/api/health/launch-ready')->assertOk();
         $response->assertJsonPath('status', 'launch_ready')
             ->assertJsonPath('checks.queue', true)
+            ->assertJsonPath('checks.mail', true)
             ->assertJsonMissing(['reason'])
             ->assertDontSee('stream-secret')
             ->assertDontSee('payment-secret')
-            ->assertDontSee('ai-secret');
+            ->assertDontSee('ai-secret')
+            ->assertDontSee('mail-secret');
     }
 
     public function test_missing_or_stale_worker_heartbeat_fails_readiness(): void
@@ -149,6 +158,20 @@ final class ProductionCapabilityTest extends TestCase
         self::assertTrue($report['capabilities']['bunny']['playback']['ready']);
         self::assertFalse($report['capabilities']['bunny']['signing']['ready']);
         self::assertFalse($report['ready']);
+    }
+
+    public function test_missing_transactional_mail_credentials_block_launch(): void
+    {
+        $this->recordAllQueueHeartbeats();
+        config(['mail.mailers.smtp.password' => null]);
+
+        $report = app(ProductionCapabilityService::class)->report();
+
+        self::assertFalse($report['capabilities']['mail']['ready']);
+        self::assertFalse($report['ready']);
+        $this->getJson('/api/health/launch-ready')
+            ->assertStatus(503)
+            ->assertJsonPath('checks.mail', false);
     }
 
     public function test_legacy_key_only_falls_back_for_the_default_queue(): void
