@@ -41,7 +41,7 @@ jobs:
       - name: Resolve the complete Linux production metadata closure
         run: |
           npm install --global npm@10.9.3
-          npm ci
+          npm ci --include=dev
           keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/metadata-upload.jks" \
             -storepass ci-password -keypass ci-password -alias ci-upload \
             -keyalg RSA -keysize 2048 -validity 2 -dname "CN=Rokn Metadata CI"
@@ -98,7 +98,7 @@ jobs:
         working-directory: mobile
         run: |
           npm install --global npm@10.9.3
-          npm ci
+          npm ci --include=dev
           gem install bundler --version 4.0.19 --no-document
           bundle _4.0.19_ update --bundler
           bundle _4.0.19_ install

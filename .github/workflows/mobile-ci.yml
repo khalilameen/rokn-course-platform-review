@@ -64,7 +64,7 @@ jobs:
           test "$(npm --version)" = "10.9.3"
       - name: Reject committed credentials and private keys
         run: node scripts/verify-repository-secrets.js --history
-      - run: npm ci
+      - run: npm ci --include=dev
       - name: Verify mobile CI provenance and fixture contracts
         run: npm run test:release-scripts
       - run: npm run verify:release
@@ -98,7 +98,7 @@ jobs:
           distribution: temurin
           java-version: "17.0.20+8"
           cache: gradle
-      - run: npm ci
+      - run: npm ci --include=dev
       - name: Create an ephemeral CI signing key
         run: >-
           keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/ci-upload.jks"
@@ -149,7 +149,7 @@ jobs:
           test "$(npm --version)" = "10.9.3"
       - name: Install locked JavaScript and Ruby dependencies
         run: |
-          npm ci
+          npm ci --include=dev
           gem install bundler --version 4.0.19 --no-document
           bundle _4.0.19_ install
       - name: Verify the checked-in iOS dependency lock
@@ -275,5 +275,5 @@ jobs:
               --output "$CANDIDATE_PROVENANCE" "$ROKN_SMOKE_APK_PROVENANCE_URL"
             node scripts/verify-artifact-provenance.js \
               "$CANDIDATE_APK" "$CANDIDATE_PROVENANCE"
-            npm ci
+            npm ci --include=dev
             ROKN_SMOKE_APK="$CANDIDATE_APK" npm run e2e:android:staging

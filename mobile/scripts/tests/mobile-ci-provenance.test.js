@@ -284,6 +284,11 @@ test('workflow uses the package-manager and registry pinned by the source tree',
     [...workflow.matchAll(/test "\$\(npm --version\)" = "10\.9\.3"/g)].length,
     4,
   );
+  assert.equal(
+    [...workflow.matchAll(/npm ci --include=dev/g)].length,
+    4,
+    'production-mode CI must retain the locked build and verification toolchain',
+  );
   assert.ok(
     workflow.indexOf('node scripts/verify-repository-secrets.js --history') <
       workflow.indexOf('- run: npm ci'),
@@ -298,6 +303,11 @@ test('native lock refresh captures the production Android metadata closure', () 
   const workflow = fs.readFileSync(
     path.join(root, '..', '.github', 'workflows', 'refresh-ios-lock.yml'),
     'utf8',
+  );
+  assert.equal(
+    [...workflow.matchAll(/npm ci --include=dev/g)].length,
+    2,
+    'native lock refresh must retain the locked build toolchain in production mode',
   );
   for (const task of [
     ':app:lintRelease',

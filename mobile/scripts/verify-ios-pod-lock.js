@@ -46,7 +46,7 @@ try {
     'package.json',
   )).version;
 } catch {
-  fail('node_modules/react-native is missing; run npm ci first.');
+  fail('node_modules/react-native is missing; run npm ci --include=dev first.');
 }
 
 if (declaredReactNative !== lockedReactNative) {
@@ -250,7 +250,7 @@ if (failures.length) {
   failures.forEach(item => console.error(`- ${item}`));
   console.error(
     '\nRegenerate it on macOS with exactly:\n' +
-      '  npm ci\n' +
+      '  npm ci --include=dev\n' +
       '  bundle install\n' +
       '  cd ios\n' +
       '  bundle exec pod install\n' +

@@ -46,7 +46,7 @@ and Xcode versions; do not edit either lock by hand. To reproduce the full
 installed-source gate locally on macOS:
 
 ```sh
-npm ci
+npm ci --include=dev
 bundle install
 cd ios
 bundle exec pod install
