@@ -19,7 +19,8 @@ final class ContinuousIntegrationLayoutTest extends TestCase
         $contents = (string) file_get_contents($workflow);
         self::assertStringContainsString('working-directory: backend', $contents);
         self::assertStringContainsString('cache-dependency-path: backend/package-lock.json', $contents);
-        self::assertStringContainsString("- 'backend/**'", $contents);
+        self::assertMatchesRegularExpression('/-[ ]+["\']backend\/\*\*["\']/', $contents);
+        self::assertStringContainsString('tools: composer:2.10.3', $contents);
         self::assertStringContainsString('php scripts/verify-repository-secrets.php --history', $contents);
         self::assertStringContainsString('php artisan test', $contents);
     }
