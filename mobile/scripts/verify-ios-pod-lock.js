@@ -96,8 +96,8 @@ if (!fs.existsSync(gemLockPath)) {
 } else {
   const gemLock = fs.readFileSync(gemLockPath, 'utf8');
   bundledCocoaPods = gemLock.match(/^    cocoapods \(([^)]+)\)$/m)?.[1];
-  lockedRuby = gemLock.match(/^   ruby ([0-9.]+)(?:p\d+)?$/m)?.[1];
-  lockedBundler = gemLock.match(/^   ([0-9.]+)$/m)?.[1];
+  lockedRuby = gemLock.match(/^RUBY VERSION\r?\n\s+ruby ([0-9.]+)(?:p\d+)?$/m)?.[1];
+  lockedBundler = gemLock.match(/^BUNDLED WITH\r?\n\s+([0-9.]+)$/m)?.[1];
   if (!bundledCocoaPods) {
     fail('Gemfile.lock has no exact CocoaPods resolution.');
   } else if (lockedCocoaPods && bundledCocoaPods !== lockedCocoaPods) {
