@@ -1,10 +1,11 @@
-import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readdirSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { thirdPartyFamilies } from './frontend-asset-policy.mjs';
+import { hashPublicAsset } from './public-asset-hash.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const inventoryPath = resolve(root, 'resources/legal/frontend/public-asset-inventory.json');
 const thirdParty = new Map(thirdPartyFamilies.flatMap(family => family.artifacts.map(path => [path, family.id])));
 const generated = new Set(['public/THIRD_PARTY_NOTICES.frontend.md', 'public/mix-manifest.json']);
 const deployment = new Set([
@@ -37,9 +38,16 @@ const assets = walk(resolve(root, 'public')).map(path => {
     const relativePath = repoPath(path);
     return {
         path: relativePath,
-        sha256: createHash('sha256').update(readFileSync(path)).digest('hex'),
+        sha256: hashPublicAsset(path),
         ...classification(relativePath),
     };
 }).sort((a, b) => a.path.localeCompare(b.path));
 
-process.stdout.write(`${JSON.stringify({ schemaVersion: 1, policy: 'Every distributed public file is explicitly classified and SHA-256 pinned; additions fail CI until reviewed.', assets }, null, 2)}\n`);
+const inventory = `${JSON.stringify({ schemaVersion: 1, policy: 'Every distributed public file is explicitly classified and SHA-256 pinned; additions fail CI until reviewed.', assets }, null, 2)}\n`;
+
+if (process.argv.includes('--write')) {
+    writeFileSync(inventoryPath, inventory, 'utf8');
+    console.log(`Updated ${relative(root, inventoryPath).split(sep).join('/')}.`);
+} else {
+    process.stdout.write(inventory);
+}

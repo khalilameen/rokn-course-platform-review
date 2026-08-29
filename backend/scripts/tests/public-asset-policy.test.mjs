@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { forbiddenAssetHashes } from '../frontend-asset-policy.mjs';
+import { canonicalPublicAssetBytes } from '../public-asset-hash.mjs';
 import { validateExternalTag, validateFileInventory, validateRepository } from '../verify-public-assets.mjs';
 
 test('current repository satisfies the fail-closed public asset policy', () => {
@@ -27,4 +28,11 @@ test('restricted font bytes are rejected even when renamed', () => {
     const entry = { path: 'public/assets/renamed.bin', sha256: restricted };
     const errors = validateFileInventory([entry], [{ ...entry, classification: 'first_party' }]);
     assert.match(errors.join('\n'), /Restricted or unproven font bytes/);
+});
+
+test('text asset fingerprints are stable across operating-system line endings', () => {
+    const lf = canonicalPublicAssetBytes('public/app.css', Buffer.from('a\nb\n'));
+    const crlf = canonicalPublicAssetBytes('public/app.css', Buffer.from('a\r\nb\r\n'));
+
+    assert.deepEqual(crlf, lf);
 });

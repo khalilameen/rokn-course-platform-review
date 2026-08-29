@@ -19,7 +19,7 @@
     },
     {
       "path": "public/admin/assets/css/animate.css",
-      "sha256": "cb09ab0572c6a6549a782e2843218c00285cb737ae50fe29a5061ca96aff0234",
+      "sha256": "80aa5497ff31b2c001474d9432f0853c11d200a67ea4f9852ab2f7ee2fedd9c2",
       "classification": "third_party",
       "family": "animate"
     },
@@ -40,7 +40,7 @@
     },
     {
       "path": "public/admin/assets/css/bootstrap.min.css",
-      "sha256": "5947e011dfd520b3f979a3e24b07aa00380d20c2eb70ab19b338a93be2ca7e35",
+      "sha256": "c5f61edec6b397e80cc0b467d1154e0c9866655e5a237b9a3402a1c4f72a7212",
       "classification": "third_party",
       "family": "bootstrap-admin"
     },
@@ -161,7 +161,7 @@
     },
     {
       "path": "public/admin/assets/css/font-awesome.min.css",
-      "sha256": "820e169ce24824066d9973fd4b6561aae9dcd6dbef6435da905d5a1d6482997c",
+      "sha256": "799aeb25cc0373fdee0e1b1db7ad6c2f6a0e058dfadaa3379689f583213190bd",
       "classification": "third_party",
       "family": "font-awesome"
     },
@@ -212,7 +212,7 @@
     },
     {
       "path": "public/admin/assets/css/normalize.css",
-      "sha256": "212d07e9b694600a01f15b40e4b72ffe774040baa3fd0c53ec324b747c204f6b",
+      "sha256": "afca658fee651196161571e464f15613518a36a50b152f90502ceeb9120525ff",
       "classification": "third_party",
       "family": "normalize"
     },
@@ -268,7 +268,7 @@
     },
     {
       "path": "public/admin/assets/css/themify-icons.css",
-      "sha256": "119f7b78c115e1879d2a7eb3d1ca45696b4cf77c39d80508d81a21d8e90cc90b",
+      "sha256": "08a0af9f03516172bb3d8d31eebb64510f1e7ba84881c9d99f9809a28b94374f",
       "classification": "third_party",
       "family": "themify"
     },
@@ -330,7 +330,7 @@
     },
     {
       "path": "public/admin/assets/fonts/fontawesome-webfont.svg",
-      "sha256": "fc378232f9dad500890aa9e0bdd030a53d2f317d517393a3b91400b4ddce4c7c",
+      "sha256": "ad6157926c1622ba4e1d03d478f1541368524bfc46f51e42fe0d945f7ef323e4",
       "classification": "third_party",
       "family": "font-awesome"
     },
@@ -360,7 +360,7 @@
     },
     {
       "path": "public/admin/assets/fonts/themify.svg",
-      "sha256": "2e2421027bbae2dddf9dd7f0374ad7eb9c3d75fbfa12eb64d32100d377eecf8c",
+      "sha256": "f7af2e096c85c2ed6f68bb086f792c67f2a6041cbb814fc2796912b2eef4fe76",
       "classification": "third_party",
       "family": "themify"
     },
@@ -378,7 +378,7 @@
     },
     {
       "path": "public/admin/assets/js/main.js",
-      "sha256": "234067235d27fae6b134f31ed03885e0a34909e9381f88736d14578190f8b183",
+      "sha256": "1b3100f123a966c3442663d94e6f3972268d4cb9cae919556c33c08bbaad1af7",
       "classification": "third_party",
       "family": "sufee"
     },
@@ -429,7 +429,7 @@
     },
     {
       "path": "public/css/landing.css",
-      "sha256": "5de894c613976b8bed682fc073e2e20a05f6754d55f7a85b49e84e3e4b13b6d3",
+      "sha256": "77d6bd3200087c50dc84106494868ea67dd7a6d53d18344fe75071d47fc0299b",
       "classification": "first_party"
     },
     {
@@ -495,7 +495,7 @@
     },
     {
       "path": "public/index.php",
-      "sha256": "2bd9d83acf6015264ad0b96ecbab2cd2f6925dcfa9739351f4bfbbdaf566530e",
+      "sha256": "599a0b3227574a526080ade32b86d12d1e3977379529db2908b3476601574055",
       "classification": "deployment"
     },
     {
@@ -566,27 +566,27 @@
     },
     {
       "path": "public/mix-manifest.json",
-      "sha256": "5ee977651c5f79fbcb0b888315b22fba78b200d74e0a0c60997f6e95641fa4e8",
+      "sha256": "d61490763bc5c25bbbea0bf900c157e62ce373b9d23ff7e7a4787cf073e380f3",
       "classification": "generated"
     },
     {
       "path": "public/public/.gitignore",
-      "sha256": "4bb38be6d6d9ef0d2f9bcc339850ff48d821eccfa739369402b354c9ba946ea2",
+      "sha256": "240a3e0d37d2e86b614063f5347eb02d4f99ca6c254de6b82871ff8d95532a7d",
       "classification": "deployment"
     },
     {
       "path": "public/robots.txt",
-      "sha256": "9133ceedd6bece0761cc791489df7a3fdbfaaa32d6316d98b92e6f8ff76e397a",
+      "sha256": "e5c4b84484ee4216e9373be99380320c25dd94805f99f0a805846f087636553f",
       "classification": "deployment"
     },
     {
       "path": "public/THIRD_PARTY_NOTICES.frontend.md",
-      "sha256": "a1d724b7a4766bffc07d4acbcc02a70ba549eecbf2d2903abf2ac4bcb4926745",
+      "sha256": "8024154ea2b8f34a956e30b68d23681c502ef2f0ffb41b50324574f91155180f",
       "classification": "generated"
     },
     {
       "path": "public/web.config",
-      "sha256": "2bb3d01d32244dcee9dfc4b505e9b386f82294e48d0ad7c048cc999d5b3ee9f5",
+      "sha256": "106244919e9b1fdd2027bf26de197638b2a38e0ba0ad7904cf681ff13aad3310",
       "classification": "deployment"
     }
   ]

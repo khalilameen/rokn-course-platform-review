@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -11,6 +10,7 @@ import {
     forbiddenAssetName,
     thirdPartyFamilies,
 } from './frontend-asset-policy.mjs';
+import { hashPublicAsset } from './public-asset-hash.mjs';
 
 export const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const inventoryPath = resolve(repositoryRoot, 'resources/legal/frontend/public-asset-inventory.json');
@@ -28,7 +28,7 @@ function walk(path) {
 }
 
 export function sha256(path) {
-    return createHash('sha256').update(readFileSync(path)).digest('hex');
+    return hashPublicAsset(path);
 }
 
 export function validateFileInventory(actualEntries, inventoryEntries) {
