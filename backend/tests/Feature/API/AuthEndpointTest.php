@@ -119,6 +119,24 @@ class AuthEndpointTest extends ApiTestCase
             ->assertJsonPath('success', true);
     }
 
+    public function test_protected_api_routes_never_redirect_html_clients_to_web_login(): void
+    {
+        foreach (['/api/v1/user/profile', '/api/user/profile'] as $endpoint) {
+            $this->withHeaders(['Accept' => 'text/html'])
+                ->get($endpoint)
+                ->assertUnauthorized()
+                ->assertHeader('Content-Type', 'application/json')
+                ->assertHeaderMissing('Location')
+                ->assertJson([
+                    'status' => 401,
+                    'success' => false,
+                    'data' => null,
+                    'message' => 'Unauthenticated',
+                    'code' => 'unauthenticated',
+                ]);
+        }
+    }
+
     public function test_logout_revokes_only_the_current_api_session(): void
     {
         $firstToken = $this->user->generateApiToken();
