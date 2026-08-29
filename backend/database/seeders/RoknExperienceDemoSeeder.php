@@ -12,6 +12,7 @@ use App\Models\Grade;
 use App\Models\Lesson;
 use App\Models\Level;
 use App\Models\Package;
+use App\Models\Path;
 use App\Models\Project;
 use App\Models\Setting;
 use App\Models\User;
@@ -54,6 +55,10 @@ class RoknExperienceDemoSeeder extends Seeder
                     'description_en' => 'Completed the intermediate practical level in the track',
                     'order' => 2,
                 ]
+            );
+            $path = Path::updateOrCreate(
+                ['title_en' => 'Freelancing'],
+                ['title_ar' => 'العمل الحر']
             );
             Level::updateOrCreate(
                 ['name_en' => 'Senior'],
@@ -98,6 +103,7 @@ class RoknExperienceDemoSeeder extends Seeder
                 'is_main_course' => true,
                 'is_coming_soon' => false,
                 'level_id' => $level->id,
+                'path_id' => $path->id,
                 'awards_badge' => true,
                 'badge_track' => 'freelance',
                 'chat_ai_prompt' => 'كورس عملي للمبتدئ في الفريلانس يركز على اختيار خدمة محددة، بناء عرض واضح، والتواصل المهني مع العملاء دون وعود مبالغ فيها.',

@@ -75,6 +75,35 @@ class PathEndpointTest extends ApiTestCase
             ->assertJsonPath('data.0.levels.0.name_en', 'Beginner');
     }
 
+    public function test_path_lists_global_progression_levels_without_placeholder_courses(): void
+    {
+        $beginnerId = DB::table('levels')->insertGetId([
+            'name_ar' => 'مبتدئ',
+            'name_en' => 'Beginner',
+            'order' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $expertId = DB::table('levels')->insertGetId([
+            'name_ar' => 'خبير',
+            'name_en' => 'Expert',
+            'order' => 2,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('courses')->where('id', $this->courseId)->update([
+            'path_id' => $this->pathId,
+            'level_id' => $beginnerId,
+        ]);
+
+        $response = $this->getJson('/api/v1/paths')->assertOk();
+
+        self::assertSame(
+            [$beginnerId, $expertId],
+            collect($response->json('data.0.levels'))->pluck('id')->all()
+        );
+    }
+
     public function test_can_view_path_details(): void
     {
         $this->getJson("/api/v1/paths/{$this->pathId}")
@@ -104,19 +133,6 @@ class PathEndpointTest extends ApiTestCase
         DB::table('courses')->where('id', $this->courseId)->update([
             'path_id' => $this->pathId,
             'level_id' => $currentLevelId,
-        ]);
-        DB::table('courses')->insert([
-            'name_ar' => 'كورس المستوى التالي',
-            'name_en' => 'Next level course',
-            'grade_id' => $this->gradeId,
-            'path_id' => $this->pathId,
-            'level_id' => $nextLevelId,
-            'price' => 100,
-            'active' => true,
-            'course_type' => 'online',
-            'rate' => 5,
-            'created_at' => now(),
-            'updated_at' => now(),
         ]);
         $secondSectionId = DB::table('course_sections')->insertGetId([
             'course_id' => $this->courseId,

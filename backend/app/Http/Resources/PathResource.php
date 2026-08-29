@@ -26,12 +26,8 @@ class PathResource extends JsonResource
                     'name_en' => $interest->name_en,
                 ];
             }),
-            'levels' => $this->whenLoaded('courses', function () {
-                return $this->courses
-                    ->pluck('level')
-                    ->filter()
-                    ->unique('id')
-                    ->sortBy('order')
+            'levels' => $this->whenLoaded('availableLevels', function () {
+                return $this->availableLevels
                     ->values()
                     ->map(fn ($level) => [
                         'id' => (int) $level->id,

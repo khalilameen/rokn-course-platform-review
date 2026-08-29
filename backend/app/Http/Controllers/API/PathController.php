@@ -6,6 +6,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PathResource;
+use App\Models\Level;
 use App\Models\Path;
 use App\Models\User;
 use App\Services\ApiResponseService;
@@ -23,7 +24,9 @@ final class PathController extends Controller
 
     public function index(): JsonResource
     {
+        $levels = Level::ordered()->get();
         $paths = Path::with(['interests', 'courses.level'])->get();
+        $paths->each->setRelation('availableLevels', $levels);
 
         return $this->responses->resource(
             PathResource::collection($paths),
@@ -39,6 +42,7 @@ final class PathController extends Controller
             'courses.classifications',
             'courses.teachers',
         ])->findOrFail($id);
+        $path->setRelation('availableLevels', Level::ordered()->get());
 
         return $this->responses->resource(
             new PathResource($path),

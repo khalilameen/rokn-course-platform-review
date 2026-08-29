@@ -35,7 +35,7 @@ jobs:
           gem install bundler --version 4.0.19 --no-document
           bundle _4.0.19_ update --bundler
           bundle _4.0.19_ install
-      - name: Regenerate CocoaPods lock and legal provenance
+      - name: Regenerate native locks and macOS verification metadata
         working-directory: mobile
         run: |
           cd ios
@@ -43,16 +43,39 @@ jobs:
           bundle _4.0.19_ exec pod install
           cd ..
           npm run verify:ios-lock
+          cd android
+          ./gradlew -q \
+            -I ../scripts/android-license-inventory.init.gradle \
+            :app:roknResolvedReleaseLicenseInputs \
+            "-ProknLicenseInventoryOutput=$RUNNER_TEMP/android-license-inputs.json" \
+            --write-verification-metadata sha256
+          test -s "$RUNNER_TEMP/android-license-inputs.json"
+          cd ..
+          npm run test:release-scripts -- --test-name-pattern="Gradle dependency provenance"
+      - name: Commit native locks before the slower legal inventory
+        run: |
+          git config user.name "Rokn Release Automation"
+          git config user.email "roknproduction@gmail.com"
+          git add mobile/ios/Podfile.lock mobile/android/gradle/verification-metadata.xml
+          if git diff --cached --quiet; then
+            echo "Native locks are already current."
+          else
+            git commit -m "Refresh native dependency locks"
+            git push origin HEAD:main
+          fi
+      - name: Regenerate native legal provenance
+        working-directory: mobile
+        run: |
           npm run notices:native:generate
           npm run licenses:native:check
-      - name: Commit the generated lock and provenance
+      - name: Commit the generated legal provenance
         run: |
           git config user.name "Rokn Release Automation"
           git config user.email "roknproduction@gmail.com"
           git add mobile
           if git diff --cached --quiet; then
-            echo "iOS lock is already current."
+            echo "Native legal provenance is already current."
             exit 0
           fi
-          git commit -m "Refresh iOS dependency lock"
+          git commit -m "Refresh native legal provenance"
           git push origin HEAD:main

@@ -34,30 +34,9 @@ final readonly class UserPathProgressService
             return $enrollment->course->path_id;
         });
         $pathIds = $grouped->keys()->filter()->values()->all();
-        $pathToLevelIds = collect();
-        $levelsById = collect();
-
-        if ($pathIds !== []) {
-            $pathToLevelIds = Course::query()
-                ->whereIn('path_id', $pathIds)
-                ->whereNotNull('level_id')
-                ->select('path_id', 'level_id')
-                ->distinct()
-                ->get()
-                ->groupBy('path_id')
-                ->map(function ($rows) {
-                    return $rows->pluck('level_id')->values();
-                });
-
-            $allLevelIds = $pathToLevelIds->flatten()->unique()->values()->all();
-            if ($allLevelIds !== []) {
-                $levelsById = Level::query()
-                    ->whereIn('id', $allLevelIds)
-                    ->orderBy('order')
-                    ->get()
-                    ->keyBy('id');
-            }
-        }
+        $levelsById = $pathIds === []
+            ? collect()
+            : Level::ordered()->get()->keyBy('id');
 
         $data = [];
         foreach ($grouped as $pathId => $groupEnrollments) {
@@ -92,12 +71,7 @@ final readonly class UserPathProgressService
                 ? round(($completedSections / $totalSections) * 100, 2)
                 : 0.0;
 
-            $levelsForPath = $pathToLevelIds
-                ->get((int) $pathId, collect())
-                ->map(fn ($id) => $levelsById->get($id))
-                ->filter()
-                ->sortBy(fn (Level $level) => $level->order)
-                ->values();
+            $levelsForPath = $levelsById->values();
             $nextLevel = $levelsForPath
                 ->first(fn (Level $level): bool => $currentLevel === null
                     || (int) $level->order > (int) $currentLevel->order);
