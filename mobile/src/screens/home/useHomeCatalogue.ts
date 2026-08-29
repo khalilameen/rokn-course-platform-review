@@ -4,6 +4,7 @@ import {LOCAL_DEMO_ENABLED} from '../../config/runtime';
 import type {DemoCourse} from '../../data/demoContent';
 import {friendlyNetworkMessage} from '../../services/networkExperience';
 import {
+  getCachedPublishedCourses,
   getPublishedCoursesPage,
   hasSession,
 } from '../../services/roknApi';
@@ -115,7 +116,23 @@ export const useHomeCatalogue = ({
   );
 
   useEffect(() => {
-    void load();
+    let active = true;
+
+    void getCachedPublishedCourses().then(cached => {
+      if (!active) return;
+      if (cached.length) {
+        browseCatalogue.current = cached;
+        setRemoteCourses(cached);
+        setLoading(false);
+      }
+      void load({blocking: cached.length === 0});
+    });
+
+    return () => {
+      active = false;
+      requestId.current += 1;
+      loadingMoreRef.current = false;
+    };
   }, [load]);
 
   const catalogue = useMemo<DemoCourse[]>(() => {
