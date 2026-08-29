@@ -299,14 +299,19 @@ test('native lock refresh captures the production Android metadata closure', () 
     path.join(root, '..', '.github', 'workflows', 'refresh-ios-lock.yml'),
     'utf8',
   );
-  assert.equal(
-    [...workflow.matchAll(/:app:mergeReleaseResources/g)].length,
-    2,
-  );
+  for (const task of [
+    ':app:lintRelease',
+    ':app:testReleaseUnitTest',
+    ':app:bundleRelease',
+  ]) {
+    assert.equal([...workflow.matchAll(new RegExp(task, 'g'))].length, 2);
+  }
   assert.match(workflow, /--refresh-dependencies/);
   assert.match(workflow, /-ProknDistributionChannel=play/);
   assert.match(workflow, /-ProknBuildProfile=production/);
   assert.match(workflow, /-ProknRequireReleaseSigning=true/);
+  assert.match(workflow, /-ProknEnableMinify=true/);
+  assert.match(workflow, /-ProknEnableResourceShrink=true/);
   assert.match(workflow, /--write-verification-metadata sha256/);
   assert.equal([...workflow.matchAll(/git rebase origin\/main/g)].length, 3);
   assert.equal([...workflow.matchAll(/git push origin HEAD:main/g)].length, 3);
