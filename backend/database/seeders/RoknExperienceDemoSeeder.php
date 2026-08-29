@@ -179,10 +179,7 @@ class RoknExperienceDemoSeeder extends Seeder
                     // consumes the direct HLS URL from video_link in this branch.
                     $videoType = $source?->getRawOriginal('video_source_type') ?: 'youtube';
                     $videoLink = $source?->getRawOriginal('video_link')
-                        ?: env(
-                            'DEMO_REEL_VIDEO_URL',
-                            'https://vz-1d73c993-a70.b-cdn.net/f76c1925-f612-423d-ae34-5c3a8fd2692e/playlist.m3u8'
-                        );
+                        ?: env('DEMO_REEL_VIDEO_URL');
 
                     $lesson = Lesson::updateOrCreate(
                         ['list_id' => $course->id, 'title_en' => sprintf('Demo Reel %02d', $reelIndex)],
