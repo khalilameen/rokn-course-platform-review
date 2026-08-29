@@ -39,6 +39,7 @@ jobs:
         working-directory: mobile
         run: |
           cd ios
+          rm -rf Pods Podfile.lock
           bundle _2.6.9_ exec pod install
           cd ..
           npm run verify:ios-lock
