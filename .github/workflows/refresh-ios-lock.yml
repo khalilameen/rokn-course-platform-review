@@ -45,7 +45,7 @@ jobs:
             -storepass ci-password -keypass ci-password -alias ci-upload \
             -keyalg RSA -keysize 2048 -validity 2 -dname "CN=Rokn Metadata CI"
           cd android
-          ./gradlew -q :app:checkReleaseAarMetadata --no-daemon --refresh-dependencies \
+          ./gradlew -q :app:mergeReleaseResources --no-daemon --refresh-dependencies \
             -PreactNativeArchitectures=arm64-v8a \
             -ProknDistributionChannel=play \
             -ProknBuildProfile=production \
@@ -111,7 +111,7 @@ jobs:
           keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/metadata-upload.jks" \
             -storepass ci-password -keypass ci-password -alias ci-upload \
             -keyalg RSA -keysize 2048 -validity 2 -dname "CN=Rokn Metadata CI"
-          ./gradlew -q :app:checkReleaseAarMetadata --no-daemon --refresh-dependencies \
+          ./gradlew -q :app:mergeReleaseResources --no-daemon --refresh-dependencies \
             -PreactNativeArchitectures=arm64-v8a \
             -ProknDistributionChannel=play \
             -ProknBuildProfile=production \

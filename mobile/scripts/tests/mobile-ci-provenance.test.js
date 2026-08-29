@@ -299,7 +299,10 @@ test('native lock refresh captures the production Android metadata closure', () 
     path.join(root, '..', '.github', 'workflows', 'refresh-ios-lock.yml'),
     'utf8',
   );
-  assert.match(workflow, /:app:checkReleaseAarMetadata/);
+  assert.equal(
+    [...workflow.matchAll(/:app:mergeReleaseResources/g)].length,
+    2,
+  );
   assert.match(workflow, /--refresh-dependencies/);
   assert.match(workflow, /-ProknDistributionChannel=play/);
   assert.match(workflow, /-ProknBuildProfile=production/);
