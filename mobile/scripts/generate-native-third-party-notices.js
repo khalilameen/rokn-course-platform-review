@@ -1570,6 +1570,14 @@ const buildRemotePodRecord = async (pod, documents) => {
       : spec.license || {};
   const selected = normalizeLicense(rawLicense.type || rawLicense.name);
   const selectedLicenses = selected ? [selected] : [];
+  let exactLicenseSelection = null;
+  if (selectedLicenses.length === 0) {
+    const exactSelection = POD_EXACT_LICENSE_SELECTIONS.get(pod.coordinate);
+    if (exactSelection) {
+      exactLicenseSelection = exactSelection;
+      selectedLicenses.push(exactSelection.license);
+    }
+  }
   if (selected && !ALLOWED_LICENSES.has(selected)) {
     throw new Error(
       `Unreviewed Pod license ${rawLicense.type || rawLicense.name} for ${
@@ -1577,12 +1585,25 @@ const buildRemotePodRecord = async (pod, documents) => {
       }.`,
     );
   }
+  if (
+    (rawLicense.type || rawLicense.name) &&
+    !selected &&
+    !exactLicenseSelection
+  ) {
+    throw new Error(
+      `Pod dependency ${
+        pod.coordinate
+      } has no reviewed license classification for raw term ${JSON.stringify(
+        rawLicense.type || rawLicense.name,
+      )}.`,
+    );
+  }
   const legalDocumentSha256s = new Set();
-  if (selected) {
-    const canonical = canonicalLicenseDocument(selected);
+  for (const license of selectedLicenses) {
+    const canonical = canonicalLicenseDocument(license);
     if (canonical) {
       legalDocumentSha256s.add(
-        addDocument(documents, canonical, `canonical:${selected}`),
+        addDocument(documents, canonical, `canonical:${license}`),
       );
     }
   }
@@ -1613,7 +1634,7 @@ const buildRemotePodRecord = async (pod, documents) => {
     homepage: spec.homepage || null,
     source: spec.source || null,
     owningNpmPackage: null,
-    exactLicenseSelection: null,
+    exactLicenseSelection,
     legalDocumentSha256s: [...legalDocumentSha256s].sort(compareText),
     firstPartyGenerated: false,
     reviewedAbsence: absenceNote || null,
@@ -2432,6 +2453,7 @@ module.exports = {
   buildAndroidSnapshot,
   buildExternalPodRecord,
   buildPodsSnapshot,
+  buildRemotePodRecord,
   collectLegalFilesFromArchive,
   inventorySourceTree,
   normalizeLicense,

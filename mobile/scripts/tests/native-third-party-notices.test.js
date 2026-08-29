@@ -15,6 +15,7 @@ const {
   POD_EXACT_LICENSE_SELECTIONS,
   buildAndroidSnapshot,
   buildExternalPodRecord,
+  buildRemotePodRecord,
   collectLegalFilesFromArchive,
   inventorySourceTree,
   normalizeLicense,
@@ -121,6 +122,44 @@ test('normalizes reviewed Maven and Pod license metadata', () => {
     reason:
       "The exact SocketRocket 0.7.1 podspec says 'BSD'; its installed LICENSE contains the reviewed BSD 3-Clause terms and Facebook attribution.",
   });
+});
+
+test('applies exact reviewed license selections to remote CocoaPods specs', async () => {
+  const spec = Buffer.from(
+    JSON.stringify({
+      homepage: 'https://github.com/facebookincubator/SocketRocket',
+      license: {type: 'BSD', file: 'LICENSE'},
+      source: {
+        git: 'https://github.com/facebookincubator/SocketRocket.git',
+        tag: '0.7.1',
+      },
+    }),
+    'utf8',
+  );
+  const originalFetch = global.fetch;
+  global.fetch = async () =>
+    new Response(spec, {
+      status: 200,
+      headers: {'content-type': 'application/json'},
+    });
+  try {
+    const record = await buildRemotePodRecord(
+      {
+        coordinate: 'SocketRocket@0.7.1',
+        name: 'SocketRocket',
+        specChecksum: crypto.createHash('sha1').update(spec).digest('hex'),
+      },
+      new Map(),
+    );
+    assert.deepEqual(record.selectedLicenses, ['BSD-3-Clause']);
+    assert.deepEqual(
+      record.exactLicenseSelection,
+      POD_EXACT_LICENSE_SELECTIONS.get('SocketRocket@0.7.1'),
+    );
+    assert.equal(record.legalDocumentSha256s.length, 1);
+  } finally {
+    global.fetch = originalFetch;
+  }
 });
 
 test('retains package-specific LICENSE and NOTICE entries from native archives', () => {
