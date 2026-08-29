@@ -1,0 +1,57 @@
+name: Refresh iOS dependency lock
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-ios-lock
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@1e60f620b9541dca151540d0c0b0c92bdf4a1a70
+        with:
+          node-version: 24.19.0
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b
+        with:
+          ruby-version: 3.3.6
+      - name: Install JavaScript and Ruby dependencies
+        working-directory: mobile
+        run: |
+          npm install --global npm@10.9.3
+          npm ci
+          gem install bundler --version 2.6.9 --no-document
+          bundle _2.6.9_ update --bundler
+          bundle _2.6.9_ install
+      - name: Regenerate CocoaPods lock and legal provenance
+        working-directory: mobile
+        run: |
+          cd ios
+          bundle _2.6.9_ exec pod install
+          cd ..
+          npm run verify:ios-lock
+          npm run notices:native:generate
+          npm run licenses:native:check
+      - name: Commit the generated lock and provenance
+        run: |
+          git config user.name "Rokn Release Automation"
+          git config user.email "roknproduction@gmail.com"
+          git add mobile
+          if git diff --cached --quiet; then
+            echo "iOS lock is already current."
+            exit 0
+          fi
+          git commit -m "Refresh iOS dependency lock"
+          git push origin HEAD:main
