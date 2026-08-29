@@ -50,7 +50,7 @@ jobs:
             --write-verification-metadata sha256
           test -s "$RUNNER_TEMP/android-license-inputs.json"
           cd ..
-          npm run test:release-scripts -- --test-name-pattern="Gradle dependency provenance"
+          node --test scripts/tests/gradle-dependency-provenance.test.js
           cd ios
           rm -rf Pods Podfile.lock
           bundle _4.0.19_ exec pod install
@@ -60,7 +60,7 @@ jobs:
         run: |
           git config user.name "Rokn Release Automation"
           git config user.email "roknproduction@gmail.com"
-          git add mobile/ios/Podfile.lock mobile/android/gradle/verification-metadata.xml
+          git add mobile/Gemfile.lock mobile/ios/Podfile.lock mobile/android/gradle/verification-metadata.xml
           if git diff --cached --quiet; then
             echo "Native locks are already current."
           else

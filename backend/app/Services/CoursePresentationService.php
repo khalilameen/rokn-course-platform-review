@@ -33,14 +33,18 @@ final readonly class CoursePresentationService
      */
     public function mobileCataloguePayload(LengthAwarePaginator $courses): array
     {
-        $courses->setCollection(
+        // Resource mapping must not mutate a paginator retained by an in-memory
+        // cache store or a long-lived worker. Otherwise the next request sees
+        // resources where the cached contract promises Course models.
+        $presentedCourses = clone $courses;
+        $presentedCourses->setCollection(
             $courses->getCollection()->map(
                 fn (Course $course): BaseCourseResource => new BaseCourseResource($course)
             )
         );
 
         return [
-            'courses' => $courses->items(),
+            'courses' => $presentedCourses->items(),
             'pagination' => [
                 'current_page' => $courses->currentPage(),
                 'last_page' => $courses->lastPage(),

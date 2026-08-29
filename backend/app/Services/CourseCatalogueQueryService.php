@@ -65,19 +65,49 @@ final readonly class CourseCatalogueQueryService
     {
         $page = (int) ($filters['page'] ?? 1);
         $perPage = (int) ($filters['per_page'] ?? 15);
-        $query = $this->catalogueQuery()->with([
-            'grade',
-            'sections' => function ($sections): void {
-                $sections
-                    ->select('id', 'course_id', 'title', 'sectionable_type', 'order')
-                    ->orderBy('order');
-            },
-        ]);
+        $revision = max(1, (int) Cache::get('courses:catalog-revision', 1));
+        $key = 'courses:mobile:' . md5((string) json_encode([
+            'catalog_contract' => 3,
+            'catalog_revision' => $revision,
+            'page' => $page,
+            'per_page' => $perPage,
+            'grade_id' => $filters['grade_id'] ?? null,
+            'type' => $filters['type'] ?? null,
+            'course_type' => $filters['course_type'] ?? null,
+            'search' => $filters['search'] ?? null,
+        ]));
 
-        return $this->applyFilters($query, $filters)
-            ->orderByDesc('is_main_course')
-            ->orderByDesc('created_at')
-            ->paginate($perPage, ['*'], 'page', $page);
+        if (Cache::has($key)) {
+            return Cache::get($key);
+        }
+
+        $courses = Cache::lock("lock:{$key}", 10)->block(
+            3,
+            function () use ($filters, $key, $page, $perPage): LengthAwarePaginator {
+                $cached = Cache::get($key);
+                if ($cached !== null) {
+                    return $cached;
+                }
+
+                $query = $this->catalogueQuery()->with([
+                    'grade',
+                    'sections' => function ($sections): void {
+                        $sections
+                            ->select('id', 'course_id', 'title', 'sectionable_type', 'order')
+                            ->orderBy('order');
+                    },
+                ]);
+
+                return $this->applyFilters($query, $filters)
+                    ->orderByDesc('is_main_course')
+                    ->orderByDesc('created_at')
+                    ->paginate($perPage, ['*'], 'page', $page);
+            }
+        );
+
+        Cache::put($key, $courses, self::CACHE_TTL_SECONDS);
+
+        return $courses;
     }
 
     private function catalogueQuery(): Builder
