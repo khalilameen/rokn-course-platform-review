@@ -25,6 +25,7 @@
     "licenses:check": "node scripts/generate-third-party-notices.js --check",
     "licenses:android:check": "node scripts/generate-native-third-party-notices.js --android-only --check",
     "licenses:native:check": "node scripts/generate-native-third-party-notices.js --check",
+    "licenses:native:portable-check": "node scripts/generate-native-third-party-notices.js --check --portable-check",
     "audit:release": "node scripts/audit-production-dependencies.js",
     "audit:a11y": "node scripts/audit-accessibility.js",
     "eas-build-post-install": "npm run verify:release",
@@ -36,7 +37,7 @@
     "verify:ios-lock": "node scripts/verify-ios-pod-lock.js",
     "verify:secrets": "node scripts/verify-repository-secrets.js --history",
     "typecheck": "tsc --noEmit --pretty false",
-    "verify:release": "npm run verify:config && npm run verify:secrets && npm run test:release-scripts && npm run licenses:check && npm run licenses:native:check && npm run typecheck && npm run lint:release && npm run test:release && npm run audit:a11y && npm run audit:release"
+    "verify:release": "npm run verify:config && npm run verify:secrets && npm run test:release-scripts && npm run licenses:check && npm run licenses:native:portable-check && npm run typecheck && npm run lint:release && npm run test:release && npm run audit:a11y && npm run audit:release"
   },
   "dependencies": {
     "@gorhom/bottom-sheet": "^5.2.8",

@@ -156,7 +156,7 @@ final class RepositorySecretScannerTest extends TestCase
         $root = dirname(__DIR__, 2);
         $contents = (string) file_get_contents($root.'/.env.example')
             ."\n".(string) file_get_contents($root.'/.env.production.example')
-            ."\n".(string) file_get_contents($root.'/.github/workflows/backend-ci.yml');
+            ."\n".(string) file_get_contents(dirname($root).'/.github/workflows/backend-ci.yml');
         $scanner = new RepositorySecretScanner();
 
         self::assertSame([], $scanner->findUncoveredSecretNames($contents));

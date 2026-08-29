@@ -179,7 +179,7 @@ test('requires every declared or referenced secret name to be classified', () =>
   const sources = [
     fs.readFileSync(path.join(repositoryRoot, '.env.example'), 'utf8'),
     fs.readFileSync(
-      path.join(repositoryRoot, '.github', 'workflows', 'mobile-ci.yml'),
+      path.join(repositoryRoot, '..', '.github', 'workflows', 'mobile-ci.yml'),
       'utf8',
     ),
   ].join('\n');

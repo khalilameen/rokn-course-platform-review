@@ -7,7 +7,7 @@ notifications, media operations and the administrator dashboard.
 
 ## Requirements
 
-- PHP 8.2 with the extensions listed in `.github/workflows/backend-ci.yml`
+- PHP 8.2 with the extensions listed in `../.github/workflows/backend-ci.yml`
 - Composer 2
 - MySQL 8 and Redis for a production-like environment
 - Node.js 20 for dashboard assets

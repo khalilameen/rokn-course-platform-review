@@ -91,7 +91,7 @@ npm run verify:ios-lock
 
 This checks release configuration, TypeScript, ESLint, Jest contracts,
 accessibility rules and production dependencies. Native Android and iOS builds
-run in `.github/workflows/mobile-ci.yml`; GitHub Actions are pinned to immutable
+run in `../.github/workflows/mobile-ci.yml`; GitHub Actions are pinned to immutable
 commits.
 
 The protected Android staging suite is under `e2e/maestro`. It requires the

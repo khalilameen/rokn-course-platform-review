@@ -40,12 +40,10 @@ those installed source roots for `LICENSE`, `LICENCE`, `COPYING`, `NOTICE`, and
 The Release Xcode target re-verifies the installed source hashes immediately
 before compilation through `--ios-sources-check`.
 
-The checked-in lock is currently fail-closed because it still pins React
-0.83.1 while npm resolves React Native 0.83.10, omits the current Expo Pods,
-and reports CocoaPods 1.16.2 while `Gemfile.lock` pins 1.15.2. Choose one exact
-CocoaPods version, update the Ruby lock through Bundler with maintained Ruby
-3.2+ and Bundler 2.5+, and regenerate the Pod lock and sandbox together on
-macOS with Xcode 26.2+; do not edit either lock by hand:
+The checked-in Pod and Ruby locks are generated together by the root
+`refresh-ios-lock.yml` workflow on maintained macOS, Ruby, Bundler, CocoaPods,
+and Xcode versions; do not edit either lock by hand. To reproduce the full
+installed-source gate locally on macOS:
 
 ```sh
 npm ci
@@ -58,14 +56,16 @@ npm run notices:native:generate
 npm run licenses:native:check
 ```
 
-CI and release automation must use `bundle exec pod install --deployment`,
+CI and release automation use `bundle exec pod install --deployment`,
 assert that `bundle exec pod --version` exactly equals the `COCOAPODS` value in
 `Podfile.lock`, assert runtime Ruby and Bundler exactly match `Gemfile.lock`,
 assert Xcode 26.2 or newer, then run the native license/source gate. A bare
 `pod install` or a legal snapshot without a matching installed sandbox is a
 release NO-GO.
 
-After a current lock is present, the generator writes the iOS snapshot,
-platform notice artifact, bundled resource, and compact in-app metadata. Until
-then, `licenses:native:check` and therefore `verify:release` fail before a
-release can be promoted.
+The generator writes the iOS snapshot, platform notice artifact, bundled
+resource, and compact in-app metadata. The cross-platform `verify:release`
+command runs `licenses:native:portable-check`: it validates the lock, snapshot,
+local podspecs, pinned npm identities, and retained legal text without claiming
+to inspect an unavailable macOS Pod sandbox. The iOS CI and Xcode Release build
+run the full installed-source check after `pod install --deployment`.

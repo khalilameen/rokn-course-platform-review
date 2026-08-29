@@ -71,6 +71,21 @@ $output = $runGit(['ls-files', '--cached', '--others', '--exclude-standard', '-z
 $paths = array_values(array_filter(explode("\0", $output), static fn (string $path): bool => $path !== ''));
 $scanner = new RepositorySecretScanner();
 $issues = $scanner->scanFiles($root, $paths);
+$additionalFileCount = 0;
+$rootWorkflowPath = dirname($root).'/'.'.github/workflows/backend-ci.yml';
+if (is_file($rootWorkflowPath)) {
+    $additionalFileCount++;
+    $logicalPath = '.github/workflows/backend-ci.yml';
+    $contents = (string) file_get_contents($rootWorkflowPath);
+
+    foreach ($scanner->scanPathNames([$logicalPath]) as $issue) {
+        $issues[] = $issue;
+    }
+
+    foreach ($scanner->scanContents($contents) as $rule) {
+        $issues[] = ['path' => $logicalPath, 'rule' => $rule];
+    }
+}
 
 if ($scanHistory) {
     $historyOutput = $runGit(['log', '--all', '--format=', '--name-only', '--', '.']);
@@ -203,4 +218,4 @@ if ($issues !== []) {
     exit(1);
 }
 
-fwrite(STDOUT, sprintf("Repository secret scan passed (%d current files%s).\n", count($paths), $scanHistory ? ' plus history paths' : ''));
+fwrite(STDOUT, sprintf("Repository secret scan passed (%d current files%s).\n", count($paths) + $additionalFileCount, $scanHistory ? ' plus history paths' : ''));

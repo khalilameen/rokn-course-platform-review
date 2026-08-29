@@ -76,7 +76,7 @@ const apiConfig = read('src/constants/api.ts');
 const environmentExample = read('.env.example');
 const androidReleaseScript = read('scripts/build-android-release.ps1');
 const metroRuntimeConfig = require(path.join(root, 'metro.config.js'));
-const mobileCi = read('.github/workflows/mobile-ci.yml');
+const mobileCi = read('../.github/workflows/mobile-ci.yml');
 const productionApiBase =
   'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/';
 const firebaseClientPaths = [
@@ -145,8 +145,7 @@ const sensitiveFirebaseMaterial =
   /-----BEGIN [^-]*(?:PRIVATE KEY|CERTIFICATE)-----|"(?:private[_-]?key|client[_-]?secret|password|service[_-]?account|access[_-]?token|refresh[_-]?token|credential)"\s*:|<key>(?:PRIVATE[_-]?KEY|CLIENT[_-]?SECRET|PASSWORD|SERVICE[_-]?ACCOUNT|ACCESS[_-]?TOKEN|REFRESH[_-]?TOKEN|CREDENTIAL)<\/key>/i;
 
 assert(
-  app.android?.googleServicesFile ===
-    './android/app/google-services.json' &&
+  app.android?.googleServicesFile === './android/app/google-services.json' &&
     app.ios?.googleServicesFile === './ios/GoogleService-Info.plist',
   'Expo does not point at the intentional checked-in Firebase client configs.',
 );
@@ -168,7 +167,7 @@ assert(
 );
 assert(
   iosFirebaseKeys.length ===
-      [...iosFirebaseSourceContents.matchAll(/<key>[^<]+<\/key>/g)].length &&
+    [...iosFirebaseSourceContents.matchAll(/<key>[^<]+<\/key>/g)].length &&
     iosFirebaseKeys.every(key => allowedIosFirebaseKeys.has(key)),
   'iOS Firebase config contains a field outside the audited public client schema.',
 );
@@ -235,7 +234,9 @@ assert(
   'Release builds must use the single pinned npm lockfile.',
 );
 
-const untrustedPackageSources = Object.values(packageLock.packages || {}).filter(
+const untrustedPackageSources = Object.values(
+  packageLock.packages || {},
+).filter(
   entry =>
     typeof entry?.resolved === 'string' &&
     !entry.resolved.startsWith('https://registry.npmjs.org/'),
@@ -327,9 +328,11 @@ assert(
       'device_sharedpref',
     ].every(
       domain =>
-        (androidDataExtractionRules.match(
-          new RegExp(`domain="${domain}"`, 'g'),
-        ) || []).length === 2,
+        (
+          androidDataExtractionRules.match(
+            new RegExp(`domain="${domain}"`, 'g'),
+          ) || []
+        ).length === 2,
     ),
   'Android cloud backup or device transfer is not fully excluded.',
 );
@@ -530,8 +533,12 @@ const trackedFirebaseClientConfigs = tracked.filter(file =>
   /(?:^|\/)(?:google-services\.json|GoogleService-Info\.plist)$/.test(file),
 );
 assert(
-  firebaseClientPaths.every(file => trackedFirebaseClientConfigs.includes(file)) &&
-    trackedFirebaseClientConfigs.every(file => firebaseClientPaths.includes(file)),
+  firebaseClientPaths.every(file =>
+    trackedFirebaseClientConfigs.includes(file),
+  ) &&
+    trackedFirebaseClientConfigs.every(file =>
+      firebaseClientPaths.includes(file),
+    ),
   'Only the three audited Firebase mobile client configs may be tracked.',
 );
 const forbiddenTracked = tracked.filter(

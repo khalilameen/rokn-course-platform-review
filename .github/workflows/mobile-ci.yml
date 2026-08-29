@@ -5,21 +5,27 @@ permissions:
 
 on:
   pull_request:
+    paths:
+      - "mobile/**"
+      - ".github/workflows/mobile-ci.yml"
   push:
     branches: [main, khalil]
+    paths:
+      - "mobile/**"
+      - ".github/workflows/mobile-ci.yml"
   workflow_dispatch:
     inputs:
       run_staging_smoke:
-        description: 'Run the protected Android staging smoke gate'
+        description: "Run the protected Android staging smoke gate"
         required: false
         default: false
         type: boolean
       staging_apk_sha256:
-        description: 'Required with staging smoke: exact candidate APK SHA-256'
+        description: "Required with staging smoke: exact candidate APK SHA-256"
         required: false
         type: string
       staging_apk_version_code:
-        description: 'Required with staging smoke: exact candidate Android versionCode'
+        description: "Required with staging smoke: exact candidate Android versionCode"
         required: false
         type: string
 
@@ -33,11 +39,14 @@ jobs:
   javascript:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: mobile
     env:
       EXPO_PUBLIC_API_URL: https://ci.invalid/api/v1/
       EXPO_PUBLIC_DISTRIBUTION_CHANNEL: play
       EXPO_PUBLIC_BUILD_PROFILE: production
-      EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS: '1'
+      EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS: "1"
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -46,6 +55,7 @@ jobs:
         with:
           node-version: 24.19.0
           cache: npm
+          cache-dependency-path: mobile/package-lock.json
           registry-url: https://registry.npmjs.org
       - name: Use the pinned npm toolchain
         run: |
@@ -61,17 +71,21 @@ jobs:
   android-native:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: mobile
     env:
       EXPO_PUBLIC_API_URL: https://ci.invalid/api/v1/
       EXPO_PUBLIC_DISTRIBUTION_CHANNEL: play
       EXPO_PUBLIC_BUILD_PROFILE: production
-      EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS: '1'
+      EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS: "1"
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@1e60f620b9541dca151540d0c0b0c92bdf4a1a70 # v4.0.3
         with:
           node-version: 24.19.0
           cache: npm
+          cache-dependency-path: mobile/package-lock.json
           registry-url: https://registry.npmjs.org
       - name: Use the pinned npm toolchain
         run: |
@@ -80,7 +94,7 @@ jobs:
       - uses: actions/setup-java@7a445ee88d4e23b52c33d445a3d967e191a6e008 # v4.7.1
         with:
           distribution: temurin
-          java-version: '17.0.20+8'
+          java-version: "17.0.20+8"
           cache: gradle
       - run: npm ci
       - name: Create an ephemeral CI signing key
@@ -89,7 +103,7 @@ jobs:
           -storepass ci-password -keypass ci-password -alias ci-upload
           -keyalg RSA -keysize 2048 -validity 2 -dname "CN=Rokn CI"
       - name: Android production-mode lint, tests and R8 bundle
-        working-directory: android
+        working-directory: mobile/android
         run: >-
           ./gradlew :app:lintRelease :app:testReleaseUnitTest :app:bundleRelease --no-daemon
           -PreactNativeArchitectures=arm64-v8a
@@ -105,30 +119,43 @@ jobs:
           -PUPLOAD_KEY_PASSWORD=ci-password
 
   ios-native:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: mobile
     env:
       EXPO_PUBLIC_API_URL: https://ci.invalid/api/v1/
       EXPO_PUBLIC_DISTRIBUTION_CHANNEL: appstore
       EXPO_PUBLIC_BUILD_PROFILE: production
-      EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS: '1'
+      EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS: "1"
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@1e60f620b9541dca151540d0c0b0c92bdf4a1a70 # v4.0.3
         with:
           node-version: 24.19.0
           cache: npm
+          cache-dependency-path: mobile/package-lock.json
           registry-url: https://registry.npmjs.org
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.280.0
+        with:
+          ruby-version: 3.3.6
       - name: Use the pinned npm toolchain
         run: |
           npm install --global npm@10.9.3
           test "$(npm --version)" = "10.9.3"
-      - run: npm ci
+      - name: Install locked JavaScript and Ruby dependencies
+        run: |
+          npm ci
+          gem install bundler --version 4.0.19 --no-document
+          bundle _4.0.19_ install
       - name: Verify the checked-in iOS dependency lock
         run: npm run verify:ios-lock
       - name: Resolve pinned CocoaPods dependencies
-        working-directory: ios
-        run: pod install --deployment
+        working-directory: mobile/ios
+        run: bundle _4.0.19_ exec pod install --deployment
+      - name: Verify installed native legal provenance
+        run: npm run licenses:native:check
       - name: Build the unsigned Release target for the iOS Simulator
         run: >-
           xcodebuild -workspace ios/Rokn.xcworkspace -scheme Rokn
@@ -143,6 +170,9 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_staging_smoke }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: mobile
     environment: mobile-staging-smoke
     concurrency:
       group: android-staging-smoke
@@ -176,7 +206,7 @@ jobs:
       ROKN_SMOKE_FORCED_UPDATE_FIXTURE_URL: ${{ secrets.ROKN_SMOKE_FORCED_UPDATE_FIXTURE_URL }}
       ROKN_SMOKE_FIXTURE_TOKEN: ${{ secrets.ROKN_SMOKE_FIXTURE_TOKEN }}
       ROKN_SMOKE_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
-      ROKN_PROVENANCE_REQUIRE_PINNED: '1'
+      ROKN_PROVENANCE_REQUIRE_PINNED: "1"
       ROKN_PROVENANCE_EXPECTED_SHA256: ${{ inputs.staging_apk_sha256 }}
       ROKN_PROVENANCE_EXPECTED_VERSION_CODE: ${{ inputs.staging_apk_version_code }}
       ROKN_PROVENANCE_EXPECTED_SIGNER_SHA256: ${{ secrets.ROKN_SMOKE_APK_SIGNER_SHA256 }}
@@ -185,13 +215,14 @@ jobs:
       ROKN_PROVENANCE_EXPECTED_CHANNEL: direct
       ROKN_PROVENANCE_EXPECTED_FORMAT: apk
       ROKN_PROVENANCE_EXPECTED_APPLICATION_ID: com.rokn
-      ROKN_PROVENANCE_EXPECTED_API_BASE: https://rokn.app/api/
+      ROKN_PROVENANCE_EXPECTED_API_BASE: https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@1e60f620b9541dca151540d0c0b0c92bdf4a1a70 # v4.0.3
         with:
           node-version: 24.19.0
           cache: npm
+          cache-dependency-path: mobile/package-lock.json
           registry-url: https://registry.npmjs.org
       - name: Use the pinned npm toolchain
         run: |
@@ -200,12 +231,13 @@ jobs:
       - uses: actions/setup-java@7a445ee88d4e23b52c33d445a3d967e191a6e008 # v4.7.1
         with:
           distribution: temurin
-          java-version: '17.0.20+8'
+          java-version: "17.0.20+8"
       - uses: reactivecircus/android-emulator-runner@1dcd0090116d15e7c562f8db72807de5e036a4ed # v2.34.0
         with:
           api-level: 35
           arch: x86_64
           script: |
+            cd mobile
             MAESTRO_ZIP="$RUNNER_TEMP/maestro-1.39.0.zip"
             MAESTRO_DIST="$RUNNER_TEMP/maestro-1.39.0"
             curl --fail --location --proto '=https' \

@@ -215,7 +215,7 @@ test('forced-update fixture rejects non-HTTPS transport', () => {
 
 test('workflow verifies the pinned candidate before install and smoke', () => {
   const workflow = fs.readFileSync(
-    path.join(root, '.github', 'workflows', 'mobile-ci.yml'),
+    path.join(root, '..', '.github', 'workflows', 'mobile-ci.yml'),
     'utf8',
   );
   const runner = fs.readFileSync(
@@ -252,7 +252,7 @@ test('workflow verifies the pinned candidate before install and smoke', () => {
 
 test('workflow uses the package-manager and registry pinned by the source tree', () => {
   const workflow = fs.readFileSync(
-    path.join(root, '.github', 'workflows', 'mobile-ci.yml'),
+    path.join(root, '..', '.github', 'workflows', 'mobile-ci.yml'),
     'utf8',
   );
   const packageJson = JSON.parse(
@@ -267,7 +267,7 @@ test('workflow uses the package-manager and registry pinned by the source tree',
   assert.equal([...workflow.matchAll(/node-version: 24\.19\.0/g)].length, 4);
   assert.equal([...workflow.matchAll(/runs-on: ubuntu-24\.04/g)].length, 3);
   assert.equal(
-    [...workflow.matchAll(/java-version: '17\.0\.20\+8'/g)].length,
+    [...workflow.matchAll(/java-version: ["']17\.0\.20\+8["']/g)].length,
     2,
   );
 
@@ -291,5 +291,36 @@ test('workflow uses the package-manager and registry pinned by the source tree',
   assert.ok(
     workflow.indexOf('fetch-depth: 0') <
       workflow.indexOf('node scripts/verify-repository-secrets.js --history'),
+  );
+});
+
+test('workflow is discoverable from the monorepo root and preserves native checks', () => {
+  const workflowPath = path.join(
+    root,
+    '..',
+    '.github',
+    'workflows',
+    'mobile-ci.yml',
+  );
+  const workflow = fs.readFileSync(workflowPath, 'utf8');
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(root, 'package.json'), 'utf8'),
+  );
+
+  assert.equal(
+    fs.existsSync(path.join(root, '.github', 'workflows', 'mobile-ci.yml')),
+    false,
+  );
+  assert.match(workflow, /working-directory: mobile/);
+  assert.match(workflow, /working-directory: mobile\/android/);
+  assert.match(workflow, /working-directory: mobile\/ios/);
+  assert.match(workflow, /cd mobile\n/);
+  assert.match(workflow, /runs-on: macos-26/);
+  assert.match(workflow, /ruby-version: 3\.3\.6/);
+  assert.match(workflow, /bundle _4\.0\.19_ exec pod install --deployment/);
+  assert.match(workflow, /npm run licenses:native:check/);
+  assert.match(
+    packageJson.scripts['verify:release'],
+    /licenses:native:portable-check/,
   );
 });

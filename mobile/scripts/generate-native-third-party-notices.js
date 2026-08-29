@@ -198,22 +198,67 @@ const EXPO_GIT_HEAD_C8 = 'c8f16914a2713c37fe446c46d613004626b3e6b3';
 const EXPO_GIT_HEAD_7C = '7c081282cf88968f81732feb67a71840e769a40f';
 const EXPO_GIT_HEAD_FC = 'fcb091766242d53248cd3c5949965961dbc5ec1d';
 const POD_UPSTREAM_LEGAL_DOCUMENTS = new Map([
-  ['EXApplication@55.0.17', expoUpstreamLicense('expo-application@55.0.17', EXPO_GIT_HEAD_C8)],
-  ['EXConstants@55.0.17', expoUpstreamLicense('expo-constants@55.0.17', EXPO_GIT_HEAD_C8)],
+  [
+    'EXApplication@55.0.17',
+    expoUpstreamLicense('expo-application@55.0.17', EXPO_GIT_HEAD_C8),
+  ],
+  [
+    'EXConstants@55.0.17',
+    expoUpstreamLicense('expo-constants@55.0.17', EXPO_GIT_HEAD_C8),
+  ],
   ['Expo@55.0.28', expoUpstreamLicense('expo@55.0.28', EXPO_GIT_HEAD_C8)],
-  ['ExpoAppleAuthentication@55.0.15', expoUpstreamLicense('expo-apple-authentication@55.0.15', EXPO_GIT_HEAD_C8)],
-  ['ExpoAsset@55.0.18', expoUpstreamLicense('expo-asset@55.0.18', EXPO_GIT_HEAD_C8)],
-  ['ExpoCrypto@55.0.17', expoUpstreamLicense('expo-crypto@55.0.17', EXPO_GIT_HEAD_C8)],
-  ['ExpoDomWebView@55.0.6', expoUpstreamLicense('@expo/dom-webview@55.0.6', EXPO_GIT_HEAD_7C)],
-  ['ExpoFileSystem@55.0.24', expoUpstreamLicense('expo-file-system@55.0.24', EXPO_GIT_HEAD_C8)],
-  ['ExpoFont@55.0.8', expoUpstreamLicense('expo-font@55.0.8', EXPO_GIT_HEAD_FC)],
-  ['ExpoKeepAwake@55.0.8', expoUpstreamLicense('expo-keep-awake@55.0.8', EXPO_GIT_HEAD_7C)],
-  ['ExpoLogBox@55.0.13', expoUpstreamLicense('@expo/log-box@55.0.13', EXPO_GIT_HEAD_C8)],
-  ['ExpoModulesCore@55.0.25', expoUpstreamLicense('expo-modules-core@55.0.25', EXPO_GIT_HEAD_7C)],
-  ['ExpoModulesJSI@55.0.25', expoUpstreamLicense('expo-modules-core@55.0.25', EXPO_GIT_HEAD_7C)],
-  ['ExpoNotifications@55.0.25', expoUpstreamLicense('expo-notifications@55.0.25', EXPO_GIT_HEAD_C8)],
-  ['ExpoSecureStore@55.0.16', expoUpstreamLicense('expo-secure-store@55.0.16', EXPO_GIT_HEAD_C8)],
-  ['ExpoWebBrowser@55.0.18', expoUpstreamLicense('expo-web-browser@55.0.18', EXPO_GIT_HEAD_C8)],
+  [
+    'ExpoAppleAuthentication@55.0.15',
+    expoUpstreamLicense('expo-apple-authentication@55.0.15', EXPO_GIT_HEAD_C8),
+  ],
+  [
+    'ExpoAsset@55.0.18',
+    expoUpstreamLicense('expo-asset@55.0.18', EXPO_GIT_HEAD_C8),
+  ],
+  [
+    'ExpoCrypto@55.0.17',
+    expoUpstreamLicense('expo-crypto@55.0.17', EXPO_GIT_HEAD_C8),
+  ],
+  [
+    'ExpoDomWebView@55.0.6',
+    expoUpstreamLicense('@expo/dom-webview@55.0.6', EXPO_GIT_HEAD_7C),
+  ],
+  [
+    'ExpoFileSystem@55.0.24',
+    expoUpstreamLicense('expo-file-system@55.0.24', EXPO_GIT_HEAD_C8),
+  ],
+  [
+    'ExpoFont@55.0.8',
+    expoUpstreamLicense('expo-font@55.0.8', EXPO_GIT_HEAD_FC),
+  ],
+  [
+    'ExpoKeepAwake@55.0.8',
+    expoUpstreamLicense('expo-keep-awake@55.0.8', EXPO_GIT_HEAD_7C),
+  ],
+  [
+    'ExpoLogBox@55.0.13',
+    expoUpstreamLicense('@expo/log-box@55.0.13', EXPO_GIT_HEAD_C8),
+  ],
+  [
+    'ExpoModulesCore@55.0.25',
+    expoUpstreamLicense('expo-modules-core@55.0.25', EXPO_GIT_HEAD_7C),
+  ],
+  [
+    'ExpoModulesJSI@55.0.25',
+    expoUpstreamLicense('expo-modules-core@55.0.25', EXPO_GIT_HEAD_7C),
+  ],
+  [
+    'ExpoNotifications@55.0.25',
+    expoUpstreamLicense('expo-notifications@55.0.25', EXPO_GIT_HEAD_C8),
+  ],
+  [
+    'ExpoSecureStore@55.0.16',
+    expoUpstreamLicense('expo-secure-store@55.0.16', EXPO_GIT_HEAD_C8),
+  ],
+  [
+    'ExpoWebBrowser@55.0.18',
+    expoUpstreamLicense('expo-web-browser@55.0.18', EXPO_GIT_HEAD_C8),
+  ],
 ]);
 
 const POD_EXACT_LICENSE_SELECTIONS = new Map([
@@ -223,6 +268,14 @@ const POD_EXACT_LICENSE_SELECTIONS = new Map([
       license: 'BSD-3-Clause',
       reason:
         "The exact glog podspec labels the license 'Google'; its declared COPYING file contains the reviewed BSD 3-Clause terms.",
+    },
+  ],
+  [
+    'SocketRocket@0.7.1',
+    {
+      license: 'BSD-3-Clause',
+      reason:
+        "The exact SocketRocket 0.7.1 podspec says 'BSD'; its installed LICENSE contains the reviewed BSD 3-Clause terms and Facebook attribution.",
     },
   ],
 ]);
@@ -661,7 +714,9 @@ const upstreamLegalDocumentForPod = (coordinate, owner) => {
   const text = decodeUtf8(fs.readFileSync(absolute), review.path.join('/'));
   const actualSha256 = sha256Text(text);
   if (actualSha256 !== review.sha256) {
-    throw new Error(`Pinned upstream legal document changed for ${coordinate}.`);
+    throw new Error(
+      `Pinned upstream legal document changed for ${coordinate}.`,
+    );
   }
   return {
     document: {path: review.path.join('/'), sha256: actualSha256, text},
@@ -1973,7 +2028,9 @@ const validatePodsSnapshot = (
         JSON.stringify({...review, path: review.path.join('/')}) ||
       !dependency.legalDocumentSha256s.includes(review.sha256)
     ) {
-      throw new Error(`Stale upstream Pod legal-document review: ${coordinate}.`);
+      throw new Error(
+        `Stale upstream Pod legal-document review: ${coordinate}.`,
+      );
     }
   }
   for (const [coordinate, review] of POD_EXACT_LICENSE_SELECTIONS) {
@@ -2287,6 +2344,10 @@ const main = async () => {
   const check = process.argv.includes('--check');
   const androidOnly = process.argv.includes('--android-only');
   const iosSourcesCheck = process.argv.includes('--ios-sources-check');
+  const portableCheck = process.argv.includes('--portable-check');
+  if (portableCheck && !check) {
+    throw new Error('--portable-check is valid only together with --check.');
+  }
   const bundledFont = buildBundledFontInventory();
   if (iosSourcesCheck) {
     verifyIosLock();
@@ -2334,7 +2395,11 @@ const main = async () => {
   const pods = check
     ? JSON.parse(fs.readFileSync(PODS_SNAPSHOT_PATH, 'utf8'))
     : await buildPodsSnapshot(podInventory);
-  validatePodsSnapshot(podInventory, pods);
+  validatePodsSnapshot(
+    podInventory,
+    pods,
+    portableCheck ? {verifyInstalled: false} : {},
+  );
   const podsText = `${JSON.stringify(pods, null, 2)}\n`;
   const markdown = renderMarkdown(android, pods, bundledFont);
   const iosMarkdown = renderPlatformMarkdown(pods, 'iOS', bundledFont);

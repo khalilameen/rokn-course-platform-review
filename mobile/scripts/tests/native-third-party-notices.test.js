@@ -12,6 +12,7 @@ const {
   ALLOWED_LICENSES,
   ANDROID_LEGAL_METADATA_ABSENCE_ALLOWLIST,
   POD_UPSTREAM_LEGAL_DOCUMENTS,
+  POD_EXACT_LICENSE_SELECTIONS,
   buildAndroidSnapshot,
   buildExternalPodRecord,
   collectLegalFilesFromArchive,
@@ -24,7 +25,10 @@ const {
 } = require('../generate-native-third-party-notices');
 
 const sha256 = value =>
-  crypto.createHash('sha256').update(String(value).replace(/\r\n?/g, '\n').trim(), 'utf8').digest('hex');
+  crypto
+    .createHash('sha256')
+    .update(String(value).replace(/\r\n?/g, '\n').trim(), 'utf8')
+    .digest('hex');
 
 const crc32 = buffer => {
   let crc = 0xffffffff;
@@ -85,10 +89,19 @@ const androidResolution = coordinates => ({
 });
 
 test('normalizes reviewed Maven and Pod license metadata', () => {
-  assert.equal(normalizeLicense('The Apache Software License, Version 2.0'), 'Apache-2.0');
+  assert.equal(
+    normalizeLicense('The Apache Software License, Version 2.0'),
+    'Apache-2.0',
+  );
   assert.equal(normalizeLicense('Boost Software License'), 'Boost-1.0');
-  assert.equal(normalizeLicense('Android Software Development Kit License'), 'LicenseRef-Android-SDK');
-  assert.equal(normalizeLicense('Facebook Platform License'), 'LicenseRef-Facebook-Platform');
+  assert.equal(
+    normalizeLicense('Android Software Development Kit License'),
+    'LicenseRef-Android-SDK',
+  );
+  assert.equal(
+    normalizeLicense('Facebook Platform License'),
+    'LicenseRef-Facebook-Platform',
+  );
   assert.equal(normalizeLicense('MIT AND GPL-3.0-only'), null);
   assert.equal(normalizeLicense('Apache 2.0 / proprietary'), null);
   const licenses = parsePomLicenses(`
@@ -103,6 +116,11 @@ test('normalizes reviewed Maven and Pod license metadata', () => {
       selectedLicense: 'Apache-2.0',
     },
   ]);
+  assert.deepEqual(POD_EXACT_LICENSE_SELECTIONS.get('SocketRocket@0.7.1'), {
+    license: 'BSD-3-Clause',
+    reason:
+      "The exact SocketRocket 0.7.1 podspec says 'BSD'; its installed LICENSE contains the reviewed BSD 3-Clause terms and Facebook attribution.",
+  });
 });
 
 test('retains package-specific LICENSE and NOTICE entries from native archives', () => {
@@ -117,16 +135,31 @@ test('retains package-specific LICENSE and NOTICE entries from native archives',
 });
 
 test('installed Pod provenance hashes source bytes and scans every legal-file family', () => {
-  const iosDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'rokn-pod-source-test-'));
+  const iosDirectory = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'rokn-pod-source-test-'),
+  );
   try {
     const podsDirectory = path.join(iosDirectory, 'Pods');
     const sourceDirectory = path.join(podsDirectory, 'FixturePod');
     fs.mkdirSync(path.join(sourceDirectory, 'legal'), {recursive: true});
-    const lockText = 'PODS:\n\nPODFILE CHECKSUM: 0000000000000000000000000000000000000000\n';
+    const lockText =
+      'PODS:\n\nPODFILE CHECKSUM: 0000000000000000000000000000000000000000\n';
     fs.writeFileSync(path.join(iosDirectory, 'Podfile.lock'), lockText, 'utf8');
-    fs.writeFileSync(path.join(podsDirectory, 'Manifest.lock'), lockText, 'utf8');
-    fs.writeFileSync(path.join(sourceDirectory, 'Source.m'), 'int fixture(void) { return 1; }', 'utf8');
-    fs.writeFileSync(path.join(sourceDirectory, 'LICENSE'), 'Fixture MIT terms.', 'utf8');
+    fs.writeFileSync(
+      path.join(podsDirectory, 'Manifest.lock'),
+      lockText,
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(sourceDirectory, 'Source.m'),
+      'int fixture(void) { return 1; }',
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(sourceDirectory, 'LICENSE'),
+      'Fixture MIT terms.',
+      'utf8',
+    );
     fs.writeFileSync(
       path.join(sourceDirectory, 'legal', 'NOTICE.txt'),
       'Fixture package-specific attribution.',
@@ -162,13 +195,21 @@ test('installed Pod provenance hashes source bytes and scans every legal-file fa
       legalFiles: binding.legalFiles,
       treeSha256: binding.treeSha256,
     });
-    fs.writeFileSync(path.join(sourceDirectory, 'Source.m'), 'int fixture(void) { return 2; }', 'utf8');
+    fs.writeFileSync(
+      path.join(sourceDirectory, 'Source.m'),
+      'int fixture(void) { return 2; }',
+      'utf8',
+    );
     const second = resolveInstalledPodBindings(inventory, {iosDirectory});
     assert.notEqual(
       second.bindings.get('FixturePod@1.0.0').treeSha256,
       binding.treeSha256,
     );
-    fs.writeFileSync(path.join(podsDirectory, 'Manifest.lock'), `${lockText}# stale\n`, 'utf8');
+    fs.writeFileSync(
+      path.join(podsDirectory, 'Manifest.lock'),
+      `${lockText}# stale\n`,
+      'utf8',
+    );
     assert.throws(
       () => resolveInstalledPodBindings(inventory, {iosDirectory}),
       /Manifest\.lock does not exactly match/,
@@ -189,21 +230,32 @@ test('Gradle resolver forbids unresolved, lenient, and local-file omissions', ()
   assert.match(initScript, /UnresolvedDependencyResult/);
   assert.match(initScript, /Unresolved release dependencies are forbidden/);
   assert.match(initScript, /FileCollectionDependency/);
-  assert.match(initScript, /Unclassified local-file release dependencies are forbidden/);
+  assert.match(
+    initScript,
+    /Unclassified local-file release dependencies are forbidden/,
+  );
   assert.match(initScript, /ProjectComponentIdentifier/);
   assert.match(initScript, /projectComponents/);
-  assert.match(initScript, /def allResolvedArtifacts = configuration\.incoming\.artifactView/);
+  assert.match(
+    initScript,
+    /def allResolvedArtifacts = configuration\.incoming\.artifactView/,
+  );
   const unfilteredView = initScript.slice(
     initScript.indexOf('def allResolvedArtifacts'),
     initScript.indexOf('def moduleArtifactCount'),
   );
   assert.doesNotMatch(unfilteredView, /componentFilter/);
-  assert.match(initScript, /Unclassified resolved release artifacts are forbidden/);
+  assert.match(
+    initScript,
+    /Unclassified resolved release artifacts are forbidden/,
+  );
   assert.match(initScript, /unclassifiedResolvedArtifacts/);
 });
 
 test('Android gate rejects a missing retained NOTICE text', () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rokn-native-gate-test-'));
+  const directory = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'rokn-native-gate-test-'),
+  );
   try {
     const pom = path.join(directory, 'fixture.pom');
     const artifact = path.join(directory, 'fixture.jar');
@@ -217,15 +269,15 @@ test('Android gate rejects a missing retained NOTICE text', () => {
       zipEntry('META-INF/NOTICE', 'Copyright Fixture Project.'),
     );
     const input = androidResolution([
-        {
-          coordinate: 'example:fixture:1.0.0',
-          pom,
-          artifacts: [{file: artifact, type: 'jar', extension: 'jar'}],
-        },
-      ]);
+      {
+        coordinate: 'example:fixture:1.0.0',
+        pom,
+        artifacts: [{file: artifact, type: 'jar', extension: 'jar'}],
+      },
+    ]);
     const snapshot = buildAndroidSnapshot(input);
-    snapshot.documents = snapshot.documents.filter(document =>
-      !document.text.includes('Copyright Fixture Project.'),
+    snapshot.documents = snapshot.documents.filter(
+      document => !document.text.includes('Copyright Fixture Project.'),
     );
     assert.throws(
       () => validateAndroidSnapshot(input, snapshot),
@@ -237,24 +289,31 @@ test('Android gate rejects a missing retained NOTICE text', () => {
 });
 
 test('native gates reject empty or unknown licenses even when LICENSE text exists', () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rokn-native-license-test-'));
+  const directory = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'rokn-native-license-test-'),
+  );
   try {
     const artifact = path.join(directory, 'unknown.jar');
     fs.writeFileSync(
       artifact,
-      zipEntry('META-INF/LICENSE', 'Unknown license terms that must not imply approval.'),
+      zipEntry(
+        'META-INF/LICENSE',
+        'Unknown license terms that must not imply approval.',
+      ),
     );
     const emptyPom = path.join(directory, 'empty.pom');
     fs.writeFileSync(emptyPom, '<project/>', 'utf8');
     assert.throws(
       () =>
-        buildAndroidSnapshot(androidResolution([
+        buildAndroidSnapshot(
+          androidResolution([
             {
               coordinate: 'example:empty-license:1.0.0',
               pom: emptyPom,
               artifacts: [{file: artifact, type: 'jar', extension: 'jar'}],
             },
-          ])),
+          ]),
+        ),
       /has no reviewed license classification.*LICENSE\/NOTICE file alone/s,
     );
 
@@ -266,13 +325,15 @@ test('native gates reject empty or unknown licenses even when LICENSE text exist
     );
     assert.throws(
       () =>
-        buildAndroidSnapshot(androidResolution([
+        buildAndroidSnapshot(
+          androidResolution([
             {
               coordinate: 'example:unknown-license:1.0.0',
               pom: unknownPom,
               artifacts: [{file: artifact, type: 'jar', extension: 'jar'}],
             },
-          ])),
+          ]),
+        ),
       /Unreviewed Android license.*MIT AND GPL-3\.0-only/,
     );
 
@@ -320,7 +381,12 @@ test('native gates reject empty or unknown licenses even when LICENSE text exist
 test('Android release snapshot covers the resolved closure and ships exact texts', () => {
   const snapshot = JSON.parse(
     fs.readFileSync(
-      path.join(ROOT, 'scripts', 'licenses', 'android-release-notices.generated.json'),
+      path.join(
+        ROOT,
+        'scripts',
+        'licenses',
+        'android-release-notices.generated.json',
+      ),
       'utf8',
     ),
   );
@@ -343,7 +409,9 @@ test('Android release snapshot covers the resolved closure and ships exact texts
   );
   assert.ok(snapshot.moduleArtifactCount > 0);
   assert.ok(snapshot.projectArtifactCount > 0);
-  const documents = new Map(snapshot.documents.map(item => [item.sha256, item]));
+  const documents = new Map(
+    snapshot.documents.map(item => [item.sha256, item]),
+  );
   assert.ok(documents.size > 0);
   for (const document of documents.values()) {
     assert.equal(document.sha256, sha256(document.text));
@@ -357,7 +425,10 @@ test('Android release snapshot covers the resolved closure and ships exact texts
       dependency.coordinate,
     );
     dependency.selectedLicenses.forEach(license =>
-      assert.ok(ALLOWED_LICENSES.has(license), `${dependency.coordinate}: ${license}`),
+      assert.ok(
+        ALLOWED_LICENSES.has(license),
+        `${dependency.coordinate}: ${license}`,
+      ),
     );
     dependency.legalDocumentSha256s.forEach(hash =>
       assert.ok(documents.has(hash), `${dependency.coordinate}: ${hash}`),
@@ -368,7 +439,9 @@ test('Android release snapshot covers the resolved closure and ships exact texts
     assert.match(component.npmIntegrity, /^sha512-/);
     assert.ok(component.selectedLicenses.length > 0);
     assert.ok(component.legalDocumentSha256s.length > 0);
-    component.legalDocumentSha256s.forEach(hash => assert.ok(documents.has(hash)));
+    component.legalDocumentSha256s.forEach(hash =>
+      assert.ok(documents.has(hash)),
+    );
   }
   const markdown = fs.readFileSync(
     path.join(ROOT, 'ANDROID_THIRD_PARTY_NOTICES.md'),
@@ -389,7 +462,9 @@ test('Android release snapshot covers the resolved closure and ships exact texts
       'utf8',
     ),
   );
-  snapshot.dependencies.forEach(item => assert.ok(markdown.includes(item.coordinate)));
+  snapshot.dependencies.forEach(item =>
+    assert.ok(markdown.includes(item.coordinate)),
+  );
   snapshot.documents.forEach(item => {
     assert.ok(markdown.includes(item.sha256));
     assert.ok(markdown.includes(item.text));
@@ -450,7 +525,10 @@ test('iOS release keeps native notices bundled and verified at build time', () =
   );
   assert.match(project, /NATIVE_THIRD_PARTY_NOTICES\.md in Resources/);
   assert.match(project, /Verify native third-party notices/);
-  assert.match(project, /Generated by scripts\/generate-native-third-party-notices\.js/);
+  assert.match(
+    project,
+    /Generated by scripts\/generate-native-third-party-notices\.js/,
+  );
   assert.match(project, /--ios-sources-check/);
   assert.match(project, /Pods\/Manifest\.lock/);
 });

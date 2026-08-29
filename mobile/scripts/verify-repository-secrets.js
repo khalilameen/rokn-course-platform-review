@@ -565,6 +565,24 @@ function verify({root = repositoryRoot, includeHistory = false} = {}) {
     .split('\0')
     .filter(Boolean);
   const issues = scanFiles(root, currentPaths);
+  const rootWorkflowPath = path.resolve(
+    root,
+    '..',
+    '.github',
+    'workflows',
+    'mobile-ci.yml',
+  );
+  let additionalFileCount = 0;
+  if (fs.existsSync(rootWorkflowPath)) {
+    additionalFileCount = 1;
+    const logicalPath = '.github/workflows/mobile-ci.yml';
+    const contents = fs.readFileSync(rootWorkflowPath, 'utf8');
+    const pathRule = sensitivePathRule(logicalPath);
+    if (pathRule) issues.push({path: logicalPath, rule: pathRule});
+    scanContents(logicalPath, contents).forEach(rule =>
+      issues.push({path: logicalPath, rule}),
+    );
+  }
 
   if (includeHistory) {
     const gitPathPrefix = gitOutput(root, ['rev-parse', '--show-prefix'])
@@ -610,7 +628,10 @@ function verify({root = repositoryRoot, includeHistory = false} = {}) {
     (left.path + '|' + left.rule).localeCompare(right.path + '|' + right.rule),
   );
 
-  return {issues: deduplicatedIssues, currentFileCount: currentPaths.length};
+  return {
+    issues: deduplicatedIssues,
+    currentFileCount: currentPaths.length + additionalFileCount,
+  };
 }
 
 function main() {
