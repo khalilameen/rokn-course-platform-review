@@ -32,6 +32,8 @@ return new class extends Migration
             return;
         }
 
+        $this->dropForeignKeysForColumns('orders', ['provider_id']);
+
         Schema::table('orders', function (Blueprint $table) {
             // Remove columns not needed for course orders
             $table->dropColumn([
@@ -118,5 +120,42 @@ return new class extends Migration
         Schema::table('orders', function (Blueprint $table) {
             $table->renameColumn('amount', 'price');
         });
+    }
+
+    /**
+     * Drop every foreign key that touches a column before the column itself.
+     * Constraint names may differ on upgraded databases, so inspect the
+     * schema instead of assuming Laravel's conventional name.
+     *
+     * @param  array<int, string>  $columns
+     */
+    private function dropForeignKeysForColumns(string $tableName, array $columns): void
+    {
+        $builder = Schema::getConnection()->getSchemaBuilder();
+
+        if (!method_exists($builder, 'getForeignKeys')) {
+            Schema::table($tableName, function (Blueprint $table) use ($columns): void {
+                foreach ($columns as $column) {
+                    $table->dropForeign([$column]);
+                }
+            });
+
+            return;
+        }
+
+        $constraintNames = collect($builder->getForeignKeys($tableName))
+            ->filter(static function (array $foreignKey) use ($columns): bool {
+                return array_intersect($foreignKey['columns'] ?? [], $columns) !== [];
+            })
+            ->pluck('name')
+            ->filter()
+            ->unique()
+            ->values();
+
+        foreach ($constraintNames as $constraintName) {
+            Schema::table($tableName, function (Blueprint $table) use ($constraintName): void {
+                $table->dropForeign((string) $constraintName);
+            });
+        }
     }
 };
