@@ -120,7 +120,7 @@ class RoknExperienceDemoSeeder extends Seeder
                     'title_en' => 'Build your service',
                     'description_ar' => 'اختر مشكلة واضحة وحوّل مهارتك إلى خدمة قابلة للبيع.',
                     'attachment_platform' => 'computer',
-                    'attachments_link' => 'https://example.com/rokn-demo/service-workbook',
+                    'attachments_link' => env('DEMO_SERVICE_WORKBOOK_URL'),
                     'project' => 'اكتب وصف خدمتك في صفحة واحدة وارفع لقطة واضحة منها.',
                 ],
                 [
@@ -128,7 +128,7 @@ class RoknExperienceDemoSeeder extends Seeder
                     'title_en' => 'Create a convincing offer',
                     'description_ar' => 'رتّب القيمة والنتيجة والسعر دون حشو.',
                     'attachment_platform' => 'mobile',
-                    'attachments_link' => 'https://example.com/rokn-demo/offer-template',
+                    'attachments_link' => env('DEMO_OFFER_TEMPLATE_URL'),
                     'project' => 'صمّم عرضًا بسيطًا لخدمتك وارفعه كصورة أو ملف.',
                 ],
                 [
@@ -136,7 +136,7 @@ class RoknExperienceDemoSeeder extends Seeder
                     'title_en' => 'Win your first client',
                     'description_ar' => 'اكتب رسالة افتتاحية وادخل محادثة البيع بثقة.',
                     'attachment_platform' => 'both',
-                    'attachments_link' => 'https://example.com/rokn-demo/outreach-kit',
+                    'attachments_link' => env('DEMO_OUTREACH_KIT_URL'),
                     'project' => 'اكتب رسالة تواصل حقيقية لعميل مناسب وارفع لقطة للمحاولة.',
                 ],
             ];
