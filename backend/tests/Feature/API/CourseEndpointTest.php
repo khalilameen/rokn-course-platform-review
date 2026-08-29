@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\API;
 
+use App\Models\CourseSection;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -63,6 +64,27 @@ class CourseEndpointTest extends ApiTestCase
         $this->getJson('/api/v1/courses/list')
             ->assertOk()
             ->assertJsonPath('data.courses.0.title', 'Updated course title');
+    }
+
+    public function test_section_changes_invalidate_mobile_catalogue_cache(): void
+    {
+        Cache::flush();
+
+        $this->getJson('/api/v1/courses/list')
+            ->assertOk()
+            ->assertJsonPath('data.courses.0.metadata.sections_count', 1);
+
+        CourseSection::create([
+            'course_id' => $this->courseId,
+            'title' => 'Second section',
+            'sectionable_type' => null,
+            'sectionable_id' => null,
+            'order' => 2,
+        ]);
+
+        $this->getJson('/api/v1/courses/list')
+            ->assertOk()
+            ->assertJsonPath('data.courses.0.metadata.sections_count', 2);
     }
 
     public function test_dashboard_main_course_stays_first_in_mobile_catalogue(): void

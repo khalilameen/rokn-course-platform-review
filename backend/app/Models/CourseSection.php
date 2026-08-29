@@ -6,6 +6,7 @@ use App\Traits\ResolvesLocalizedAttributes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Cache;
 
 class CourseSection extends Model
 {
@@ -22,6 +23,18 @@ class CourseSection extends Model
         'sectionable_id',
         'order'
     ];
+
+    protected static function booted(): void
+    {
+        $touchCatalogue = static function (): void {
+            $key = 'courses:catalog-revision';
+            Cache::forever($key, max(1, (int) Cache::get($key, 1)) + 1);
+        };
+
+        static::saved($touchCatalogue);
+        static::deleted($touchCatalogue);
+        static::restored($touchCatalogue);
+    }
 
     /**
      * Get the title attribute based on Accept-Language header.
