@@ -299,6 +299,23 @@ test('workflow uses the package-manager and registry pinned by the source tree',
   );
 });
 
+test('release tests isolate Jest from the production bundle environment', () => {
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(root, 'package.json'), 'utf8'),
+  );
+  const runner = fs.readFileSync(
+    path.join(root, 'scripts', 'run-release-tests.js'),
+    'utf8',
+  );
+
+  assert.equal(packageJson.scripts['test:release'], 'node scripts/run-release-tests.js');
+  assert.ok(runner.indexOf("process.env.NODE_ENV = 'test'") < runner.indexOf("require('jest')"));
+  assert.ok(runner.indexOf("process.env.BABEL_ENV = 'test'") < runner.indexOf("require('jest')"));
+  assert.match(runner, /--runInBand/);
+  assert.match(runner, /--ci/);
+  assert.match(runner, /--detectOpenHandles/);
+});
+
 test('native lock refresh captures the production Android metadata closure', () => {
   const workflow = fs.readFileSync(
     path.join(root, '..', '.github', 'workflows', 'refresh-ios-lock.yml'),
