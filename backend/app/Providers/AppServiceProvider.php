@@ -6,6 +6,7 @@ use App\Http\Middleware\TrustHosts;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Facades\URL;
 use Kreait\Firebase\Contract\Messaging;
 use Kreait\Firebase\Factory as FirebaseFactory;
 
@@ -42,6 +43,13 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot()
     {
+        // Cloud terminates TLS before the request reaches PHP. Generate
+        // redirects and signed URLs from the configured public origin without
+        // broadening the trusted-proxy allow-list.
+        if (parse_url((string) config('app.url'), PHP_URL_SCHEME) === 'https') {
+            URL::forceScheme('https');
+        }
+
         // Symfony can resolve the host while constructing a request, before
         // the HTTP middleware stack runs. Install the allow-list during app
         // boot as well as in the middleware so long-lived workers never parse
