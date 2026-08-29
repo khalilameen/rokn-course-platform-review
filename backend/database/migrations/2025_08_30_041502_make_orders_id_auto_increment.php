@@ -1,7 +1,6 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -14,21 +13,21 @@ return new class extends Migration
      */
     public function up()
     {
-        if (DB::connection()->getDriverName() === 'sqlite') {
-            // SQLite's $table->id() is already an auto-incrementing primary
-            // key. Rebuilding it would invalidate inbound order foreign keys.
+        $driver = DB::connection()->getDriverName();
+
+        if (!in_array($driver, ['mysql', 'mariadb'], true)
+            || !Schema::hasColumn('orders', 'id')
+            || $this->isAutoIncrementing()) {
             return;
         }
 
-        Schema::table('orders', function (Blueprint $table) {
-            // Drop the existing id column
-            $table->dropColumn('id');
-        });
-
-        Schema::table('orders', function (Blueprint $table) {
-            // Recreate the id column as auto-incrementing primary key
-            $table->id()->first();
-        });
+        // Preserve every order id and every inbound foreign key. Dropping and
+        // recreating this column would either fail or silently sever history.
+        DB::statement(sprintf(
+            'ALTER TABLE %s MODIFY %s BIGINT UNSIGNED NOT NULL AUTO_INCREMENT',
+            $this->wrappedOrdersTable(),
+            DB::connection()->getSchemaGrammar()->wrap('id')
+        ));
     }
 
     /**
@@ -38,18 +37,34 @@ return new class extends Migration
      */
     public function down()
     {
-        if (DB::connection()->getDriverName() === 'sqlite') {
+        $driver = DB::connection()->getDriverName();
+
+        if (!in_array($driver, ['mysql', 'mariadb'], true)
+            || !Schema::hasColumn('orders', 'id')
+            || !$this->isAutoIncrementing()) {
             return;
         }
 
-        Schema::table('orders', function (Blueprint $table) {
-            // Drop the auto-incrementing id column
-            $table->dropColumn('id');
-        });
+        DB::statement(sprintf(
+            'ALTER TABLE %s MODIFY %s BIGINT UNSIGNED NOT NULL',
+            $this->wrappedOrdersTable(),
+            DB::connection()->getSchemaGrammar()->wrap('id')
+        ));
+    }
 
-        Schema::table('orders', function (Blueprint $table) {
-            // Recreate the id column as non-auto-incrementing
-            $table->unsignedBigInteger('id')->first();
-        });
+    private function isAutoIncrementing(): bool
+    {
+        $column = DB::selectOne(
+            'SELECT extra FROM information_schema.columns '
+            . 'WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ? LIMIT 1',
+            [DB::connection()->getTablePrefix() . 'orders', 'id']
+        );
+
+        return str_contains(strtolower((string) ($column->extra ?? '')), 'auto_increment');
+    }
+
+    private function wrappedOrdersTable(): string
+    {
+        return DB::connection()->getSchemaGrammar()->wrapTable('orders');
     }
 };
