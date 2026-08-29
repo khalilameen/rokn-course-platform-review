@@ -14,9 +14,11 @@ return new class extends Migration
      */
     public function up()
     {
-        if (DB::connection()->getDriverName() === 'sqlite') {
+        if (DB::connection()->getDriverName() === 'sqlite'
+            || !Schema::hasColumn('orders', 'coupon_code')) {
             // The base clean-install column is already nullable. Avoid an
-            // SQLite table rebuild with inbound order foreign keys.
+            // SQLite table rebuild with inbound order foreign keys. Course-
+            // only order schemas intentionally removed this legacy column.
             return;
         }
 

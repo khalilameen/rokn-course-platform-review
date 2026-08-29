@@ -35,7 +35,7 @@ return new class extends Migration
         
         Schema::table('orders', function (Blueprint $table) {
             // Add payment_method as VARCHAR
-            $table->string('payment_method', 50)->default('course_code')->after('coupon_code');
+            $table->string('payment_method', 50)->default('course_code');
             
             // Add payment_method_id column
             if (!Schema::hasColumn('orders', 'payment_method_id')) {
@@ -70,7 +70,7 @@ return new class extends Migration
         
         // Restore ENUM payment_method
         Schema::table('orders', function (Blueprint $table) {
-            $table->enum('payment_method', ['online', 'course_code', 'wallet'])->default('online')->after('coupon_code');
+            $table->enum('payment_method', ['online', 'course_code', 'wallet'])->default('online');
         });
     }
 };
