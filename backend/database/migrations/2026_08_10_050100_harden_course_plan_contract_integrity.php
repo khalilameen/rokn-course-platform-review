@@ -52,7 +52,11 @@ return new class extends Migration
         'enrollments_access_plan_snapshot_check',
         'ai_entitlement_usages_feature_check',
         'ai_usage_events_state_check',
-        'orders_parent_precedes_check',
+    ];
+
+    private const PARENT_ORDER_TRIGGERS = [
+        'orders_parent_precedes_insert',
+        'orders_parent_precedes_update',
     ];
 
     public function up(): void
@@ -213,16 +217,14 @@ SQL
             "(feature IN ('course_chat', 'project_feedback') "
                 . "AND status IN ('reserved', 'completed', 'failed', 'expired', 'cancelled'))"
         );
-        $this->addCheckIfMissing(
-            'orders',
-            'orders_parent_precedes_check',
-            '(parent_order_id IS NULL OR parent_order_id < id)'
-        );
+        $this->addParentOrderTriggersIfMissing();
     }
 
     public function down(): void
     {
         if ($this->isMySql()) {
+            $this->dropParentOrderTriggers();
+
             foreach (self::CHECKS as $checkName) {
                 $this->dropCheckIfPresent($this->tableForCheck($checkName), $checkName);
             }
@@ -694,6 +696,55 @@ SQL
         ));
     }
 
+    private function addParentOrderTriggersIfMissing(): void
+    {
+        $table = $this->quoteTable('orders');
+        $insertTrigger = DB::connection()->getTablePrefix() . self::PARENT_ORDER_TRIGGERS[0];
+        $updateTrigger = DB::connection()->getTablePrefix() . self::PARENT_ORDER_TRIGGERS[1];
+        $message = 'Parent order must precede child order';
+
+        if (!$this->triggerExists($insertTrigger)) {
+            DB::unprepared(sprintf(
+                'CREATE TRIGGER %s BEFORE INSERT ON %s FOR EACH ROW '
+                . "BEGIN IF NEW.parent_order_id IS NOT NULL AND NEW.id <> 0 "
+                . "AND NEW.parent_order_id >= NEW.id THEN SIGNAL SQLSTATE '45000' "
+                . "SET MESSAGE_TEXT = '%s'; END IF; END",
+                $this->quoteIdentifier($insertTrigger),
+                $table,
+                $message
+            ));
+        }
+
+        if (!$this->triggerExists($updateTrigger)) {
+            DB::unprepared(sprintf(
+                'CREATE TRIGGER %s BEFORE UPDATE ON %s FOR EACH ROW '
+                . 'BEGIN IF NEW.parent_order_id IS NOT NULL '
+                . "AND NEW.parent_order_id >= NEW.id THEN SIGNAL SQLSTATE '45000' "
+                . "SET MESSAGE_TEXT = '%s'; END IF; END",
+                $this->quoteIdentifier($updateTrigger),
+                $table,
+                $message
+            ));
+        }
+    }
+
+    private function dropParentOrderTriggers(): void
+    {
+        foreach (self::PARENT_ORDER_TRIGGERS as $triggerName) {
+            $physicalName = DB::connection()->getTablePrefix() . $triggerName;
+            DB::unprepared('DROP TRIGGER IF EXISTS ' . $this->quoteIdentifier($physicalName));
+        }
+    }
+
+    private function triggerExists(string $triggerName): bool
+    {
+        return DB::selectOne(
+            'SELECT 1 AS present FROM information_schema.triggers '
+            . 'WHERE trigger_schema = DATABASE() AND trigger_name = ? LIMIT 1',
+            [$triggerName]
+        ) !== null;
+    }
+
     private function indexExists(string $tableName, string $indexName): bool
     {
         $driver = DB::connection()->getDriverName();
@@ -773,7 +824,6 @@ SQL
             'enrollments_access_plan_snapshot_check' => 'course_enrollments',
             'ai_entitlement_usages_feature_check' => 'ai_entitlement_usages',
             'ai_usage_events_state_check' => 'ai_usage_events',
-            'orders_parent_precedes_check' => 'orders',
             default => throw new LogicException("Unknown check constraint [{$checkName}]."),
         };
     }
