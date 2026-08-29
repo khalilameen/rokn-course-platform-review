@@ -1,16 +1,16 @@
 # Rokn backend
 
 Rokn is the single-tenant API and administration backend for the Rokn course
-application. It runs on Laravel 12 and PHP 8.2 and owns course access, learning
+application. It runs on Laravel 12 and PHP 8.4.24 and owns course access, learning
 progress, projects, certificates, the paid/reward coin ledger, Kashier payments,
 notifications, media operations and the administrator dashboard.
 
 ## Requirements
 
-- PHP 8.2 with the extensions listed in `../.github/workflows/backend-ci.yml`
-- Composer 2
+- PHP 8.4.24 with the extensions listed in `../.github/workflows/backend-ci.yml`
+- Composer 2.10.3
 - MySQL 8 and Redis for a production-like environment
-- Node.js 20 for dashboard assets
+- Node.js 22.23.2 and npm 10.9.3 for dashboard assets
 
 ## Local setup
 

@@ -21,8 +21,8 @@ class AppServiceProvider extends ServiceProvider
     {
         // We use only FCM from the Firebase Admin SDK. Binding the contract
         // directly keeps the integration small and avoids coupling the whole
-        // application to a Laravel wrapper that cannot run on PHP 8.2 with
-        // Laravel 12. Resolution is lazy, so CLI commands that do not send a
+        // application to a Laravel wrapper that does not support Laravel 12.
+        // Resolution is lazy, so CLI commands that do not send a
         // notification never require production credentials.
         $this->app->singleton(Messaging::class, static function (): Messaging {
             $encodedCredentials = trim((string) config('firebase.credentials.base64'));

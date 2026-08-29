@@ -20,8 +20,19 @@ final class ContinuousIntegrationLayoutTest extends TestCase
         self::assertStringContainsString('working-directory: backend', $contents);
         self::assertStringContainsString('cache-dependency-path: backend/package-lock.json', $contents);
         self::assertMatchesRegularExpression('/-[ ]+["\']backend\/\*\*["\']/', $contents);
+        self::assertStringContainsString('php-version: "8.4.24"', $contents);
+        self::assertStringContainsString('test "$(php -r \'echo PHP_VERSION;\')" = "8.4.24"', $contents);
         self::assertStringContainsString('tools: composer:2.10.3', $contents);
         self::assertStringContainsString('php scripts/verify-repository-secrets.php --history', $contents);
         self::assertStringContainsString('php artisan test', $contents);
+
+        $composer = json_decode(
+            (string) file_get_contents($backend.'/composer.json'),
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        );
+
+        self::assertSame('^8.4.1', $composer['require']['php'] ?? null);
+        self::assertSame('8.4.24', $composer['config']['platform']['php'] ?? null);
     }
 }
