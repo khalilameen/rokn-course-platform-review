@@ -153,8 +153,10 @@ final readonly class KashierPaymentService
             $request->header('x-kashier-signature'),
             $request->header('kashier-signature'),
             $request->header('signature'),
+            $params['kashierSignature'] ?? null,
             $params['signature'] ?? null,
             $params['hash'] ?? null,
+            $signatureSource['kashierSignature'] ?? null,
             $signatureSource['hash'] ?? null,
             $signatureSource['signature'] ?? null,
         ], fn ($candidate): bool => is_scalar($candidate) && (string) $candidate !== ''));

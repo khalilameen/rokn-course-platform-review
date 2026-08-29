@@ -811,6 +811,55 @@ class KashierPaymentTest extends TestCase
         ]);
     }
 
+   public function test_webhook_accepts_kashier_signature_inside_dashboard_event_data(): void
+    {
+        $this->createPendingOrder('PKG-TEST-WEBHOOK-SIGNATURE');
+
+        $payload = [
+            'event' => 'pay',
+            'data'  => [
+                'merchantOrderId'         => 'PKG-TEST-WEBHOOK-SIGNATURE',
+                'kashierOrderId'          => 'abc-456',
+                'orderReference'          => 'TEST-ORD-2',
+                'transactionId'           => 'TX-TEST-2',
+                'status'                  => 'SUCCESS',
+                'method'                  => 'card',
+                'creationDate'            => '2026-07-03T00:28:46.641Z',
+                'amount'                  => self::PACKAGE_PRICE,
+                'currency'                => 'EGP',
+                'transactionResponseCode' => '00',
+                'channel'                 => 'online | e-commerce',
+                'signatureKeys'           => [
+                    'amount', 'channel', 'creationDate', 'currency', 'kashierOrderId',
+                    'merchantOrderId', 'method', 'orderReference', 'status', 'transactionId',
+                    'transactionResponseCode',
+                ],
+            ],
+        ];
+
+        $signedPairs = [];
+        foreach ($payload['data']['signatureKeys'] as $key) {
+            $signedPairs[] = $key . '=' . $payload['data'][$key];
+        }
+        $payload['data']['kashierSignature'] = hash_hmac(
+            'sha256',
+            implode('&', $signedPairs),
+            self::TEST_API_KEY,
+            false
+        );
+
+        $response = $this->postJson('/payment/webhook', $payload);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('message', 'Webhook processed successfully');
+
+        $this->assertDatabaseHas('orders', [
+            'order_ref'      => 'PKG-TEST-WEBHOOK-SIGNATURE',
+            'status'         => 'approved',
+            'transaction_id' => 'TX-TEST-2',
+        ]);
+    }
+
    public function test_callback_server_error_keeps_order_pending_when_not_captured(): void
     {
         $this->createPendingOrder();
