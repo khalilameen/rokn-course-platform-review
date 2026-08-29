@@ -89,6 +89,16 @@ return new class extends Migration
             return;
         }
 
+        // MySQL rejects CHECK constraints that reference a column whose
+        // foreign key uses SET NULL. The composite identity constraints below
+        // supersede these legacy single-column keys and deliberately restrict
+        // deletion of plans that are preserved in financial snapshots.
+        $this->dropForeignKeyIfPresent('orders', 'orders_access_plan_id_foreign');
+        $this->dropForeignKeyIfPresent(
+            'course_enrollments',
+            'course_enrollments_access_plan_id_foreign'
+        );
+
         $this->addForeignKeyIfMissing(
             'orders',
             'orders_parent_order_identity_foreign',
@@ -237,6 +247,15 @@ SQL
             $this->dropForeignKeyIfPresent(
                 'ai_usage_events',
                 'ai_events_plan_course_identity_foreign'
+            );
+
+            $this->addNullablePlanForeignKeyIfMissing(
+                'orders',
+                'orders_access_plan_id_foreign'
+            );
+            $this->addNullablePlanForeignKeyIfMissing(
+                'course_enrollments',
+                'course_enrollments_access_plan_id_foreign'
             );
         }
 
@@ -639,6 +658,22 @@ SQL
                 ->on($referencedTable)
                 ->restrictOnDelete()
                 ->restrictOnUpdate();
+        });
+    }
+
+    private function addNullablePlanForeignKeyIfMissing(
+        string $tableName,
+        string $constraintName
+    ): void {
+        if ($this->foreignKeyExists($tableName, $constraintName)) {
+            return;
+        }
+
+        Schema::table($tableName, function (Blueprint $table) use ($constraintName): void {
+            $table->foreign('access_plan_id', $constraintName)
+                ->references('id')
+                ->on('course_access_plans')
+                ->nullOnDelete();
         });
     }
 
