@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Traits\HasPhoto;
+use App\Traits\ResolvesLocalizedAttributes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -11,7 +12,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Course extends Model
 {
     //
-    use HasPhoto,HasFactory;
+    use HasPhoto, HasFactory, ResolvesLocalizedAttributes;
     protected $fillable = [
         'name_ar', 'name_en', 'description_ar', 'description_en', 'image', 'grade_id', 'teacher_id', 'store_id',
         'price', 'price_before_discount', 'currency', 'video_count', 'hours_count', 'questions_count',
@@ -90,10 +91,7 @@ class Course extends Model
             return null;
         }
 
-        $lang = request()->header('Accept-Language', 'ar');
-        return str_starts_with($lang, 'en')
-            ? ($this->attributes['name_en'] ?? $this->attributes['name_ar'] ?? null)
-            : ($this->attributes['name_ar'] ?? $this->attributes['name_en'] ?? null);
+        return $this->localizedValue('name_ar', 'name_en');
     }
 
     public function getDescriptionAttribute() {
@@ -102,10 +100,7 @@ class Course extends Model
             return null;
         }
 
-        $lang = request()->header('Accept-Language', 'ar');
-        return str_starts_with($lang, 'en')
-            ? ($this->attributes['description_en'] ?? $this->attributes['description_ar'] ?? null)
-            : ($this->attributes['description_ar'] ?? $this->attributes['description_en'] ?? null);
+        return $this->localizedValue('description_ar', 'description_en');
     }
 
     public function setTitleAttribute($value) {

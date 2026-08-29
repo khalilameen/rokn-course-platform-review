@@ -16,8 +16,8 @@ return [
     'offer_1_text' => 'Educational content designed as focused, bite-sized videos that fit your lifestyle and deliver knowledge quickly and effectively.',
     'offer_2_title' => 'Hands-On Tasks',
     'offer_2_text' => 'We go beyond theory — every lesson includes practical assignments where you immediately apply what you learned to build real skills.',
-    'offer_3_title' => 'Certified Credentials',
-    'offer_3_text' => 'Earn completion certificates that prove your competence and add value to your resume.',
+    'offer_3_title' => 'Verifiable Completion Certificates',
+    'offer_3_text' => 'Earn a Rokn-verified record of course completion that can be checked through its QR code.',
 
     'audience_title' => 'Who Is This For?',
     'audience_text' => 'Rokn is designed for youth, university students, and fresh graduates seeking skills that qualify them to enter and excel in the job market.',

@@ -22,6 +22,25 @@ type ProfileLearningDto = {earned_badges?: unknown};
 type StreakDayDto = {has_streak?: unknown; date?: unknown};
 type StreakDto = {week?: {days?: unknown}};
 
+type LearningPathLevelDto = {
+  id?: unknown;
+  name_ar?: unknown;
+  name_en?: unknown;
+  badge_image_url?: unknown;
+  order?: unknown;
+};
+
+type LearningPathDto = {
+  path?: {id?: unknown; title?: unknown; title_ar?: unknown; title_en?: unknown};
+  current_level?: LearningPathLevelDto | null;
+  next_level?: LearningPathLevelDto | null;
+  levels?: unknown;
+  progress_percentage?: unknown;
+  required_progress_percentage?: unknown;
+  completed_sections?: unknown;
+  total_sections?: unknown;
+};
+
 type SavedFolderDto = {id?: unknown; name?: unknown};
 type SavedLessonDto = {
   id?: unknown;
@@ -61,6 +80,7 @@ export type LearningCourse = {
 
 export type LearningDashboard = {
   courses: LearningCourse[];
+  paths: LearningPathProgress[];
   badges: Array<{
     id: string;
     levelId?: string;
@@ -72,6 +92,77 @@ export type LearningDashboard = {
     earnedAt?: string;
   }>;
   activityDays: string[];
+};
+
+export type LearningPathLevel = {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  order: number;
+};
+
+export type LearningPathProgress = {
+  id: string;
+  title: string;
+  currentLevel?: LearningPathLevel;
+  nextLevel?: LearningPathLevel;
+  upcomingLevels: LearningPathLevel[];
+  progress: number;
+  remainingToNextLevel: number;
+  completedSections: number;
+  totalSections: number;
+};
+
+const mapPathLevel = (
+  level?: LearningPathLevelDto | null,
+): LearningPathLevel | undefined => {
+  if (level?.id === null || level?.id === undefined) return undefined;
+  return {
+    id: String(level.id),
+    name: String(level.name_ar || level.name_en || 'المستوى التالي'),
+    imageUrl: level.badge_image_url
+      ? String(level.badge_image_url)
+      : undefined,
+    order: Math.max(0, Number(level.order) || 0),
+  };
+};
+
+const getLearningPaths = async (): Promise<LearningPathProgress[]> => {
+  const data = payload<LearningPathDto[]>(
+    await publicRequest.get('user/paths'),
+  );
+  return resourceList<LearningPathDto>(data).flatMap(item => {
+    if (item.path?.id === null || item.path?.id === undefined) return [];
+    return [
+      {
+        id: String(item.path.id),
+        title: String(
+          item.path.title ||
+            item.path.title_ar ||
+            item.path.title_en ||
+            'مسارك المهني',
+        ),
+        currentLevel: mapPathLevel(item.current_level),
+        nextLevel: mapPathLevel(item.next_level),
+        upcomingLevels: resourceList<LearningPathLevelDto>(item.levels)
+          .map(mapPathLevel)
+          .filter((level): level is LearningPathLevel => Boolean(level)),
+        progress: Math.min(
+          100,
+          Math.max(0, Number(item.progress_percentage) || 0),
+        ),
+        remainingToNextLevel: Math.min(
+          100,
+          Math.max(0, Number(item.required_progress_percentage) || 0),
+        ),
+        completedSections: Math.max(
+          0,
+          Number(item.completed_sections) || 0,
+        ),
+        totalSections: Math.max(0, Number(item.total_sections) || 0),
+      },
+    ];
+  });
 };
 
 const LEARNING_DASHBOARD_CACHE = '@rokn/learning-dashboard/v1';
@@ -88,11 +179,12 @@ export const getCachedLearningDashboard = async () => {
 };
 
 export const getLearningDashboard = async (): Promise<LearningDashboard> => {
-  const [profileResult, streakResult, learningResult] =
+  const [profileResult, streakResult, learningResult, pathsResult] =
     await Promise.allSettled([
       publicRequest.get('user/profile'),
       publicRequest.get('streaks'),
       getLearningCourses(),
+      getLearningPaths(),
     ]);
   if (profileResult.status === 'rejected') throw profileResult.reason;
   if (learningResult.status === 'rejected') throw learningResult.reason;
@@ -103,6 +195,7 @@ export const getLearningDashboard = async (): Promise<LearningDashboard> => {
       : {};
   const dashboard: LearningDashboard = {
     courses: learningResult.value,
+    paths: pathsResult.status === 'fulfilled' ? pathsResult.value : [],
     badges: resourceList<EarnedBadgeDto>(profile.earned_badges).map(badge => ({
       id: String(badge.id),
       levelId: badge.level_id ? String(badge.level_id) : undefined,

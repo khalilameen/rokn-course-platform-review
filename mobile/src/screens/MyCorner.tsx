@@ -261,6 +261,9 @@ export default function MyCorner() {
   const professionalProgress = professionalCourses.length
     ? Math.max(...professionalCourses.map(course => course.progress))
     : 0;
+  const primaryPath = learningDashboard?.paths?.[0];
+  const pathProgress = primaryPath?.progress ?? professionalProgress;
+  const nextPathLevel = primaryPath?.nextLevel;
   const professionalCourseIds = new Set(
     professionalCourses.map(course => String(course.id)),
   );
@@ -562,7 +565,7 @@ export default function MyCorner() {
             </>
           ) : null}
 
-          {professionalCourses.length > 0 && (
+          {(professionalCourses.length > 0 || Boolean(primaryPath)) && (
             <>
               <SectionHeading style={styles.section} title="شاراتك المهنية" />
               <View style={styles.badgeGrid}>
@@ -596,15 +599,17 @@ export default function MyCorner() {
                   </PremiumCard>
                 ))}
               </View>
-              {!earnedProfessionalBadge && (
+              {Boolean(nextPathLevel) && (
                 <PremiumCard style={styles.pathCard}>
                   <View style={styles.pathProgressRow}>
-                    <Text style={styles.pathTitle}>تقدمك نحو Junior</Text>
+                    <Text style={styles.pathTitle}>
+                      {formatArabicDisplayText(
+                        `تقدمك نحو ${nextPathLevel?.name || 'المستوى التالي'}`,
+                      )}
+                    </Text>
                     <Text style={styles.pathValue}>
                       {formatArabicDisplayText(
-                        serverSession === true
-                          ? `${Math.round(professionalProgress)}%`
-                          : `${passedProjectCount}/3`,
+                        `${Math.round(pathProgress)}%`,
                       )}
                     </Text>
                   </View>
@@ -613,15 +618,18 @@ export default function MyCorner() {
                       style={[
                         styles.progressFill,
                         {
-                          width: `${
-                            serverSession === true
-                              ? professionalProgress
-                              : Math.round((passedProjectCount / 3) * 100)
-                          }%`,
+                          width: `${pathProgress}%`,
                         },
                       ]}
                     />
                   </View>
+                  <Text style={styles.pathHint}>
+                    {formatArabicDisplayText(
+                      `متبقي ${Math.round(
+                        primaryPath?.remainingToNextLevel || 0,
+                      )}% للوصول للهدف التالي`,
+                    )}
+                  </Text>
                 </PremiumCard>
               )}
             </>
@@ -840,6 +848,12 @@ const styles = StyleSheet.create({
   },
   pathTitle: {...Type.bodyStrong, ...textDirection, color: Palette.text},
   pathValue: {...Type.bodyStrong, color: '#E9C66F'},
+  pathHint: {
+    ...Type.caption,
+    ...textDirection,
+    color: Palette.textMuted,
+    marginTop: Spacing.sm,
+  },
   rhythmCard: {
     padding: Spacing.lg,
     marginTop: Spacing.sm,

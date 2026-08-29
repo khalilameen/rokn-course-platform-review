@@ -2,12 +2,13 @@
 
 namespace App\Models;
 use App\Traits\HasPhoto;
+use App\Traits\ResolvesLocalizedAttributes;
 use Illuminate\Database\Eloquent\Model;
 
 class ItemList extends Model
 {
     //
-    use HasPhoto;
+    use HasPhoto, ResolvesLocalizedAttributes;
     protected $table = 'lists';
     protected $fillable = [
         'title',
@@ -36,10 +37,7 @@ class ItemList extends Model
             return $this->attributes['title'] ?? null;
         }
 
-        $lang = request()->header('Accept-Language', 'ar');
-        return str_starts_with($lang, 'en')
-            ? ($this->attributes['title_en'] ?? $this->attributes['title_ar'] ?? null)
-            : ($this->attributes['title_ar'] ?? $this->attributes['title_en'] ?? null);
+        return $this->localizedValue('title_ar', 'title_en', 'title');
     }
 
     /**
@@ -51,10 +49,7 @@ class ItemList extends Model
             return $this->attributes['description'] ?? null;
         }
 
-        $lang = request()->header('Accept-Language', 'ar');
-        return str_starts_with($lang, 'en')
-            ? ($this->attributes['description_en'] ?? $this->attributes['description_ar'] ?? null)
-            : ($this->attributes['description_ar'] ?? $this->attributes['description_en'] ?? null);
+        return $this->localizedValue('description_ar', 'description_en', 'description');
     }
     protected $photoModel = 'App\Models\Photo';
     public function scopeQuiz($query){

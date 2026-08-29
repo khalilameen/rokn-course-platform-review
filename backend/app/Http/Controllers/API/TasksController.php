@@ -24,11 +24,16 @@ class TasksController extends Controller
 {
     public function contact(ContactRequest $request): JsonResponse
     {
-        Contact::create($request->validated());
+        $payload = $request->validated();
+        $payload['phone'] = trim((string) ($payload['phone'] ?? ''));
+        Contact::create($payload);
 
         return response()->json([
+            'status' => 201,
+            'success' => true,
             'message' => 'تم إرسال رسالتك بنجاح',
-        ]);
+            'data' => null,
+        ], 201);
     }
 
     public function settings(): SettingResource

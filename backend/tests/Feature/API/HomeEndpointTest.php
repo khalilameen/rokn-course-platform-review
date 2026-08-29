@@ -13,20 +13,10 @@ use Illuminate\Support\Facades\Schema;
  */
 class HomeEndpointTest extends ApiTestCase
 {
-    public function test_can_get_mobile_main_page(): void
+    protected function setUp(): void
     {
-        $response = $this->getJson('/api/v1/mobile-main-page');
-        $this->assertNotEquals(404, $response->status());
-    }
+        parent::setUp();
 
-    public function test_can_get_web_main_page(): void
-    {
-        $response = $this->getJson('/api/v1/main');
-        $this->assertNotEquals(404, $response->status());
-    }
-
-    public function test_can_get_app_settings(): void
-    {
         Schema::create('design_settings', function (Blueprint $table): void {
             $table->id();
             $table->string('name_ar')->nullable();
@@ -42,16 +32,86 @@ class HomeEndpointTest extends ApiTestCase
             $table->softDeletes();
         });
 
-        try {
-            $response = $this->getJson('/api/v1/settings');
-            $response->assertOk()
-                ->assertJsonPath('data.0.privacy_url', url('/privacy-policy'))
-                ->assertJsonPath('data.0.terms_url', url('/terms'))
-                ->assertJsonPath('data.0.returns_policy_url', url('/returns-policy'))
-                ->assertJsonPath('data.0.account_deletion_url', url('/account-deletion'));
-        } finally {
-            Schema::dropIfExists('design_settings');
-        }
+        Schema::create('contacts', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name');
+            $table->string('email');
+            $table->string('phone');
+            $table->text('message');
+            $table->boolean('read')->default(false);
+            $table->timestamps();
+        });
+    }
+
+    protected function tearDown(): void
+    {
+        Schema::dropIfExists('contacts');
+        Schema::dropIfExists('design_settings');
+
+        parent::tearDown();
+    }
+
+    public function test_can_get_mobile_main_page(): void
+    {
+        $response = $this->getJson('/api/v1/mobile-main-page');
+        $this->assertNotEquals(404, $response->status());
+    }
+
+    public function test_can_get_web_main_page(): void
+    {
+        $response = $this->getJson('/api/v1/main');
+        $this->assertNotEquals(404, $response->status());
+    }
+
+    public function test_can_get_app_settings(): void
+    {
+        $this->getJson('/api/v1/settings')
+            ->assertOk()
+            ->assertJsonPath('data.0.privacy_url', url('/privacy-policy'))
+            ->assertJsonPath('data.0.terms_url', url('/terms'))
+            ->assertJsonPath('data.0.returns_policy_url', url('/returns-policy'))
+            ->assertJsonPath('data.0.account_deletion_url', url('/account-deletion'));
+    }
+
+    public function test_can_get_independent_public_content_pages_as_structured_json(): void
+    {
+        $this->withHeader('Accept-Language', 'en-US')
+            ->getJson('/api/v1/content/pages/privacy')
+            ->assertOk()
+            ->assertJsonPath('data.slug', 'privacy')
+            ->assertJsonPath('data.locale', 'en')
+            ->assertJsonPath('data.web_url', route('privacy'))
+            ->assertJsonPath('data.content.heading', 'Privacy and Data Protection Policy')
+            ->assertJsonStructure(['data' => ['content' => ['sections']]]);
+    }
+
+    public function test_contact_page_exposes_the_form_contract_and_accepts_messages_without_phone(): void
+    {
+        $this->getJson('/api/v1/content/pages/contact')
+            ->assertOk()
+            ->assertJsonPath('data.slug', 'contact')
+            ->assertJsonPath('data.contact.form.method', 'POST')
+            ->assertJsonPath('data.contact.form.endpoint', '/api/v1/contact')
+            ->assertJsonPath('data.contact.form.required_fields.0', 'name');
+
+        $this->postJson('/api/v1/contact', [
+            'name' => 'Test Student',
+            'email' => 'student@example.test',
+            'message' => 'I need help with my current course.',
+        ])->assertCreated()
+            ->assertJsonPath('status', 201)
+            ->assertJsonPath('success', true);
+
+        $this->assertDatabaseHas('contacts', [
+            'name' => 'Test Student',
+            'email' => 'student@example.test',
+            'phone' => '',
+        ]);
+    }
+
+    public function test_unknown_public_content_page_returns_not_found(): void
+    {
+        $this->getJson('/api/v1/content/pages/not-a-page')->assertNotFound();
     }
 
     public function test_can_check_app_version(): void

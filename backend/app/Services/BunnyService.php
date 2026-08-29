@@ -100,6 +100,22 @@ class BunnyService
             ?: $this->getSettings()?->bunny_storage_password;
     }
 
+    private function getStorageCdnHostname(): ?string
+    {
+        $hostname = strtolower(trim((string) config('bunny.storage_cdn_hostname')));
+
+        return preg_match('/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/', $hostname)
+            ? $hostname
+            : null;
+    }
+
+    private function getStorageSecurityKey(): ?string
+    {
+        $key = trim((string) config('bunny.storage_token_auth_key'));
+
+        return $key !== '' ? $key : null;
+    }
+
     private function getSecurityKey(): ?string
     {
         return config('bunny.token_auth_key')
@@ -724,8 +740,6 @@ class BunnyService
                     $mimeType
                 )->put("https://storage.bunnycdn.com/{$storageZone}/{$path}");
             if ($response->successful()) {
-                // Return the CDN URL
-                $cdnHostname = $this->getCdnHostname() ?: "{$storageZone}.b-cdn.net";
                 return $path;
             }
 
@@ -775,14 +789,18 @@ class BunnyService
 
         $storageZone = $this->getStorageZoneName();
         $password = $this->getStoragePassword();
-        $cdnHostname = $this->getCdnHostname() ?: "{$storageZone}.b-cdn.net";
+        $cdnHostname = $this->getStorageCdnHostname();
 
         if (!$storageZone || !$password) {
             return false;
         }
 
         // Extract path from URL
-        $path = str_replace("https://{$cdnHostname}/", "", $fileUrl);
+        $path = $this->normalizeStorageObjectPath($fileUrl);
+        if ($path === null) {
+            Log::warning('Rejected an invalid Bunny Storage deletion path.');
+            return false;
+        }
 
         try {
             $response = $this->client()->withHeaders([
@@ -811,23 +829,54 @@ class BunnyService
     public function generateBunnySignedUrl($filePath, $ttl = 3600): ?string
     {
         $expires = time() + max(60, (int) $ttl);
-        $securityKey = $this->getSecurityKey();
-        $hostname = $this->getCdnHostname()
-            ?: ($this->getStorageZoneName() ? $this->getStorageZoneName() . '.b-cdn.net' : null);
+        $securityKey = $this->getStorageSecurityKey();
+        $hostname = $this->getStorageCdnHostname();
         if (!$hostname || !$securityKey) {
             Log::critical('Bunny private asset signing refused because delivery configuration is incomplete.');
             return null;
         }
 
-        $path = '/' . ltrim((string) $filePath, '/');
-        if ($path === '/' || str_contains($path, "\0") || str_contains($path, '?')) {
+        $objectPath = $this->normalizeStorageObjectPath((string) $filePath);
+        if ($objectPath === null) {
             return null;
         }
+        $path = '/' . $objectPath;
         $token = self::advancedToken($securityKey, $path, $expires);
 
         return rtrim("https://{$hostname}", '/') . $path
             . '?token=' . rawurlencode($token)
             . '&expires=' . $expires;
+    }
+
+    private function normalizeStorageObjectPath(string $value): ?string
+    {
+        $value = trim($value);
+        if ($value === '' || str_contains($value, "\0") || str_contains($value, '\\')) {
+            return null;
+        }
+
+        if (filter_var($value, FILTER_VALIDATE_URL)) {
+            $parts = parse_url($value);
+            $expectedHost = $this->getStorageCdnHostname();
+            if (
+                ($parts['scheme'] ?? null) !== 'https'
+                || !$expectedHost
+                || strtolower((string) ($parts['host'] ?? '')) !== $expectedHost
+                || isset($parts['user'])
+                || isset($parts['pass'])
+                || isset($parts['query'])
+                || isset($parts['fragment'])
+            ) {
+                return null;
+            }
+            $value = (string) ($parts['path'] ?? '');
+        }
+
+        $path = ltrim(rawurldecode($value), '/');
+
+        return preg_match('#^(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9][A-Za-z0-9._-]*$#', $path) === 1
+            ? $path
+            : null;
     }
 
     private function client(int $timeoutSeconds = 30): PendingRequest

@@ -31,8 +31,9 @@ class SavedFolderResource extends JsonResource
             : $this->lessons()->with('course')->orderByPivot('created_at')->first();
 
         if ($firstLesson) {
-            if (!empty($firstLesson->thumbnail_path)) {
-                return (string)$firstLesson->thumbnail_path;
+            $lessonImage = trim((string) ($firstLesson->thumbnail_path ?: $firstLesson->image));
+            if ($lessonImage !== '') {
+                return $lessonImage;
             }
 
             if ($firstLesson->relationLoaded('course') && $firstLesson->course && $firstLesson->course->image) {

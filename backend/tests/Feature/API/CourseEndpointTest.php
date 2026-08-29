@@ -115,6 +115,34 @@ class CourseEndpointTest extends ApiTestCase
             ->assertNotFound();
     }
 
+    public function test_course_details_falls_back_when_requested_translation_is_blank(): void
+    {
+        DB::table('courses')->where('id', $this->courseId)->update([
+            'name_ar' => 'عنوان عربي موجود',
+            'name_en' => '   ',
+            'description_ar' => 'وصف عربي موجود',
+            'description_en' => '',
+        ]);
+
+        Schema::create('course_modules', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('course_id');
+            $table->unsignedInteger('order')->default(1);
+            $table->timestamps();
+            $table->softDeletes();
+        });
+
+        try {
+            $this->withHeader('Accept-Language', 'en')
+                ->getJson("/api/v1/courses/{$this->courseId}/details")
+                ->assertOk()
+                ->assertJsonPath('data.title', 'عنوان عربي موجود')
+                ->assertJsonPath('data.description', 'وصف عربي موجود');
+        } finally {
+            Schema::dropIfExists('course_modules');
+        }
+    }
+
     public function test_authenticated_user_can_rate_course(): void
     {
         $response = $this->actingAs($this->user, 'api')->postJson("/api/v1/courses/{$this->courseId}/rate", [

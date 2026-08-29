@@ -71,8 +71,24 @@ class SavedFolderEndpointTest extends ApiTestCase
 
     public function test_can_list_saved_folders(): void
     {
-        $response = $this->actingAs($this->user, 'api')->getJson('/api/v1/saved-folders');
-        $this->assertNotEquals(404, $response->status());
+        $this->actingAs($this->user, 'api')
+            ->getJson('/api/v1/saved-folders')
+            ->assertOk()
+            ->assertJsonPath('status', 200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.0.id', 1)
+            ->assertJsonPath('data.0.image', asset('images/default-folder.png'))
+            ->assertJsonPath('data.0.lessons_count', 1);
+    }
+
+    public function test_saved_folder_uses_the_first_saved_lesson_image(): void
+    {
+        DB::table('lessons')->where('id', 10)->update(['image' => 'lesson-cover.jpg']);
+        $this->actingAs($this->user, 'api')
+            ->getJson('/api/v1/saved-folders')
+            ->assertOk()
+            ->assertJsonPath('data.0.image', 'lesson-cover.jpg')
+            ->assertJsonPath('data.0.lessons_count', 1);
     }
 
     public function test_can_create_saved_folder(): void
@@ -85,8 +101,24 @@ class SavedFolderEndpointTest extends ApiTestCase
 
     public function test_can_view_saved_folder_items(): void
     {
-        $response = $this->actingAs($this->user, 'api')->getJson('/api/v1/saved-folders/1');
-        $this->assertNotEquals(404, $response->status());
+        DB::table('saved_folder_lessons')->insert([
+            'saved_folder_id' => 1,
+            'lesson_id' => 10,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->actingAs($this->user, 'api')
+            ->getJson('/api/v1/saved-folders/1')
+            ->assertOk()
+            ->assertJsonPath('data.lessons.0.id', 10)
+            ->assertJsonPath('data.lessons.0.duration_minutes', 15);
+
+        $this->actingAs($this->user, 'api')
+            ->getJson('/api/v1/saved-folders/1/lessons')
+            ->assertOk()
+            ->assertJsonPath('data.lessons.0.id', 10)
+            ->assertJsonPath('data.lessons.0.duration_minutes', 15);
     }
 
     public function test_can_save_lesson_to_folder(): void

@@ -41,15 +41,41 @@ const responseFor = (pathname, method = 'GET') => {
     });
   }
   if (pathname === '/api/courses/64/details') {
-    return jsonResponse(200, {data: {access_plans: validPlans}});
+    return jsonResponse(200, {
+      success: true,
+      data: {title: 'Staging course', access_plans: validPlans},
+    });
+  }
+  if (
+    [
+      '/api/auth-methods',
+      '/api/packages',
+      '/api/paths',
+      '/api/settings',
+      '/api/content/pages/about',
+      '/api/content/pages/privacy',
+      '/api/content/pages/contact',
+    ].includes(pathname)
+  ) {
+    return jsonResponse(200, {success: true, data: []});
   }
   if (
     [
       '/api/wallet',
       '/api/learning/courses',
+      '/api/user/paths',
+      '/api/user/profile',
       '/api/user/watch-history',
+      '/api/certificates',
+      '/api/notifications',
+      '/api/saved-folders',
+      '/api/saved-lessons',
+      '/api/portfolio',
+      '/api/portfolio-profile',
       '/api/courses/64/full-track-upgrade',
       '/api/rewards/daily',
+      '/api/payment/initiate',
+      '/api/certificates/64/issue',
       '/api/lessons/641/playback-manifest',
       '/api/projects/684/submissions',
     ].includes(pathname)
@@ -71,7 +97,8 @@ test('accepts a launch-ready backend with product, plan and route parity', async
     fetchImpl: fakeFetch,
   });
   assert.deepEqual(result.planCodes, ['basic', 'guided', 'mentor']);
-  assert.equal(result.checkedProtectedRoutes, 7);
+  assert.equal(result.checkedPublicRoutes, 7);
+  assert.equal(result.checkedProtectedRoutes, 17);
 });
 
 test('rejects a deployed backend that is missing a protected route', async () => {
@@ -102,7 +129,7 @@ test('rejects a course that does not expose all three plans', async () => {
       fetchImpl: async (url, options) => {
         if (new URL(url).pathname === '/api/courses/64/details') {
           return jsonResponse(200, {
-            data: {access_plans: validPlans.slice(0, 2)},
+            data: {title: 'Staging course', access_plans: validPlans.slice(0, 2)},
           });
         }
         return fakeFetch(url, options);

@@ -23,7 +23,7 @@ final class PathController extends Controller
 
     public function index(): JsonResource
     {
-        $paths = Path::with(['interests', 'courses'])->get();
+        $paths = Path::with(['interests', 'courses.level'])->get();
 
         return $this->responses->resource(
             PathResource::collection($paths),
@@ -35,6 +35,7 @@ final class PathController extends Controller
     {
         $path = Path::with([
             'interests',
+            'courses.level',
             'courses.classifications',
             'courses.teachers',
         ])->findOrFail($id);

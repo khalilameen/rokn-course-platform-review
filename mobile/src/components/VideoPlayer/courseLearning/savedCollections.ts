@@ -5,7 +5,12 @@ import {hasSession} from '../../../services/roknApi';
 import {updatePlayerState} from './persistence';
 import {asArray, valueAsString} from './shared';
 
-type SavedFolderDto = {id?: unknown; name?: unknown};
+type SavedFolderDto = {
+  id?: unknown;
+  name?: unknown;
+  image?: unknown;
+  lessons_count?: unknown;
+};
 
 const WATCH_LATER_FOLDER_KEY = '@rokn/watch-later-folder-id/v2';
 const SAVED_FOLDERS_KEY = '@rokn/saved-folder-options/v1';
@@ -48,7 +53,21 @@ const ensureWatchLaterFolder = async (): Promise<string | null> => {
   }
 };
 
-export type SavedFolderOption = {id: string; name: string};
+export type SavedFolderOption = {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  lessonsCount?: number;
+};
+
+const mapSavedFolder = (folder: SavedFolderDto): SavedFolderOption => ({
+  id: valueAsString(folder.id),
+  name: valueAsString(folder.name),
+  imageUrl: folder.image ? valueAsString(folder.image) : undefined,
+  lessonsCount: Number.isFinite(Number(folder.lessons_count))
+    ? Math.max(0, Number(folder.lessons_count))
+    : undefined,
+});
 
 const localSavedFoldersKey = () => accountScopedStorageKey(SAVED_FOLDERS_KEY);
 
@@ -59,10 +78,7 @@ const readLocalSavedFolders = async (): Promise<SavedFolderOption[]> => {
     if (Array.isArray(parsed) && parsed.length) {
       return parsed
         .filter(item => item?.id && item?.name)
-        .map(item => ({
-          id: valueAsString(item.id),
-          name: valueAsString(item.name),
-        }));
+        .map(mapSavedFolder);
     }
   } catch {
     // A damaged local folder index should never block saving a reel.
@@ -84,10 +100,7 @@ export const getSavedFolderOptions = async (): Promise<SavedFolderOption[]> => {
       folderPayload?.data ?? folderPayload,
     )
       .filter(item => item?.id && item?.name)
-      .map(item => ({
-        id: valueAsString(item.id),
-        name: valueAsString(item.name),
-      }));
+      .map(mapSavedFolder);
     await writeLocalSavedFolders(folders);
     return folders;
   } catch {
@@ -118,6 +131,10 @@ export const createSavedFolderOption = async (
   const created = {
     id: valueAsString(folder.id),
     name: valueAsString(folder.name || name),
+    imageUrl: folder.image ? valueAsString(folder.image) : undefined,
+    lessonsCount: Number.isFinite(Number(folder.lessons_count))
+      ? Math.max(0, Number(folder.lessons_count))
+      : 0,
   };
   const current = await readLocalSavedFolders();
   await writeLocalSavedFolders([

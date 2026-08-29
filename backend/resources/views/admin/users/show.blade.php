@@ -80,8 +80,18 @@
                         <i class="fa fa-bell"></i>
                         إرسال إشعار
                     </h3>
+                    <a href="{{ route('admin.notifications.create') }}" class="btn-action-modern btn-edit">
+                        <i class="fa fa-users"></i> إشعار جماعي
+                    </a>
                 </div>
                 <div class="section-body">
+                    <div class="alert {{ $user->notifications_status && $user->device_tokens_count > 0 ? 'alert-success' : 'alert-warning' }}">
+                        @if($user->notifications_status && $user->device_tokens_count > 0)
+                            إشعارات الهاتف مفعلة على {{ $user->device_tokens_count }} جهاز. سيظهر الإشعار أيضًا داخل التطبيق.
+                        @else
+                            سيظهر الإشعار داخل التطبيق، لكن الهاتف غير مسجل لاستقبال Push حاليًا.
+                        @endif
+                    </div>
                     {!! Form::open(['method' => 'POST', 'route' => ['admin.users.send_notification', $user->id]]) !!}
                         <div class="notification-form">
                             <input name="title" placeholder="عنوان الإشعار..." class="notification-input notification-input--title" type="text" required>

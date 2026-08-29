@@ -6,6 +6,7 @@ use App\Models\UserNote;
 use App\Models\Classification;
 use App\Traits\HasPhoto;
 use App\Traits\HasApiTokens;
+use App\Traits\ResolvesLocalizedAttributes;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -14,7 +15,7 @@ use Illuminate\Notifications\Notifiable;
 
 class User extends Authenticatable
 {
-    use Notifiable, HasPhoto, HasApiTokens, SoftDeletes;
+    use Notifiable, HasPhoto, HasApiTokens, SoftDeletes, ResolvesLocalizedAttributes;
 
     /**
      * The attributes that are mass assignable.
@@ -47,10 +48,7 @@ class User extends Authenticatable
             return $this->attributes['name'] ?? null;
         }
 
-        $lang = request()->header('Accept-Language', 'ar');
-        return str_starts_with($lang, 'en')
-            ? ($this->attributes['name_en'] ?? $this->attributes['name_ar'] ?? $this->attributes['name'] ?? null)
-            : ($this->attributes['name_ar'] ?? $this->attributes['name_en'] ?? $this->attributes['name'] ?? null);
+        return $this->localizedValue('name_ar', 'name_en', 'name');
     }
 
     /**
@@ -65,10 +63,7 @@ class User extends Authenticatable
             return $this->attributes['bio'] ?? null;
         }
 
-        $lang = request()->header('Accept-Language', 'ar');
-        return str_starts_with($lang, 'en')
-            ? ($this->attributes['bio_en'] ?? $this->attributes['bio_ar'] ?? $this->attributes['bio'] ?? null)
-            : ($this->attributes['bio_ar'] ?? $this->attributes['bio_en'] ?? $this->attributes['bio'] ?? null);
+        return $this->localizedValue('bio_ar', 'bio_en', 'bio');
     }
 
     /**

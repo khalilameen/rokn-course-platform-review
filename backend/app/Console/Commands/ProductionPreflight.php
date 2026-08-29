@@ -177,6 +177,10 @@ class ProductionPreflight extends Command
         $require($this->configured('bunny.library_id'), 'BUNNY_STREAM_LIBRARY_ID is required.');
         $require($this->configured('bunny.cdn_hostname'), 'BUNNY_CDN_HOSTNAME is required.');
         $require($this->configured('bunny.token_auth_key'), 'BUNNY_TOKEN_AUTH_KEY is required for signed playback.');
+        $require($this->configured('bunny.storage_zone'), 'BUNNY_STORAGE_ZONE is required for portfolio and thumbnail uploads.');
+        $require($this->configured('bunny.storage_password'), 'BUNNY_STORAGE_PASSWORD is required for portfolio and thumbnail uploads.');
+        $require($this->configured('bunny.storage_cdn_hostname'), 'BUNNY_STORAGE_CDN_HOSTNAME is required for asset delivery.');
+        $require($this->configured('bunny.storage_token_auth_key'), 'BUNNY_STORAGE_TOKEN_AUTH_KEY is required for signed asset delivery.');
 
         $require(config('kashier.mode') === 'live', 'KASHIER_MODE must be live.');
         $require($this->configured('kashier.live.api_key'), 'KASHIER_LIVE_API_KEY is required.');

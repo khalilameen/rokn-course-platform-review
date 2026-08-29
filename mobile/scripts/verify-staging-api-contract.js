@@ -3,6 +3,16 @@
 const requiredFlags = ['checkout', 'playback', 'project_uploads'];
 const requiredPlanCodes = ['basic', 'guided', 'mentor'];
 
+const publicRoutes = [
+  ['GET', 'auth-methods'],
+  ['GET', 'packages'],
+  ['GET', 'paths'],
+  ['GET', 'settings'],
+  ['GET', 'content/pages/about'],
+  ['GET', 'content/pages/privacy'],
+  ['GET', 'content/pages/contact'],
+];
+
 const requiredValue = (value, name) => {
   const normalized = String(value || '').trim();
   if (!normalized) throw new Error(`${name} is required.`);
@@ -137,14 +147,34 @@ const verifyStagingApiContract = async ({
     200,
     'GET',
   );
+  if (!String(details?.data?.title || '').trim()) {
+    throw new Error('The staging course details response has an empty title.');
+  }
   verifyPlans(details);
+
+  for (const [method, path] of publicRoutes) {
+    const response = await responseJson(fetchImpl, base, path, 200, method);
+    if (response?.success !== true) {
+      throw new Error(`${method} ${path} did not return a successful API envelope.`);
+    }
+  }
 
   const protectedRoutes = [
     ['GET', 'wallet'],
     ['GET', 'learning/courses'],
+    ['GET', 'user/paths'],
+    ['GET', 'user/profile'],
     ['GET', 'user/watch-history'],
+    ['GET', 'certificates'],
+    ['GET', 'notifications'],
+    ['GET', 'saved-folders'],
+    ['GET', 'saved-lessons'],
+    ['GET', 'portfolio'],
+    ['GET', 'portfolio-profile'],
     ['GET', `courses/${fixtures.courseId}/full-track-upgrade`],
     ['POST', 'rewards/daily'],
+    ['POST', 'payment/initiate'],
+    ['POST', `certificates/${fixtures.courseId}/issue`],
     ['POST', `lessons/${fixtures.lessonId}/playback-manifest`],
     ['POST', `projects/${fixtures.projectId}/submissions`],
   ];
@@ -154,6 +184,7 @@ const verifyStagingApiContract = async ({
 
   return {
     apiBase: base.href,
+    checkedPublicRoutes: publicRoutes.length,
     checkedProtectedRoutes: protectedRoutes.length,
     courseId: fixtures.courseId,
     planCodes: requiredPlanCodes,

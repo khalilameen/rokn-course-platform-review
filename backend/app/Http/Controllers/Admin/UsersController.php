@@ -100,6 +100,8 @@ class UsersController extends Controller
     public function show(User $user, Request $request)
     {
 
+        $user->loadCount('deviceTokens');
+
         // Get user orders with related data
         $orders = Order::where('user_id', $user->id)
             ->with(['course', 'coupon', 'courseCode', 'approvedBy', 'paymentMethod'])
@@ -246,7 +248,15 @@ class UsersController extends Controller
             $message
         );
 
-        return redirect()->back()->with('success', 'تم أرسال الإشعار بنجاح');
+        $canReceivePush = (bool) $user->notifications_status
+            && $user->deviceTokens()->exists();
+
+        return redirect()->back()->with(
+            $canReceivePush ? 'success' : 'warning',
+            $canReceivePush
+                ? 'تم حفظ الإشعار وإضافته إلى قائمة إرسال الهاتف'
+                : 'تم حفظ الإشعار داخل حساب الطالب، لكن إشعار الهاتف لن يصل حتى يفعّل الطالب الإشعارات ويسجل جهازه'
+        );
     }
 
     /**

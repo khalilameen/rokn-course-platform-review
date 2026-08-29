@@ -24,6 +24,8 @@ const versionAtLeast = (value, minimum) => {
   }
   return true;
 };
+const toolVersion = value =>
+  String(value || '').match(/(?:^|\s)(\d+\.\d+\.\d+)(?:\s|$)/)?.[1];
 
 if (!fs.existsSync(lockPath)) {
   fail('ios/Podfile.lock is missing.');
@@ -128,13 +130,11 @@ if (process.platform === 'darwin' && lockedCocoaPods) {
     if (runtimeRuby !== lockedRuby) {
       fail(`ruby is ${runtimeRuby || '<missing>'}, but Gemfile.lock requires ${lockedRuby}.`);
     }
-    const runtimeBundler = execFileSync('bundle', ['--version'], {
+    const runtimeBundler = toolVersion(execFileSync('bundle', [`_${lockedBundler}_`, '--version'], {
       cwd: root,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
-    })
-      .trim()
-      .match(/Bundler version (\S+)/)?.[1];
+    }));
     if (runtimeBundler !== lockedBundler) {
       fail(
         `bundle is ${runtimeBundler || '<missing>'}, but Gemfile.lock requires ${lockedBundler}.`,
@@ -151,7 +151,7 @@ if (process.platform === 'darwin' && lockedCocoaPods) {
     }
     const runtimeCocoaPods = execFileSync(
       'bundle',
-      ['exec', 'pod', '--version'],
+      [`_${lockedBundler}_`, 'exec', 'pod', '--version'],
       {
         cwd: root,
         encoding: 'utf8',

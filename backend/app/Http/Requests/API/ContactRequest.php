@@ -24,10 +24,10 @@ class ContactRequest extends FormRequest
     public function rules()
     {
         return [
-            'name' => 'required|min:4',
-            'phone' => 'required|numeric',
-            'email' => 'required|email',
-            'message' => 'required|min:5'
+            'name' => 'required|string|min:2|max:120',
+            'phone' => 'nullable|string|max:32',
+            'email' => 'required|email|max:255',
+            'message' => 'required|string|min:10|max:2000'
         ];
     }
 }

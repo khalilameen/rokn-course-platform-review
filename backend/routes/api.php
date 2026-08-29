@@ -28,6 +28,10 @@ $registerCourseApiRoutes = function () {
             Route::get('main', [\App\Http\Controllers\API\HomeController::class,'mainPage']);
             Route::get('mobile-main-page', [\App\Http\Controllers\API\HomeController::class,'mobileMainPage']);
             Route::get('settings', [\App\Http\Controllers\API\HomeController::class,'settings']);
+            Route::get('content/pages/{page}', [\App\Http\Controllers\API\PublicContentController::class, 'show'])
+                ->whereIn('page', ['about', 'privacy', 'terms', 'returns', 'contact']);
+            Route::post('contact', [\App\Http\Controllers\API\TasksController::class, 'contact'])
+                ->middleware('throttle:5,1');
             Route::get('economy-config', [\App\Http\Controllers\API\LearningRewardController::class, 'configuration']);
             Route::get('public/portfolios/{slug}', [\App\Http\Controllers\API\PublicPortfolioController::class, 'show']);
 

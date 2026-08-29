@@ -4,10 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use App\Traits\ResolvesLocalizedAttributes;
 
 class Path extends Model
 {
-    use HasFactory;
+    use HasFactory, ResolvesLocalizedAttributes;
 
     protected $fillable = [
         'title_ar',
@@ -20,10 +21,7 @@ class Path extends Model
             return null;
         }
 
-        $lang = request()->header('Accept-Language', 'ar');
-        return str_starts_with($lang, 'en')
-            ? ($this->attributes['title_en'] ?? $this->attributes['title_ar'] ?? null)
-            : ($this->attributes['title_ar'] ?? $this->attributes['title_en'] ?? null);
+        return $this->localizedValue('title_ar', 'title_en');
     }
 
     /**

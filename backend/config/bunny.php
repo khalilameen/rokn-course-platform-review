@@ -9,6 +9,10 @@ return [
     'fallback_cdn_hostname' => env('BUNNY_FALLBACK_CDN_HOSTNAME'),
     'storage_zone' => env('BUNNY_STORAGE_ZONE'),
     'storage_password' => env('BUNNY_STORAGE_PASSWORD'),
+    // Storage assets require their own Pull Zone hostname and token key.
+    // Bunny Stream delivery credentials are not interchangeable with them.
+    'storage_cdn_hostname' => env('BUNNY_STORAGE_CDN_HOSTNAME'),
+    'storage_token_auth_key' => env('BUNNY_STORAGE_TOKEN_AUTH_KEY'),
     'token_auth_key' => env('BUNNY_TOKEN_AUTH_KEY'),
     'connect_timeout_seconds' => (int) env('BUNNY_CONNECT_TIMEOUT_SECONDS', 15),
     'upload_timeout_seconds' => (int) env('BUNNY_UPLOAD_TIMEOUT_SECONDS', 3600),

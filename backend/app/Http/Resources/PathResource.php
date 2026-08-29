@@ -18,13 +18,28 @@ class PathResource extends JsonResource
             'id' => $this->id,
             'title_ar' => $this->title_ar,
             'title_en' => $this->title_en,
-            'title' => $this->title_ar, // Default title for localized display
+            'title' => $this->title,
             'interests' => $this->interests->map(function($interest) {
                 return [
                     'id' => $interest->id,
                     'name_ar' => $interest->name_ar,
                     'name_en' => $interest->name_en,
                 ];
+            }),
+            'levels' => $this->whenLoaded('courses', function () {
+                return $this->courses
+                    ->pluck('level')
+                    ->filter()
+                    ->unique('id')
+                    ->sortBy('order')
+                    ->values()
+                    ->map(fn ($level) => [
+                        'id' => (int) $level->id,
+                        'name_ar' => (string) $level->name_ar,
+                        'name_en' => (string) $level->name_en,
+                        'badge_image_url' => $level->badge_image_url,
+                        'order' => (int) $level->order,
+                    ]);
             }),
             'courses' => BaseCourseResource::collection($this->whenLoaded('courses')),
             'courses_count' => $this->courses_count ?? $this->courses->count(),

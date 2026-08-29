@@ -20,17 +20,21 @@ class StudentNotificationResource extends JsonResource
         // Determine if locale is Arabic
         $isArabic = str_starts_with($locale, 'ar');
 
+        $titleAr = $this->firstText($this->title_ar, $this->title_en, 'إشعار من ركن');
+        $titleEn = $this->firstText($this->title_en, $this->title_ar, 'Rokn notification');
+        $messageAr = $this->firstText($this->message_ar, $this->message_en);
+        $messageEn = $this->firstText($this->message_en, $this->message_ar);
         $presentation = app(StudentNotificationPresentationService::class)->for($this->resource);
 
         return [
             'id' => $this->id,
             'notification_type' => $this->notification_type,
-            'title' => $isArabic ? $this->title_ar : $this->title_en,
-            'title_ar' => $this->title_ar,
-            'title_en' => $this->title_en,
-            'message' => $isArabic ? $this->message_ar : $this->message_en,
-            'message_ar' => $this->message_ar,
-            'message_en' => $this->message_en,
+            'title' => $isArabic ? $titleAr : $titleEn,
+            'title_ar' => $titleAr,
+            'title_en' => $titleEn,
+            'message' => $isArabic ? $messageAr : $messageEn,
+            'message_ar' => $messageAr,
+            'message_en' => $messageEn,
             'link' => $presentation['link'],
             'course_id' => $presentation['course_id'],
             'image_url' => $presentation['image_url'],
@@ -43,6 +47,18 @@ class StudentNotificationResource extends JsonResource
             'notifiable_type' => $this->notifiable_type,
             'notifiable_id' => $this->notifiable_id,
         ];
+    }
+
+    private function firstText(mixed ...$values): string
+    {
+        foreach ($values as $value) {
+            $text = trim((string) $value);
+            if ($text !== '') {
+                return $text;
+            }
+        }
+
+        return '';
     }
 }
 

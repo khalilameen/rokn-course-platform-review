@@ -56,6 +56,11 @@ class FcmNotificationService
         ?string $link = null,
         array $extraData = []
     ): array {
+        $titleAr = self::firstText($titleAr, $titleEn, 'إشعار من ركن');
+        $titleEn = self::firstText($titleEn, $titleAr, 'Rokn notification');
+        $messageAr = self::firstText($messageAr, $messageEn);
+        $messageEn = self::firstText($messageEn, $messageAr);
+
         // A user can still see their in-app inbox after opting out, but we must
         // never wake their device with a push notification once they turn it off.
         if (!(bool) $user->notifications_status) {
@@ -146,6 +151,18 @@ class FcmNotificationService
             'delivered' => $attempted,
             'retryable' => !$attempted && $retryableFailure,
         ];
+    }
+
+    private static function firstText(string ...$values): string
+    {
+        foreach ($values as $value) {
+            $text = trim($value);
+            if ($text !== '') {
+                return $text;
+            }
+        }
+
+        return '';
     }
 
     /**

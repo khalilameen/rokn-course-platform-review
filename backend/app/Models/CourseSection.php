@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Traits\ResolvesLocalizedAttributes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class CourseSection extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, ResolvesLocalizedAttributes;
 
     protected $fillable = [
         'title',
@@ -32,10 +33,7 @@ class CourseSection extends Model
             return $this->attributes['title'] ?? null;
         }
 
-        $lang = request()->header('Accept-Language', 'ar');
-        return str_starts_with($lang, 'en')
-            ? ($this->attributes['title_en'] ?? $this->attributes['title_ar'] ?? null)
-            : ($this->attributes['title_ar'] ?? $this->attributes['title_en'] ?? null);
+        return $this->localizedValue('title_ar', 'title_en', 'title');
     }
 
     /**

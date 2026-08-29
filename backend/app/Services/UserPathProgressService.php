@@ -92,12 +92,18 @@ final readonly class UserPathProgressService
                 ? round(($completedSections / $totalSections) * 100, 2)
                 : 0.0;
 
-            $levels = $pathToLevelIds
+            $levelsForPath = $pathToLevelIds
                 ->get((int) $pathId, collect())
                 ->map(fn ($id) => $levelsById->get($id))
                 ->filter()
                 ->sortBy(fn (Level $level) => $level->order)
-                ->values()
+                ->values();
+            $nextLevel = $levelsForPath
+                ->first(fn (Level $level): bool => $currentLevel === null
+                    || (int) $level->order > (int) $currentLevel->order);
+            $levels = $levelsForPath
+                ->reject(fn (Level $level): bool => $currentLevel !== null
+                    && (int) $level->id === (int) $currentLevel->id)
                 ->map(fn (Level $level): array => [
                     'id' => $level->id,
                     'name_ar' => $level->name_ar,
@@ -105,6 +111,7 @@ final readonly class UserPathProgressService
                     'badge_image_url' => $level->badge_image_url,
                     'order' => (int) $level->order,
                 ])
+                ->values()
                 ->all();
 
             $data[] = [
@@ -122,6 +129,16 @@ final readonly class UserPathProgressService
                     'badge_image_url' => $currentLevel->badge_image_url,
                     'order' => (int) $currentLevel->order,
                 ] : null,
+                'next_level' => $nextLevel ? [
+                    'id' => $nextLevel->id,
+                    'name_ar' => $nextLevel->name_ar,
+                    'name_en' => $nextLevel->name_en,
+                    'badge_image_url' => $nextLevel->badge_image_url,
+                    'order' => (int) $nextLevel->order,
+                ] : null,
+                'required_progress_percentage' => $nextLevel
+                    ? round(max(0, 100 - $progressPercentage), 2)
+                    : 0.0,
                 'enrolled_courses_count' => $courses->count(),
                 'total_sections' => $totalSections,
                 'completed_sections' => $completedSections,

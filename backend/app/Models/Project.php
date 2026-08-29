@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Traits\ResolvesLocalizedAttributes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Project extends Model
 {
-    use HasFactory;
+    use HasFactory, ResolvesLocalizedAttributes;
 
     protected $fillable = [
         'requirements_text',
@@ -31,10 +32,11 @@ class Project extends Model
             return $this->attributes['requirements_text'] ?? null;
         }
 
-        $lang = request()->header('Accept-Language', 'ar');
-        return str_starts_with($lang, 'en')
-            ? ($this->attributes['requirements_text_en'] ?? $this->attributes['requirements_text_ar'] ?? null)
-            : ($this->attributes['requirements_text_ar'] ?? $this->attributes['requirements_text_en'] ?? null);
+        return $this->localizedValue(
+            'requirements_text_ar',
+            'requirements_text_en',
+            'requirements_text'
+        );
     }
 
     /**
