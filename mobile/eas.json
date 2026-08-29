@@ -9,7 +9,7 @@
       "distribution": "store",
       "channel": "production",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://rokn.app/api/",
+        "EXPO_PUBLIC_API_URL": "https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/",
         "EXPO_PUBLIC_DISTRIBUTION_CHANNEL": "play",
         "EXPO_PUBLIC_BUILD_PROFILE": "production",
         "EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS": "1",
@@ -30,7 +30,7 @@
       "distribution": "store",
       "channel": "production",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://rokn.app/api/",
+        "EXPO_PUBLIC_API_URL": "https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/",
         "EXPO_PUBLIC_DISTRIBUTION_CHANNEL": "appstore",
         "EXPO_PUBLIC_BUILD_PROFILE": "production",
         "EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS": "1",

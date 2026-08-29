@@ -9,7 +9,8 @@ import {
 } from './durableOutbox';
 
 const apiRoot = (
-  process.env.EXPO_PUBLIC_API_URL?.trim() || 'https://rokn.app/api/'
+  process.env.EXPO_PUBLIC_API_URL?.trim() ||
+  'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/'
 ).replace(/\/?$/, '/');
 const endpoint = `${apiRoot}client-events`;
 const TELEMETRY_OUTBOX_KEY = '@rokn/client-events-outbox/v1';

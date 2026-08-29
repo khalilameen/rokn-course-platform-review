@@ -38,7 +38,7 @@ jobs:
       - name: Regenerate native locks and macOS verification metadata
         working-directory: mobile
         env:
-          EXPO_PUBLIC_API_URL: https://rokn.app/api/
+          EXPO_PUBLIC_API_URL: https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/
         run: |
           cd android
           ./gradlew -q \

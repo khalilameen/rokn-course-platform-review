@@ -100,8 +100,12 @@ const flattenRows = (props: SettingsSectionsProps) =>
 
 describe('settings screen contract', () => {
   it('opens public legal pages outside both legacy and versioned API prefixes', () => {
-    expect(accountDeletionUrl).toBe('https://rokn.app/account-deletion');
-    expect(returnsPolicyUrl).toBe('https://rokn.app/returns-policy');
+    expect(accountDeletionUrl).toBe(
+      'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/account-deletion',
+    );
+    expect(returnsPolicyUrl).toBe(
+      'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/returns-policy',
+    );
   });
 
   it('keeps every authenticated setting in its established order', () => {

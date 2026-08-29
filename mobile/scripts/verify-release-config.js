@@ -77,7 +77,8 @@ const environmentExample = read('.env.example');
 const androidReleaseScript = read('scripts/build-android-release.ps1');
 const metroRuntimeConfig = require(path.join(root, 'metro.config.js'));
 const mobileCi = read('.github/workflows/mobile-ci.yml');
-const productionApiBase = 'https://rokn.app/api/';
+const productionApiBase =
+  'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/';
 const firebaseClientPaths = [
   'android/app/google-services.json',
   'ios/GoogleService-Info.plist',

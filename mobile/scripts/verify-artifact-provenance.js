@@ -5,7 +5,9 @@ const fs = require('fs');
 const path = require('path');
 const {spawnSync} = require('child_process');
 
-const PRODUCTION_API_BASE = 'https://rokn.app/api/';
+const PRODUCTION_API_BASE =
+  'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/';
+const PRODUCTION_API_HOST = new URL(PRODUCTION_API_BASE).host;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
 const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -262,8 +264,8 @@ const verify = (
   if (!normalizeSha256(evidence.signerSha256)) {
     failures.push('Provenance lacks a valid signer SHA-256 digest.');
   }
-  if (evidence.apiHost !== 'rokn.app') {
-    failures.push('Production API host must be rokn.app.');
+  if (evidence.apiHost !== PRODUCTION_API_HOST) {
+    failures.push(`Production API host must be ${PRODUCTION_API_HOST}.`);
   }
   if (!Number.isFinite(Date.parse(evidence.builtAtUtc))) {
     failures.push('Provenance lacks a valid UTC build timestamp.');

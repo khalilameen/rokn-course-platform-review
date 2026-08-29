@@ -27,7 +27,7 @@ const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
 // artifacts are stricter and refuse to build without an explicit HTTPS URL,
 // but falling back to an unrelated/retired development host made otherwise
 // healthy APKs look completely broken on a real phone.
-const defaultRoknApiUrl = 'https://rokn.app/api/';
+const defaultRoknApiUrl = 'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/';
 export const mainUrl = (configuredApiUrl || defaultRoknApiUrl).replace(
   /\/?$/,
   '/',

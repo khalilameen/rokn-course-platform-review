@@ -85,7 +85,10 @@ if (!/^[0-9a-f]{40}$/i.test(gitCommit)) {
   throw new Error('EAS_BUILD_GIT_COMMIT_HASH is missing or invalid.');
 }
 const apiBase = String(process.env.EXPO_PUBLIC_API_URL || '');
-if (apiBase !== 'https://rokn.app/api/') {
+if (
+  apiBase !==
+  'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/'
+) {
   throw new Error('EAS production build has the wrong API base.');
 }
 const sha256 = value =>
@@ -107,7 +110,7 @@ const evidence = {
   sha256: digest,
   bytes: fs.statSync(artifact).size,
   signerSha256: signerMatch[1].replace(/:/g, '').toLowerCase(),
-  apiHost: 'rokn.app',
+  apiHost: new URL(apiBase).host,
   apiBase,
   apiBaseSha256: sha256(apiBase),
   apiPathHash: sha256(new URL(apiBase).pathname),
