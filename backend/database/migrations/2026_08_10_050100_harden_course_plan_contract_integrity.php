@@ -780,7 +780,10 @@ SQL
 
     private function snapshotCheckExpression(bool $requirePlanOrder = false): string
     {
-        $schema = "'" . str_replace("'", "''", $this->snapshotJsonSchema()) . "'";
+        // A regular MySQL string literal consumes JSON-schema backslashes
+        // (notably the decimal regex), producing invalid JSON inside the
+        // CHECK. Hex bytes survive SQL parsing and are decoded as UTF-8 once.
+        $schema = 'CONVERT(0x' . bin2hex($this->snapshotJsonSchema()) . ' USING utf8mb4)';
 
         return '(access_plan_id IS NULL OR ('
             . 'access_plan_snapshot IS NOT NULL '
