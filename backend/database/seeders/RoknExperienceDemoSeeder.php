@@ -81,7 +81,10 @@ class RoknExperienceDemoSeeder extends Seeder
                 'grade_id' => $grade->id,
                 'teacher_id' => $teacher?->id,
                 'image' => '/images/demo-course-cover.svg',
-                'price' => 520,
+                // The closed launch rehearsal is intentionally purchasable
+                // with the 20-coin first-login gift. Public pricing remains a
+                // dashboard decision and can be changed without a deployment.
+                'price' => 20,
                 'price_before_discount' => null,
                 'currency' => 'ROKN_COINS',
                 'video_count' => 30,
@@ -303,6 +306,9 @@ class RoknExperienceDemoSeeder extends Seeder
             }
 
             foreach ([
+                // A one-pound package exercises the complete real-card flow
+                // without asking launch testers to fund a placeholder course.
+                ['name_ar' => '٢٠ رصيد — اختبار الدفع', 'name_en' => 'Checkout Test', 'price' => 1, 'coins' => 20],
                 // Keep the stable English keys so rerunning the seeder updates
                 // the historical demo rows instead of creating duplicates.
                 ['name_ar' => '٤٢٠٠ رصيد', 'name_en' => 'Starter', 'price' => 249, 'coins' => 4200],
@@ -314,6 +320,8 @@ class RoknExperienceDemoSeeder extends Seeder
 
             $settings = Setting::firstOrCreate([]);
             $settings->update([
+                'welcome_bonus_coins' => 20,
+                'max_reward_contribution_per_course' => 20,
                 'enforce_course_section_order' => true,
                 'how_to_use_coins_ar' => 'اكسب العملات من المهام المتاحة مرة واحدة، أو اشترِ باقة، ثم استخدم رصيدك لفتح الكورس كاملًا.',
                 'how_to_use_coins_en' => 'Earn one-time task rewards or buy a package, then use your balance to unlock a full course.',

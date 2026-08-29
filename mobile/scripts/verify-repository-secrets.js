@@ -464,6 +464,9 @@ function gitOutput(root, args) {
 
 function historyContentIssues(root, commits) {
   const issues = [];
+  const gitPathPrefix = gitOutput(root, ['rev-parse', '--show-prefix'])
+    .toString('utf8')
+    .trim();
 
   for (const [rule, pattern] of historyContentPatterns) {
     for (let offset = 0; offset < commits.length; offset += 50) {
@@ -497,7 +500,13 @@ function historyContentIssues(root, commits) {
         ) {
           const contents = execFileSync(
             'git',
-            ['-C', root, 'cat-file', 'blob', commit + ':' + matchedPath],
+            [
+              '-C',
+              root,
+              'cat-file',
+              'blob',
+              commit + ':' + gitPathPrefix + matchedPath,
+            ],
             {
               encoding: 'buffer',
               stdio: ['ignore', 'pipe', 'pipe'],
@@ -555,6 +564,9 @@ function verify({root = repositoryRoot, includeHistory = false} = {}) {
   const issues = scanFiles(root, currentPaths);
 
   if (includeHistory) {
+    const gitPathPrefix = gitOutput(root, ['rev-parse', '--show-prefix'])
+      .toString('utf8')
+      .trim();
     const historyPaths = gitOutput(root, [
       'log',
       '--all',
@@ -566,6 +578,11 @@ function verify({root = repositoryRoot, includeHistory = false} = {}) {
       .toString('utf8')
       .split(/\r?\n/)
       .map(value => value.trim())
+      .map(value =>
+        gitPathPrefix !== '' && value.startsWith(gitPathPrefix)
+          ? value.slice(gitPathPrefix.length)
+          : value,
+      )
       .filter(Boolean);
     issues.push(
       ...scanPathNames(historyPaths).map(issue => ({

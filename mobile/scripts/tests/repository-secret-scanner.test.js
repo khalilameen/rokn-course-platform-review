@@ -304,6 +304,30 @@ test('detects secret content that was deleted from the current tree', () => {
   });
 });
 
+test('history scan resolves blobs when mobile is nested in a monorepo', () => {
+  withDirectory(directory => {
+    const mobileRoot = path.join(directory, 'mobile');
+    fs.mkdirSync(mobileRoot, {recursive: true});
+    const git = (...args) =>
+      execFileSync('git', args, {
+        cwd: directory,
+        stdio: 'ignore',
+      });
+
+    git('init');
+    git('config', 'user.email', 'ci@example.com');
+    git('config', 'user.name', 'CI');
+    fs.writeFileSync(path.join(mobileRoot, '.env.example'), 'APP_KEY=\n');
+    git('add', '.');
+    git('commit', '-m', 'fixture');
+
+    assert.deepEqual(
+      scanner.verify({root: mobileRoot, includeHistory: true}).issues,
+      [],
+    );
+  });
+});
+
 test('allows an audited Firebase client config in repository history', () => {
   withDirectory(directory => {
     const git = (...args) =>

@@ -43,7 +43,7 @@
     "preview-direct": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://rokn.app/api/",
+        "EXPO_PUBLIC_API_URL": "https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/",
         "EXPO_PUBLIC_DISTRIBUTION_CHANNEL": "direct",
         "EXPO_PUBLIC_BUILD_PROFILE": "test",
         "EXPO_PUBLIC_ENABLE_LOCAL_DEMO": "0",
