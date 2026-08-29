@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   refresh:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -32,15 +32,15 @@ jobs:
         run: |
           npm install --global npm@10.9.3
           npm ci
-          gem install bundler --version 2.6.9 --no-document
-          bundle _2.6.9_ update --bundler
-          bundle _2.6.9_ install
+          gem install bundler --version 4.0.19 --no-document
+          bundle _4.0.19_ update --bundler
+          bundle _4.0.19_ install
       - name: Regenerate CocoaPods lock and legal provenance
         working-directory: mobile
         run: |
           cd ios
           rm -rf Pods Podfile.lock
-          bundle _2.6.9_ exec pod install
+          bundle _4.0.19_ exec pod install
           cd ..
           npm run verify:ios-lock
           npm run notices:native:generate
