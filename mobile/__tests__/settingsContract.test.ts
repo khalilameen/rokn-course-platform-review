@@ -1,5 +1,7 @@
 import {
+  accountDeletionUrl,
   buildSettingsSections,
+  returnsPolicyUrl,
   type SettingsSectionsProps,
 } from '../src/screens/settings/settingsData';
 
@@ -97,6 +99,11 @@ const flattenRows = (props: SettingsSectionsProps) =>
   buildSettingsSections(props).flatMap(section => section.rows);
 
 describe('settings screen contract', () => {
+  it('opens public legal pages outside both legacy and versioned API prefixes', () => {
+    expect(accountDeletionUrl).toBe('https://rokn.app/account-deletion');
+    expect(returnsPolicyUrl).toBe('https://rokn.app/returns-policy');
+  });
+
   it('keeps every authenticated setting in its established order', () => {
     const rows = flattenRows(createProps());
     expect(rows.map(row => row.id)).toEqual(authenticatedRows);

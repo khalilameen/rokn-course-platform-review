@@ -34,13 +34,11 @@ import appConfig from '../../../app.json';
 export const VIDEO_FIT_MODE_KEY = 'VIDEO_FIT_MODE';
 export const PENDING_WATCH_HISTORY_CLEAR_KEY =
   '@rokn/pending-watch-history-clear/v1';
+const publicWebBaseUrl = mainUrl.replace(/api(?:\/v1)?\/?$/i, '');
 export const accountDeletionUrl =
   process.env.EXPO_PUBLIC_ACCOUNT_DELETION_URL?.trim() ||
-  `${mainUrl.replace(/api\/v1\/?$/i, '')}account-deletion`;
-export const returnsPolicyUrl = `${mainUrl.replace(
-  /api\/v1\/?$/i,
-  '',
-)}returns-policy`;
+  `${publicWebBaseUrl}account-deletion`;
+export const returnsPolicyUrl = `${publicWebBaseUrl}returns-policy`;
 
 export const settingsAppVersion = toArabicDigits(appConfig.expo.version);
 

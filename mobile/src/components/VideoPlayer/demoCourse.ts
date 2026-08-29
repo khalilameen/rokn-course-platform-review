@@ -138,16 +138,7 @@ const createModules = (): CourseLearningModule[] => [
     description: 'من اختيار الخدمة إلى عرض قابل للبيع.',
     order: 1,
     isLocked: false,
-    attachments: [
-      {
-        id: 'brief-template',
-        title: 'قالب تحديد الخدمة — للكمبيوتر',
-        url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-        fileType: 'pdf',
-        fileSize: '13 KB',
-        platform: 'computer',
-      },
-    ],
+    attachments: [],
     reels: createReels('demo-module-1', 1, 10),
     project: {
       id: 'demo-project-1',
@@ -167,16 +158,7 @@ const createModules = (): CourseLearningModule[] => [
     description: 'من الاتفاق إلى تسليم يجعل العميل يعود.',
     order: 2,
     isLocked: true,
-    attachments: [
-      {
-        id: 'scope-template',
-        title: 'نموذج نطاق العمل',
-        url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-        fileType: 'pdf',
-        fileSize: '13 KB',
-        platform: 'mobile',
-      },
-    ],
+    attachments: [],
     reels: createReels('demo-module-2', 11, 20),
     project: {
       id: 'demo-project-2',
