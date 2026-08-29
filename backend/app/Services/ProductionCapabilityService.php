@@ -23,7 +23,7 @@ final class ProductionCapabilityService
      *   ready: bool,
      *   checked_at: string,
      *   capabilities: array{
-     *     bunny: array{ready: bool, stream: array, upload: array, playback: array, signing: array},
+     *     bunny: array{ready: bool, stream: array, upload: array, playback: array, signing: array, assets: array},
      *     payment: array{ready: bool, reason: string},
      *     ai: array{ready: bool, reason: string},
      *     mail: array{ready: bool, reason: string},
@@ -52,6 +52,10 @@ final class ProductionCapabilityService
             config('bunny.token_auth_key'),
             $this->settingValue($settings, 'bunny_security_key_secret')
         );
+        $storageZone = trim((string) config('bunny.storage_zone'));
+        $storagePassword = trim((string) config('bunny.storage_password'));
+        $storageHostname = trim((string) config('bunny.storage_cdn_hostname'));
+        $storageSigningKey = trim((string) config('bunny.storage_token_auth_key'));
 
         $streamReady = $bunnyEnabled && $streamKey !== '' && $libraryId !== '';
         $uploadReady = $streamReady
@@ -59,6 +63,11 @@ final class ProductionCapabilityService
             && (int) config('bunny.upload_timeout_seconds', 0) >= 60;
         $playbackReady = $bunnyEnabled && $this->validHostname($cdnHostname);
         $signingReady = $bunnyEnabled && $signingKey !== '';
+        $assetsReady = $bunnyEnabled
+            && $storageZone !== ''
+            && $storagePassword !== ''
+            && $this->validHostname($storageHostname)
+            && $storageSigningKey !== '';
 
         $bunny = [
             'stream' => $this->item(
@@ -79,8 +88,18 @@ final class ProductionCapabilityService
                 $signingReady,
                 $signingReady ? 'مفتاح توقيع التشغيل موجود' : 'مفتاح توقيع التشغيل ناقص'
             ),
+            'assets' => $this->item(
+                $assetsReady,
+                $assetsReady
+                    ? 'رفع وتوقيع صور وملفات Bunny مضبوط'
+                    : 'Storage Zone أو كلمة الرفع أو CDN أو مفتاح توقيع الملفات ناقص'
+            ),
         ];
-        $bunny['ready'] = $streamReady && $uploadReady && $playbackReady && $signingReady;
+        $bunny['ready'] = $streamReady
+            && $uploadReady
+            && $playbackReady
+            && $signingReady
+            && $assetsReady;
 
         $payment = $this->paymentCapability();
         $ai = $this->aiCapability();

@@ -43,6 +43,10 @@ final class ProductionCapabilityTest extends TestCase
             'bunny.library_id' => '1234',
             'bunny.cdn_hostname' => 'cdn.production.test',
             'bunny.token_auth_key' => 'signing-secret',
+            'bunny.storage_zone' => 'production-assets',
+            'bunny.storage_password' => 'storage-secret',
+            'bunny.storage_cdn_hostname' => 'assets.production.test',
+            'bunny.storage_token_auth_key' => 'asset-signing-secret',
             'bunny.connect_timeout_seconds' => 15,
             'bunny.upload_timeout_seconds' => 3600,
             'kashier.mode' => 'live',
@@ -108,6 +112,7 @@ final class ProductionCapabilityTest extends TestCase
         self::assertTrue($report['capabilities']['bunny']['upload']['ready']);
         self::assertTrue($report['capabilities']['bunny']['playback']['ready']);
         self::assertTrue($report['capabilities']['bunny']['signing']['ready']);
+        self::assertTrue($report['capabilities']['bunny']['assets']['ready']);
         self::assertTrue($report['capabilities']['payment']['ready']);
         self::assertTrue($report['capabilities']['ai']['ready']);
         self::assertTrue($report['capabilities']['mail']['ready']);
@@ -157,6 +162,18 @@ final class ProductionCapabilityTest extends TestCase
         self::assertTrue($report['capabilities']['bunny']['stream']['ready']);
         self::assertTrue($report['capabilities']['bunny']['playback']['ready']);
         self::assertFalse($report['capabilities']['bunny']['signing']['ready']);
+        self::assertFalse($report['ready']);
+    }
+
+    public function test_storage_delivery_is_an_independent_required_capability(): void
+    {
+        $this->recordAllQueueHeartbeats();
+        config(['bunny.storage_token_auth_key' => null]);
+
+        $report = app(ProductionCapabilityService::class)->report();
+
+        self::assertTrue($report['capabilities']['bunny']['playback']['ready']);
+        self::assertFalse($report['capabilities']['bunny']['assets']['ready']);
         self::assertFalse($report['ready']);
     }
 

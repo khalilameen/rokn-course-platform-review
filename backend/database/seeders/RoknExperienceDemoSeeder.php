@@ -15,6 +15,7 @@ use App\Models\Package;
 use App\Models\Project;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\CourseAccessPlanService;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -107,6 +108,7 @@ class RoknExperienceDemoSeeder extends Seeder
                 $attributes['tenant_id'] = 1;
             }
             $course->forceFill($attributes)->save();
+            app(CourseAccessPlanService::class)->createDefaults($course);
 
             if ($teacher && Schema::hasTable('course_teacher')) {
                 $course->teachers()->syncWithoutDetaching([$teacher->id]);
