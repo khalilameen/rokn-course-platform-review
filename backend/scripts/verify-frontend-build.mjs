@@ -30,26 +30,25 @@ for (const artifact of artifacts) {
     }
 }
 
-const status = spawnSync(
+const diff = spawnSync(
     'git',
-    ['status', '--porcelain=v1', '--untracked-files=all', '--', ...artifacts],
+    ['diff', '--exit-code', '--', ...artifacts],
     { cwd: repositoryRoot, encoding: 'utf8' },
 );
 
-if (status.error || status.status !== 0) {
+if (diff.error || ![0, 1].includes(diff.status)) {
     failures.push('Git could not verify the generated frontend artifacts.');
-} else if (status.stdout.trim() !== '') {
-    const changedArtifacts = status.stdout.trim().split(/\r?\n/).join(', ');
+} else if (diff.status === 1) {
     const summary = spawnSync(
         'git',
-        ['diff', '--numstat', '--summary', '--', ...artifacts],
+        ['diff', '--numstat', '--', ...artifacts],
         { cwd: repositoryRoot, encoding: 'utf8' },
     );
     const changeSummary = summary.status === 0 && summary.stdout.trim() !== ''
-        ? ` Changed lines: ${summary.stdout.trim().split(/\r?\n/).join('; ')}.`
-        : '';
+        ? summary.stdout.trim().split(/\r?\n/).join('; ')
+        : 'content or file mode changed';
     failures.push(
-        `The committed frontend artifacts do not match the production build: ${changedArtifacts}.${changeSummary}`,
+        `The committed frontend artifacts do not match the production build: ${changeSummary}.`,
     );
 }
 
