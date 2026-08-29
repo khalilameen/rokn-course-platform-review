@@ -44,6 +44,8 @@ jobs:
           ./gradlew -q \
             -I ../scripts/android-license-inventory.init.gradle \
             :app:roknResolvedReleaseLicenseInputs \
+            -ProknDistributionChannel=direct \
+            -ProknBuildProfile=test \
             "-ProknLicenseInventoryOutput=$RUNNER_TEMP/android-license-inputs.json" \
             --write-verification-metadata sha256
           test -s "$RUNNER_TEMP/android-license-inputs.json"
