@@ -238,6 +238,38 @@ final class RepositorySecretScannerTest extends TestCase
         self::assertStringNotContainsString('ordinaryProductionPassword123!', $output);
     }
 
+    public function test_history_scan_resolves_blobs_when_backend_is_nested_in_a_monorepo(): void
+    {
+        $this->runCommand(['git', 'init', '--quiet'], $this->directory);
+        $this->runCommand(['git', 'config', 'user.email', 'security-test@rokn.invalid'], $this->directory);
+        $this->runCommand(['git', 'config', 'user.name', 'Rokn Security Test'], $this->directory);
+        $backend = $this->directory.DIRECTORY_SEPARATOR.'backend';
+        self::assertTrue(mkdir($backend, 0700, true));
+        file_put_contents(
+            $backend.DIRECTORY_SEPARATOR.'old-config.txt',
+            "export DB_"."PASSWORD=ordinaryProductionPassword123!\n"
+        );
+        $this->runCommand(['git', 'add', 'backend/old-config.txt'], $this->directory);
+        $this->runCommand(['git', 'commit', '--quiet', '-m', 'nested historical fixture'], $this->directory);
+        self::assertTrue(unlink($backend.DIRECTORY_SEPARATOR.'old-config.txt'));
+        $this->runCommand(['git', 'add', '--all'], $this->directory);
+        $this->runCommand(['git', 'commit', '--quiet', '-m', 'delete nested fixture'], $this->directory);
+
+        [$exitCode, $output] = $this->runCommand([
+            PHP_BINARY,
+            dirname(__DIR__, 2).'/scripts/verify-repository-secrets.php',
+            '--root='.$backend,
+            '--history',
+        ], $backend, false);
+
+        self::assertSame(1, $exitCode);
+        self::assertStringContainsString(
+            'history:old-config.txt [non_placeholder_secret_assignment]',
+            $output
+        );
+        self::assertStringNotContainsString('ordinaryProductionPassword123!', $output);
+    }
+
     /**
      * @param  list<string>  $command
      * @return array{int, string}

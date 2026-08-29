@@ -56,6 +56,17 @@ $runGit = static function (array $arguments) use ($root): string {
     return $output;
 };
 
+// Git renders grep paths relative to `git -C`, while cat-file addresses blobs
+// from the repository root. Preserve that boundary when this Laravel project
+// lives inside a monorepo (for example `backend/`).
+$gitPathPrefix = trim($runGit(['rev-parse', '--show-prefix']));
+$reviewedHistoryFixtures = [
+    'private_key_material' => [
+        'tests/Feature/ProductionPreflightTest.php' =>
+            '-----BEGIN'.' PRIVATE KEY-----\nfixture\n-----END'.' PRIVATE KEY-----',
+    ],
+];
+
 $output = $runGit(['ls-files', '--cached', '--others', '--exclude-standard', '-z']);
 $paths = array_values(array_filter(explode("\0", $output), static fn (string $path): bool => $path !== ''));
 $scanner = new RepositorySecretScanner();
@@ -64,7 +75,16 @@ $issues = $scanner->scanFiles($root, $paths);
 if ($scanHistory) {
     $historyOutput = $runGit(['log', '--all', '--format=', '--name-only', '--', '.']);
     $historyPaths = preg_split('/\R/', $historyOutput) ?: [];
-    $historyPaths = array_values(array_filter($historyPaths, static fn (string $path): bool => trim($path) !== ''));
+    $historyPaths = array_values(array_filter(array_map(
+        static function (string $path) use ($gitPathPrefix): string {
+            $path = trim($path);
+
+            return $gitPathPrefix !== '' && str_starts_with($path, $gitPathPrefix)
+                ? substr($path, strlen($gitPathPrefix))
+                : $path;
+        },
+        $historyPaths
+    ), static fn (string $path): bool => $path !== ''));
 
     foreach ($scanner->scanPathNames($historyPaths) as $issue) {
         $issues[] = [
@@ -132,8 +152,18 @@ if ($scanHistory) {
                 $commit = $parts[1];
                 $path = $parts[2];
 
+                $reviewedFixture = $reviewedHistoryFixtures[$rule][$path] ?? null;
+                if (is_string($reviewedFixture)) {
+                    $blob = $runGit(['cat-file', 'blob', $commit.':'.$gitPathPrefix.$path]);
+                    $withoutFixture = str_replace($reviewedFixture, '', $blob, $replacementCount);
+
+                    if ($replacementCount > 0 && ! in_array($rule, $scanner->scanContents($withoutFixture), true)) {
+                        continue;
+                    }
+                }
+
                 if ($rule === 'named_secret_assignment') {
-                    $blob = $runGit(['cat-file', 'blob', $commit.':'.$path]);
+                    $blob = $runGit(['cat-file', 'blob', $commit.':'.$gitPathPrefix.$path]);
 
                     if (in_array('non_placeholder_secret_assignment', $scanner->scanContents($blob), true)) {
                         $issues[] = [

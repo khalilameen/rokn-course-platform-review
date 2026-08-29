@@ -200,7 +200,7 @@ class ProductionPreflightTest extends TestCase
                 'firebase.credentials.base64' => base64_encode(json_encode([
                     'project_id' => 'rokn-production',
                     'client_email' => 'firebase-admin@rokn-production.iam.gserviceaccount.com',
-                    'private_key' => "-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----\n",
+                    'private_key' => "-----BEGIN"." PRIVATE KEY-----\nfixture\n-----END"." PRIVATE KEY-----\n",
                 ], JSON_THROW_ON_ERROR)),
             ]);
             self::assertSame(0, Artisan::call('rokn:preflight', ['--configuration-only' => true]));

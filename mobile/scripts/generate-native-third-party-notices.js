@@ -187,18 +187,33 @@ const POD_LEGAL_METADATA_ABSENCE_ALLOWLIST = new Map([
 // LICENSE from the package tarball. Keep an exact, commit-pinned copy of the
 // upstream package license instead of treating generic MIT text as sufficient
 // package attribution or granting a pattern-based exception.
+const expoUpstreamLicense = (npmCoordinate, gitHead) => ({
+  npmCoordinate,
+  gitHead,
+  path: ['scripts', 'licenses', 'upstream', 'expo-expo-LICENSE'],
+  sha256: '371567d5d8999eeffba61ddbcb60ffbe4f25c3f165f1772e2c66befd0251bffa',
+  sourceUrl: `https://github.com/expo/expo/blob/${gitHead}/LICENSE`,
+});
+const EXPO_GIT_HEAD_C8 = 'c8f16914a2713c37fe446c46d613004626b3e6b3';
+const EXPO_GIT_HEAD_7C = '7c081282cf88968f81732feb67a71840e769a40f';
+const EXPO_GIT_HEAD_FC = 'fcb091766242d53248cd3c5949965961dbc5ec1d';
 const POD_UPSTREAM_LEGAL_DOCUMENTS = new Map([
-  [
-    'EXApplication@55.0.17',
-    {
-      npmCoordinate: 'expo-application@55.0.17',
-      gitHead: 'c8f16914a2713c37fe446c46d613004626b3e6b3',
-      path: ['scripts', 'licenses', 'upstream', 'expo-expo-c8f1691-LICENSE'],
-      sha256: '371567d5d8999eeffba61ddbcb60ffbe4f25c3f165f1772e2c66befd0251bffa',
-      sourceUrl:
-        'https://github.com/expo/expo/blob/c8f16914a2713c37fe446c46d613004626b3e6b3/LICENSE',
-    },
-  ],
+  ['EXApplication@55.0.17', expoUpstreamLicense('expo-application@55.0.17', EXPO_GIT_HEAD_C8)],
+  ['EXConstants@55.0.17', expoUpstreamLicense('expo-constants@55.0.17', EXPO_GIT_HEAD_C8)],
+  ['Expo@55.0.28', expoUpstreamLicense('expo@55.0.28', EXPO_GIT_HEAD_C8)],
+  ['ExpoAppleAuthentication@55.0.15', expoUpstreamLicense('expo-apple-authentication@55.0.15', EXPO_GIT_HEAD_C8)],
+  ['ExpoAsset@55.0.18', expoUpstreamLicense('expo-asset@55.0.18', EXPO_GIT_HEAD_C8)],
+  ['ExpoCrypto@55.0.17', expoUpstreamLicense('expo-crypto@55.0.17', EXPO_GIT_HEAD_C8)],
+  ['ExpoDomWebView@55.0.6', expoUpstreamLicense('@expo/dom-webview@55.0.6', EXPO_GIT_HEAD_7C)],
+  ['ExpoFileSystem@55.0.24', expoUpstreamLicense('expo-file-system@55.0.24', EXPO_GIT_HEAD_C8)],
+  ['ExpoFont@55.0.8', expoUpstreamLicense('expo-font@55.0.8', EXPO_GIT_HEAD_FC)],
+  ['ExpoKeepAwake@55.0.8', expoUpstreamLicense('expo-keep-awake@55.0.8', EXPO_GIT_HEAD_7C)],
+  ['ExpoLogBox@55.0.13', expoUpstreamLicense('@expo/log-box@55.0.13', EXPO_GIT_HEAD_C8)],
+  ['ExpoModulesCore@55.0.25', expoUpstreamLicense('expo-modules-core@55.0.25', EXPO_GIT_HEAD_7C)],
+  ['ExpoModulesJSI@55.0.25', expoUpstreamLicense('expo-modules-core@55.0.25', EXPO_GIT_HEAD_7C)],
+  ['ExpoNotifications@55.0.25', expoUpstreamLicense('expo-notifications@55.0.25', EXPO_GIT_HEAD_C8)],
+  ['ExpoSecureStore@55.0.16', expoUpstreamLicense('expo-secure-store@55.0.16', EXPO_GIT_HEAD_C8)],
+  ['ExpoWebBrowser@55.0.18', expoUpstreamLicense('expo-web-browser@55.0.18', EXPO_GIT_HEAD_C8)],
 ]);
 
 const POD_EXACT_LICENSE_SELECTIONS = new Map([

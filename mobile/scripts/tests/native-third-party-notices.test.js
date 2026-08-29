@@ -419,22 +419,28 @@ test('Pod inventory binds every root to a checksum and exact source class', () =
   }
 });
 
-test('Expo Application retains its commit-pinned upstream package license', () => {
+test('Expo Pods without package-local notices retain commit-pinned upstream licenses', () => {
   const inventory = parsePodLock(
     fs.readFileSync(path.join(ROOT, 'ios', 'Podfile.lock'), 'utf8'),
   );
-  const pod = inventory.pods.find(item => item.coordinate === 'EXApplication@55.0.17');
-  assert.ok(pod);
   const documents = new Map();
-  const record = buildExternalPodRecord(pod, documents, new Map());
-  const review = POD_UPSTREAM_LEGAL_DOCUMENTS.get(pod.coordinate);
-  assert.deepEqual(record.upstreamLegalDocument, {
-    ...review,
-    path: review.path.join('/'),
-  });
-  assert.ok(record.legalDocumentSha256s.includes(review.sha256));
-  assert.match(documents.get(review.sha256).text, /650 Industries, Inc\. \(aka Expo\)/);
-  assert.equal(record.owningNpmPackage.coordinate, 'expo-application@55.0.17');
+  const packageCache = new Map();
+  assert.equal(POD_UPSTREAM_LEGAL_DOCUMENTS.size, 16);
+  for (const [coordinate, review] of POD_UPSTREAM_LEGAL_DOCUMENTS) {
+    const pod = inventory.pods.find(item => item.coordinate === coordinate);
+    assert.ok(pod, coordinate);
+    const record = buildExternalPodRecord(pod, documents, packageCache);
+    assert.deepEqual(record.upstreamLegalDocument, {
+      ...review,
+      path: review.path.join('/'),
+    });
+    assert.ok(record.legalDocumentSha256s.includes(review.sha256), coordinate);
+    assert.equal(record.owningNpmPackage.coordinate, review.npmCoordinate);
+  }
+  assert.match(
+    documents.values().next().value.text,
+    /650 Industries, Inc\. \(aka Expo\)/,
+  );
 });
 
 test('iOS release keeps native notices bundled and verified at build time', () => {
