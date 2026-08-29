@@ -313,6 +313,7 @@ test('native lock refresh captures the production Android metadata closure', () 
   assert.match(workflow, /-ProknEnableMinify=true/);
   assert.match(workflow, /-ProknEnableResourceShrink=true/);
   assert.match(workflow, /--write-verification-metadata sha256/);
+  assert.equal([...workflow.matchAll(/NODE_ENV: production/g)].length, 2);
   assert.equal([...workflow.matchAll(/git rebase origin\/main/g)].length, 3);
   assert.equal([...workflow.matchAll(/git push origin HEAD:main/g)].length, 3);
 });
@@ -341,6 +342,7 @@ test('workflow is discoverable from the monorepo root and preserves native check
   assert.match(workflow, /runs-on: macos-26/);
   assert.match(workflow, /ruby-version: 3\.3\.6/);
   assert.match(workflow, /bundle _4\.0\.19_ exec pod install --deployment/);
+  assert.equal([...workflow.matchAll(/NODE_ENV: production/g)].length, 3);
   assert.match(workflow, /npm run licenses:native:check/);
   assert.match(
     packageJson.scripts['verify:release'],

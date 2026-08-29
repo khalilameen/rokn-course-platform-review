@@ -43,6 +43,7 @@ jobs:
       run:
         working-directory: mobile
     env:
+      NODE_ENV: production
       EXPO_PUBLIC_API_URL: https://ci.invalid/api/v1/
       EXPO_PUBLIC_DISTRIBUTION_CHANNEL: play
       EXPO_PUBLIC_BUILD_PROFILE: production
@@ -75,6 +76,7 @@ jobs:
       run:
         working-directory: mobile
     env:
+      NODE_ENV: production
       EXPO_PUBLIC_API_URL: https://ci.invalid/api/v1/
       EXPO_PUBLIC_DISTRIBUTION_CHANNEL: play
       EXPO_PUBLIC_BUILD_PROFILE: production
@@ -125,6 +127,7 @@ jobs:
       run:
         working-directory: mobile
     env:
+      NODE_ENV: production
       EXPO_PUBLIC_API_URL: https://ci.invalid/api/v1/
       EXPO_PUBLIC_DISTRIBUTION_CHANNEL: appstore
       EXPO_PUBLIC_BUILD_PROFILE: production
