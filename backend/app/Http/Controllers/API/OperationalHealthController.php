@@ -69,6 +69,7 @@ final class OperationalHealthController extends Controller
             'bunny_upload' => (bool) data_get($report, 'capabilities.bunny.upload.ready'),
             'bunny_playback' => (bool) data_get($report, 'capabilities.bunny.playback.ready'),
             'bunny_signing' => (bool) data_get($report, 'capabilities.bunny.signing.ready'),
+            'bunny_assets' => (bool) data_get($report, 'capabilities.bunny.assets.ready'),
             'payment' => (bool) data_get($report, 'capabilities.payment.ready'),
             'ai' => (bool) data_get($report, 'capabilities.ai.ready'),
             'mail' => (bool) data_get($report, 'capabilities.mail.ready'),

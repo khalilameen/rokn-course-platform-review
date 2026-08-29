@@ -124,6 +124,7 @@ final class ProductionCapabilityTest extends TestCase
 
         $response = $this->getJson('/api/health/launch-ready')->assertOk();
         $response->assertJsonPath('status', 'launch_ready')
+            ->assertJsonPath('checks.bunny_assets', true)
             ->assertJsonPath('checks.queue', true)
             ->assertJsonPath('checks.mail', true)
             ->assertJsonMissing(['reason'])
@@ -175,6 +176,10 @@ final class ProductionCapabilityTest extends TestCase
         self::assertTrue($report['capabilities']['bunny']['playback']['ready']);
         self::assertFalse($report['capabilities']['bunny']['assets']['ready']);
         self::assertFalse($report['ready']);
+
+        $this->getJson('/api/health/launch-ready')
+            ->assertServiceUnavailable()
+            ->assertJsonPath('checks.bunny_assets', false);
     }
 
     public function test_missing_transactional_mail_credentials_block_launch(): void
