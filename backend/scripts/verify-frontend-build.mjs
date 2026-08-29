@@ -39,7 +39,18 @@ const status = spawnSync(
 if (status.error || status.status !== 0) {
     failures.push('Git could not verify the generated frontend artifacts.');
 } else if (status.stdout.trim() !== '') {
-    failures.push('The committed frontend artifacts do not match the production build.');
+    const changedArtifacts = status.stdout.trim().split(/\r?\n/).join(', ');
+    const summary = spawnSync(
+        'git',
+        ['diff', '--numstat', '--summary', '--', ...artifacts],
+        { cwd: repositoryRoot, encoding: 'utf8' },
+    );
+    const changeSummary = summary.status === 0 && summary.stdout.trim() !== ''
+        ? ` Changed lines: ${summary.stdout.trim().split(/\r?\n/).join('; ')}.`
+        : '';
+    failures.push(
+        `The committed frontend artifacts do not match the production build: ${changedArtifacts}.${changeSummary}`,
+    );
 }
 
 if (failures.length > 0) {

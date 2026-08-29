@@ -294,6 +294,19 @@ test('workflow uses the package-manager and registry pinned by the source tree',
   );
 });
 
+test('native lock refresh captures the production Android metadata closure', () => {
+  const workflow = fs.readFileSync(
+    path.join(root, '..', '.github', 'workflows', 'refresh-ios-lock.yml'),
+    'utf8',
+  );
+  assert.match(workflow, /:app:checkReleaseAarMetadata/);
+  assert.match(workflow, /--refresh-dependencies/);
+  assert.match(workflow, /-ProknDistributionChannel=play/);
+  assert.match(workflow, /-ProknBuildProfile=production/);
+  assert.match(workflow, /-ProknRequireReleaseSigning=true/);
+  assert.match(workflow, /--write-verification-metadata sha256/);
+});
+
 test('workflow is discoverable from the monorepo root and preserves native checks', () => {
   const workflowPath = path.join(
     root,
@@ -314,7 +327,7 @@ test('workflow is discoverable from the monorepo root and preserves native check
   assert.match(workflow, /working-directory: mobile/);
   assert.match(workflow, /working-directory: mobile\/android/);
   assert.match(workflow, /working-directory: mobile\/ios/);
-  assert.match(workflow, /cd mobile\n/);
+  assert.match(workflow, /cd mobile\r?\n/);
   assert.match(workflow, /runs-on: macos-26/);
   assert.match(workflow, /ruby-version: 3\.3\.6/);
   assert.match(workflow, /bundle _4\.0\.19_ exec pod install --deployment/);

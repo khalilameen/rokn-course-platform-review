@@ -11,7 +11,66 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  refresh-android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      EXPO_PUBLIC_API_URL: https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/
+      EXPO_PUBLIC_DISTRIBUTION_CHANNEL: play
+      EXPO_PUBLIC_BUILD_PROFILE: production
+      EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.19.0
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: "17.0.20+8"
+          cache: gradle
+      - name: Resolve the complete Linux production metadata closure
+        run: |
+          npm install --global npm@10.9.3
+          npm ci
+          keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/metadata-upload.jks" \
+            -storepass ci-password -keypass ci-password -alias ci-upload \
+            -keyalg RSA -keysize 2048 -validity 2 -dname "CN=Rokn Metadata CI"
+          cd android
+          ./gradlew -q :app:checkReleaseAarMetadata --no-daemon --refresh-dependencies \
+            -PreactNativeArchitectures=arm64-v8a \
+            -ProknDistributionChannel=play \
+            -ProknBuildProfile=production \
+            -ProknRequireReleaseSigning=true \
+            -ProknRequireApiUrl=true \
+            "-PUPLOAD_STORE_FILE=$RUNNER_TEMP/metadata-upload.jks" \
+            -PUPLOAD_STORE_PASSWORD=ci-password \
+            -PUPLOAD_KEY_ALIAS=ci-upload \
+            -PUPLOAD_KEY_PASSWORD=ci-password \
+            --write-verification-metadata sha256
+      - name: Commit the Linux dependency verification metadata
+        working-directory: .
+        run: |
+          git config user.name "Rokn Release Automation"
+          git config user.email "roknproduction@gmail.com"
+          git add mobile/android/gradle/verification-metadata.xml
+          if git diff --cached --quiet; then
+            echo "Linux dependency verification metadata is already current."
+          else
+            git commit -m "Refresh Linux Android dependency verification"
+            git push origin HEAD:main
+          fi
+
   refresh:
+    needs: refresh-android
     runs-on: macos-26
     timeout-minutes: 45
     steps:
@@ -49,6 +108,20 @@ jobs:
             "-ProknLicenseInventoryOutput=$RUNNER_TEMP/android-license-inputs.json" \
             --write-verification-metadata sha256
           test -s "$RUNNER_TEMP/android-license-inputs.json"
+          keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/metadata-upload.jks" \
+            -storepass ci-password -keypass ci-password -alias ci-upload \
+            -keyalg RSA -keysize 2048 -validity 2 -dname "CN=Rokn Metadata CI"
+          ./gradlew -q :app:checkReleaseAarMetadata --no-daemon --refresh-dependencies \
+            -PreactNativeArchitectures=arm64-v8a \
+            -ProknDistributionChannel=play \
+            -ProknBuildProfile=production \
+            -ProknRequireReleaseSigning=true \
+            -ProknRequireApiUrl=true \
+            "-PUPLOAD_STORE_FILE=$RUNNER_TEMP/metadata-upload.jks" \
+            -PUPLOAD_STORE_PASSWORD=ci-password \
+            -PUPLOAD_KEY_ALIAS=ci-upload \
+            -PUPLOAD_KEY_PASSWORD=ci-password \
+            --write-verification-metadata sha256
           cd ..
           node --test scripts/tests/gradle-dependency-provenance.test.js
           cd ios
