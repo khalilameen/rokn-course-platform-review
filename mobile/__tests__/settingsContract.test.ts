@@ -4,6 +4,7 @@ import {
   returnsPolicyUrl,
   type SettingsSectionsProps,
 } from '../src/screens/settings/settingsData';
+import {mainUrl} from '../src/constants/api';
 
 const callback = jest.fn;
 
@@ -100,12 +101,17 @@ const flattenRows = (props: SettingsSectionsProps) =>
 
 describe('settings screen contract', () => {
   it('opens public legal pages outside both legacy and versioned API prefixes', () => {
-    expect(accountDeletionUrl).toBe(
-      'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/account-deletion',
-    );
-    expect(returnsPolicyUrl).toBe(
-      'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/returns-policy',
-    );
+    const expectedOrigin = new URL(mainUrl).origin;
+    const accountDeletion = new URL(accountDeletionUrl);
+    const returnsPolicy = new URL(returnsPolicyUrl);
+    expect(accountDeletion.origin).toBe(expectedOrigin);
+    expect(accountDeletion.pathname).toBe('/account-deletion');
+    expect(returnsPolicy.origin).toBe(expectedOrigin);
+    expect(returnsPolicy.pathname).toBe('/returns-policy');
+    expect(accountDeletion.search).toBe('');
+    expect(accountDeletion.hash).toBe('');
+    expect(returnsPolicy.search).toBe('');
+    expect(returnsPolicy.hash).toBe('');
   });
 
   it('keeps every authenticated setting in its established order', () => {

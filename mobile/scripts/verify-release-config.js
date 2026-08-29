@@ -199,9 +199,25 @@ assert(
   ].some(contents => sensitiveFirebaseMaterial.test(contents)),
   'A Firebase client config contains credential-bearing material.',
 );
+const iosFirebaseFileReference = iosProject.match(
+  /([A-F0-9]{24}) \/\* GoogleService-Info\.plist \*\/ = \{isa = PBXFileReference;[^}]*path = "?Rokn\/GoogleService-Info\.plist"?;/,
+);
+const iosFirebaseBuildFile = iosFirebaseFileReference
+  ? iosProject.match(
+      new RegExp(
+        `([A-F0-9]{24}) \\/\\* GoogleService-Info\\.plist in Resources \\*\\/ = \\{isa = PBXBuildFile; fileRef = ${iosFirebaseFileReference[1]} \\/\\* GoogleService-Info\\.plist \\*\\/; \\};`,
+      ),
+    )
+  : null;
+const iosResourcesBuildPhases =
+  iosProject.match(
+    /\/\* Begin PBXResourcesBuildPhase section \*\/([\s\S]*?)\/\* End PBXResourcesBuildPhase section \*\//,
+  )?.[1] || '';
 assert(
-  iosProject.includes('path = Rokn/GoogleService-Info.plist;') &&
-    iosProject.includes('GoogleService-Info.plist in Resources'),
+  iosFirebaseBuildFile &&
+    iosResourcesBuildPhases.includes(
+      `${iosFirebaseBuildFile[1]} /* GoogleService-Info.plist in Resources */`,
+    ),
   'The iOS Firebase config is not bundled in the Rokn application target.',
 );
 const firebaseIgnoreRules = gitignore

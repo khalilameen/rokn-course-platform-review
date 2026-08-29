@@ -513,11 +513,27 @@ test('Android release snapshot covers the resolved closure and ships exact texts
     'utf8',
   );
   const appMetadata = JSON.parse(appMetadataText);
+  const podSnapshot = JSON.parse(
+    fs.readFileSync(
+      path.join(
+        ROOT,
+        'scripts',
+        'licenses',
+        'ios-pods-notices.generated.json',
+      ),
+      'utf8',
+    ),
+  );
   assert.equal(appMetadata.androidDependencyCount, 197);
   assert.equal(appMetadata.androidProjectComponentCount, 18);
-  assert.equal(appMetadata.podDependencyCount, null);
+  assert.equal(appMetadata.podDependencyCount, podSnapshot.dependencyCount);
   assert.equal(appMetadata.android.length, 197);
   assert.equal(appMetadata.androidProjects.length, 18);
+  assert.equal(appMetadata.pods.length, podSnapshot.dependencies.length);
+  assert.deepEqual(
+    appMetadata.pods.map(item => item.coordinate),
+    podSnapshot.dependencies.map(item => item.coordinate),
+  );
   assert.ok(!appMetadataText.includes('"text"'));
 });
 
