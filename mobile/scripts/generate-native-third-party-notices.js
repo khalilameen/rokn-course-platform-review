@@ -183,6 +183,24 @@ const POD_LEGAL_METADATA_ABSENCE_ALLOWLIST = new Map([
   // coordinate => review note
 ]);
 
+// Some npm-published Expo packages intentionally omit the monorepo-root
+// LICENSE from the package tarball. Keep an exact, commit-pinned copy of the
+// upstream package license instead of treating generic MIT text as sufficient
+// package attribution or granting a pattern-based exception.
+const POD_UPSTREAM_LEGAL_DOCUMENTS = new Map([
+  [
+    'EXApplication@55.0.17',
+    {
+      npmCoordinate: 'expo-application@55.0.17',
+      gitHead: 'c8f16914a2713c37fe446c46d613004626b3e6b3',
+      path: ['scripts', 'licenses', 'upstream', 'expo-expo-c8f1691-LICENSE'],
+      sha256: '371567d5d8999eeffba61ddbcb60ffbe4f25c3f165f1772e2c66befd0251bffa',
+      sourceUrl:
+        'https://github.com/expo/expo/blob/c8f16914a2713c37fe446c46d613004626b3e6b3/LICENSE',
+    },
+  ],
+]);
+
 const POD_EXACT_LICENSE_SELECTIONS = new Map([
   [
     'glog@0.3.5',
@@ -602,6 +620,37 @@ const canonicalLicenseDocument = license => {
     path: source.join('/'),
     sha256: sha256Text(text),
     text,
+  };
+};
+
+const upstreamLegalDocumentForPod = (coordinate, owner) => {
+  const review = POD_UPSTREAM_LEGAL_DOCUMENTS.get(coordinate);
+  if (!review) return null;
+  const npmCoordinate = owner
+    ? `${owner.manifest.name}@${owner.manifest.version}`
+    : null;
+  if (
+    npmCoordinate !== review.npmCoordinate ||
+    owner.manifest.gitHead !== review.gitHead
+  ) {
+    throw new Error(
+      `Stale upstream legal-document review for ${coordinate}: installed npm owner or gitHead changed.`,
+    );
+  }
+  const absolute = path.join(ROOT, ...review.path);
+  if (!fs.existsSync(absolute)) {
+    throw new Error(
+      `Pinned upstream legal document is missing for ${coordinate}.`,
+    );
+  }
+  const text = decodeUtf8(fs.readFileSync(absolute), review.path.join('/'));
+  const actualSha256 = sha256Text(text);
+  if (actualSha256 !== review.sha256) {
+    throw new Error(`Pinned upstream legal document changed for ${coordinate}.`);
+  }
+  return {
+    document: {path: review.path.join('/'), sha256: actualSha256, text},
+    review: {...review, path: review.path.join('/')},
   };
 };
 
@@ -1320,6 +1369,7 @@ const buildExternalPodRecord = (pod, documents, packageCache) => {
       selectedLicenses: [],
       licenseMetadata: {type: 'first-party-generated', file: null},
       owningNpmPackage: null,
+      upstreamLegalDocument: null,
       legalDocumentSha256s: [],
       firstPartyGenerated: true,
       exactLicenseSelection: null,
@@ -1362,6 +1412,7 @@ const buildExternalPodRecord = (pod, documents, packageCache) => {
   }
   const owner = packageRootForPath(podspecPath);
   let owningNpmPackage = null;
+  let upstreamLegalDocument = null;
   if (owner) {
     const coordinate = `${owner.manifest.name}@${owner.manifest.version}`;
     owningNpmPackage = {coordinate, license: owner.manifest.license || null};
@@ -1379,6 +1430,17 @@ const buildExternalPodRecord = (pod, documents, packageCache) => {
     if (!selected) {
       const npmSelected = normalizeLicense(owner.manifest.license);
       if (npmSelected) selectedLicenses.push(npmSelected);
+    }
+    const upstream = upstreamLegalDocumentForPod(pod.coordinate, owner);
+    if (upstream) {
+      legalDocumentSha256s.add(
+        addDocument(
+          documents,
+          upstream.document,
+          `upstream:${upstream.review.sourceUrl}`,
+        ),
+      );
+      upstreamLegalDocument = upstream.review;
     }
   }
   requireReviewedLicenseClassification({
@@ -1407,6 +1469,7 @@ const buildExternalPodRecord = (pod, documents, packageCache) => {
     selectedLicenses: [...new Set(selectedLicenses)].sort(compareText),
     licenseMetadata: metadata.license,
     owningNpmPackage,
+    upstreamLegalDocument,
     exactLicenseSelection,
     legalDocumentSha256s: [...legalDocumentSha256s].sort(compareText),
     firstPartyGenerated: false,
@@ -1534,6 +1597,7 @@ const attachInstalledPodBinding = (record, binding, documents) => {
   );
   if (
     actualHashes.length === 0 &&
+    !record.upstreamLegalDocument &&
     !POD_LEGAL_METADATA_ABSENCE_ALLOWLIST.has(record.coordinate)
   ) {
     throw new Error(
@@ -1801,6 +1865,7 @@ const validateInstalledPodBindings = (
     if (
       !pod.firstPartyGenerated &&
       actualLegalHashes.length === 0 &&
+      !dependency.upstreamLegalDocument &&
       !POD_LEGAL_METADATA_ABSENCE_ALLOWLIST.has(pod.coordinate)
     ) {
       throw new Error(
@@ -1885,6 +1950,17 @@ const validatePodsSnapshot = (
       throw new Error(`Stale Pod legal-absence review: ${coordinate}.`);
     }
   }
+  for (const [coordinate, review] of POD_UPSTREAM_LEGAL_DOCUMENTS) {
+    const dependency = dependenciesByCoordinate.get(coordinate);
+    if (
+      !dependency ||
+      JSON.stringify(dependency.upstreamLegalDocument) !==
+        JSON.stringify({...review, path: review.path.join('/')}) ||
+      !dependency.legalDocumentSha256s.includes(review.sha256)
+    ) {
+      throw new Error(`Stale upstream Pod legal-document review: ${coordinate}.`);
+    }
+  }
   for (const [coordinate, review] of POD_EXACT_LICENSE_SELECTIONS) {
     const dependency = dependenciesByCoordinate.get(coordinate);
     if (
@@ -1921,6 +1997,7 @@ const validatePodsSnapshot = (
       selectedLicenses: value.selectedLicenses,
       licenseMetadata: value.licenseMetadata,
       owningNpmPackage: value.owningNpmPackage,
+      upstreamLegalDocument: value.upstreamLegalDocument || null,
       exactLicenseSelection: value.exactLicenseSelection,
       legalDocumentSha256s: value.legalDocumentSha256s,
       firstPartyGenerated: value.firstPartyGenerated,
@@ -2270,6 +2347,7 @@ module.exports = {
   ANDROID_LEGAL_METADATA_ABSENCE_ALLOWLIST,
   FIRST_PARTY_GENERATED_PODS,
   POD_LEGAL_METADATA_ABSENCE_ALLOWLIST,
+  POD_UPSTREAM_LEGAL_DOCUMENTS,
   POD_EXACT_LICENSE_SELECTIONS,
   buildAndroidSnapshot,
   buildExternalPodRecord,
