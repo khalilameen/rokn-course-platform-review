@@ -97,7 +97,7 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
         $this->courseId         = $courseId;
         $this->audience         = $audience;
         $this->validateAudienceSelector();
-        $this->onQueue('notifications');
+        $this->onQueue((string) config('queue.channels.notifications', 'notifications'));
     }
 
     public function uniqueId(): string
@@ -161,7 +161,7 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
                     $this->messageAr,
                     $this->messageEn,
                     $this->link
-                )->onQueue('notifications');
+                )->onQueue((string) config('queue.channels.notifications', 'notifications'));
             }, 'id');
 
             Log::info('Student notification chunks queued', [

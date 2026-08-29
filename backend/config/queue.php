@@ -15,6 +15,11 @@ return [
 
     'default' => env('QUEUE_CONNECTION', 'sync'),
 
+    'channels' => [
+        'notifications' => env('NOTIFICATIONS_QUEUE', 'notifications'),
+        'ai_feedback' => env('AI_FEEDBACK_QUEUE', 'ai-feedback'),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Queue Connections

@@ -52,7 +52,7 @@ final class SendUserPushNotification implements ShouldQueue, ShouldBeUnique
             $this->messageEn = $messageEn;
             $this->link = $link;
         }
-        $this->onQueue('notifications');
+        $this->onQueue((string) config('queue.channels.notifications', 'notifications'));
     }
 
     public function uniqueId(): string

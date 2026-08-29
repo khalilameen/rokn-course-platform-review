@@ -35,7 +35,7 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
     public function __construct(public int $submissionId)
     {
         $this->executionId = (string) Str::uuid();
-        $this->onQueue('ai-feedback');
+        $this->onQueue((string) config('queue.channels.ai_feedback', 'ai-feedback'));
     }
 
     /** @return list<int> */

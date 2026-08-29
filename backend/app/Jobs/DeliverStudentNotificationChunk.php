@@ -35,7 +35,7 @@ final class DeliverStudentNotificationChunk implements ShouldQueue
         private ?string $link = null
     ) {
         $this->userIds = array_values(array_unique(array_map('intval', $this->userIds)));
-        $this->onQueue('notifications');
+        $this->onQueue((string) config('queue.channels.notifications', 'notifications'));
     }
 
     public function handle(): void
