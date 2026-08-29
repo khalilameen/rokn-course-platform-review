@@ -25,9 +25,21 @@ class AppServiceProvider extends ServiceProvider
         // Laravel 12. Resolution is lazy, so CLI commands that do not send a
         // notification never require production credentials.
         $this->app->singleton(Messaging::class, static function (): Messaging {
-            $credentials = trim((string) config('firebase.credentials.file'));
-            if ($credentials === '' || !is_file($credentials) || !is_readable($credentials)) {
-                throw new \RuntimeException('Firebase credentials are missing or unreadable.');
+            $encodedCredentials = trim((string) config('firebase.credentials.base64'));
+            if ($encodedCredentials !== '') {
+                $decodedCredentials = base64_decode($encodedCredentials, true);
+                $credentials = is_string($decodedCredentials)
+                    ? json_decode($decodedCredentials, true)
+                    : null;
+
+                if (!is_array($credentials)) {
+                    throw new \RuntimeException('Firebase credentials are malformed.');
+                }
+            } else {
+                $credentials = trim((string) config('firebase.credentials.file'));
+                if ($credentials === '' || !is_file($credentials) || !is_readable($credentials)) {
+                    throw new \RuntimeException('Firebase credentials are missing or unreadable.');
+                }
             }
 
             return (new FirebaseFactory())

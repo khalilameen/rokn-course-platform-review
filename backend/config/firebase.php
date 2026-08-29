@@ -32,6 +32,9 @@ return [
      */
     'credentials' => [
         'file' => env('FIREBASE_CREDENTIALS', storage_path('app/firebase-service-account.json')),
+        // Ephemeral/container platforms can inject the service-account JSON as
+        // a secret without requiring a writable or persistent local mount.
+        'base64' => env('FIREBASE_CREDENTIALS_BASE64'),
 
         /**
          * If you want to prevent the auto discovery of credentials, set the

@@ -190,6 +190,20 @@ class ProductionPreflightTest extends TestCase
             $output = Artisan::output();
             self::assertSame(0, $status, $output);
             self::assertStringContainsString('passed', $output);
+
+            config([
+                'firebase.credentials.file' => storage_path('missing-firebase-service-account.json'),
+                'firebase.credentials.base64' => base64_encode(json_encode([
+                    'project_id' => 'rokn-production',
+                    'client_email' => 'firebase-admin@rokn-production.iam.gserviceaccount.com',
+                    'private_key' => "-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----\n",
+                ], JSON_THROW_ON_ERROR)),
+            ]);
+            self::assertSame(0, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
+
+            config(['firebase.credentials.base64' => 'not-valid-base64']);
+            self::assertSame(1, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
+            self::assertStringContainsString('FIREBASE_CREDENTIALS_BASE64', Artisan::output());
         } finally {
             if (is_string($credentials) && is_file($credentials)) {
                 unlink($credentials);

@@ -1,26 +1,36 @@
 {
   "project_info": {
-    "project_number": "317088967671",
-    "project_id": "rokn-425d1",
-    "storage_bucket": "rokn-425d1.firebasestorage.app"
+    "project_number": "112556080712",
+    "project_id": "rokn-production-2026",
+    "storage_bucket": "rokn-production-2026.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:317088967671:android:cc33839b377baf9a6a9cf2",
+        "mobilesdk_app_id": "1:112556080712:android:ebd66305278ccfa1c0a27d",
         "android_client_info": {
           "package_name": "com.rokn"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "112556080712-lefgs0chojhqsr07s1mjmabiq0l1b5ah.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "AIzaSyAo2VdYPc6h1q-JCcEfipbF6RsxhfSVIQE"
+          "current_key": "AIzaSyAc_YMdejRSH1MkIbE7gTFFLhaJ_zdM7H4"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "112556080712-lefgs0chojhqsr07s1mjmabiq0l1b5ah.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

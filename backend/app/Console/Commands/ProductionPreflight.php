@@ -66,6 +66,17 @@ class ProductionPreflight extends Command
         $appKey = trim((string) config('app.key'));
         $redisHost = strtolower(trim((string) config('database.redis.default.host')));
         $firebaseCredentials = trim((string) config('firebase.credentials.file'));
+        $firebaseCredentialsBase64 = trim((string) config('firebase.credentials.base64'));
+        $decodedFirebaseCredentials = $firebaseCredentialsBase64 !== ''
+            ? base64_decode($firebaseCredentialsBase64, true)
+            : false;
+        $firebaseCredentialsData = is_string($decodedFirebaseCredentials)
+            ? json_decode($decodedFirebaseCredentials, true)
+            : null;
+        $hasInjectedFirebaseCredentials = is_array($firebaseCredentialsData)
+            && filled($firebaseCredentialsData['project_id'] ?? null)
+            && filled($firebaseCredentialsData['client_email'] ?? null)
+            && filled($firebaseCredentialsData['private_key'] ?? null);
         $trustedProxies = array_values(array_filter((array) config('trusted_proxies.proxies', [])));
         $coursePdfDisk = trim((string) config('course_pdfs.disk'));
         $coursePdfDiskConfig = $coursePdfDisk !== '' ? config("filesystems.disks.{$coursePdfDisk}") : null;
@@ -245,8 +256,9 @@ class ProductionPreflight extends Command
             'MAIL_FROM_ADDRESS must be a real support email address.'
         );
         $require(
-            $firebaseCredentials !== '' && is_readable($firebaseCredentials),
-            'FIREBASE_CREDENTIALS must point to a readable mounted service-account file.'
+            $hasInjectedFirebaseCredentials
+                || ($firebaseCredentials !== '' && is_readable($firebaseCredentials)),
+            'Firebase credentials must be a valid FIREBASE_CREDENTIALS_BASE64 secret or a readable FIREBASE_CREDENTIALS file.'
         );
 
         return $failures;
