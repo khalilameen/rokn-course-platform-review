@@ -1,11 +1,11 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "Podfile.lock exact roots, CocoaPods SPEC CHECKSUMS, Pods/Manifest.lock, and installed source bytes",
-  "podfileChecksum": "16fb4685bdaafded385e0f6e6c8faacea9f7fc84",
+  "podfileChecksum": "ac5f6ae5d01723919e6f0e0a7b7e5d1570769a7a",
   "cocoapodsVersion": "1.16.2",
-  "manifestSha256": "d0f576fe03010efbd7554d9e29cc56af9ef71f9b2a4b25d554707a9a42ada79c",
-  "installedSourceCount": 110,
-  "dependencyCount": 112,
+  "manifestSha256": "1d63a6802fb5bb56809aa957edbcda7aba02e506df20714cb386e7aef92a1ac4",
+  "installedSourceCount": 112,
+  "dependencyCount": 114,
   "dependencies": [
     {
       "name": "BVLinearGradient",
@@ -187,7 +187,7 @@
       "name": "Expo",
       "version": "55.0.28",
       "coordinate": "Expo@55.0.28",
-      "specChecksum": "74925fc7ae01b83bfa279f0728a7af052f1ed4d2",
+      "specChecksum": "0009020ac82815d6c3ddaec92f84397e35a3ff46",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -601,7 +601,7 @@
       "name": "ExpoModulesCore",
       "version": "55.0.25",
       "coordinate": "ExpoModulesCore@55.0.25",
-      "specChecksum": "c762c92a2034927578943ead805e9d2066ed08df",
+      "specChecksum": "15eec5b2cf902fc4f9d64c71adf279bf4e538b8d",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -647,7 +647,7 @@
       "name": "ExpoModulesJSI",
       "version": "55.0.25",
       "coordinate": "ExpoModulesJSI@55.0.25",
-      "specChecksum": "52db434b6c7f626a4613974b2bd05f9816c07224",
+      "specChecksum": "ae8ebeef19be77aeaf25f2655a5303755ef7178d",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -1202,7 +1202,7 @@
       "name": "RNCAsyncStorage",
       "version": "2.2.0",
       "coordinate": "RNCAsyncStorage@2.2.0",
-      "specChecksum": "302f2fac014fd450046c120567ca364632da682b",
+      "specChecksum": "8857fb173af29664cb90897903902dc8533e36cc",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -1244,7 +1244,7 @@
       "name": "RNCClipboard",
       "version": "1.16.3",
       "coordinate": "RNCClipboard@1.16.3",
-      "specChecksum": "962296f7af77f6c039b683e21c2e2255af9c05df",
+      "specChecksum": "4eea71d801c880175c12f6ab14332ca86fed935f",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -1280,6 +1280,92 @@
         "npmCoordinate": "@react-native-clipboard/clipboard@1.16.3",
         "npmIntegrity": "sha512-cMIcvoZKIrShzJHEaHbTAp458R9WOv0fB6UyC7Ek4Qk561Ow/DrzmmJmH/rAZg21Z6ixJ4YSdFDC14crqIBmCQ==",
         "sourceLocation": "npm:@react-native-clipboard/clipboard@1.16.3"
+      }
+    },
+    {
+      "name": "RNFBApp",
+      "version": "26.3.2",
+      "coordinate": "RNFBApp@26.3.2",
+      "specChecksum": "367f26e3091c045946b5bf1d12692a987534c8af",
+      "firstPartyGenerated": false,
+      "sourceKind": "external",
+      "externalSource": {
+        "path": "../node_modules/@react-native-firebase/app"
+      },
+      "sourceReference": {
+        "path": "../node_modules/@react-native-firebase/app"
+      },
+      "specSha256": "5536d6ae1850893d9b8ead727d2f74ab934987dd165ba8b96f82f5a6f83fa06e",
+      "selectedLicenses": [
+        "Apache-2.0"
+      ],
+      "licenseMetadata": {
+        "type": null,
+        "file": null
+      },
+      "owningNpmPackage": {
+        "coordinate": "@react-native-firebase/app@26.3.2",
+        "license": "Apache-2.0"
+      },
+      "upstreamLegalDocument": null,
+      "exactLicenseSelection": null,
+      "legalDocumentSha256s": [
+        "283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b",
+        "2e285234d6443925d0881654c748f331d9919ac5748b06bf4a6101fe5604f60a",
+        "5b06c05c66fe9d520eab80b2b212d9c14932ec63a7e51d36f6214f72695a07bb"
+      ],
+      "reviewedAbsence": null,
+      "installedLegalDocumentSha256s": [
+        "2e285234d6443925d0881654c748f331d9919ac5748b06bf4a6101fe5604f60a",
+        "5b06c05c66fe9d520eab80b2b212d9c14932ec63a7e51d36f6214f72695a07bb"
+      ],
+      "installedSource": {
+        "kind": "npm-lock-sri",
+        "npmCoordinate": "@react-native-firebase/app@26.3.2",
+        "npmIntegrity": "sha512-AtPF1PhUI7AjYCKp7XS9+IMP+T1IpPk9rx0ZhjhS2hcxKjNFThpH1ntSlolvwGXORov7e51PZ2XfYOnkmuJuEQ==",
+        "sourceLocation": "npm:@react-native-firebase/app@26.3.2"
+      }
+    },
+    {
+      "name": "RNFBMessaging",
+      "version": "26.3.2",
+      "coordinate": "RNFBMessaging@26.3.2",
+      "specChecksum": "548ce06c240039f1b423d670949c1a79892d4df3",
+      "firstPartyGenerated": false,
+      "sourceKind": "external",
+      "externalSource": {
+        "path": "../node_modules/@react-native-firebase/messaging"
+      },
+      "sourceReference": {
+        "path": "../node_modules/@react-native-firebase/messaging"
+      },
+      "specSha256": "b871e135065df940bcd5bd5e73349bae5f03211fb3704c6212de8a75e10b3230",
+      "selectedLicenses": [
+        "Apache-2.0"
+      ],
+      "licenseMetadata": {
+        "type": null,
+        "file": null
+      },
+      "owningNpmPackage": {
+        "coordinate": "@react-native-firebase/messaging@26.3.2",
+        "license": "Apache-2.0"
+      },
+      "upstreamLegalDocument": null,
+      "exactLicenseSelection": null,
+      "legalDocumentSha256s": [
+        "283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b",
+        "d1d91013bad44a8e9205add3f028f1a3343d1e4856bbbdb38802b02787ad147d"
+      ],
+      "reviewedAbsence": null,
+      "installedLegalDocumentSha256s": [
+        "d1d91013bad44a8e9205add3f028f1a3343d1e4856bbbdb38802b02787ad147d"
+      ],
+      "installedSource": {
+        "kind": "npm-lock-sri",
+        "npmCoordinate": "@react-native-firebase/messaging@26.3.2",
+        "npmIntegrity": "sha512-iLFBQW8EJerqVyh2TrhZMoQbA5Se1LnLZVBhbNrcWzrrHl/H212J0XcAxITmGmJxvHZMw8uZEve+31oGl5hiGg==",
+        "sourceLocation": "npm:@react-native-firebase/messaging@26.3.2"
       }
     },
     {
@@ -1328,7 +1414,7 @@
       "name": "RNGestureHandler",
       "version": "2.30.0",
       "coordinate": "RNGestureHandler@2.30.0",
-      "specChecksum": "77eecab5fd636666ca73a55bb61e2f1a685b7e84",
+      "specChecksum": "1f7ac76fa9d6ffedfdde38ce781442ffadac8880",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -1370,7 +1456,7 @@
       "name": "RNReanimated",
       "version": "4.2.1",
       "coordinate": "RNReanimated@4.2.1",
-      "specChecksum": "361d5b8e20a77cd1f7907ad301f6d51ef79c1545",
+      "specChecksum": "0a23a0a9721f450580f0fdf04b9ae928cd22915a",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -1412,7 +1498,7 @@
       "name": "RNSVG",
       "version": "15.15.3",
       "coordinate": "RNSVG@15.15.3",
-      "specChecksum": "8744ec9d5c0ca0f51cdd7a577c30ce01cd3d76b0",
+      "specChecksum": "4d484ec4a8cb484c1c0e33972670724e194dba09",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -1454,7 +1540,7 @@
       "name": "RNScreens",
       "version": "4.23.0",
       "coordinate": "RNScreens@4.23.0",
-      "specChecksum": "ec8bdc9f024d5828e5adf4f5e8870d5260cff616",
+      "specChecksum": "32d204189c8c164da3aef640b6d1d8721c25a86f",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -1496,7 +1582,7 @@
       "name": "RNShare",
       "version": "12.2.2",
       "coordinate": "RNShare@12.2.2",
-      "specChecksum": "542d9aaad3ff4e4d9ad7d206524c4c8c27f81400",
+      "specChecksum": "6b9b50b92c088364edbeb9e5fb805aaef67653e8",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -1664,7 +1750,7 @@
       "name": "React-Fabric",
       "version": "0.83.10",
       "coordinate": "React-Fabric@0.83.10",
-      "specChecksum": "5b672abc3807da93fcb122ccc9aa59af908fea86",
+      "specChecksum": "e699e54dfa99084c18ea3a152ed83bb99b0a4bd8",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -1706,7 +1792,7 @@
       "name": "React-FabricComponents",
       "version": "0.83.10",
       "coordinate": "React-FabricComponents@0.83.10",
-      "specChecksum": "b49dcd9d9b7b3371d8041a34453984ebee9b0f7b",
+      "specChecksum": "c0afa5fd659cb75d4aaa1055b478da723817bef7",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -1748,7 +1834,7 @@
       "name": "React-FabricImage",
       "version": "0.83.10",
       "coordinate": "React-FabricImage@0.83.10",
-      "specChecksum": "7ff199a36b0560406f547e5dad9589b4f429f5a9",
+      "specChecksum": "356d6f7f3cfc0fa5add8369b3dcfc76b28d58540",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -1790,7 +1876,7 @@
       "name": "React-ImageManager",
       "version": "0.83.10",
       "coordinate": "React-ImageManager@0.83.10",
-      "specChecksum": "f88b17ef4ba1746ac8fe18d01ea66435d9b244ba",
+      "specChecksum": "0123c4a5f0e55aa36dea062eb0a37dd1beba87d9",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -1832,7 +1918,7 @@
       "name": "React-Mapbuffer",
       "version": "0.83.10",
       "coordinate": "React-Mapbuffer@0.83.10",
-      "specChecksum": "d602585bff1eb3a23fda0cd56436690f61ef79b6",
+      "specChecksum": "1944edf80a47674bbda464c4bc00207694d1977d",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -1874,7 +1960,7 @@
       "name": "React-NativeModulesApple",
       "version": "0.83.10",
       "coordinate": "React-NativeModulesApple@0.83.10",
-      "specChecksum": "ca7209e742ed57020f2794536b3e2342a0fc51ab",
+      "specChecksum": "b6df0ffa060b5bf5482a103c93ba2a704eb07fc7",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -2084,7 +2170,7 @@
       "name": "React-RCTFBReactNativeSpec",
       "version": "0.83.10",
       "coordinate": "React-RCTFBReactNativeSpec@0.83.10",
-      "specChecksum": "35fade7934a7a76d4b65ab6ac2a5d6f86279fdd9",
+      "specChecksum": "9d9ce35f73e5fe7951542a86a1fa2196cdb0cd01",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -2126,7 +2212,7 @@
       "name": "React-RCTFabric",
       "version": "0.83.10",
       "coordinate": "React-RCTFabric@0.83.10",
-      "specChecksum": "7e4a58c5e2f06d66602a6075edf52a4586c8e561",
+      "specChecksum": "4a037256070a4b9052e0acf72b2ee9028d06af5c",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -2294,7 +2380,7 @@
       "name": "React-RCTRuntime",
       "version": "0.83.10",
       "coordinate": "React-RCTRuntime@0.83.10",
-      "specChecksum": "3cf97d17702771974a22d782d6cac4ac6dcdaa09",
+      "specChecksum": "40aa876a15be249d4cd29640d4878b94b416b95b",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -2462,7 +2548,7 @@
       "name": "React-RuntimeApple",
       "version": "0.83.10",
       "coordinate": "React-RuntimeApple@0.83.10",
-      "specChecksum": "a0be45915b9e6b28e9ade83a9dcabcc7c876209a",
+      "specChecksum": "cd5717e0bc3de77b9ac90111820ded7df12141d4",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -2504,7 +2590,7 @@
       "name": "React-RuntimeCore",
       "version": "0.83.10",
       "coordinate": "React-RuntimeCore@0.83.10",
-      "specChecksum": "3db61ee44713d7b385ea05f73f029fa4fc5b0b42",
+      "specChecksum": "4d2481eb286dbad1299986383e427559d93f7c6b",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -2546,7 +2632,7 @@
       "name": "React-RuntimeHermes",
       "version": "0.83.10",
       "coordinate": "React-RuntimeHermes@0.83.10",
-      "specChecksum": "b8fdea15f8749865893a75fd11cae5b8b8a7539a",
+      "specChecksum": "c3c5605aa4390fc4312a4b8d5b0330a6a2833ee0",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -2672,7 +2758,7 @@
       "name": "React-debug",
       "version": "0.83.10",
       "coordinate": "React-debug@0.83.10",
-      "specChecksum": "87150efd2ecdaa3a5d6cfaae0c459ed815d94ed8",
+      "specChecksum": "a15804a8a6a96b82d47730c494e0ab1b38571060",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -2714,7 +2800,7 @@
       "name": "React-defaultsnativemodule",
       "version": "0.83.10",
       "coordinate": "React-defaultsnativemodule@0.83.10",
-      "specChecksum": "7f8175d7501d837ac616d09f27110ce2dcfe5ae3",
+      "specChecksum": "dd171c8473191d84acc38acfa57f41fe8f745005",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -2756,7 +2842,7 @@
       "name": "React-domnativemodule",
       "version": "0.83.10",
       "coordinate": "React-domnativemodule@0.83.10",
-      "specChecksum": "2de158eb9435c65c5b3ac177da869abb2a3ab3d1",
+      "specChecksum": "86fb6c736ffb03ec42b5e19275b5efa9fadf27b0",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -2798,7 +2884,7 @@
       "name": "React-featureflags",
       "version": "0.83.10",
       "coordinate": "React-featureflags@0.83.10",
-      "specChecksum": "2a64ec3e7872907e9af52a2edb47347c4fc80bfd",
+      "specChecksum": "203d80c69b1769108567da71b3e30ced011d20e4",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -2840,7 +2926,7 @@
       "name": "React-featureflagsnativemodule",
       "version": "0.83.10",
       "coordinate": "React-featureflagsnativemodule@0.83.10",
-      "specChecksum": "8004a048d55bb0e1b21ab6b908bfd2492a0f3afd",
+      "specChecksum": "58d4f578040ccf632cf1167a81589be597fe7768",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -2882,7 +2968,7 @@
       "name": "React-graphics",
       "version": "0.83.10",
       "coordinate": "React-graphics@0.83.10",
-      "specChecksum": "d7da4618615d0aa72197af934eac586af9adb0dd",
+      "specChecksum": "1d8949da76d157ebde581fbc899e7cb98792c1cd",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -2966,7 +3052,7 @@
       "name": "React-idlecallbacksnativemodule",
       "version": "0.83.10",
       "coordinate": "React-idlecallbacksnativemodule@0.83.10",
-      "specChecksum": "a3cbda1dd7281168bec652c58636e3d3e221bdad",
+      "specChecksum": "9e6d32302e742dc1cba27888f2da19a1df65732a",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -3008,7 +3094,7 @@
       "name": "React-intersectionobservernativemodule",
       "version": "0.83.10",
       "coordinate": "React-intersectionobservernativemodule@0.83.10",
-      "specChecksum": "bbab37b10fb8571538310df961161e1678ceb3c5",
+      "specChecksum": "6d4baa875a3169305a693f7fbd4d8400da5eb544",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -3050,7 +3136,7 @@
       "name": "React-jserrorhandler",
       "version": "0.83.10",
       "coordinate": "React-jserrorhandler@0.83.10",
-      "specChecksum": "0cd9b4545cc53dff9a75f4f88ff20a7a2c7df04c",
+      "specChecksum": "5230df9ba54a68f0156b5c8ca4d8e356ddffdb5d",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -3176,7 +3262,7 @@
       "name": "React-jsinspector",
       "version": "0.83.10",
       "coordinate": "React-jsinspector@0.83.10",
-      "specChecksum": "3492da0de929c8a15bb7f64854b088cc22d9ebe3",
+      "specChecksum": "5b24d22ce83e095583d9d83973db205f7ce44753",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -3218,7 +3304,7 @@
       "name": "React-jsinspectorcdp",
       "version": "0.83.10",
       "coordinate": "React-jsinspectorcdp@0.83.10",
-      "specChecksum": "eb01db7bbb98f32f7b425031b381a60662854483",
+      "specChecksum": "0e4f4bb1886a29208cbcb1a25b635b3ffeb2411c",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -3260,7 +3346,7 @@
       "name": "React-jsinspectornetwork",
       "version": "0.83.10",
       "coordinate": "React-jsinspectornetwork@0.83.10",
-      "specChecksum": "62fb1c619d50d948b2af5d552d4cbc32dae169ba",
+      "specChecksum": "aa4f900b8247d94d2772a6b97f71e7e1f86f9451",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -3302,7 +3388,7 @@
       "name": "React-jsinspectortracing",
       "version": "0.83.10",
       "coordinate": "React-jsinspectortracing@0.83.10",
-      "specChecksum": "7a1c483310f06659684b119a89bfbadf38cd26e5",
+      "specChecksum": "967f0428c7cac6547b065fd17b52a30bd8b764e0",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -3344,7 +3430,7 @@
       "name": "React-jsitooling",
       "version": "0.83.10",
       "coordinate": "React-jsitooling@0.83.10",
-      "specChecksum": "330e0e68cb9e76a388fa5e09fe1419a75d667368",
+      "specChecksum": "011226d40a52642a284db86083cae0385d0963af",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -3386,7 +3472,7 @@
       "name": "React-jsitracing",
       "version": "0.83.10",
       "coordinate": "React-jsitracing@0.83.10",
-      "specChecksum": "cd9903359af10ebee59283fd21280fd22a19d1eb",
+      "specChecksum": "28cadff2071c3f317328d5940f17dc6113c3b7eb",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -3470,7 +3556,7 @@
       "name": "React-microtasksnativemodule",
       "version": "0.83.10",
       "coordinate": "React-microtasksnativemodule@0.83.10",
-      "specChecksum": "8664004a3cecf0f3351f1b11dc258f52c3b75f2c",
+      "specChecksum": "cb07c62022c4208e6db2729838d99202941f05b9",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -3512,7 +3598,7 @@
       "name": "React-mutationobservernativemodule",
       "version": "0.83.10",
       "coordinate": "React-mutationobservernativemodule@0.83.10",
-      "specChecksum": "03032b81c8c5308687b85043796465c1651b032c",
+      "specChecksum": "8713587e6219190e4210864e00367056cff684f8",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -3554,7 +3640,7 @@
       "name": "React-networking",
       "version": "0.83.10",
       "coordinate": "React-networking@0.83.10",
-      "specChecksum": "d499aa90e87265446a380e8517d5ccccfb94ea38",
+      "specChecksum": "1e98d651568ab427a6e59185dd3de5b2019a24f8",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -3680,7 +3766,7 @@
       "name": "React-performancecdpmetrics",
       "version": "0.83.10",
       "coordinate": "React-performancecdpmetrics@0.83.10",
-      "specChecksum": "b46f58a6580ecf876d163f463a88cac909e238d6",
+      "specChecksum": "b9bca7569da3164fb8ae7b33fe9c2487a2eab371",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -3722,7 +3808,7 @@
       "name": "React-performancetimeline",
       "version": "0.83.10",
       "coordinate": "React-performancetimeline@0.83.10",
-      "specChecksum": "cca1b2bfaae0ad8a6c3030eb8fb8e28e07598e17",
+      "specChecksum": "d058a7e11c408f9f799c27cbd29a6137910da16b",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -3764,7 +3850,7 @@
       "name": "React-rendererconsistency",
       "version": "0.83.10",
       "coordinate": "React-rendererconsistency@0.83.10",
-      "specChecksum": "82c40827ba1fcca245f69e27b0fdf6598d2e2d9c",
+      "specChecksum": "663bc0a803ee67659b6453e958df6c446294f149",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -3806,7 +3892,7 @@
       "name": "React-renderercss",
       "version": "0.83.10",
       "coordinate": "React-renderercss@0.83.10",
-      "specChecksum": "2a4c315167597023b9b3cfa510909dfe7186e14a",
+      "specChecksum": "74793b5c2d8ea808c4323e724e9bdacfa0d7363d",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -3848,7 +3934,7 @@
       "name": "React-rendererdebug",
       "version": "0.83.10",
       "coordinate": "React-rendererdebug@0.83.10",
-      "specChecksum": "da4f679e80c0e9b613a4bda73d476e3b29a1a85a",
+      "specChecksum": "3951c5aabdda0bd5e4be96db58066a1e123fcbbc",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -3890,7 +3976,7 @@
       "name": "React-runtimeexecutor",
       "version": "0.83.10",
       "coordinate": "React-runtimeexecutor@0.83.10",
-      "specChecksum": "88b74c1f6d5501d3de4f84482759ffa67666c8fe",
+      "specChecksum": "1d81cf97d0baa359d28d0d3acc99cae68307248a",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -3932,7 +4018,7 @@
       "name": "React-runtimescheduler",
       "version": "0.83.10",
       "coordinate": "React-runtimescheduler@0.83.10",
-      "specChecksum": "e539c51f0452490f8dfca0f4e7f74aa994ab8380",
+      "specChecksum": "d6b8011620d5b593f30859563b62da52e5593f0e",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -3974,7 +4060,7 @@
       "name": "React-timing",
       "version": "0.83.10",
       "coordinate": "React-timing@0.83.10",
-      "specChecksum": "7ae3a1f186f7b47cd958d083471ca9437da38122",
+      "specChecksum": "49e3a60d720233b96f7d4a273dfea56c2e132d6f",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -4016,7 +4102,7 @@
       "name": "React-utils",
       "version": "0.83.10",
       "coordinate": "React-utils@0.83.10",
-      "specChecksum": "5e161ec701b7bc5fe4ff972e46c3cf670f90ab25",
+      "specChecksum": "491e28a3b413e2cbed083e2735a04a82d873d0f1",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -4058,7 +4144,7 @@
       "name": "React-webperformancenativemodule",
       "version": "0.83.10",
       "coordinate": "React-webperformancenativemodule@0.83.10",
-      "specChecksum": "b99b73e1e42a9daaf425c36723f41527d85131bf",
+      "specChecksum": "1d5ae7ac36397282eca6927350cbcfd4a7f7acde",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -4171,7 +4257,7 @@
       "name": "ReactCodegen",
       "version": "0.83.10",
       "coordinate": "ReactCodegen@0.83.10",
-      "specChecksum": "d90f4973af8a40c3bd7c17a5f1ba9267ef27d744",
+      "specChecksum": "6e3a17e832ddcb3eb9eb6f055098b3cd1ddee5d2",
       "firstPartyGenerated": true,
       "sourceKind": "external",
       "externalSource": {
@@ -4200,7 +4286,7 @@
       "name": "ReactCommon",
       "version": "0.83.10",
       "coordinate": "ReactCommon@0.83.10",
-      "specChecksum": "ddccb5fdac38485ab6cf9e2a5099b31d96a42328",
+      "specChecksum": "09f5876b7bb54ec82491d727692e8a710a700ef5",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -4324,7 +4410,7 @@
       "name": "Yoga",
       "version": "0.0.0",
       "coordinate": "Yoga@0.0.0",
-      "specChecksum": "d2ed98551adb569fc38be0148666854e1ff60692",
+      "specChecksum": "36c8d57a563ad609c1f7342857de6e23fa1edd5a",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -4583,7 +4669,7 @@
       "name": "react-native-image-picker",
       "version": "8.2.1",
       "coordinate": "react-native-image-picker@8.2.1",
-      "specChecksum": "43e6cd4231e670030fe09b079d696fa5a634ccfc",
+      "specChecksum": "b99d9c1f2ddbef491eb49e1103e5c2ce78b9ab37",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -4667,7 +4753,7 @@
       "name": "react-native-safe-area-context",
       "version": "5.6.2",
       "coordinate": "react-native-safe-area-context@5.6.2",
-      "specChecksum": "54d812805f3c4e08a4580ad086cbde1d8780c2e4",
+      "specChecksum": "fea29ae0275beaa22f72d0a8be1eb0ab09c3feae",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -4709,7 +4795,7 @@
       "name": "react-native-video",
       "version": "6.18.0",
       "coordinate": "react-native-video@6.18.0",
-      "specChecksum": "7be878f72d62c9259f40e44c9318f45dc38fb58d",
+      "specChecksum": "f9758cda5b9dd6fd378389002f28f3f19017a406",
       "firstPartyGenerated": false,
       "sourceKind": "external",
       "externalSource": {
@@ -4808,6 +4894,20 @@
       ]
     },
     {
+      "sha256": "2e285234d6443925d0881654c748f331d9919ac5748b06bf4a6101fe5604f60a",
+      "text": "Apache-2.0 License\n------------------\n\nCopyright (c) 2016-present Invertase Limited <oss@invertase.io>\n\nLicensed under the Apache License, Version 2.0 (the \"License\");\nyou may not use this library except in compliance with the License.\n\nYou may obtain a copy of the Apache-2.0 License at\n\n    http://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an \"AS IS\" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the License.\n\n\nCreative Commons Attribution 3.0 License\n----------------------------------------\n\nCopyright (c) 2016-present Invertase Limited <oss@invertase.io>\n\nDocumentation and other instructional materials provided for this project\n(including on a separate documentation repository or it's documentation website) are\nlicensed under the Creative Commons Attribution 3.0 License. Code samples/blocks\ncontained therein are licensed under the Apache License, Version 2.0 (the \"License\"), as above.\n\nYou may obtain a copy of the Creative Commons Attribution 3.0 License at\n\n    https://creativecommons.org/licenses/by/3.0/",
+      "sources": [
+        {
+          "source": "installed-pod:RNFBApp@26.3.2",
+          "path": "LICENSE"
+        },
+        {
+          "source": "npm:@react-native-firebase/app@26.3.2",
+          "path": "LICENSE"
+        }
+      ]
+    },
+    {
       "sha256": "371567d5d8999eeffba61ddbcb60ffbe4f25c3f165f1772e2c66befd0251bffa",
       "text": "The MIT License (MIT)\n\nCopyright (c) 2015-present 650 Industries, Inc. (aka Expo)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
       "sources": [
@@ -4874,6 +4974,28 @@
         {
           "source": "installed-pod:SocketRocket@0.7.1",
           "path": "LICENSE"
+        }
+      ]
+    },
+    {
+      "sha256": "5b06c05c66fe9d520eab80b2b212d9c14932ec63a7e51d36f6214f72695a07bb",
+      "text": "Apache License\nVersion 2.0, January 2004\nhttp://www.apache.org/licenses/\n\nTERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\n\n1. Definitions.\n\n    \"License\" shall mean the terms and conditions for use, reproduction, and\n    distribution as defined by Sections 1 through 9 of this document.\n\n    \"Licensor\" shall mean the copyright owner or entity authorized by the\n    copyright owner that is granting the License.\n\n    \"Legal Entity\" shall mean the union of the acting entity and all other\n    entities that control, are controlled by, or are under common control with\n    that entity. For the purposes of this definition, \"control\" means (i) the\n    power, direct or indirect, to cause the direction or management of such\n    entity, whether by contract or otherwise, or (ii) ownership of\n    fifty percent (50%) or more of the outstanding shares, or (iii) beneficial\n    ownership of such entity.\n\n    \"You\" (or \"Your\") shall mean an individual or Legal Entity exercising\n    permissions granted by this License.\n\n    \"Source\" form shall mean the preferred form for making modifications,\n    including but not limited to software source code, documentation source,\n    and configuration files.\n\n    \"Object\" form shall mean any form resulting from mechanical transformation\n    or translation of a Source form, including but not limited to compiled\n    object code, generated documentation, and conversions to\n    other media types.\n\n    \"Work\" shall mean the work of authorship, whether in Source or Object\n    form, made available under the License, as indicated by a copyright notice\n    that is included in or attached to the work (an example is provided in the\n    Appendix below).\n\n    \"Derivative Works\" shall mean any work, whether in Source or Object form,\n    that is based on (or derived from) the Work and for which the editorial\n    revisions, annotations, elaborations, or other modifications represent,\n    as a whole, an original work of authorship. For the purposes of this\n    License, Derivative Works shall not include works that remain separable\n    from, or merely link (or bind by name) to the interfaces of, the Work and\n    Derivative Works thereof.\n\n    \"Contribution\" shall mean any work of authorship, including the original\n    version of the Work and any modifications or additions to that Work or\n    Derivative Works thereof, that is intentionally submitted to Licensor for\n    inclusion in the Work by the copyright owner or by an individual or\n    Legal Entity authorized to submit on behalf of the copyright owner.\n    For the purposes of this definition, \"submitted\" means any form of\n    electronic, verbal, or written communication sent to the Licensor or its\n    representatives, including but not limited to communication on electronic\n    mailing lists, source code control systems, and issue tracking systems\n    that are managed by, or on behalf of, the Licensor for the purpose of\n    discussing and improving the Work, but excluding communication that is\n    conspicuously marked or otherwise designated in writing by the copyright\n    owner as \"Not a Contribution.\"\n\n    \"Contributor\" shall mean Licensor and any individual or Legal Entity on\n    behalf of whom a Contribution has been received by Licensor and\n    subsequently incorporated within the Work.\n\n2. Grant of Copyright License.\n\n    Subject to the terms and conditions of this License, each Contributor\n    hereby grants to You a perpetual, worldwide, non-exclusive, no-charge,\n    royalty-free, irrevocable copyright license to reproduce, prepare\n    Derivative Works of, publicly display, publicly perform, sublicense,\n    and distribute the Work and such Derivative Works in\n    Source or Object form.\n\n3. Grant of Patent License.\n\n    Subject to the terms and conditions of this License, each Contributor\n    hereby grants to You a perpetual, worldwide, non-exclusive, no-charge,\n    royalty-free, irrevocable (except as stated in this section) patent\n    license to make, have made, use, offer to sell, sell, import, and\n    otherwise transfer the Work, where such license applies only to those\n    patent claims licensable by such Contributor that are necessarily\n    infringed by their Contribution(s) alone or by combination of their\n    Contribution(s) with the Work to which such Contribution(s) was submitted.\n    If You institute patent litigation against any entity (including a\n    cross-claim or counterclaim in a lawsuit) alleging that the Work or a\n    Contribution incorporated within the Work constitutes direct or\n    contributory patent infringement, then any patent licenses granted to\n    You under this License for that Work shall terminate as of the date such\n    litigation is filed.\n\n4. Redistribution.\n\n    You may reproduce and distribute copies of the Work or Derivative Works\n    thereof in any medium, with or without modifications, and in Source or\n    Object form, provided that You meet the following conditions:\n\n    1. You must give any other recipients of the Work or Derivative Works a\n    copy of this License; and\n\n    2. You must cause any modified files to carry prominent notices stating\n    that You changed the files; and\n\n    3. You must retain, in the Source form of any Derivative Works that You\n    distribute, all copyright, patent, trademark, and attribution notices from\n    the Source form of the Work, excluding those notices that do not pertain\n    to any part of the Derivative Works; and\n\n    4. If the Work includes a \"NOTICE\" text file as part of its distribution,\n    then any Derivative Works that You distribute must include a readable copy\n    of the attribution notices contained within such NOTICE file, excluding\n    those notices that do not pertain to any part of the Derivative Works,\n    in at least one of the following places: within a NOTICE text file\n    distributed as part of the Derivative Works; within the Source form or\n    documentation, if provided along with the Derivative Works; or, within a\n    display generated by the Derivative Works, if and wherever such\n    third-party notices normally appear. The contents of the NOTICE file are\n    for informational purposes only and do not modify the License.\n    You may add Your own attribution notices within Derivative Works that You\n    distribute, alongside or as an addendum to the NOTICE text from the Work,\n    provided that such additional attribution notices cannot be construed\n    as modifying the License.\n\n    You may add Your own copyright statement to Your modifications and may\n    provide additional or different license terms and conditions for use,\n    reproduction, or distribution of Your modifications, or for any such\n    Derivative Works as a whole, provided Your use, reproduction, and\n    distribution of the Work otherwise complies with the conditions\n    stated in this License.\n\n5. Submission of Contributions.\n\n    Unless You explicitly state otherwise, any Contribution intentionally\n    submitted for inclusion in the Work by You to the Licensor shall be under\n    the terms and conditions of this License, without any additional\n    terms or conditions. Notwithstanding the above, nothing herein shall\n    supersede or modify the terms of any separate license agreement you may\n    have executed with Licensor regarding such Contributions.\n\n6. Trademarks.\n\n    This License does not grant permission to use the trade names, trademarks,\n    service marks, or product names of the Licensor, except as required for\n    reasonable and customary use in describing the origin of the Work and\n    reproducing the content of the NOTICE file.\n\n7. Disclaimer of Warranty.\n\n    Unless required by applicable law or agreed to in writing, Licensor\n    provides the Work (and each Contributor provides its Contributions)\n    on an \"AS IS\" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,\n    either express or implied, including, without limitation, any warranties\n    or conditions of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS\n    FOR A PARTICULAR PURPOSE. You are solely responsible for determining the\n    appropriateness of using or redistributing the Work and assume any risks\n    associated with Your exercise of permissions under this License.\n\n8. Limitation of Liability.\n\n    In no event and under no legal theory, whether in tort\n    (including negligence), contract, or otherwise, unless required by\n    applicable law (such as deliberate and grossly negligent acts) or agreed\n    to in writing, shall any Contributor be liable to You for damages,\n    including any direct, indirect, special, incidental, or consequential\n    damages of any character arising as a result of this License or out of\n    the use or inability to use the Work (including but not limited to damages\n    for loss of goodwill, work stoppage, computer failure or malfunction,\n    or any and all other commercial damages or losses), even if such\n    Contributor has been advised of the possibility of such damages.\n\n9. Accepting Warranty or Additional Liability.\n\n    While redistributing the Work or Derivative Works thereof, You may choose\n    to offer, and charge a fee for, acceptance of support, warranty,\n    indemnity, or other liability obligations and/or rights consistent with\n    this License. However, in accepting such obligations, You may act only\n    on Your own behalf and on Your sole responsibility, not on behalf of any\n    other Contributor, and only if You agree to indemnify, defend, and hold\n    each Contributor harmless for any liability incurred by, or claims\n    asserted against, such Contributor by reason of your accepting any such\n    warranty or additional liability.\n\nEND OF TERMS AND CONDITIONS\n\nAPPENDIX: How to apply the Apache License to your work\n\n    To apply the Apache License to your work, attach the following boilerplate\n    notice, with the fields enclosed by brackets \"[]\" replaced with your own\n    identifying information. (Don't include the brackets!) The text should be\n    enclosed in the appropriate comment syntax for the file format. We also\n    recommend that a file or class name and description of purpose be included\n    on the same \"printed page\" as the copyright notice for easier\n    identification within third-party archives.\n\n        Copyright 2017 Jeremy Scheff\n\n\n        Licensed under the Apache License, Version 2.0 (the \"License\");\n        you may not use this file except in compliance with the License.\n        You may obtain a copy of the License at\n\n        http://www.apache.org/licenses/LICENSE-2.0\n\n        Unless required by applicable law or agreed to in writing, software\n        distributed under the License is distributed on an \"AS IS\" BASIS,\n        WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express\n        or implied. See the License for the specific language governing\n        permissions and limitations under the License.",
+      "sources": [
+        {
+          "source": "installed-pod:RNFBApp@26.3.2",
+          "path": "dist/module/internal/web/memidb/LICENSE"
+        },
+        {
+          "source": "installed-pod:RNFBApp@26.3.2",
+          "path": "lib/internal/web/memidb/LICENSE"
+        },
+        {
+          "source": "npm:@react-native-firebase/app@26.3.2",
+          "path": "dist/module/internal/web/memidb/LICENSE"
+        },
+        {
+          "source": "npm:@react-native-firebase/app@26.3.2",
+          "path": "lib/internal/web/memidb/LICENSE"
         }
       ]
     },
@@ -5281,6 +5403,20 @@
         },
         {
           "source": "npm:react-native@0.83.10",
+          "path": "LICENSE"
+        }
+      ]
+    },
+    {
+      "sha256": "d1d91013bad44a8e9205add3f028f1a3343d1e4856bbbdb38802b02787ad147d",
+      "text": "Apache-2.0 License\n------------------\n\nCopyright (c) 2016-present Invertase Limited <oss@invertase.io> & Contributors\n\nLicensed under the Apache License, Version 2.0 (the \"License\");\nyou may not use this library except in compliance with the License.\n\nYou may obtain a copy of the Apache-2.0 License at\n\n    http://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an \"AS IS\" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the License.\n\n\nCreative Commons Attribution 3.0 License\n----------------------------------------\n\nCopyright (c) 2016-present Invertase Limited <oss@invertase.io> & Contributors\n\nDocumentation and other instructional materials provided for this project\n(including on a separate documentation repository or it's documentation website) are\nlicensed under the Creative Commons Attribution 3.0 License. Code samples/blocks\ncontained therein are licensed under the Apache License, Version 2.0 (the \"License\"), as above.\n\nYou may obtain a copy of the Creative Commons Attribution 3.0 License at\n\n    https://creativecommons.org/licenses/by/3.0/",
+      "sources": [
+        {
+          "source": "installed-pod:RNFBMessaging@26.3.2",
+          "path": "LICENSE"
+        },
+        {
+          "source": "npm:@react-native-firebase/messaging@26.3.2",
           "path": "LICENSE"
         }
       ]

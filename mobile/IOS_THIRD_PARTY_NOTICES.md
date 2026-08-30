@@ -6,8 +6,8 @@
 
 This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retains package-specific LICENSE and NOTICE documents from the distributed sources.
 
-- Dependencies: 112
-- Retained unique legal texts: 20
+- Dependencies: 114
+- Retained unique legal texts: 23
 
 ### BVLinearGradient@2.8.3
 
@@ -45,7 +45,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `74925fc7ae01b83bfa279f0728a7af052f1ed4d2`
+- Podspec checksum: `0009020ac82815d6c3ddaec92f84397e35a3ff46`
 - Owning npm source: `expo@55.0.28`
 - Retained legal document(s): `371567d5d8999eeffba61ddbcb60ffbe4f25c3f165f1772e2c66befd0251bffa`, `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
@@ -117,7 +117,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `c762c92a2034927578943ead805e9d2066ed08df`
+- Podspec checksum: `15eec5b2cf902fc4f9d64c71adf279bf4e538b8d`
 - Owning npm source: `expo-modules-core@55.0.25`
 - Retained legal document(s): `371567d5d8999eeffba61ddbcb60ffbe4f25c3f165f1772e2c66befd0251bffa`, `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
@@ -125,7 +125,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `52db434b6c7f626a4613974b2bd05f9816c07224`
+- Podspec checksum: `ae8ebeef19be77aeaf25f2655a5303755ef7178d`
 - Owning npm source: `expo-modules-core@55.0.25`
 - Retained legal document(s): `371567d5d8999eeffba61ddbcb60ffbe4f25c3f165f1772e2c66befd0251bffa`, `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
@@ -227,7 +227,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `302f2fac014fd450046c120567ca364632da682b`
+- Podspec checksum: `8857fb173af29664cb90897903902dc8533e36cc`
 - Owning npm source: `@react-native-async-storage/async-storage@2.2.0`
 - Retained legal document(s): `212dbf14b113759356207347826f21ac3c81151943fdb89ce25da5dc6214831c`, `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
@@ -235,9 +235,25 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `962296f7af77f6c039b683e21c2e2255af9c05df`
+- Podspec checksum: `4eea71d801c880175c12f6ab14332ca86fed935f`
 - Owning npm source: `@react-native-clipboard/clipboard@1.16.3`
 - Retained legal document(s): `212dbf14b113759356207347826f21ac3c81151943fdb89ce25da5dc6214831c`, `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
+
+### RNFBApp@26.3.2
+
+- Platform: iOS
+- Selected license(s): Apache-2.0
+- Podspec checksum: `367f26e3091c045946b5bf1d12692a987534c8af`
+- Owning npm source: `@react-native-firebase/app@26.3.2`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `2e285234d6443925d0881654c748f331d9919ac5748b06bf4a6101fe5604f60a`, `5b06c05c66fe9d520eab80b2b212d9c14932ec63a7e51d36f6214f72695a07bb`
+
+### RNFBMessaging@26.3.2
+
+- Platform: iOS
+- Selected license(s): Apache-2.0
+- Podspec checksum: `548ce06c240039f1b423d670949c1a79892d4df3`
+- Owning npm source: `@react-native-firebase/messaging@26.3.2`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `d1d91013bad44a8e9205add3f028f1a3343d1e4856bbbdb38802b02787ad147d`
 
 ### RNFS@2.20.0
 
@@ -251,7 +267,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `77eecab5fd636666ca73a55bb61e2f1a685b7e84`
+- Podspec checksum: `1f7ac76fa9d6ffedfdde38ce781442ffadac8880`
 - Owning npm source: `react-native-gesture-handler@2.30.0`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf926c5c74ae12435b1cbe9be06ddf6cb10a0db5d9c03b089041bb30aae945f6`
 
@@ -259,7 +275,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `361d5b8e20a77cd1f7907ad301f6d51ef79c1545`
+- Podspec checksum: `0a23a0a9721f450580f0fdf04b9ae928cd22915a`
 - Owning npm source: `react-native-reanimated@4.2.1`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf926c5c74ae12435b1cbe9be06ddf6cb10a0db5d9c03b089041bb30aae945f6`
 
@@ -267,7 +283,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `8744ec9d5c0ca0f51cdd7a577c30ce01cd3d76b0`
+- Podspec checksum: `4d484ec4a8cb484c1c0e33972670724e194dba09`
 - Owning npm source: `react-native-svg@15.15.3`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `c37f7b559adedcd8a3a988f40f13bfa9b297327ff16325604a650acddb44d7ec`
 
@@ -275,7 +291,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `ec8bdc9f024d5828e5adf4f5e8870d5260cff616`
+- Podspec checksum: `32d204189c8c164da3aef640b6d1d8721c25a86f`
 - Owning npm source: `react-native-screens@4.23.0`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `8ffc5e162f4e2afdf64eb92ef26627ff9e244e7fb38079ec3049efe029d4af30`
 
@@ -283,7 +299,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `542d9aaad3ff4e4d9ad7d206524c4c8c27f81400`
+- Podspec checksum: `6b9b50b92c088364edbeb9e5fb805aaef67653e8`
 - Owning npm source: `react-native-share@12.2.2`
 - Retained legal document(s): `391312fe61706febff1947313865bbbaffe458de21324c1370e66036995f6d6e`, `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
@@ -315,7 +331,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `5b672abc3807da93fcb122ccc9aa59af908fea86`
+- Podspec checksum: `e699e54dfa99084c18ea3a152ed83bb99b0a4bd8`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -323,7 +339,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `b49dcd9d9b7b3371d8041a34453984ebee9b0f7b`
+- Podspec checksum: `c0afa5fd659cb75d4aaa1055b478da723817bef7`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -331,7 +347,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `7ff199a36b0560406f547e5dad9589b4f429f5a9`
+- Podspec checksum: `356d6f7f3cfc0fa5add8369b3dcfc76b28d58540`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -339,7 +355,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `f88b17ef4ba1746ac8fe18d01ea66435d9b244ba`
+- Podspec checksum: `0123c4a5f0e55aa36dea062eb0a37dd1beba87d9`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -347,7 +363,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `d602585bff1eb3a23fda0cd56436690f61ef79b6`
+- Podspec checksum: `1944edf80a47674bbda464c4bc00207694d1977d`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -355,7 +371,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `ca7209e742ed57020f2794536b3e2342a0fc51ab`
+- Podspec checksum: `b6df0ffa060b5bf5482a103c93ba2a704eb07fc7`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -395,7 +411,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `35fade7934a7a76d4b65ab6ac2a5d6f86279fdd9`
+- Podspec checksum: `9d9ce35f73e5fe7951542a86a1fa2196cdb0cd01`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -403,7 +419,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `7e4a58c5e2f06d66602a6075edf52a4586c8e561`
+- Podspec checksum: `4a037256070a4b9052e0acf72b2ee9028d06af5c`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -435,7 +451,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `3cf97d17702771974a22d782d6cac4ac6dcdaa09`
+- Podspec checksum: `40aa876a15be249d4cd29640d4878b94b416b95b`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -467,7 +483,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `a0be45915b9e6b28e9ade83a9dcabcc7c876209a`
+- Podspec checksum: `cd5717e0bc3de77b9ac90111820ded7df12141d4`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -475,7 +491,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `3db61ee44713d7b385ea05f73f029fa4fc5b0b42`
+- Podspec checksum: `4d2481eb286dbad1299986383e427559d93f7c6b`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -483,7 +499,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `b8fdea15f8749865893a75fd11cae5b8b8a7539a`
+- Podspec checksum: `c3c5605aa4390fc4312a4b8d5b0330a6a2833ee0`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -507,7 +523,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `87150efd2ecdaa3a5d6cfaae0c459ed815d94ed8`
+- Podspec checksum: `a15804a8a6a96b82d47730c494e0ab1b38571060`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -515,7 +531,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `7f8175d7501d837ac616d09f27110ce2dcfe5ae3`
+- Podspec checksum: `dd171c8473191d84acc38acfa57f41fe8f745005`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -523,7 +539,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `2de158eb9435c65c5b3ac177da869abb2a3ab3d1`
+- Podspec checksum: `86fb6c736ffb03ec42b5e19275b5efa9fadf27b0`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -531,7 +547,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `2a64ec3e7872907e9af52a2edb47347c4fc80bfd`
+- Podspec checksum: `203d80c69b1769108567da71b3e30ced011d20e4`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -539,7 +555,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `8004a048d55bb0e1b21ab6b908bfd2492a0f3afd`
+- Podspec checksum: `58d4f578040ccf632cf1167a81589be597fe7768`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -547,7 +563,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `d7da4618615d0aa72197af934eac586af9adb0dd`
+- Podspec checksum: `1d8949da76d157ebde581fbc899e7cb98792c1cd`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -563,7 +579,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `a3cbda1dd7281168bec652c58636e3d3e221bdad`
+- Podspec checksum: `9e6d32302e742dc1cba27888f2da19a1df65732a`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -571,7 +587,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `bbab37b10fb8571538310df961161e1678ceb3c5`
+- Podspec checksum: `6d4baa875a3169305a693f7fbd4d8400da5eb544`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -579,7 +595,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `0cd9b4545cc53dff9a75f4f88ff20a7a2c7df04c`
+- Podspec checksum: `5230df9ba54a68f0156b5c8ca4d8e356ddffdb5d`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -603,7 +619,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `3492da0de929c8a15bb7f64854b088cc22d9ebe3`
+- Podspec checksum: `5b24d22ce83e095583d9d83973db205f7ce44753`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -611,7 +627,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `eb01db7bbb98f32f7b425031b381a60662854483`
+- Podspec checksum: `0e4f4bb1886a29208cbcb1a25b635b3ffeb2411c`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -619,7 +635,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `62fb1c619d50d948b2af5d552d4cbc32dae169ba`
+- Podspec checksum: `aa4f900b8247d94d2772a6b97f71e7e1f86f9451`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -627,7 +643,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `7a1c483310f06659684b119a89bfbadf38cd26e5`
+- Podspec checksum: `967f0428c7cac6547b065fd17b52a30bd8b764e0`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -635,7 +651,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `330e0e68cb9e76a388fa5e09fe1419a75d667368`
+- Podspec checksum: `011226d40a52642a284db86083cae0385d0963af`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -643,7 +659,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `cd9903359af10ebee59283fd21280fd22a19d1eb`
+- Podspec checksum: `28cadff2071c3f317328d5940f17dc6113c3b7eb`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -659,7 +675,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `8664004a3cecf0f3351f1b11dc258f52c3b75f2c`
+- Podspec checksum: `cb07c62022c4208e6db2729838d99202941f05b9`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -667,7 +683,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `03032b81c8c5308687b85043796465c1651b032c`
+- Podspec checksum: `8713587e6219190e4210864e00367056cff684f8`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -675,7 +691,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `d499aa90e87265446a380e8517d5ccccfb94ea38`
+- Podspec checksum: `1e98d651568ab427a6e59185dd3de5b2019a24f8`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -699,7 +715,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `b46f58a6580ecf876d163f463a88cac909e238d6`
+- Podspec checksum: `b9bca7569da3164fb8ae7b33fe9c2487a2eab371`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -707,7 +723,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `cca1b2bfaae0ad8a6c3030eb8fb8e28e07598e17`
+- Podspec checksum: `d058a7e11c408f9f799c27cbd29a6137910da16b`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -715,7 +731,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `82c40827ba1fcca245f69e27b0fdf6598d2e2d9c`
+- Podspec checksum: `663bc0a803ee67659b6453e958df6c446294f149`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -723,7 +739,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `2a4c315167597023b9b3cfa510909dfe7186e14a`
+- Podspec checksum: `74793b5c2d8ea808c4323e724e9bdacfa0d7363d`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -731,7 +747,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `da4f679e80c0e9b613a4bda73d476e3b29a1a85a`
+- Podspec checksum: `3951c5aabdda0bd5e4be96db58066a1e123fcbbc`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -739,7 +755,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `88b74c1f6d5501d3de4f84482759ffa67666c8fe`
+- Podspec checksum: `1d81cf97d0baa359d28d0d3acc99cae68307248a`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -747,7 +763,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `e539c51f0452490f8dfca0f4e7f74aa994ab8380`
+- Podspec checksum: `d6b8011620d5b593f30859563b62da52e5593f0e`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -755,7 +771,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `7ae3a1f186f7b47cd958d083471ca9437da38122`
+- Podspec checksum: `49e3a60d720233b96f7d4a273dfea56c2e132d6f`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -763,7 +779,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `5e161ec701b7bc5fe4ff972e46c3cf670f90ab25`
+- Podspec checksum: `491e28a3b413e2cbed083e2735a04a82d873d0f1`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -771,7 +787,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `b99b73e1e42a9daaf425c36723f41527d85131bf`
+- Podspec checksum: `1d5ae7ac36397282eca6927350cbcfd4a7f7acde`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -794,14 +810,14 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): first-party generated target
-- Podspec checksum: `d90f4973af8a40c3bd7c17a5f1ba9267ef27d744`
+- Podspec checksum: `6e3a17e832ddcb3eb9eb6f055098b3cd1ddee5d2`
 - Retained legal document(s): none (exact reviewed absence above)
 
 ### ReactCommon@0.83.10
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `ddccb5fdac38485ab6cf9e2a5099b31d96a42328`
+- Podspec checksum: `09f5876b7bb54ec82491d727692e8a710a700ef5`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -824,7 +840,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `d2ed98551adb569fc38be0148666854e1ff60692`
+- Podspec checksum: `36c8d57a563ad609c1f7342857de6e23fa1edd5a`
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
@@ -873,7 +889,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `43e6cd4231e670030fe09b079d696fa5a634ccfc`
+- Podspec checksum: `b99d9c1f2ddbef491eb49e1103e5c2ce78b9ab37`
 - Owning npm source: `react-native-image-picker@8.2.1`
 - Retained legal document(s): `212dbf14b113759356207347826f21ac3c81151943fdb89ce25da5dc6214831c`, `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
@@ -889,7 +905,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `54d812805f3c4e08a4580ad086cbde1d8780c2e4`
+- Podspec checksum: `fea29ae0275beaa22f72d0a8be1eb0ab09c3feae`
 - Owning npm source: `react-native-safe-area-context@5.6.2`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cc30a121cf37246721684906022ebd5bf36975c10b7737017188340a6ca9a47b`
 
@@ -897,7 +913,7 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 
 - Platform: iOS
 - Selected license(s): MIT
-- Podspec checksum: `7be878f72d62c9259f40e44c9318f45dc38fb58d`
+- Podspec checksum: `f9758cda5b9dd6fd378389002f28f3f19017a406`
 - Owning npm source: `react-native-video@6.18.0`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `f4333608f323f709ac5d7f60772d61353b8511e21e22f4ebcc7a3bd434b33d38`
 
@@ -1157,6 +1173,45 @@ Apache License
    limitations under the License.
 ```
 
+### 2e285234d6443925d0881654c748f331d9919ac5748b06bf4a6101fe5604f60a
+
+Source(s): `installed-pod:RNFBApp@26.3.2/LICENSE`, `npm:@react-native-firebase/app@26.3.2/LICENSE`
+
+```text
+Apache-2.0 License
+------------------
+
+Copyright (c) 2016-present Invertase Limited <oss@invertase.io>
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this library except in compliance with the License.
+
+You may obtain a copy of the Apache-2.0 License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+
+Creative Commons Attribution 3.0 License
+----------------------------------------
+
+Copyright (c) 2016-present Invertase Limited <oss@invertase.io>
+
+Documentation and other instructional materials provided for this project
+(including on a separate documentation repository or it's documentation website) are
+licensed under the Creative Commons Attribution 3.0 License. Code samples/blocks
+contained therein are licensed under the Apache License, Version 2.0 (the "License"), as above.
+
+You may obtain a copy of the Creative Commons Attribution 3.0 License at
+
+    https://creativecommons.org/licenses/by/3.0/
+```
+
 ### 371567d5d8999eeffba61ddbcb60ffbe4f25c3f165f1772e2c66befd0251bffa
 
 Source(s): `upstream:https://github.com/expo/expo/blob/7c081282cf88968f81732feb67a71840e769a40f/LICENSE/scripts/licenses/upstream/expo-expo-LICENSE`, `upstream:https://github.com/expo/expo/blob/c8f16914a2713c37fe446c46d613004626b3e6b3/LICENSE/scripts/licenses/upstream/expo-expo-LICENSE`, `upstream:https://github.com/expo/expo/blob/fcb091766242d53248cd3c5949965961dbc5ec1d/LICENSE/scripts/licenses/upstream/expo-expo-LICENSE`
@@ -1304,6 +1359,221 @@ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
 ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+### 5b06c05c66fe9d520eab80b2b212d9c14932ec63a7e51d36f6214f72695a07bb
+
+Source(s): `installed-pod:RNFBApp@26.3.2/dist/module/internal/web/memidb/LICENSE`, `installed-pod:RNFBApp@26.3.2/lib/internal/web/memidb/LICENSE`, `npm:@react-native-firebase/app@26.3.2/dist/module/internal/web/memidb/LICENSE`, `npm:@react-native-firebase/app@26.3.2/lib/internal/web/memidb/LICENSE`
+
+```text
+Apache License
+Version 2.0, January 2004
+http://www.apache.org/licenses/
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+1. Definitions.
+
+    "License" shall mean the terms and conditions for use, reproduction, and
+    distribution as defined by Sections 1 through 9 of this document.
+
+    "Licensor" shall mean the copyright owner or entity authorized by the
+    copyright owner that is granting the License.
+
+    "Legal Entity" shall mean the union of the acting entity and all other
+    entities that control, are controlled by, or are under common control with
+    that entity. For the purposes of this definition, "control" means (i) the
+    power, direct or indirect, to cause the direction or management of such
+    entity, whether by contract or otherwise, or (ii) ownership of
+    fifty percent (50%) or more of the outstanding shares, or (iii) beneficial
+    ownership of such entity.
+
+    "You" (or "Your") shall mean an individual or Legal Entity exercising
+    permissions granted by this License.
+
+    "Source" form shall mean the preferred form for making modifications,
+    including but not limited to software source code, documentation source,
+    and configuration files.
+
+    "Object" form shall mean any form resulting from mechanical transformation
+    or translation of a Source form, including but not limited to compiled
+    object code, generated documentation, and conversions to
+    other media types.
+
+    "Work" shall mean the work of authorship, whether in Source or Object
+    form, made available under the License, as indicated by a copyright notice
+    that is included in or attached to the work (an example is provided in the
+    Appendix below).
+
+    "Derivative Works" shall mean any work, whether in Source or Object form,
+    that is based on (or derived from) the Work and for which the editorial
+    revisions, annotations, elaborations, or other modifications represent,
+    as a whole, an original work of authorship. For the purposes of this
+    License, Derivative Works shall not include works that remain separable
+    from, or merely link (or bind by name) to the interfaces of, the Work and
+    Derivative Works thereof.
+
+    "Contribution" shall mean any work of authorship, including the original
+    version of the Work and any modifications or additions to that Work or
+    Derivative Works thereof, that is intentionally submitted to Licensor for
+    inclusion in the Work by the copyright owner or by an individual or
+    Legal Entity authorized to submit on behalf of the copyright owner.
+    For the purposes of this definition, "submitted" means any form of
+    electronic, verbal, or written communication sent to the Licensor or its
+    representatives, including but not limited to communication on electronic
+    mailing lists, source code control systems, and issue tracking systems
+    that are managed by, or on behalf of, the Licensor for the purpose of
+    discussing and improving the Work, but excluding communication that is
+    conspicuously marked or otherwise designated in writing by the copyright
+    owner as "Not a Contribution."
+
+    "Contributor" shall mean Licensor and any individual or Legal Entity on
+    behalf of whom a Contribution has been received by Licensor and
+    subsequently incorporated within the Work.
+
+2. Grant of Copyright License.
+
+    Subject to the terms and conditions of this License, each Contributor
+    hereby grants to You a perpetual, worldwide, non-exclusive, no-charge,
+    royalty-free, irrevocable copyright license to reproduce, prepare
+    Derivative Works of, publicly display, publicly perform, sublicense,
+    and distribute the Work and such Derivative Works in
+    Source or Object form.
+
+3. Grant of Patent License.
+
+    Subject to the terms and conditions of this License, each Contributor
+    hereby grants to You a perpetual, worldwide, non-exclusive, no-charge,
+    royalty-free, irrevocable (except as stated in this section) patent
+    license to make, have made, use, offer to sell, sell, import, and
+    otherwise transfer the Work, where such license applies only to those
+    patent claims licensable by such Contributor that are necessarily
+    infringed by their Contribution(s) alone or by combination of their
+    Contribution(s) with the Work to which such Contribution(s) was submitted.
+    If You institute patent litigation against any entity (including a
+    cross-claim or counterclaim in a lawsuit) alleging that the Work or a
+    Contribution incorporated within the Work constitutes direct or
+    contributory patent infringement, then any patent licenses granted to
+    You under this License for that Work shall terminate as of the date such
+    litigation is filed.
+
+4. Redistribution.
+
+    You may reproduce and distribute copies of the Work or Derivative Works
+    thereof in any medium, with or without modifications, and in Source or
+    Object form, provided that You meet the following conditions:
+
+    1. You must give any other recipients of the Work or Derivative Works a
+    copy of this License; and
+
+    2. You must cause any modified files to carry prominent notices stating
+    that You changed the files; and
+
+    3. You must retain, in the Source form of any Derivative Works that You
+    distribute, all copyright, patent, trademark, and attribution notices from
+    the Source form of the Work, excluding those notices that do not pertain
+    to any part of the Derivative Works; and
+
+    4. If the Work includes a "NOTICE" text file as part of its distribution,
+    then any Derivative Works that You distribute must include a readable copy
+    of the attribution notices contained within such NOTICE file, excluding
+    those notices that do not pertain to any part of the Derivative Works,
+    in at least one of the following places: within a NOTICE text file
+    distributed as part of the Derivative Works; within the Source form or
+    documentation, if provided along with the Derivative Works; or, within a
+    display generated by the Derivative Works, if and wherever such
+    third-party notices normally appear. The contents of the NOTICE file are
+    for informational purposes only and do not modify the License.
+    You may add Your own attribution notices within Derivative Works that You
+    distribute, alongside or as an addendum to the NOTICE text from the Work,
+    provided that such additional attribution notices cannot be construed
+    as modifying the License.
+
+    You may add Your own copyright statement to Your modifications and may
+    provide additional or different license terms and conditions for use,
+    reproduction, or distribution of Your modifications, or for any such
+    Derivative Works as a whole, provided Your use, reproduction, and
+    distribution of the Work otherwise complies with the conditions
+    stated in this License.
+
+5. Submission of Contributions.
+
+    Unless You explicitly state otherwise, any Contribution intentionally
+    submitted for inclusion in the Work by You to the Licensor shall be under
+    the terms and conditions of this License, without any additional
+    terms or conditions. Notwithstanding the above, nothing herein shall
+    supersede or modify the terms of any separate license agreement you may
+    have executed with Licensor regarding such Contributions.
+
+6. Trademarks.
+
+    This License does not grant permission to use the trade names, trademarks,
+    service marks, or product names of the Licensor, except as required for
+    reasonable and customary use in describing the origin of the Work and
+    reproducing the content of the NOTICE file.
+
+7. Disclaimer of Warranty.
+
+    Unless required by applicable law or agreed to in writing, Licensor
+    provides the Work (and each Contributor provides its Contributions)
+    on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+    either express or implied, including, without limitation, any warranties
+    or conditions of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS
+    FOR A PARTICULAR PURPOSE. You are solely responsible for determining the
+    appropriateness of using or redistributing the Work and assume any risks
+    associated with Your exercise of permissions under this License.
+
+8. Limitation of Liability.
+
+    In no event and under no legal theory, whether in tort
+    (including negligence), contract, or otherwise, unless required by
+    applicable law (such as deliberate and grossly negligent acts) or agreed
+    to in writing, shall any Contributor be liable to You for damages,
+    including any direct, indirect, special, incidental, or consequential
+    damages of any character arising as a result of this License or out of
+    the use or inability to use the Work (including but not limited to damages
+    for loss of goodwill, work stoppage, computer failure or malfunction,
+    or any and all other commercial damages or losses), even if such
+    Contributor has been advised of the possibility of such damages.
+
+9. Accepting Warranty or Additional Liability.
+
+    While redistributing the Work or Derivative Works thereof, You may choose
+    to offer, and charge a fee for, acceptance of support, warranty,
+    indemnity, or other liability obligations and/or rights consistent with
+    this License. However, in accepting such obligations, You may act only
+    on Your own behalf and on Your sole responsibility, not on behalf of any
+    other Contributor, and only if You agree to indemnify, defend, and hold
+    each Contributor harmless for any liability incurred by, or claims
+    asserted against, such Contributor by reason of your accepting any such
+    warranty or additional liability.
+
+END OF TERMS AND CONDITIONS
+
+APPENDIX: How to apply the Apache License to your work
+
+    To apply the Apache License to your work, attach the following boilerplate
+    notice, with the fields enclosed by brackets "[]" replaced with your own
+    identifying information. (Don't include the brackets!) The text should be
+    enclosed in the appropriate comment syntax for the file format. We also
+    recommend that a file or class name and description of purpose be included
+    on the same "printed page" as the copyright notice for easier
+    identification within third-party archives.
+
+        Copyright 2017 Jeremy Scheff
+
+
+        Licensed under the Apache License, Version 2.0 (the "License");
+        you may not use this file except in compliance with the License.
+        You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+        Unless required by applicable law or agreed to in writing, software
+        distributed under the License is distributed on an "AS IS" BASIS,
+        WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
+        or implied. See the License for the specific language governing
+        permissions and limitations under the License.
 ```
 
 ### 5fe5599c080ef8e9ddcf73795b8facb3852bef1ba7dd14c7e8f66a221ac93505
@@ -1523,6 +1793,45 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+### d1d91013bad44a8e9205add3f028f1a3343d1e4856bbbdb38802b02787ad147d
+
+Source(s): `installed-pod:RNFBMessaging@26.3.2/LICENSE`, `npm:@react-native-firebase/messaging@26.3.2/LICENSE`
+
+```text
+Apache-2.0 License
+------------------
+
+Copyright (c) 2016-present Invertase Limited <oss@invertase.io> & Contributors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this library except in compliance with the License.
+
+You may obtain a copy of the Apache-2.0 License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+
+Creative Commons Attribution 3.0 License
+----------------------------------------
+
+Copyright (c) 2016-present Invertase Limited <oss@invertase.io> & Contributors
+
+Documentation and other instructional materials provided for this project
+(including on a separate documentation repository or it's documentation website) are
+licensed under the Creative Commons Attribution 3.0 License. Code samples/blocks
+contained therein are licensed under the Apache License, Version 2.0 (the "License"), as above.
+
+You may obtain a copy of the Creative Commons Attribution 3.0 License at
+
+    https://creativecommons.org/licenses/by/3.0/
 ```
 
 ### d4572f3e030ff840c4759de9d905a2a7c4d09ed5587e4335cfb004e988533429
