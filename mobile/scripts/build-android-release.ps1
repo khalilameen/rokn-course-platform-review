@@ -145,6 +145,20 @@ function Get-StringSha256 {
     }
 }
 
+function Get-FileSha256 {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $stream = [System.IO.File]::OpenRead($Path)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return ([System.BitConverter]::ToString($sha256.ComputeHash($stream))).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha256.Dispose()
+        $stream.Dispose()
+    }
+}
+
 function Read-GradleProperties {
     param([Parameter(Mandatory = $true)][string[]]$Paths)
 
@@ -475,7 +489,7 @@ if ($isProduction -and (Test-Path -LiteralPath $r8Mapping -PathType Leaf)) {
 
 $gitCommit = (& git -C $projectRoot rev-parse HEAD 2>$null | Select-Object -First 1)
 $gitDirty = [bool](& git -C $projectRoot status --porcelain 2>$null | Select-Object -First 1)
-$artifactHash = Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256
+$artifactSha256 = Get-FileSha256 -Path $artifactPath
 $metadataApiHost = 'rokn-course-platform-review-production-b7gpy1.laravel.cloud'
 $metadataApiBase = 'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/'
 $metadataApiSource = 'source-default'
@@ -497,7 +511,7 @@ $metadata = [ordered]@{
     channel = $Channel
     profile = $Profile
     format = $Artifact
-    sha256 = $artifactHash.Hash.ToLowerInvariant()
+    sha256 = $artifactSha256
     bytes = (Get-Item -LiteralPath $artifactPath).Length
     signerSha256 = $signerSha256
     apiHost = $metadataApiHost

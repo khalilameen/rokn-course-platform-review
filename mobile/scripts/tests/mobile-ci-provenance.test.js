@@ -316,6 +316,21 @@ test('release tests isolate Jest from the production bundle environment', () => 
   assert.match(runner, /--detectOpenHandles/);
 });
 
+test('Windows release hashing does not depend on an optional PowerShell module', () => {
+  const releaseScript = fs.readFileSync(
+    path.join(root, 'scripts', 'build-android-release.ps1'),
+    'utf8',
+  );
+
+  assert.match(releaseScript, /function Get-FileSha256/);
+  assert.match(releaseScript, /\[System\.IO\.File\]::OpenRead\(\$Path\)/);
+  assert.match(
+    releaseScript,
+    /\$artifactSha256 = Get-FileSha256 -Path \$artifactPath/,
+  );
+  assert.doesNotMatch(releaseScript, /\bGet-FileHash\b/);
+});
+
 test('native lock refresh captures the production Android metadata closure', () => {
   const workflow = fs.readFileSync(
     path.join(root, '..', '.github', 'workflows', 'refresh-ios-lock.yml'),
