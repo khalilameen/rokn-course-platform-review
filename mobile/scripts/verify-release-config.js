@@ -214,6 +214,8 @@ const iosResourcesBuildPhases =
   iosProject.match(
     /\/\* Begin PBXResourcesBuildPhase section \*\/([\s\S]*?)\/\* End PBXResourcesBuildPhase section \*\//,
   )?.[1] || '';
+const pbxShellQuote = String.raw`\"`;
+const overEscapedPbxShellQuote = String.raw`\\\"`;
 assert(
   iosFirebaseBuildFile &&
     iosResourcesBuildPhases.includes(
@@ -236,6 +238,24 @@ assert(
 assert(
   [...iosAppDelegate.matchAll(/\bopen url:\s*URL\b/g)].length === 1,
   'The iOS AppDelegate must expose exactly one application URL callback.',
+);
+assert(
+  iosProject.includes(
+    `-e ${pbxShellQuote}require('expo/scripts/resolveAppEntry')${pbxShellQuote}`,
+  ) &&
+    iosProject.includes(
+      `--print ${pbxShellQuote}require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })${pbxShellQuote}`,
+    ),
+  'The iOS bundle phase does not contain the executable Expo entry and CLI resolvers.',
+);
+assert(
+  !iosProject.includes(
+    `${overEscapedPbxShellQuote}require('expo/scripts/resolveAppEntry')${overEscapedPbxShellQuote}`,
+  ) &&
+    !iosProject.includes(
+      `${overEscapedPbxShellQuote}require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })${overEscapedPbxShellQuote}`,
+    ),
+  'The iOS bundle phase contains over-escaped Node expressions that /bin/sh cannot execute.',
 );
 const firebaseIgnoreRules = gitignore
   .split(/\r?\n/)
