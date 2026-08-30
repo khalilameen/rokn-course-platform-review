@@ -122,7 +122,7 @@ jobs:
 
   ios-native:
     runs-on: macos-26
-    timeout-minutes: 40
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: mobile
@@ -159,11 +159,11 @@ jobs:
         run: bundle _4.0.19_ exec pod install --deployment
       - name: Verify installed native legal provenance
         run: npm run licenses:native:check
-      - name: Build the unsigned Release target for the iOS Simulator
+      - name: Build the unsigned Release target for an iOS device
         run: >-
           xcodebuild -workspace ios/Rokn.xcworkspace -scheme Rokn
-          -configuration Release -sdk iphonesimulator
-          -destination 'generic/platform=iOS Simulator'
+          -configuration Release -sdk iphoneos
+          -destination 'generic/platform=iOS'
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
 
   android-staging-smoke:
