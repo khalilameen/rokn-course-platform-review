@@ -84,6 +84,8 @@ class UserResource extends UsersResource
             return $enrollment->course;
         })->filter(); // Remove null courses
 
+        app(\App\Services\CourseDurationService::class)->attachMany($courses);
+
         return \App\Http\Resources\BaseCourseResource::collection($courses);
     }
 }

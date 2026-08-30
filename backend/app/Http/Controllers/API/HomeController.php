@@ -13,12 +13,17 @@ use App\Models\Course;
 use App\Models\Classification;
 use App\Models\Lesson;
 use App\Http\Resources\BaseCourseResource;
+use App\Services\CourseDurationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 
 final class HomeController extends Controller
 {
+    public function __construct(private readonly CourseDurationService $duration)
+    {
+    }
+
     public function mainPage(Request $request): JsonResponse
     {
         $settings = $this->getSettings();
@@ -35,30 +40,34 @@ final class HomeController extends Controller
             ];
         }
 
+        $courses = $this->remember(
+            'home:courses:v5:' . $this->catalogRevision(),
+            120,
+            fn () => Course::query()
+                ->whereNull('parent_id')
+                ->visibleInCatalog()
+                ->where(function ($availability) {
+                    $availability->where('is_coming_soon', true)
+                        ->orWhereHas('sections');
+                })
+                ->with(['photo', 'teachers.photo', 'classifications', 'coursePath'])
+                ->withCount(['sections as preview_reels_count' => function ($query) {
+                    $query->where('sectionable_type', Lesson::class)
+                        ->whereIn('sectionable_id', Lesson::query()->select('id')->where('is_opened', true));
+                }])
+                ->latest('created_at')
+                ->limit(50)
+                ->get()
+        );
+        $this->duration->attachMany($courses);
+
         return response()->json([
             "status" => 200,
             "success" => true,
             "message" => "Home content retrieved successfully",
             "data" => [
                 [
-                    "courses" => BaseCourseResource::collection(
-                        $this->remember('home:courses:v4', 120, fn () => Course::query()
-                            ->whereNull('parent_id')
-                            ->visibleInCatalog()
-                            ->where(function ($availability) {
-                                $availability->where('is_coming_soon', true)
-                                    ->orWhereHas('sections');
-                            })
-                            ->with(['photo', 'teachers.photo', 'classifications', 'coursePath'])
-                            ->withCount(['sections as preview_reels_count' => function ($query) {
-                                $query->where('sectionable_type', Lesson::class)
-                                    ->whereIn('sectionable_id', Lesson::query()->select('id')->where('is_opened', true));
-                            }])
-                            ->latest('created_at')
-                            ->limit(50)
-                            ->get()
-                        )
-                    ),
+                    "courses" => BaseCourseResource::collection($courses),
                     "grades" => $grades,
                 ]
             ]
@@ -67,7 +76,8 @@ final class HomeController extends Controller
 
     public function mobileMainPage(Request $request): JsonResponse
     {
-        $mainCourses = $this->remember('mobile-home:main-courses:v3', 120, fn () => Course::query()
+        $catalogRevision = $this->catalogRevision();
+        $mainCourses = $this->remember("mobile-home:main-courses:v4:{$catalogRevision}", 120, fn () => Course::query()
             ->whereNull('parent_id')
             ->where('is_main_course', true)
             ->where('is_coming_soon', false)
@@ -87,7 +97,7 @@ final class HomeController extends Controller
         $hasCourseHomeOrder = Schema::hasColumn('courses', 'home_sort_order');
 
         $classifications = $this->remember(
-            'mobile-home:classifications:v6:' . ($hasHomeRowControls ? 'managed' : 'legacy'),
+            'mobile-home:classifications:v7:' . $catalogRevision . ':' . ($hasHomeRowControls ? 'managed' : 'legacy'),
             120,
             fn () => Classification::query()
                 ->when($hasHomeRowControls, fn ($query) => $query->where('show_on_home', true))
@@ -112,7 +122,7 @@ final class HomeController extends Controller
             // of loading every course in the classification and slicing it in
             // PHP. The result is bounded to 300 cards even with a huge catalog.
             $courses = $this->remember(
-                "mobile-home:classification:{$classification->id}:courses:v6:" . ($hasCourseHomeOrder ? 'managed' : 'legacy'),
+                "mobile-home:classification:{$classification->id}:courses:v7:{$catalogRevision}:" . ($hasCourseHomeOrder ? 'managed' : 'legacy'),
                 120,
                 fn () => $classification->courses()
                     ->whereNull('parent_id')
@@ -136,11 +146,18 @@ final class HomeController extends Controller
             );
 
             if ($courses->isNotEmpty()) {
-                $groupedCourses[$classification->name_ar] = BaseCourseResource::collection(
-                    $courses
-                );
+                $groupedCourses[$classification->name_ar] = $courses;
             }
         }
+
+        $allCourses = $mainCourses
+            ->concat(collect($groupedCourses)->flatten(1))
+            ->unique(fn (Course $course): int => (int) $course->getKey())
+            ->values();
+        $this->duration->attachMany($allCourses);
+        $presentedGroups = collect($groupedCourses)
+            ->map(fn ($courses) => BaseCourseResource::collection($courses))
+            ->all();
 
         return response()->json([
             "status" => 200,
@@ -148,7 +165,7 @@ final class HomeController extends Controller
             "message" => "Mobile home content retrieved successfully",
             "data" => [
                 "main_courses" => BaseCourseResource::collection($mainCourses),
-                "courses" => $groupedCourses
+                "courses" => $presentedGroups
             ]
         ]);
     }
@@ -204,6 +221,11 @@ final class HomeController extends Controller
     private function getSettings(): ?DesignSetting
     {
         return $this->remember('home:design-settings:v1', 60, fn () => DesignSetting::first());
+    }
+
+    private function catalogRevision(): int
+    {
+        return max(1, (int) Cache::get('courses:catalog-revision', 1));
     }
 
     private function remember(string $key, int $seconds, callable $callback): mixed

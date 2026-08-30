@@ -5,6 +5,7 @@ namespace App\Http\Resources;
 use Illuminate\Http\Resources\Json\JsonResource;
 use App\Services\BunnyService;
 use App\Services\CourseAccessPlanService;
+use App\Services\CourseDurationService;
 
 class BaseCourseResource extends JsonResource
 {
@@ -68,7 +69,7 @@ class BaseCourseResource extends JsonResource
             : $verifiedHistoricalStudents + $activeStudentsCount;
         $durationMinutes = array_key_exists('duration_minutes_computed', $attributes)
             ? max(0, (int) $attributes['duration_minutes_computed'])
-            : max(0, (int) ($this->hours_count ?? 0)) * 60;
+            : app(CourseDurationService::class)->minutes($this->resource);
 
         return [
             'id' => (int)$this->id,

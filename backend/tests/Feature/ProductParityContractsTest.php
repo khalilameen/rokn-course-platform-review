@@ -9,6 +9,7 @@ use App\Http\Middleware\WebsiteVisitorCount;
 use App\Models\Course;
 use App\Models\Lesson;
 use App\Models\LessonMediaState;
+use App\Models\Path;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -112,11 +113,17 @@ final class ProductParityContractsTest extends TestCase
 
     public function test_course_details_exposes_the_verified_total_duration_in_minutes(): void
     {
+        $path = Path::create([
+            'title_ar' => 'مسار المدة',
+            'title_en' => 'Duration path',
+        ]);
         $course = $this->course([
             'name_ar' => 'Duration course',
             'price' => 300,
             'is_coming_soon' => false,
             'is_catalog_visible' => true,
+            'is_main_course' => true,
+            'path_id' => $path->id,
         ]);
         $declaredLesson = Lesson::create([
             'list_id' => $course->id,
@@ -165,6 +172,21 @@ final class ProductParityContractsTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.courses.0.id', $course->id)
             ->assertJsonPath('data.courses.0.metadata.duration_minutes', 15);
+
+        $this->getJson('/api/v1/main')
+            ->assertOk()
+            ->assertJsonPath('data.0.courses.0.id', $course->id)
+            ->assertJsonPath('data.0.courses.0.metadata.duration_minutes', 15);
+
+        $this->getJson('/api/v1/mobile-main-page')
+            ->assertOk()
+            ->assertJsonPath('data.main_courses.0.id', $course->id)
+            ->assertJsonPath('data.main_courses.0.metadata.duration_minutes', 15);
+
+        $this->getJson('/api/v1/paths')
+            ->assertOk()
+            ->assertJsonPath('data.0.courses.0.id', $course->id)
+            ->assertJsonPath('data.0.courses.0.metadata.duration_minutes', 15);
     }
 
     public function test_learning_dashboard_returns_only_a_valid_resume_projection(): void

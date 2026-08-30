@@ -10,6 +10,7 @@ use App\Models\Level;
 use App\Models\Path;
 use App\Models\User;
 use App\Services\ApiResponseService;
+use App\Services\CourseDurationService;
 use App\Services\UserPathProgressService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -18,6 +19,7 @@ final class PathController extends Controller
 {
     public function __construct(
         private readonly ApiResponseService $responses,
+        private readonly CourseDurationService $duration,
         private readonly UserPathProgressService $progress
     ) {
     }
@@ -27,6 +29,9 @@ final class PathController extends Controller
         $levels = Level::ordered()->get();
         $paths = Path::with(['interests', 'courses.level'])->get();
         $paths->each->setRelation('availableLevels', $levels);
+        $this->duration->attachMany(
+            $paths->flatMap(fn (Path $path) => $path->courses)->unique('id')->values()
+        );
 
         return $this->responses->resource(
             PathResource::collection($paths),
@@ -43,6 +48,7 @@ final class PathController extends Controller
             'courses.teachers',
         ])->findOrFail($id);
         $path->setRelation('availableLevels', Level::ordered()->get());
+        $this->duration->attachMany($path->courses->unique('id')->values());
 
         return $this->responses->resource(
             new PathResource($path),
