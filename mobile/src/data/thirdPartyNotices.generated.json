@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "package-lock.json production dependency closure",
-  "packageCount": 715,
-  "packagePathCount": 813,
-  "inventoryHash": "8d63dffd9c7203354e6a444558201e4fa7e3d4e70b1b4afa2659b6e589d51f84",
+  "packageCount": 716,
+  "packagePathCount": 814,
+  "inventoryHash": "a417d17a35337164bb7fa7e35ef3a718c0209b3d53be4ccb9a7b9fb4365ba307",
   "packages": [
     {
       "name": "@babel/code-frame",
@@ -3722,6 +3722,16 @@
       "declaredLicense": "MIT",
       "sourceUrl": "https://www.npmjs.com/package/expo-font/v/55.0.8",
       "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "expo-iap",
+      "version": "5.4.1",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/expo-iap/v/5.4.1",
+      "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
     },

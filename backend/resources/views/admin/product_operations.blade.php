@@ -51,6 +51,36 @@
         </div>
     </div>
 
+    <div class="card admin-card mb-4 {{ $storeNotificationReviews->isNotEmpty() ? 'border-warning' : '' }}">
+        <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 admin-gap">
+                <div>
+                    <h2 class="h5 mb-1">مراجعة إشعارات المتاجر</h2>
+                    <small class="text-muted">استردادات أو رسائل لم تُطابق عملية شراء معروفة. تُعالج الاستردادات المطابقة تلقائيًا دون تعطيل بقية الطلاب.</small>
+                </div>
+                <span class="badge {{ $storeNotificationReviews->isEmpty() ? 'badge-success' : 'badge-warning' }} p-2">
+                    {{ $storeNotificationReviews->isEmpty() ? 'لا توجد حالات معلقة' : number_format($counts['store_notification_reviews']).' حالة تحتاج مراجعة' }}
+                </span>
+            </div>
+            @if($storeNotificationReviews->isEmpty())
+                <div class="alert alert-success mb-0">كل إشعارات Google Play وApp Store الواردة عولجت أو صُنفت تلقائيًا.</div>
+            @else
+                <div class="table-responsive"><table class="table table-sm admin-table mb-0">
+                    <thead><tr><th>المتجر</th><th>الحدث</th><th>المرجع الآمن</th><th>سبب المراجعة</th><th>وقت الاستلام</th></tr></thead>
+                    <tbody>@foreach($storeNotificationReviews as $event)
+                        <tr>
+                            <td>{{ $event->provider === 'google_play' ? 'Google Play' : 'App Store' }}</td>
+                            <td>{{ $event->event_type ?: 'غير محدد' }}</td>
+                            <td><code>{{ $event->event_id }}</code></td>
+                            <td>{{ $event->error_code ?: 'تحتاج قرارًا تشغيليًا' }}</td>
+                            <td>{{ optional($event->received_at)->diffForHumans() ?: '—' }}</td>
+                        </tr>
+                    @endforeach</tbody>
+                </table></div>
+            @endif
+        </div>
+    </div>
+
     <div class="card admin-card mb-4"><div class="card-body">
         <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 admin-gap">
             <div><h2 class="h5 mb-1">جاهزية الوسائط</h2><small class="text-muted">حالة تجهيز الفيديو قبل النشر، لا مجرد وجود رابط.</small></div>
@@ -212,7 +242,9 @@
                     ['تشغيل الفيديو من CDN', data_get($capabilityReport, 'capabilities.bunny.playback')],
                     ['توقيع روابط التشغيل', data_get($capabilityReport, 'capabilities.bunny.signing')],
                     ['صور وملفات Bunny', data_get($capabilityReport, 'capabilities.bunny.assets')],
-                    ['الدفع عبر Kashier', data_get($capabilityReport, 'capabilities.payment')],
+                    ['الدفع عبر Kashier', data_get($capabilityReport, 'capabilities.payment.kashier')],
+                    ['الدفع عبر Google Play', data_get($capabilityReport, 'capabilities.payment.google_play')],
+                    ['الدفع عبر App Store', data_get($capabilityReport, 'capabilities.payment.app_store')],
                     ['Rokn AI', data_get($capabilityReport, 'capabilities.ai')],
                     ['البريد التشغيلي', data_get($capabilityReport, 'capabilities.mail')],
                     ['إشعارات Firebase', data_get($capabilityReport, 'capabilities.push')],
@@ -240,7 +272,10 @@
         </div></div></div>
         <div class="col-lg-5 mb-3"><div class="card admin-card h-100"><div class="card-body">
             <h2 class="h5 mb-3">فصل الإيراد عن المكافآت</h2>
-            <p class="mb-2">دخل Kashier المستقر <strong class="float-left">{{ number_format($finance['cash_revenue'], 2) }} جنيه</strong></p>
+            <p class="mb-2">إجمالي المبيعات المسجل بكل القنوات <strong class="float-left">{{ number_format($finance['cash_revenue'], 2) }} جنيه</strong></p>
+            <p class="mb-2">الصافي المؤكد من كشوف التسوية <strong class="float-left">{{ number_format($finance['confirmed_net_revenue'], 2) }} جنيه</strong></p>
+            <p class="mb-2">الصافي الحالي (يشمل التقديري) <strong class="float-left">{{ number_format($finance['estimated_net_revenue'], 2) }} جنيه</strong></p>
+            <p class="mb-2">عمليات تنتظر كشف التسوية <strong class="float-left">{{ number_format($finance['pending_settlements']) }}</strong></p>
             <p class="mb-2">عملات مشتراة استُهلكت <strong class="float-left">{{ number_format($finance['course_paid_coins']) }}</strong></p>
             <p class="mb-2">عملات مكافآت استُهلكت <strong class="float-left">{{ number_format($finance['course_reward_coins']) }}</strong></p>
             <p class="mb-2">ترقيات المنح — مدفوعة / مكافآت <strong class="float-left">{{ number_format($finance['grant_upgrade_paid_coins']) }} / {{ number_format($finance['grant_upgrade_reward_coins']) }}</strong></p>

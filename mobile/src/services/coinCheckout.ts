@@ -9,7 +9,10 @@ import {
   saveItem,
 } from '../constants/helpers';
 import {creditDemoCoins, DemoCoinPackage} from './demoExperience';
-import {CAN_START_EXTERNAL_CHECKOUT} from '../constants/distribution';
+import {
+  CAN_START_EXTERNAL_CHECKOUT,
+  CAN_START_NATIVE_CHECKOUT,
+} from '../constants/distribution';
 import {reportClientError} from './operationalTelemetry';
 import {requireProductFeature} from './productFeatures';
 import {errorCode} from '../utils/errorPayload';
@@ -168,6 +171,14 @@ const pollOrder = async (orderRef: string) => {
 export const openCoinCheckout = async (
   coinPackage: DemoCoinPackage,
 ): Promise<CoinCheckoutResult> => {
+  if (CAN_START_NATIVE_CHECKOUT) {
+    if (coinPackage.id.startsWith('demo-')) {
+      throw new Error('LOCAL_DEMO_DISABLED_FOR_NATIVE_STORE');
+    }
+    await requireProductFeature('checkout');
+    const {purchaseNativeCoinPackage} = await import('./nativeStoreBilling');
+    return purchaseNativeCoinPackage(coinPackage);
+  }
   if (!CAN_START_EXTERNAL_CHECKOUT) {
     throw new Error('CHECKOUT_DISABLED_FOR_DISTRIBUTION');
   }

@@ -6,18 +6,24 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Models\Package;
+use App\Services\PackageChannelPricingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 final class PackageController extends Controller
 {
+    public function __construct(private readonly PackageChannelPricingService $pricing)
+    {
+    }
+
     public function index(): JsonResponse
     {
         $packages = Package::query()
             ->where('price', '>', 0)
             ->where('coins', '>', 0)
             ->orderBy('coins')
-            ->get();
+            ->get()
+            ->map(fn (Package $package): array => $this->payload($package));
 
         return response()->json([
             'status' => 200,
@@ -47,7 +53,7 @@ final class PackageController extends Controller
             'status' => 200,
             'success' => true,
             'message' => 'Package retrieved successfully',
-            'data' => $package,
+            'data' => $this->payload($package),
         ]);
     }
 
@@ -63,5 +69,28 @@ final class PackageController extends Controller
                 'initiate_endpoint' => '/api/v1/payment/initiate',
             ],
         ], 410);
+    }
+
+    /** @return array<string, mixed> */
+    private function payload(Package $package): array
+    {
+        return [
+            'id' => $package->id,
+            'name' => $package->name_ar,
+            'name_ar' => $package->name_ar,
+            'name_en' => $package->name_en,
+            'price' => (float) $package->price,
+            'direct_price' => $this->pricing->directPrice($package),
+            'direct_discount_percent' => $this->pricing->directDiscountPercent(),
+            'coins' => (int) $package->coins,
+            'store_products' => [
+                'google' => $package->google_enabled
+                    ? $package->google_product_id
+                    : null,
+                'apple' => $package->apple_enabled
+                    ? $package->apple_product_id
+                    : null,
+            ],
+        ];
     }
 }

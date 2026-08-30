@@ -83,6 +83,7 @@ type CourseDetailsPresentationInput = {
   remotePackages: DemoCoinPackage[];
   remoteSession: boolean | null;
   remoteRewardBalance?: number | null;
+  remoteRewardContributionCap?: number | null;
   remoteSpendableBalance: number | null;
   routeParams?: CourseRouteParams;
   selectedPlanCode: string;
@@ -101,6 +102,7 @@ export const selectCourseDetailsPresentation = ({
   remotePackages,
   remoteSession,
   remoteRewardBalance = null,
+  remoteRewardContributionCap = null,
   remoteSpendableBalance,
   routeParams = {},
   selectedPlanCode,
@@ -192,7 +194,11 @@ export const selectCourseDetailsPresentation = ({
     : remoteRewardBalance ?? Math.max(0, balance - paidBalance);
   const genericRewardAllowance = isDemoCourse
     ? ECONOMY_CONFIG.maxRewardContributionPerCourse
-    : Math.max(0, (remoteSpendableBalance ?? paidBalance) - paidBalance);
+    : Math.max(
+        0,
+        remoteRewardContributionCap ??
+          (remoteSpendableBalance ?? paidBalance) - paidBalance,
+      );
   const planSpendableBalances = Object.fromEntries(
     accessPlans.map(plan => [
       plan.code,
@@ -208,6 +214,15 @@ export const selectCourseDetailsPresentation = ({
     ? planSpendableBalances[selectedPlan.code] ?? 0
     : paidBalance + Math.min(rewardBalance, genericRewardAllowance);
   const purchasePrice = selectedPlan?.priceCoins ?? coursePrice ?? 0;
+  const rewardContributionLimit = Math.min(
+    genericRewardAllowance,
+    Math.max(0, purchasePrice - (selectedPlan?.minimumPaidCoins ?? 0)),
+  );
+  const usableCurrentBalance = Math.min(purchasePrice, spendableBalance);
+  const rewardContributionPercent =
+    purchasePrice > 0
+      ? Math.floor((rewardContributionLimit / purchasePrice) * 100)
+      : 0;
   const shortfall = Math.max(0, purchasePrice - spendableBalance);
   const packages = (isDemoCourse ? DEMO_COIN_PACKAGES : remotePackages)
     .slice()
@@ -216,6 +231,7 @@ export const selectCourseDetailsPresentation = ({
     packages,
     shortfall,
   );
+  const checkoutPackages = packages.filter(item => item.coins >= shortfall);
   const pageReady = isDemoCourse
     ? Boolean(experience)
     : Boolean(remoteCourse) && !remoteLoading;
@@ -252,6 +268,7 @@ export const selectCourseDetailsPresentation = ({
     courseDescription,
     coursePrice,
     courseTitle,
+    checkoutPackages,
     durationMinutes,
     hasPreview,
     owned,
@@ -262,12 +279,15 @@ export const selectCourseDetailsPresentation = ({
     primaryActionLabel,
     projectCount,
     purchasePrice,
+    rewardContributionLimit,
+    rewardContributionPercent,
     ratingAverage,
     ratingsCount,
     reelCount,
     selectedPlan,
     shortfall,
     spendableBalance,
+    usableCurrentBalance,
     studentsCount,
     sufficientPackage,
   };

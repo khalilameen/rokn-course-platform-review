@@ -109,6 +109,10 @@ const ANDROID_LEGAL_METADATA_ABSENCE_ALLOWLIST = new Map([
     'com.android.installreferrer:installreferrer:2.2',
     'The POM declares the Android SDK License and links the authoritative Google terms; the AAR publishes no standalone legal file.',
   ],
+  [
+    'com.android.billingclient:billing:9.1.0',
+    'The exact Billing Client POM declares the Android SDK License and links the authoritative Google terms; the resolved AAR publishes no standalone legal file.',
+  ],
   ...[
     'com.google.android.gms:play-services-auth-api-phone:18.0.2',
     'com.google.android.gms:play-services-auth-base:18.0.10',
@@ -117,6 +121,8 @@ const ANDROID_LEGAL_METADATA_ABSENCE_ALLOWLIST = new Map([
     'com.google.android.gms:play-services-basement:18.9.0',
     'com.google.android.gms:play-services-cloud-messaging:17.4.0',
     'com.google.android.gms:play-services-fido:20.0.1',
+    'com.google.android.gms:play-services-location:19.0.0',
+    'com.google.android.gms:play-services-places-placereport:17.0.0',
     'com.google.android.gms:play-services-stats:17.0.2',
     'com.google.android.gms:play-services-tasks:18.4.0',
   ].map(coordinate => [
@@ -133,14 +139,6 @@ const ANDROID_LEGAL_METADATA_ABSENCE_ALLOWLIST = new Map([
 ]);
 
 const ANDROID_EXACT_LICENSE_SELECTIONS = new Map([
-  [
-    'com.google.code.gson:gson:2.8.6',
-    {
-      license: 'Apache-2.0',
-      reason:
-        'The exact Gson coordinate inherits Apache-2.0 terms that its resolved child POM omits.',
-    },
-  ],
   [
     'com.google.guava:failureaccess:1.0.2',
     {

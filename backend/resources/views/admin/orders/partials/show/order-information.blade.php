@@ -54,6 +54,7 @@
                         </div>
                     </div>
 
+                    @if($order->course)
                     <div class="info-row">
                         <div class="info-label">
                             <i class="fa fa-book"></i>
@@ -68,6 +69,18 @@
                             @endif
                         </div>
                     </div>
+                    @elseif($order->package)
+                    <div class="info-row">
+                        <div class="info-label">
+                            <i class="fa fa-database"></i>
+                            <span>باقة العملات:</span>
+                        </div>
+                        <div class="info-value">
+                            <strong>{{ $order->package->name_ar ?: $order->package->name_en }}</strong>
+                            <div><small class="text-muted">{{ number_format($order->package_coins ?? $order->package->coins) }} عملة ركن</small></div>
+                        </div>
+                    </div>
+                    @endif
 
                     @if($order->courseCode)
                     <div class="info-row">
@@ -88,10 +101,25 @@
                         </div>
                         <div class="info-value">
                             <span class="badge badge-secondary order-payment-method">
-                                <i class="fa fa-money"></i> {{ $order->payment_method }}
+                                <i class="fa fa-money"></i> {{ $paymentMethodLabels[$order->payment_method] ?? $order->payment_method }}
                             </span>
+                            @if($order->gateway_settlement_status === 'test_purchase')
+                                <div class="mt-2"><span class="badge badge-info">اختبار — لا يدخل في الإيراد</span></div>
+                            @endif
                         </div>
                     </div>
+
+                    @if($order->transaction_id || $order->storePurchase)
+                    <div class="info-row">
+                        <div class="info-label"><i class="fa fa-hashtag"></i><span>مرجع المزود:</span></div>
+                        <div class="info-value">
+                            <code>{{ $order->transaction_id ?: $order->storePurchase?->external_transaction_id }}</code>
+                            @if($order->storePurchase?->environment)
+                                <div><small class="text-muted">البيئة: {{ $order->storePurchase->environment }}</small></div>
+                            @endif
+                        </div>
+                    </div>
+                    @endif
 
                     @if($order->coupon)
                     <div class="info-row">
@@ -154,26 +182,7 @@
                         </div>
                     </div>
 
-                    <!-- Amount Section -->
-                    <div class="amount-section">
-                        <h6 class="amount-section__heading">
-                            <i class="fa fa-money"></i> تفاصيل المبلغ
-                        </h6>
-                        <div class="amount-row">
-                            <span class="amount-label">المبلغ الأساسي:</span>
-                            <span class="amount-value">{{ number_format($order->amount, 2) }} جنيه</span>
-                        </div>
-                        @if($order->discount_amount > 0)
-                        <div class="amount-row">
-                            <span class="amount-label">مبلغ الخصم:</span>
-                            <span class="amount-value text-success">-{{ number_format($order->discount_amount, 2) }} جنيه</span>
-                        </div>
-                        @endif
-                        <div class="amount-row total">
-                            <span class="amount-label">المبلغ النهائي:</span>
-                            <span class="amount-value">{{ number_format($order->final_amount, 2) }} جنيه</span>
-                        </div>
-                    </div>
+                    @include('admin.orders.partials.show.amounts')
                 </div>
             </div>
 

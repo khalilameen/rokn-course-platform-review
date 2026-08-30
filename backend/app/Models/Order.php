@@ -88,6 +88,8 @@ class Order extends Model
     const PAYMENT_METHOD_WALLET = 'wallet';
     const PAYMENT_METHOD_WALLET_COINS = 'wallet_coins';
     const PAYMENT_METHOD_KASHIER = 'kashier';
+    const PAYMENT_METHOD_GOOGLE_PLAY = 'google_play';
+    const PAYMENT_METHOD_APP_STORE = 'app_store';
 
     // Order statuses
     const STATUS_PENDING = 'pending';
@@ -170,6 +172,11 @@ class Order extends Model
         return $this->belongsTo(Package::class);
     }
 
+    public function storePurchase()
+    {
+        return $this->hasOne(StorePurchase::class);
+    }
+
     public function accessPlan()
     {
         return $this->belongsTo(CourseAccessPlan::class, 'access_plan_id');
@@ -226,7 +233,11 @@ class Order extends Model
             }
 
             if (
-                $order->getOriginal('payment_method') === self::PAYMENT_METHOD_KASHIER
+                in_array($order->getOriginal('payment_method'), [
+                    self::PAYMENT_METHOD_KASHIER,
+                    self::PAYMENT_METHOD_GOOGLE_PLAY,
+                    self::PAYMENT_METHOD_APP_STORE,
+                ], true)
                 && $order->getOriginal('package_id') !== null
             ) {
                 foreach ([
@@ -240,12 +251,12 @@ class Order extends Model
                     'is_premium_user',
                 ] as $field) {
                     if ($order->isDirty($field)) {
-                        throw new \LogicException('Issued Kashier checkout facts are immutable.');
+                        throw new \LogicException('Issued payment checkout facts are immutable.');
                     }
                 }
 
                 if ($order->getOriginal('transaction_id') !== null && $order->isDirty('transaction_id')) {
-                    throw new \LogicException('Kashier transaction identity is write-once.');
+                        throw new \LogicException('Payment transaction identity is write-once.');
                 }
 
                 foreach ([
@@ -256,7 +267,7 @@ class Order extends Model
                     'gateway_settled_at',
                 ] as $settlementField) {
                     if ($order->getOriginal($settlementField) !== null && $order->isDirty($settlementField)) {
-                        throw new \LogicException('Kashier settlement facts are write-once.');
+                        throw new \LogicException('Payment settlement facts are write-once.');
                     }
                 }
             }

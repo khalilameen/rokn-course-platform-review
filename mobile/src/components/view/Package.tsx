@@ -25,6 +25,7 @@ interface PackageProps {
   mostSold?: boolean;
   disabled?: boolean;
   width?: number;
+  displayPrice?: string;
 }
 
 const Package = React.memo<PackageProps>(
@@ -36,6 +37,7 @@ const Package = React.memo<PackageProps>(
     onPress,
     disabled = false,
     width,
+    displayPrice,
   }) => {
     const {contentWidth, gutter, isTablet} = useResponsiveLayout();
     const fallbackWidth = isTablet
@@ -43,15 +45,15 @@ const Package = React.memo<PackageProps>(
       : Math.max(0, contentWidth - gutter * 2);
     const numericPrice = Number(price);
     const numericCoins = Number(rPrice);
-    const visiblePrice = Number.isFinite(numericPrice)
+    const visiblePrice = displayPrice || (Number.isFinite(numericPrice)
       ? formatArabicNumber(numericPrice, {maximumFractionDigits: 2})
-      : toArabicDigits(price);
+      : toArabicDigits(price));
     const visibleCoins = Number.isFinite(numericCoins)
       ? formatArabicNumber(numericCoins)
       : toArabicDigits(rPrice);
     return (
       <Pressable
-        accessibilityLabel={`${title ? `${formatArabicDisplayText(title)}، ` : ''}${visibleCoins} من رصيد ركن مقابل ${visiblePrice} جنيه`}
+        accessibilityLabel={`${title ? `${formatArabicDisplayText(title)}، ` : ''}${visibleCoins} من رصيد ركن مقابل ${visiblePrice}${displayPrice ? '' : ' جنيه'}`}
         accessibilityRole="button"
         accessibilityState={{disabled}}
         disabled={disabled}
@@ -77,7 +79,7 @@ const Package = React.memo<PackageProps>(
           value={numericCoins}
         />
         <Text style={styles.price}>
-          {visiblePrice} جنيه
+          {visiblePrice}{displayPrice ? '' : ' جنيه'}
         </Text>
         <View style={styles.action}>
           <Text style={styles.actionLabel}>

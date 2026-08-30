@@ -44,23 +44,43 @@
                                     </td>
                                     <td class="text-center">
                                         <div class="course-info">
-                                            <h6>{{ Str::limit($order->course?->title, 40) }}</h6>
+                                            @if($order->course)
+                                                <h6>{{ Str::limit($order->course->title, 40) }}</h6>
+                                            @elseif($order->package)
+                                                <h6>{{ Str::limit($order->package->name_ar ?: $order->package->name_en, 40) }}</h6>
+                                                <small class="text-muted">{{ number_format($order->package_coins ?? $order->package->coins) }} عملة ركن</small>
+                                            @else
+                                                <h6>طلب بدون منتج مرتبط</h6>
+                                            @endif
                                             @if($order->courseCode)
                                                 <small class="text-info"><i class="fa fa-ticket"></i> كود: {{ $order->courseCode->code }}</small>
                                             @endif
                                         </div>
                                     </td>
                                     <td class="text-center">
-                                        <div class="amount-display">{{ number_format($order->final_amount, 2) }}</div>
-                                        <small class="text-muted">جنيه</small>
+                                        @php
+                                            $isCashChannel = in_array($order->payment_method, ['kashier', 'google_play', 'app_store'], true);
+                                            $isWalletOrder = in_array($order->payment_method, ['wallet', 'wallet_coins'], true);
+                                            $displayAmount = $isWalletOrder
+                                                ? (int) ($order->total_coins ?? 0)
+                                                : (float) ($isCashChannel ? ($order->gateway_gross_amount ?? $order->final_amount) : $order->final_amount);
+                                            $displayUnit = $isWalletOrder ? 'عملة ركن' : ($isCashChannel ? ($order->gateway_currency ?: 'EGP') : 'جنيه');
+                                        @endphp
+                                        <div class="amount-display">{{ number_format($displayAmount, $isWalletOrder ? 0 : 2) }}</div>
+                                        <small class="text-muted">{{ $displayUnit }}</small>
                                         @if($order->discount_amount > 0)
                                             <br><small class="discount-info"><i class="fa fa-tag"></i> خصم: {{ number_format($order->discount_amount, 2) }}</small>
                                         @endif
                                     </td>
                                     <td class="text-center">
                                         <span class="payment-badge badge-secondary">
-                                            <i class="fa fa-money"></i> {{ $order->payment_method }}
+                                            <i class="fa fa-money"></i> {{ $paymentMethodLabels[$order->payment_method] ?? $order->payment_method }}
                                         </span>
+                                        @if($order->gateway_settlement_status === 'test_purchase')
+                                            <br><span class="badge badge-info mt-1">عملية اختبار — خارج الإيراد</span>
+                                        @elseif(in_array($order->payment_method, ['kashier', 'google_play', 'app_store'], true) && $order->gateway_net_amount === null)
+                                            <br><span class="badge badge-warning mt-1">الصافي بانتظار التسوية</span>
+                                        @endif
                                         @if($order->payment_screenshot)
                                             <br>
                                             <img src="{{ asset('storage/' . $order->payment_screenshot) }}"

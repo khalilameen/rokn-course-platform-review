@@ -15,6 +15,7 @@ class Setting extends Model
         'email',
         'phone',
         'currency_code',
+        'direct_checkout_discount_percent',
         'seo_meta_title_ar',
         'seo_meta_description_ar',
         'seo_meta_title_en',
@@ -72,6 +73,7 @@ class Setting extends Model
      */
     protected $casts = [
         'english_translation' => 'boolean',
+        'direct_checkout_discount_percent' => 'decimal:2',
         'enforce_course_section_order' => 'boolean',
         'bunny_enabled' => 'boolean',
         'bunny_api_key_secret' => 'encrypted',

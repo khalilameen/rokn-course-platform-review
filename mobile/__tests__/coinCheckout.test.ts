@@ -18,6 +18,7 @@ jest.mock('../src/services/demoExperience', () => ({
 }));
 jest.mock('../src/constants/distribution', () => ({
   CAN_START_EXTERNAL_CHECKOUT: true,
+  CAN_START_NATIVE_CHECKOUT: false,
 }));
 jest.mock('../src/services/operationalTelemetry', () => ({
   reportClientError: jest.fn(),

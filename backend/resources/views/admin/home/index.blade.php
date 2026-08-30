@@ -145,7 +145,7 @@
                     </div>
                     <div class="stats-info">
                         <h3 class="revenue-count">{{ number_format($revenueStats['total_revenue'], 0) }}</h3>
-                        <p>إيراد Kashier المحصّل بالجنيه</p>
+                        <p>إجمالي المبيعات المسجل بكل القنوات (جنيه)</p>
                         @if($revenueStats['revenue_growth'] > 0)
                             <small class="text-success">
                                 <i class="fa fa-arrow-up"></i> {{ number_format($revenueStats['revenue_growth'], 1) }}%
@@ -164,7 +164,18 @@
             </div>
         </div>
 
-
+        <div class="col-xl-3 col-lg-6 col-md-6 mb-4">
+            <div class="stats-card success fade-in-up dashboard-delay-2">
+                <div class="stats-card-body">
+                    <div class="stats-icon success"><i class="fa fa-check"></i></div>
+                    <div class="stats-info">
+                        <h3 class="revenue-count">{{ number_format($revenueStats['confirmed_net_revenue'], 0) }}</h3>
+                        <p>الصافي المؤكد من كشوف المزودين</p>
+                        <small class="text-muted">بعد الرسوم والاستقطاعات</small>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <div class="col-xl-3 col-lg-6 col-md-6 mb-4">
             <div class="stats-card warning fade-in-up dashboard-delay-4">
@@ -174,13 +185,15 @@
                     </div>
                     <div class="stats-info">
                         <h3 class="revenue-count">{{ number_format($revenueStats['pending_payments'], 0) }}</h3>
-                        <p>مدفوعات Kashier معلقة</p>
+                        <p>مدفوعات معلقة بكل القنوات</p>
                         <small class="text-muted">{{ $revenueStats['pending_bills_count'] }} عملية</small>
                     </div>
                 </div>
             </div>
         </div>
     </div>
+
+    @include('admin.orders.partials.index.payment-channel-report')
 
     <!-- Revenue Charts Section -->
     <div class="row mb-4">
@@ -192,7 +205,7 @@
                         <i class="fa fa-line-chart"></i>
                         شحن الرصيد النقدي شهريًا
                     </h4>
-                    <p class="chart-card-subtitle">المبالغ التي حصلتها بوابة Kashier فقط خلال آخر 6 أشهر</p>
+                    <p class="chart-card-subtitle">Kashier وGoogle Play وApp Store؛ عمليات الاختبار مستبعدة</p>
                 </div>
                 <div class="chart-card-body">
                     <div class="chart-container dashboard-chart--large">
@@ -233,7 +246,7 @@
                         <div class="summary-card-content">
                             <div class="summary-card-info">
                                 <h3>{{ number_format($revenueStats['current_month_revenue'], 0) }}</h3>
-                                <p>المحصل عبر Kashier هذا الشهر</p>
+                                <p>المحصل عبر كل قنوات الدفع هذا الشهر</p>
                                 <small class="text-muted">{{ now()->locale('ar')->format('F Y') }}</small>
                             </div>
                             <div class="summary-card-icon">
@@ -250,7 +263,7 @@
                         <div class="summary-card-content">
                             <div class="summary-card-info">
                                 <h3>{{ number_format($revenueStats['previous_month_revenue'], 0) }}</h3>
-                                <p>المحصل عبر Kashier الشهر السابق</p>
+                                <p>المحصل عبر كل قنوات الدفع الشهر السابق</p>
                                 <small class="text-muted">{{ now()->subMonth()->locale('ar')->format('F Y') }}</small>
                             </div>
                             <div class="summary-card-icon">
@@ -663,7 +676,7 @@
                         labels: {!! json_encode(array_column($monthlyRevenue, 'month')) !!},
                         datasets: [
                             {
-                                label: 'شحن رصيد عبر Kashier (جنيه)',
+                                label: 'شحن رصيد عبر قنوات الدفع (جنيه)',
                                 data: {!! json_encode(array_column($monthlyRevenue, 'course_revenue')) !!},
                                 borderColor: '#2563eb',
                                 backgroundColor: 'rgba(102, 126, 234, 0.1)',
@@ -744,7 +757,7 @@
                 const revenueSourceChart = new Chart(revenueSourceCtx.getContext('2d'), {
                     type: 'doughnut',
                     data: {
-                        labels: ['شحن Kashier النقدي'],
+                        labels: ['شحن الرصيد النقدي بكل القنوات'],
                         datasets: [{
                             data: [
                                 {{ $revenueStats['course_revenue'] }}

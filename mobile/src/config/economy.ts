@@ -64,8 +64,5 @@ export const selectSmallestSufficientPackage = <T extends {coins: number}>(
     .slice()
     .sort((left, right) => left.coins - right.coins);
 
-  return (
-    ordered.find(item => item.coins >= Math.max(0, shortfall)) ??
-    ordered[ordered.length - 1]
-  );
+  return ordered.find(item => item.coins >= Math.max(0, shortfall));
 };

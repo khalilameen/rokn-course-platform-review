@@ -53,6 +53,7 @@
     "expo": "~55.0.28",
     "expo-apple-authentication": "~55.0.15",
     "expo-crypto": "~55.0.17",
+    "expo-iap": "^5.4.1",
     "expo-notifications": "~55.0.25",
     "expo-secure-store": "~55.0.16",
     "expo-web-browser": "~55.0.18",

@@ -5,6 +5,10 @@ use Illuminate\Support\Facades\Route;
 Route::get('health/live', [\App\Http\Controllers\API\OperationalHealthController::class, 'live']);
 Route::get('health/ready', [\App\Http\Controllers\API\OperationalHealthController::class, 'ready']);
 Route::get('health/launch-ready', [\App\Http\Controllers\API\OperationalHealthController::class, 'launchReady']);
+Route::post('store-notifications/google', [\App\Http\Controllers\API\StoreServerNotificationController::class, 'google'])
+    ->middleware('throttle:120,1');
+Route::post('store-notifications/apple', [\App\Http\Controllers\API\StoreServerNotificationController::class, 'apple'])
+    ->middleware('throttle:120,1');
 
 /*
 |--------------------------------------------------------------------------
@@ -221,6 +225,10 @@ $registerCourseApiRoutes = function () {
                 Route::get('payment/status/{orderRef}', [\App\Http\Controllers\API\PaymentController::class, 'status'])
                     ->middleware('throttle:payment-read')
                     ->name('api.payment.status');
+                Route::get('store-billing/context', [\App\Http\Controllers\API\StorePurchaseController::class, 'context'])
+                    ->middleware(['product.feature:checkout', 'throttle:payment-read']);
+                Route::post('store-purchases/verify', [\App\Http\Controllers\API\StorePurchaseController::class, 'verify'])
+                    ->middleware(['product.feature:checkout', 'throttle:payment-write']);
 
             });
 

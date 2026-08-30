@@ -176,9 +176,12 @@ type CoursePurchaseDialogProps = {
   onSuccessStart: () => void;
   packages: DemoCoinPackage[];
   purchasePrice: number;
+  rewardContributionLimit: number;
+  rewardContributionPercent: number;
   selectedPlan?: CourseAccessPlan;
   shortfall: number;
   sufficientPackage?: DemoCoinPackage;
+  usableCurrentBalance: number;
 };
 
 export const CoursePurchaseDialog = ({
@@ -198,9 +201,12 @@ export const CoursePurchaseDialog = ({
   onSuccessStart,
   packages,
   purchasePrice,
+  rewardContributionLimit,
+  rewardContributionPercent,
   selectedPlan,
   shortfall,
   sufficientPackage,
+  usableCurrentBalance,
 }: CoursePurchaseDialogProps) => {
   return (
     <Modal
@@ -273,8 +279,13 @@ export const CoursePurchaseDialog = ({
             )}
             {dialogStep === 'topup' && (
               <>
-                <Text style={styles.sheetEyebrow}>فاضلك خطوة</Text>
-                <Text style={styles.sheetTitle}>كمّل رصيدك وابدأ الكورس</Text>
+                <Text style={styles.sheetEyebrow}>دفعة واحدة</Text>
+                <Text style={styles.sheetTitle}>
+                  افتح {selectedPlan?.name || 'الفئة المختارة'} الآن
+                </Text>
+                <Text style={styles.sheetDescription}>
+                  سنكمل الرصيد الناقص ونفتح الفئة تلقائيًا من نفس العملية.
+                </Text>
                 <View style={styles.topupSummary}>
                   <View style={styles.topupMetric}>
                     <Text style={styles.summaryLabel}>سعر الكورس</Text>
@@ -285,35 +296,60 @@ export const CoursePurchaseDialog = ({
                     <CoinAmount size={18} value={balance} />
                   </View>
                   <View style={styles.topupMetric}>
-                    <Text style={styles.summaryLabel}>المتبقي</Text>
-                    <CoinAmount size={18} value={shortfall} />
+                    <Text style={styles.summaryLabel}>سنستخدم الآن</Text>
+                    <CoinAmount size={18} value={usableCurrentBalance} />
                   </View>
                 </View>
+                {rewardContributionLimit < purchasePrice && (
+                  <Text style={styles.packageUnavailable}>
+                    عملات الهدايا تغطي حتى {formatArabicNumber(
+                      rewardContributionPercent,
+                    )}٪ من قيمة هذه الفئة، والعملات المدفوعة تُستخدم كاملة. ينقصك{' '}
+                    {formatArabicNumber(shortfall)} عملة.
+                  </Text>
+                )}
                 <View style={styles.packageList}>
                   {packages.length ? (
-                    packages.map(item => (
+                    packages.map(item => {
+                      const remainingAfterPurchase = Math.max(
+                        0,
+                        balance + item.coins - purchasePrice,
+                      );
+                      const isQuickChoice = item.id === sufficientPackage?.id;
+
+                      return (
                       <Pressable
+                        accessibilityLabel={`اشحن ${formatArabicNumber(item.coins)} عملة مقابل ${item.displayPrice || `${formatArabicNumber(item.price)} جنيه`}`}
                         accessibilityRole="button"
                         disabled={busy}
                         key={item.id}
-                        onPress={() => onBuyCoins(item)}
+                        onPress={() => void onBuyCoins(item)}
                         style={({pressed}) => [
                           styles.packageCard,
-                          item.id === sufficientPackage?.id &&
-                            styles.packageCardSufficient,
+                          isQuickChoice && styles.packageCardSufficient,
                           pressed && styles.pressed,
+                          busy && styles.disabled,
                         ]}>
                         <View style={styles.packageCopy}>
-                          <CoinAmount size={18} value={item.coins} />
+                          <View style={styles.planHeader}>
+                            <CoinAmount size={18} value={item.coins} />
+                            {isQuickChoice && (
+                              <Text style={styles.sheetEyebrow}>الاختيار السريع</Text>
+                            )}
+                          </View>
+                          <Text style={styles.packageUnavailable}>
+                            يتبقى {formatArabicNumber(remainingAfterPurchase)} عملة بعد فتح الفئة
+                          </Text>
                         </View>
                         <Text style={styles.packagePrice}>
-                          {formatArabicNumber(item.price)} ج.م
+                          {item.displayPrice || `${formatArabicNumber(item.price)} ج.م`}
                         </Text>
                       </Pressable>
-                    ))
+                      );
+                    })
                   ) : (
                     <Text style={styles.packageUnavailable}>
-                      تعذّر تحميل الباقات الآن. لم نبدأ أي دفع ولم يتغير رصيدك.
+                      لا توجد حاليًا قيمة شحن تغطي هذه الفئة. لم نبدأ أي دفع ولم يتغير رصيدك.
                     </Text>
                   )}
                 </View>
@@ -342,17 +378,29 @@ export const CoursePurchaseDialog = ({
                 )}
                 <View style={styles.purchaseSummary}>
                   <View>
-                    <Text style={styles.summaryLabel}>سيُخصم</Text>
+                    <Text style={styles.summaryLabel}>رصيدك</Text>
+                    <CoinAmount size={18} value={balance} />
+                  </View>
+                  <View>
+                    <Text style={styles.summaryLabel}>سنستخدم</Text>
                     <CoinAmount size={18} value={purchasePrice} />
                   </View>
                   <View>
-                    <Text style={styles.summaryLabel}>رصيدك بعد الفتح</Text>
+                    <Text style={styles.summaryLabel}>يتبقى</Text>
                     <CoinAmount
                       size={18}
                       value={Math.max(0, balance - purchasePrice)}
                     />
                   </View>
                 </View>
+                {rewardContributionLimit < purchasePrice && (
+                  <Text style={styles.packageUnavailable}>
+                    الحد المتاح من عملات الهدايا لهذه الفئة هو{' '}
+                    {formatArabicNumber(rewardContributionLimit)} عملة ({formatArabicNumber(
+                      rewardContributionPercent,
+                    )}٪). رصيدك المتاح يكفي، ولن نستخدم أكثر من سعر الفئة.
+                  </Text>
+                )}
                 <Pressable
                   accessibilityRole="button"
                   disabled={busy}

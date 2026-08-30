@@ -169,6 +169,7 @@ class SettingsController extends Controller
             'email' => 'nullable|email|max:255',
             'phone' => 'nullable|string|max:20',
             'currency_code' => 'nullable|string|max:10',
+            'direct_checkout_discount_percent' => 'required|numeric|min:0|max:50',
             'google_maps_key' => 'nullable|string',
             'contact' => 'nullable|string',
             'seo_meta_title_ar' => 'nullable|string|max:255',

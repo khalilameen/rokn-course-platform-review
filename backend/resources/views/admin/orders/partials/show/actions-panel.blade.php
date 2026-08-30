@@ -8,6 +8,53 @@
                     </h5>
                 </div>
                 <div class="card-body">
+                    @if(
+                        $order->status === \App\Models\Order::STATUS_APPROVED
+                        && $order->package_id
+                        && in_array($order->payment_method, ['kashier', 'google_play', 'app_store'], true)
+                        && $order->gateway_settlement_status !== 'test_purchase'
+                        && $order->gateway_net_amount === null
+                    )
+                        <div class="alert alert-info">
+                            <strong>كشف التسوية لم يصل بعد</strong>
+                            <div>أدخل أرقام كشف المزود؛ جميع الرسوم والاستقطاعات تُجمع في خانة الرسوم.</div>
+                        </div>
+                        <form method="POST" action="{{ route('admin.orders.record-settlement', $order) }}">
+                            @csrf
+                            <div class="form-row">
+                                <div class="form-group col-6">
+                                    <label for="gross-amount">الإجمالي</label>
+                                    <input id="gross-amount" name="gross_amount" type="number" min="0.01" step="0.01" class="form-control" value="{{ old('gross_amount', $order->gateway_gross_amount ?? $order->final_amount) }}" required>
+                                </div>
+                                <div class="form-group col-6">
+                                    <label for="settlement-currency">العملة</label>
+                                    <input id="settlement-currency" name="currency" class="form-control text-uppercase" minlength="3" maxlength="3" value="{{ old('currency', $order->gateway_currency ?: 'EGP') }}" required>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group col-6">
+                                    <label for="fee-amount">كل الرسوم</label>
+                                    <input id="fee-amount" name="fee_amount" type="number" min="0" step="0.01" class="form-control" value="{{ old('fee_amount') }}" required>
+                                </div>
+                                <div class="form-group col-6">
+                                    <label for="net-amount">الصافي</label>
+                                    <input id="net-amount" name="net_amount" type="number" min="0" step="0.01" class="form-control" value="{{ old('net_amount') }}" required>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="settled-at">تاريخ التسوية</label>
+                                <input id="settled-at" name="settled_at" type="datetime-local" class="form-control" value="{{ old('settled_at', now()->format('Y-m-d\\TH:i')) }}" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="provider-reference">مرجع كشف المزود</label>
+                                <input id="provider-reference" name="provider_reference" class="form-control" maxlength="191" value="{{ old('provider_reference') }}" required>
+                            </div>
+                            <button type="submit" class="btn btn-info btn-block action-btn" onclick="return confirm('هل طابقت الإجمالي والرسوم والصافي مع كشف المزود؟ لا يمكن تعديل الأرقام بعد حفظها.')">
+                                <i class="fa fa-check-square-o"></i> توثيق التسوية
+                            </button>
+                        </form>
+                        <hr class="order-action-separator">
+                    @endif
                     @if($order->financial_status === \App\Models\Order::FINANCIAL_REVIEW_REQUIRED && $order->package_id)
                         <div class="alert alert-warning">
                             <strong>مراجعة مالية مطلوبة</strong>

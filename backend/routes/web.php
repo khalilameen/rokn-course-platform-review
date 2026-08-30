@@ -226,6 +226,7 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
     Route::resource('orders', 'OrdersController', ['only' => ['index', 'show']])->middleware('admin.only');
     Route::patch('orders/{order}/status', 'OrdersController@updateStatus')->middleware('admin.only')->name('orders.update-status');
     Route::post('orders/{order}/financial-resolution', 'OrdersController@resolveFinancialReview')->middleware('admin.only')->name('orders.resolve-financial-review');
+    Route::post('orders/{order}/settlement', 'OrdersController@recordSettlement')->middleware('admin.only')->name('orders.record-settlement');
     Route::post('orders/bulk-status', 'OrdersController@bulkUpdateStatus')->middleware('admin.only')->name('orders.bulk-update-status');
 
     /* ====== Payment Reconciliation Review =======*/

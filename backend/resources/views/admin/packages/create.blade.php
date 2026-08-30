@@ -34,6 +34,20 @@
                     <input type="number" id="coins" name="coins" placeholder="0" class="form-control" value="{{ old('coins') }}" required>
                 </div>
             </div>
+            <div class="row form-group">
+                <div class="col col-md-3"><label for="google_product_id" class="form-control-label">منتج Google Play</label></div>
+                <div class="col-12 col-md-9">
+                    <input type="text" id="google_product_id" name="google_product_id" class="form-control" value="{{ old('google_product_id') }}" placeholder="rokn.coins.4200">
+                    <label class="mt-2"><input type="checkbox" name="google_enabled" value="1" @checked(old('google_enabled'))> متاح للشراء في نسخة Play</label>
+                </div>
+            </div>
+            <div class="row form-group">
+                <div class="col col-md-3"><label for="apple_product_id" class="form-control-label">منتج App Store</label></div>
+                <div class="col-12 col-md-9">
+                    <input type="text" id="apple_product_id" name="apple_product_id" class="form-control" value="{{ old('apple_product_id') }}" placeholder="com.rokn.coins.4200">
+                    <label class="mt-2"><input type="checkbox" name="apple_enabled" value="1" @checked(old('apple_enabled'))> متاح للشراء في نسخة App Store</label>
+                </div>
+            </div>
             <div class="card-footer">
                 <button type="submit" class="btn btn-primary btn-sm">
                     <i class="fa fa-dot-circle-o"></i> حفظ

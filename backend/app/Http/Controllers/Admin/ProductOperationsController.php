@@ -20,6 +20,7 @@ use App\Models\ProjectSubmission;
 use App\Models\ProductFeatureFlag;
 use App\Models\Setting;
 use App\Models\StudentNotification;
+use App\Models\StoreNotificationEvent;
 use App\Models\Lesson;
 use App\Models\LessonMediaState;
 use App\Models\PlaybackSession;
@@ -27,6 +28,7 @@ use App\Services\ProductionCapabilityService;
 use App\Services\OperationsReadinessService;
 use App\Services\PlaybackOperationsService;
 use App\Services\ProductFeatureFlagService;
+use App\Services\PaymentChannelReportService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -38,7 +40,8 @@ class ProductOperationsController extends Controller
         ProductionCapabilityService $capabilities,
         PlaybackOperationsService $playbackOperationsService,
         OperationsReadinessService $operationsReadiness,
-        ProductFeatureFlagService $productFeatureFlags
+        ProductFeatureFlagService $productFeatureFlags,
+        PaymentChannelReportService $paymentChannels
     ): View
     {
         $courseAllocation = static function ($query): void {
@@ -131,6 +134,11 @@ class ProductOperationsController extends Controller
             'financial_anomalies' => Schema::hasTable('financial_anomalies')
                 ? FinancialAnomaly::query()->where('status', FinancialAnomaly::STATUS_OPEN)->count()
                 : 0,
+            'store_notification_reviews' => Schema::hasTable('store_notification_events')
+                ? StoreNotificationEvent::query()
+                    ->where('status', StoreNotificationEvent::STATUS_REVIEW_REQUIRED)
+                    ->count()
+                : 0,
         ];
 
         $financialAnomalies = Schema::hasTable('financial_anomalies')
@@ -142,6 +150,14 @@ class ProductOperationsController extends Controller
                 ])
                 ->where('status', FinancialAnomaly::STATUS_OPEN)
                 ->latest('detected_at')
+                ->limit(20)
+                ->get()
+            : collect();
+
+        $storeNotificationReviews = Schema::hasTable('store_notification_events')
+            ? StoreNotificationEvent::query()
+                ->where('status', StoreNotificationEvent::STATUS_REVIEW_REQUIRED)
+                ->latest('received_at')
                 ->limit(20)
                 ->get()
             : collect();
@@ -161,12 +177,12 @@ class ProductOperationsController extends Controller
             ->limit(20)
             ->get();
 
+        $paymentChannelReport = $paymentChannels->summary();
         $finance = [
-            'cash_revenue' => (float) Order::query()
-                ->where('status', Order::STATUS_APPROVED)
-                ->where('financial_status', Order::FINANCIAL_SETTLED)
-                ->where('payment_method', Order::PAYMENT_METHOD_KASHIER)
-                ->sum('final_amount'),
+            'cash_revenue' => (float) $paymentChannelReport['egp']['gross_amount'],
+            'confirmed_net_revenue' => (float) $paymentChannelReport['egp']['confirmed_net_amount'],
+            'estimated_net_revenue' => (float) $paymentChannelReport['egp']['estimated_net_amount'],
+            'pending_settlements' => (int) $paymentChannelReport['egp']['pending_settlement_count'],
             'course_coins' => (int) $courses->sum('total_coins_spent'),
             'course_paid_coins' => (int) $courses->sum('paid_coins_spent'),
             'course_reward_coins' => (int) $courses->sum('reward_coins_spent'),
@@ -189,7 +205,7 @@ class ProductOperationsController extends Controller
         return view('admin.product_operations', compact(
             'courses', 'settings', 'readiness', 'counts', 'finance', 'capabilityReport', 'mediaAttention',
             'playbackOperations', 'mediaReconcileStatus', 'backupReadiness', 'featureFlags',
-            'financialAnomalies'
+            'financialAnomalies', 'paymentChannelReport', 'storeNotificationReviews'
         ));
     }
 

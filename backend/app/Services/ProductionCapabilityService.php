@@ -6,8 +6,10 @@ namespace App\Services;
 
 use App\Jobs\RecordQueueHeartbeat;
 use App\Models\Setting;
+use App\Models\Package;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 final class ProductionCapabilityService
@@ -149,14 +151,118 @@ final class ProductionCapabilityService
             && trim((string) ($selected['mid'] ?? '')) !== ''
             && filter_var($selected['base_url'] ?? null, FILTER_VALIDATE_URL) !== false;
         $productionModeReady = config('app.env') !== 'production' || $mode === 'live';
-        $ready = $configured && $productionModeReady;
-
-        return $this->item(
-            $ready,
+        $kashierReady = $configured && $productionModeReady;
+        $kashier = $this->item(
+            $kashierReady,
             !$configured
                 ? 'بيانات بوابة Kashier المختارة ناقصة'
                 : ($productionModeReady ? "Kashier مضبوط على {$mode}" : 'الإنتاج ما زال يستخدم وضع Kashier التجريبي')
         );
+
+        $packageColumnsReady = Schema::hasTable('packages')
+            && Schema::hasColumn('packages', 'google_product_id')
+            && Schema::hasColumn('packages', 'apple_product_id');
+        $googleProductsReady = $packageColumnsReady
+            && Package::query()
+                ->where('google_enabled', true)
+                ->whereNotNull('google_product_id')
+                ->where('google_product_id', '<>', '')
+                ->exists();
+        $googleCredentials = $this->decodedJsonCredential(
+            config('store_billing.google.credentials_base64'),
+            config('store_billing.google.credentials_file')
+        );
+        $googleReady = $googleProductsReady
+            && $this->validPackageName(trim((string) config('store_billing.google.package_name')))
+            && is_array($googleCredentials)
+            && filter_var($googleCredentials['client_email'] ?? null, FILTER_VALIDATE_EMAIL) !== false
+            && $this->filled($googleCredentials['private_key'] ?? null)
+            && filter_var(config('store_billing.google.rtdn_audience'), FILTER_VALIDATE_URL) !== false
+            && filter_var(
+                config('store_billing.google.rtdn_service_account_email'),
+                FILTER_VALIDATE_EMAIL
+            ) !== false;
+        $google = $this->item(
+            $googleReady,
+            $googleReady
+                ? 'منتجات Play والتحقق الخادمي وإشعارات الاسترداد مضبوطة'
+                : 'منتجات Google Play أو service account أو package name أو RTDN ناقصة'
+        );
+
+        $appleProductsReady = $packageColumnsReady
+            && Package::query()
+                ->where('apple_enabled', true)
+                ->whereNotNull('apple_product_id')
+                ->where('apple_product_id', '<>', '')
+                ->exists();
+        $applePrivateKey = $this->configuredFileOrBase64(
+            config('store_billing.apple.private_key_base64'),
+            config('store_billing.apple.private_key_file')
+        );
+        $appleRoots = (array) config('store_billing.apple.root_certificate_sha256', []);
+        $appleReady = $appleProductsReady
+            && $this->validPackageName(trim((string) config('store_billing.apple.bundle_id')))
+            && $this->filled(config('store_billing.apple.issuer_id'))
+            && $this->filled(config('store_billing.apple.key_id'))
+            && is_string($applePrivateKey)
+            && str_contains($applePrivateKey, 'PRIVATE KEY')
+            && $appleRoots !== []
+            && collect($appleRoots)->every(
+                static fn ($fingerprint): bool => preg_match('/\A[0-9a-f]{64}\z/', (string) $fingerprint) === 1
+            );
+        $apple = $this->item(
+            $appleReady,
+            $appleReady
+                ? 'منتجات App Store ومفتاح التحقق وجذور Apple مضبوطة'
+                : 'منتجات App Store أو issuer/key أو private key أو جذور Apple ناقصة'
+        );
+
+        $ready = $kashierReady && $googleReady && $appleReady;
+
+        return [
+            'ready' => $ready,
+            'reason' => $ready
+                ? 'Kashier وGoogle Play وApp Store جاهزة'
+                : 'قناة دفع واحدة أو أكثر غير مكتملة',
+            'kashier' => $kashier,
+            'google_play' => $google,
+            'app_store' => $apple,
+        ];
+    }
+
+    /** @return array<string, mixed>|null */
+    private function decodedJsonCredential(mixed $encoded, mixed $file): ?array
+    {
+        $encoded = trim((string) $encoded);
+        if ($encoded !== '') {
+            $decoded = base64_decode($encoded, true);
+            $json = is_string($decoded) ? json_decode($decoded, true) : null;
+            if (is_array($json)) return $json;
+        }
+
+        $file = trim((string) $file);
+        if ($file !== '' && is_file($file) && is_readable($file)) {
+            $json = json_decode((string) file_get_contents($file), true);
+            if (is_array($json)) return $json;
+        }
+
+        return null;
+    }
+
+    private function configuredFileOrBase64(mixed $encoded, mixed $file): ?string
+    {
+        $encoded = trim((string) $encoded);
+        if ($encoded !== '') {
+            $decoded = base64_decode($encoded, true);
+            if (is_string($decoded) && $decoded !== '') return $decoded;
+        }
+
+        $file = trim((string) $file);
+        if ($file !== '' && is_file($file) && is_readable($file)) {
+            return (string) file_get_contents($file);
+        }
+
+        return null;
     }
 
     private function aiCapability(): array

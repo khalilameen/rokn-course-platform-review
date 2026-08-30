@@ -20,7 +20,8 @@
       ],
       "expo-secure-store",
       "expo-apple-authentication",
-      "./plugins/withNotificationManifestOverrides"
+      "./plugins/withNotificationManifestOverrides",
+      "expo-iap"
     ],
     "splash": {
       "image": "./src/assets/images/authLogo.png",

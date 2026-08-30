@@ -16,6 +16,7 @@ import {
 } from '../../../services/roknApi';
 import type {CourseDetails as CourseDetailsDto} from '../../../services/roknApi';
 import {friendlyNetworkMessage} from '../../../services/networkExperience';
+import {CAN_START_NATIVE_CHECKOUT} from '../../../constants/distribution';
 
 type UseCourseDetailsDataParams = {
   courseId: string;
@@ -37,6 +38,8 @@ export const useCourseDetailsData = ({
   >(null);
   const [remotePaidBalance, setRemotePaidBalance] = useState<number | null>(null);
   const [remoteRewardBalance, setRemoteRewardBalance] = useState<number | null>(null);
+  const [remoteRewardContributionCap, setRemoteRewardContributionCap] =
+    useState<number | null>(null);
   const [remoteOwned, setRemoteOwned] = useState(false);
   const [remotePackages, setRemotePackages] = useState<DemoCoinPackage[]>([]);
   const [remoteSession, setRemoteSession] = useState<boolean | null>(null);
@@ -74,6 +77,7 @@ export const useCourseDetailsData = ({
       setRemoteSpendableBalance(null);
       setRemotePaidBalance(null);
       setRemoteRewardBalance(null);
+      setRemoteRewardContributionCap(null);
       setRemotePackages([]);
       setRemoteOwned(false);
       const sessionAvailable = await hasSession();
@@ -105,6 +109,9 @@ export const useCourseDetailsData = ({
           setRemoteSpendableBalance(walletResult.value.spendableBalance);
           setRemotePaidBalance(walletResult.value.paidBalance);
           setRemoteRewardBalance(walletResult.value.rewardBalance);
+          setRemoteRewardContributionCap(
+            walletResult.value.rewardContributionCap,
+          );
         }
         if (active && packagesResult.status === 'fulfilled') {
           setRemotePackages(packagesResult.value);
@@ -126,6 +133,22 @@ export const useCourseDetailsData = ({
     };
   }, [courseId, isDemoCourse, remoteReload, setNotice]);
 
+  useEffect(() => {
+    if (!CAN_START_NATIVE_CHECKOUT || isDemoCourse) return undefined;
+    let active = true;
+    let unsubscribe: () => void = () => undefined;
+    void import('../../../services/nativeStoreBilling').then(storeBilling => {
+      if (!active) return;
+      unsubscribe = storeBilling.subscribeNativeStoreCredits(() => {
+        setRemoteReload(value => value + 1);
+      });
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [isDemoCourse]);
+
   return {
     experience,
     reloadRemote: () => setRemoteReload(value => value + 1),
@@ -138,6 +161,7 @@ export const useCourseDetailsData = ({
     remotePackages,
     remoteSession,
     remoteRewardBalance,
+    remoteRewardContributionCap,
     remoteSpendableBalance,
     setExperience,
     setRemoteBalance,

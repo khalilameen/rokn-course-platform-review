@@ -26,9 +26,9 @@
                                 <label class="filter-label">طريقة الدفع</label>
                                 <select name="payment_method" class="form-control filter-control">
                                     <option value="">جميع الطرق</option>
-                                    @if(isset($paymentMethods) && $paymentMethods->count() > 0)
-                                        @foreach($paymentMethods as $method)
-                                            <option value="{{ $method->name }}" {{ request('payment_method') === $method->name ? 'selected' : '' }}>{{ $method->name }}</option>
+                                    @if(isset($paymentMethodOptions) && $paymentMethodOptions->count() > 0)
+                                        @foreach($paymentMethodOptions as $method => $label)
+                                            <option value="{{ $method }}" {{ request('payment_method') === $method ? 'selected' : '' }}>{{ $label }}</option>
                                         @endforeach
                                     @endif
                                 </select>

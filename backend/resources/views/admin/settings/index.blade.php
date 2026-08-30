@@ -134,6 +134,17 @@
 
                     <div class="form-row">
                         <div class="form-group-modern settings-grid-full">
+                            <label for="direct_checkout_discount_percent">
+                                <i class="fa fa-percent"></i> خصم باقات نسخة Android المباشرة
+                            </label>
+                            {!! Form::number('direct_checkout_discount_percent', $settings->direct_checkout_discount_percent ?? 10, ['class' => 'form-control-modern', 'id' => 'direct_checkout_discount_percent', 'min' => 0, 'max' => 50, 'step' => '0.01', 'required']) !!}
+                            <small class="text-muted">يُطبق على كاشير فقط. أسعار Google Play وApp Store تُدار من المتجرين.</small>
+                            @error('direct_checkout_discount_percent')<small class="text-danger">{{ $message }}</small>@enderror
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group-modern settings-grid-full">
                             <label for="seo_meta_description_ar">
                                 <i class="fa fa-align-left"></i> وصف الصفحة (Meta Description)
                             </label>

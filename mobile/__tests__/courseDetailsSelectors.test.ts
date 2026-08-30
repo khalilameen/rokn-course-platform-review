@@ -99,7 +99,23 @@ describe('course details presentation contract', () => {
     const result = presentation({remotePackages: packages});
 
     expect(result.packages.map(item => item.id)).toEqual(['small', 'large']);
+    expect(result.checkoutPackages.map(item => item.id)).toEqual([
+      'small',
+      'large',
+    ]);
     expect(packages.map(item => item.id)).toEqual(['large', 'small']);
+  });
+
+  it('marks the smallest sufficient top-up and never offers a partial package', () => {
+    expect(presentation().sufficientPackage?.id).toBe('small');
+    const insufficient = presentation({
+      remoteSpendableBalance: 0,
+      remotePackages: [
+        {id: 'too-small', coins: 250, price: 150, label: 'صغيرة'},
+      ],
+    });
+    expect(insufficient.sufficientPackage).toBeUndefined();
+    expect(insufficient.checkoutPackages).toEqual([]);
   });
 
   it('keeps reward coins visible but excludes the part above the selected plan discount', () => {

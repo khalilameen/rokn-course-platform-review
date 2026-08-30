@@ -1,6 +1,10 @@
 import {publicRequest} from '../../constants/api';
 import type {DemoCoinPackage} from '../demoExperience';
 import {payload, resourceList} from './common';
+import {
+  DISTRIBUTION_CHANNEL,
+  IS_STORE_DISTRIBUTION,
+} from '../../constants/distribution';
 
 type WalletBreakdownDto = {
   total_balance?: unknown;
@@ -38,10 +42,15 @@ type CoinPackageDto = {
   id?: unknown;
   coins?: unknown;
   price?: unknown;
+  direct_price?: unknown;
   name?: unknown;
   name_ar?: unknown;
   name_en?: unknown;
   recommended?: unknown;
+  store_products?: {
+    google?: unknown;
+    apple?: unknown;
+  };
 };
 
 type CoinTaskDto = {
@@ -161,15 +170,31 @@ export const getCoinPackages = async (): Promise<DemoCoinPackage[]> => {
   const items = Array.isArray(data)
     ? data
     : resourceList<CoinPackageDto>(data.packages);
-  return items
+  const packages = items
     .filter(item => item.id !== null && item.id !== undefined)
     .map(item => ({
       id: String(item.id),
       coins: Number(item.coins || 0),
-      price: Number(item.price || 0),
+      price: Number(
+        DISTRIBUTION_CHANNEL === 'direct'
+          ? item.direct_price ?? item.price ?? 0
+          : item.price ?? 0,
+      ),
       label: String(item.name || item.name_ar || item.name_en || 'باقة عملات'),
       recommended: Boolean(item.recommended),
+      storeProductIds: {
+        google: item.store_products?.google
+          ? String(item.store_products.google)
+          : undefined,
+        apple: item.store_products?.apple
+          ? String(item.store_products.apple)
+          : undefined,
+      },
     }));
+
+  if (!IS_STORE_DISTRIBUTION) return packages;
+  const {hydrateNativeStorePackages} = await import('../nativeStoreBilling');
+  return hydrateNativeStorePackages(packages);
 };
 
 export type CoinTask = {

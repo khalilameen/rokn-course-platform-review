@@ -6,9 +6,9 @@
 
 This file is bound to the resolved Gradle releaseRuntimeClasspath and retains package-specific LICENSE and NOTICE documents from the distributed artifacts.
 
-- Dependencies: 201
-- npm source-project components: 20
-- Retained unique legal texts: 21
+- Dependencies: 233
+- npm source-project components: 21
+- Retained unique legal texts: 22
 
 ### androidx.activity:activity-ktx:1.9.3
 
@@ -108,25 +108,165 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - POM SHA-256: `e64ef4e08b58358fe27b599e6fe80a1b153db014c644beee630ab271061c3e6c`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### androidx.collection:collection-jvm:1.4.2
+### androidx.collection:collection-jvm:1.5.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `adbb379e2b160f08e63e341ad04bbcc7033f6d868ec51ac11e4334642a4e39ef`
+- POM SHA-256: `11c415864d3402f61d426e67210158dce1b04680412526a994f1823ecd3cb388`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
+
+### androidx.collection:collection-ktx:1.5.0
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `983f8d0630d072d5bfcd166a498ac7213f3a44a98c09051004ce96429d867cea`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
+
+### androidx.collection:collection:1.5.0
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `2d65c8d0b36d4b4faadc44aff9bade23d871d7159eedf2b3f02d802b34b77a57`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### androidx.collection:collection-ktx:1.4.2
+### androidx.compose.runtime:runtime-android:1.11.4
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `4b2d5f929a0f04dda7b50697a29f51343217e257f0798289712c137e0dc41556`
+- POM SHA-256: `0e8def7090bad1dbab9e11f0fb13f15aaa0a419c86640b82032f8dfbd9f768cc`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
+
+### androidx.compose.runtime:runtime-annotation-android:1.11.4
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `6fa20bb1f669c2fb839a575f84513f4645ad424ee57f45e424a9d58872a477af`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
+
+### androidx.compose.runtime:runtime-annotation:1.11.4
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `d0c1560f3a1a0f6db446ff27c1bd5fa98cdcd88f7516ef6c53c8a94b29081add`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### androidx.collection:collection:1.4.2
+### androidx.compose.runtime:runtime-retain-android:1.11.4
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `4f2615a17aeacfe12b68298214a19f2a19c68c66d590075bdbbfb659ebce2b7f`
+- POM SHA-256: `699b994558c49687851aef960e0360b9ad0fff0c84fb43f118f825423002fd85`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
+
+### androidx.compose.runtime:runtime-retain:1.11.4
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `ca491d2d1f5d63a1c15e39a033606df51f9843b72bc9665b0d51993455d9d9e9`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
+
+### androidx.compose.runtime:runtime-saveable-android:1.11.4
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `1ef6c40e7b493e7e6fc6ae6cbc0645ad5c527409ab2c680df048020d511f131b`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
+
+### androidx.compose.runtime:runtime-saveable:1.11.4
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `6d16dbb76f4f955c2cd6547e15d8dff4c2503434a21ea0f62c1ef49d9facc102`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
+
+### androidx.compose.runtime:runtime:1.11.4
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `ec6ab0eec69b5b13d09b80375abb8e7c2918d73334727ef933a7bfc7178dc19b`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
+
+### androidx.compose.ui:ui-android:1.11.4
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `65a05bd567f25050a4da975593d30be6a84478f37b3be78d3775f0d735443759`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
+
+### androidx.compose.ui:ui-geometry-android:1.11.4
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `8b7843327ff4abb661b52a38f9ecc8d895558b06c668c830d2071a8141a73d5a`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
+
+### androidx.compose.ui:ui-geometry:1.11.4
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `604e3303e6c477d0a3ca07b0670d42e715569fd0fbeed36da26727c8bcb7e6b5`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
+
+### androidx.compose.ui:ui-graphics-android:1.11.4
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `814782d56815d582557f6e9dedcf42b455f8cdd2ef2b25246c0374d7fb949213`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
+
+### androidx.compose.ui:ui-graphics:1.11.4
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `7ad9e46ab3c36c980ea91ec88e09020aa1c5d608291eccdcb8c7febb389b40c5`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
+
+### androidx.compose.ui:ui-text-android:1.11.4
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `30e09e81f93f66d7dfb7771333f235ecf178b478974f09035cf2d4054cac08b8`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
+
+### androidx.compose.ui:ui-text:1.11.4
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `069d066f98299fd9386cb1904eb3d7a6f8a19781370da0814bccd90612ac45c3`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
+
+### androidx.compose.ui:ui-unit-android:1.11.4
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `5b20b0c733c5dd4d6c36d0fdc7b03d28989b5bbf228d8f69a49381c7b8c803af`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
+
+### androidx.compose.ui:ui-unit:1.11.4
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `07c3912eada2a60dd475e0a0bb12515124d7a6d6baa3eabfdee8fcb38e34f843`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
+
+### androidx.compose.ui:ui-util-android:1.11.4
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `a1738a465d06b81738ca02c925e1775169c01bee589bab71469ac57ecc5c6674`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
+
+### androidx.compose.ui:ui-util:1.11.4
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `eb214caab3dff9216119719146e110c217b11e12f1d3224752d05bf30e2857c4`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
+
+### androidx.compose.ui:ui:1.11.4
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `dd0a7c90f8eb4cc719630aa59d6fab2b7282f98db2c97700d3b81a65bbcaa4b6`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
 ### androidx.concurrent:concurrent-futures:1.1.0
@@ -157,11 +297,11 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - POM SHA-256: `0d1848e15e289c05937aaa36bf4c62659936bcddc95ce59edf386f8646fcbd22`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### androidx.core:core-ktx:1.17.0
+### androidx.core:core-ktx:1.18.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `0233d8d0a2ce8ff383502c8c64a42fc1673016402c923795465b6444eacd9939`
+- POM SHA-256: `3a5e0009e06517627756b9203d9a8f055fda87b215a17b775bae568697854196`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
 
 ### androidx.core:core-viewtree:1.0.0
@@ -171,11 +311,11 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - POM SHA-256: `d4f2ed1176fa8c5612b80f74c952a8799142a9ed36022a1a238fde5b140580d9`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
 
-### androidx.core:core:1.17.0
+### androidx.core:core:1.18.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `8b63b18ff4e3474ef1e9428ed022d7994e9e69adfcdaee7e59c7e52dc3cf75b0`
+- POM SHA-256: `57d644ebb37d309ad959d740157d8e8424e273b9c672842e4f4c758edc6d30e7`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
 
 ### androidx.cursoradapter:cursoradapter:1.0.0
@@ -304,18 +444,18 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - POM SHA-256: `caecb7b379585d8e4070ebafae3974a137c6689de8077f9165935b3605784a93`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
 
-### androidx.emoji2:emoji2-views-helper:1.3.0
+### androidx.emoji2:emoji2-views-helper:1.4.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `2673b0f5859d4361a4e9a30457852a6745d0c3c85b5e0412070483f3963ef526`
+- POM SHA-256: `e9b7f90b4d7c4a94bb56f76ee7e2bbe78dbaa3b18deb46858b8693fcee2d714b`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### androidx.emoji2:emoji2:1.3.0
+### androidx.emoji2:emoji2:1.4.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `14ebbea8234f013211965fdd08b42ee907ce0075af321018c8c2865c2e5db0eb`
+- POM SHA-256: `1f67221484f7d1260eb6e2b490cd4e7046bf5cb536276d79f972ad3f198b474d`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
 ### androidx.exifinterface:exifinterface:1.3.6
@@ -337,6 +477,13 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - Platform: Android
 - Selected license(s): Apache-2.0
 - POM SHA-256: `a7b2133f1605e7e98c151836ec1628c8f0648b8156b77631f2f2196e24cd3b30`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
+
+### androidx.graphics:graphics-path:1.0.1
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `866fb357c7146f5f7678ad44e4bc6c2823d568defce1ed2805bb6c899606b228`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
 ### androidx.graphics:graphics-shapes-android:1.0.1
@@ -381,109 +528,123 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - POM SHA-256: `ed88fb124cfb70f2bb928ede1357874374aa45881bcb6d9744c1dc6680fa7c58`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### androidx.lifecycle:lifecycle-common-java8:2.9.3
+### androidx.lifecycle:lifecycle-common-java8:2.10.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `cbeb5c4cfe594340905e20b2eeb56221351b923da3b6ce6fd4476b19133f6ba3`
+- POM SHA-256: `afaa5d85193a6b108a25f6fa8a8ae3e7b2b0b2b2b7cf53597f72bcb4f5942718`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
 
-### androidx.lifecycle:lifecycle-common-jvm:2.9.3
+### androidx.lifecycle:lifecycle-common-jvm:2.10.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `325669cea2d3f288e827536adda81f5d64409d8daa3a22650cb963f670a3f15f`
+- POM SHA-256: `ca062b9abb0298b0d40ae10c2d1ca06d4129f5f60efdc5e8c44c6c2b3375d15b`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
 
-### androidx.lifecycle:lifecycle-common:2.9.3
+### androidx.lifecycle:lifecycle-common:2.10.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `8baaff00c69faeeaaf83a68a86db3ed150d1d21c367404c79bfafb5ec157eb41`
+- POM SHA-256: `1004f4df05118b13c2a909846badc66646ed277944706a604e4dd8284d53548b`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### androidx.lifecycle:lifecycle-livedata-core-ktx:2.9.3
+### androidx.lifecycle:lifecycle-livedata-core-ktx:2.10.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `8caa7180693adbc15cd62c3bcf843d5571b1e0fd4f5a899e4466209cdd1508c1`
+- POM SHA-256: `d982082c3279eeb9c187d9897665ca9a90d3443f35dadc689261f4b27c72d9ac`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
 
-### androidx.lifecycle:lifecycle-livedata-core:2.9.3
+### androidx.lifecycle:lifecycle-livedata-core:2.10.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `2259dd3add30855f33c1da0cbcda189a9ef62ce38067b71155705fc2118a646c`
+- POM SHA-256: `4bed5e91cd2a7c01558320b6a176dbb867fca3c4c697db948e203be45f910d64`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
 
-### androidx.lifecycle:lifecycle-process:2.9.3
+### androidx.lifecycle:lifecycle-process:2.10.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `1602e5774336629d25d9fd87b883e3fe395e966fca2afae3f8a7ff06d0cf48c6`
+- POM SHA-256: `a2c3062320873f9ac29ded1d9ca4a2415529c2e4568d53b5f2b813ec52adc664`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
 
-### androidx.lifecycle:lifecycle-runtime-android:2.9.3
+### androidx.lifecycle:lifecycle-runtime-android:2.10.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `26598d413ab1b52fcae03a5ff237d212d77c1abbb01e9816c22f982bd097e198`
+- POM SHA-256: `e97ee01daf6f4dccb900bdb7672baab5ad3c7c25c45491fdccf5eba33b6eafff`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
 
-### androidx.lifecycle:lifecycle-runtime-ktx-android:2.9.3
+### androidx.lifecycle:lifecycle-runtime-compose-android:2.10.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `ff9192796d6362465883660a7442aec8dd1a3089d6f1cdffbbe47a797338c431`
+- POM SHA-256: `807830efa27130649286b0061c972ad9dc0b1a61d1bfc2d71a2e8ddf71f62bc5`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
 
-### androidx.lifecycle:lifecycle-runtime-ktx:2.9.3
+### androidx.lifecycle:lifecycle-runtime-compose:2.10.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `59bee2285e4b83a1e507980a748bd21dc4ba9d6556323ec554ad1dec8e243781`
+- POM SHA-256: `0f790ce151911010d537cd20452675017ff25fdff1fb5cdf499bf3a05ad42caa`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### androidx.lifecycle:lifecycle-runtime:2.9.3
+### androidx.lifecycle:lifecycle-runtime-ktx-android:2.10.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `ba71c6c020c68b93fc2c08a36098131efafded21f512d6f581119de08ed64a93`
+- POM SHA-256: `5c1a269dd0f0ace87f22832883b898bd7b4252d6a87f04c17347d83e3128660e`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
+
+### androidx.lifecycle:lifecycle-runtime-ktx:2.10.0
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `060ad1753381e7af9d7a5b89829f394ef6fd47f77e31ba4c812462bc37bda618`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### androidx.lifecycle:lifecycle-viewmodel-android:2.9.3
+### androidx.lifecycle:lifecycle-runtime:2.10.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `11a63e493b675670a334ffd6f93148a69c2ace7b971e20adb9a73970dfa47404`
-- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
-
-### androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.3
-
-- Platform: Android
-- Selected license(s): Apache-2.0
-- POM SHA-256: `a519f4016630babf506dcac4046f40d2b725989b8dee4b2dfe263458d065afa8`
-- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
-
-### androidx.lifecycle:lifecycle-viewmodel-savedstate-android:2.9.3
-
-- Platform: Android
-- Selected license(s): Apache-2.0
-- POM SHA-256: `9519df3c7ec05656697e445aa77b811830445431a0a39aaca79a703e0f628044`
-- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
-
-### androidx.lifecycle:lifecycle-viewmodel-savedstate:2.9.3
-
-- Platform: Android
-- Selected license(s): Apache-2.0
-- POM SHA-256: `7b5d70c68e92ca30d60e8e85f39b5d14bef8bdea890931d0bae7c85a68080e78`
+- POM SHA-256: `4a8b5eec54d5ecdf099ea53b2e4e9f24db2967ea5d393097b6a6c549ed69308d`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### androidx.lifecycle:lifecycle-viewmodel:2.9.3
+### androidx.lifecycle:lifecycle-viewmodel-android:2.10.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `6b438208c1ee0024196a8e2e5621e92a01d72cada11df21ed179d79667f9b220`
+- POM SHA-256: `0aa171a50f50a85c90687ad82dcd37f31afdd1bfd2463c215d1322960e51e228`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
+
+### androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `e139dbb1a00ce08aaed86557aa968eec7151d6d4b304c324e2e572275aacd908`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
+
+### androidx.lifecycle:lifecycle-viewmodel-savedstate-android:2.10.0
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `5fcd429ba57e1dde1b438534e53c23d6274d234e33c748963f6faa9f81933c87`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
+
+### androidx.lifecycle:lifecycle-viewmodel-savedstate:2.10.0
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `59656ffcae1e0e147043b0d6d89966a5f96752f05291ebfa028406ed94444dd1`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
+
+### androidx.lifecycle:lifecycle-viewmodel:2.10.0
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `1d860aff0ca598d48e8e83da3f4e6769078498574a18d3b889ec2b8c4090b198`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
 
 ### androidx.loader:loader:1.1.0
@@ -626,25 +787,39 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - POM SHA-256: `b8eb4938ed95d7fcdaa2712ebca363e46a0f9228b8be7f23154def56846815dc`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### androidx.savedstate:savedstate-android:1.3.1
+### androidx.savedstate:savedstate-android:1.4.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `8d9bbcd2f6c2d19e4c48178eb9bbea5ff20093c82363fbb2510b71feaf8e50d1`
+- POM SHA-256: `b44b215b4cce24ca64b5faa58ff463f4b91abc02af95ba405ade488828f4f779`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
 
-### androidx.savedstate:savedstate-ktx:1.3.1
+### androidx.savedstate:savedstate-compose-android:1.4.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `14cec91f73dde4d4c7a11ec660b6c5d083dddf30ef412cf6a1743dc10a62a5b8`
+- POM SHA-256: `de19831dabb84a4d0e120e86dceb08cf62c08606b5d99e91a8f8e6b4a4658883`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
 
-### androidx.savedstate:savedstate:1.3.1
+### androidx.savedstate:savedstate-compose:1.4.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `1a12e8ec533c6b552d497dfb47fad1a39cd0b996397b74b96037a8e1bade5b59`
+- POM SHA-256: `b15f47b42585442c9b6a9d416afc30782c69dbf9a5760a2c37175f0024f0d17e`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
+
+### androidx.savedstate:savedstate-ktx:1.4.0
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `b085af7cc4bb297ed0f25ca85d3629613ab253c0b532684c6cf77c2aee7471c5`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
+
+### androidx.savedstate:savedstate:1.4.0
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `d2b68a2d0cc76f23cebc6d4ea9bbf2d63fb536ffd94e05514ad9da6c5f530492`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
 ### androidx.slidingpanelayout:slidingpanelayout:1.0.0
@@ -682,12 +857,12 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - POM SHA-256: `f34bec4eb58871d31002901377108aaa1ebfe77fa6d882b8b86200b158e26ea1`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### androidx.transition:transition:1.5.0
+### androidx.transition:transition:1.6.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `db6c7497f0f094ff2eecfb329e1700658f0d6c56fb088482f7e9b774de9ad53f`
-- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
+- POM SHA-256: `070d7795010071edefbef94b8c9d5a2cac5cb5f3b1a2c5e558546438177c8ef8`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
 
 ### androidx.vectordrawable:vectordrawable-animated:1.1.0
 
@@ -723,6 +898,35 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - Selected license(s): Apache-2.0
 - POM SHA-256: `1f72f836339d03c6eb013f65075e76ca87075a577578eb4f95f74a3a5d253128`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
+
+### androidx.window:window-core-android:1.5.0
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `463c50b22a969c6274ebdb7b5f56ba1ea1dde352e9679f0a0ba90f3971dbcd57`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
+
+### androidx.window:window-core:1.5.0
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `e38a30fe9a9ccb575531b265fec8e23207bda9818977aae495f3fe74b9c9e1f3`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
+
+### androidx.window:window:1.5.0
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `d4f22b991a69600e2ffc36b42ac199626fd96d5f1648c3beeccd35de06fcc351`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
+
+### com.android.billingclient:billing:9.1.0
+
+- Platform: Android
+- Selected license(s): LicenseRef-Android-SDK
+- POM SHA-256: `99b89f5001a3df1971e5c5b8c3742f1c5197848a64c8105bbc81b4fa6299a545`
+- Exact reviewed absence: The exact Billing Client POM declares the Android SDK License and links the authoritative Google terms; the resolved AAR publishes no standalone legal file.
+- Retained legal document(s): none (exact reviewed absence above)
 
 ### com.android.installreferrer:installreferrer:2.2
 
@@ -998,6 +1202,22 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - Exact reviewed absence: Google Play services artifact reviewed under the Google APIs/Android SDK terms; its resolved artifact and POM publish no standalone legal file.
 - Retained legal document(s): none (exact reviewed absence above)
 
+### com.google.android.gms:play-services-location:19.0.0
+
+- Platform: Android
+- Selected license(s): LicenseRef-Android-SDK
+- POM SHA-256: `cce60a0c4250e5be6d33f46505ba7269048a68d478862c87bf761c69ef84da3e`
+- Exact reviewed absence: Google Play services artifact reviewed under the Google APIs/Android SDK terms; its resolved artifact and POM publish no standalone legal file.
+- Retained legal document(s): none (exact reviewed absence above)
+
+### com.google.android.gms:play-services-places-placereport:17.0.0
+
+- Platform: Android
+- Selected license(s): LicenseRef-Android-SDK
+- POM SHA-256: `23604d3a278bd430af4f204105e48492f71501516201d8a2a8e72253fb9396f7`
+- Exact reviewed absence: Google Play services artifact reviewed under the Google APIs/Android SDK terms; its resolved artifact and POM publish no standalone legal file.
+- Retained legal document(s): none (exact reviewed absence above)
+
 ### com.google.android.gms:play-services-stats:17.0.2
 
 - Platform: Android
@@ -1028,19 +1248,18 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - POM SHA-256: `19889dbdf1b254b2601a5ee645b8147a974644882297684c798afe5d63d78dfe`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### com.google.code.gson:gson:2.8.6
+### com.google.code.gson:gson:2.14.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `2174415a647332d30fda04bd1cfc708a3ecc84eaf7517f596188d8244e103911`
-- Exact license review: The exact Gson coordinate inherits Apache-2.0 terms that its resolved child POM omits.
+- POM SHA-256: `1fa0122c0e3733192642861c36be4c6f799a795327a23bdd2922691b6e9ba480`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### com.google.errorprone:error_prone_annotations:2.26.0
+### com.google.errorprone:error_prone_annotations:2.48.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `c35a2780423fc7e535922a1a6f7e754728e6f9adaa26ada4c37f7d9d356b9e43`
+- POM SHA-256: `189e09ad0489c325e90daaa9d5c8f406330602fa366609bca07cbcdad03ab9da`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
 ### com.google.firebase:firebase-annotations:17.0.0
@@ -1298,6 +1517,13 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - Owning npm source: `expo-web-browser@55.0.18`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
+### io.github.hyochan.openiap:openiap-google:3.4.0
+
+- Platform: Android
+- Selected license(s): MIT
+- POM SHA-256: `58be4da1ad78feb927aa2c76ce6a48f822916f70da596fc316c217180628735b`
+- Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
+
 ### javax.inject:javax.inject:1
 
 - Platform: Android
@@ -1347,11 +1573,11 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - POM SHA-256: `5e020887aec0d89a9c168efd91aed62865553877f9303f145dbcb9d23ba60dc7`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### org.jetbrains.kotlin:kotlin-stdlib-common:2.1.20
+### org.jetbrains.kotlin:kotlin-stdlib-common:2.2.20
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `d622e30005660629744268fa89128fb7ded4d42e174ceb081f67f7056ac9a8bb`
+- POM SHA-256: `fd789cb32e2410ecc683b8739f7b75003d09da33330c3f8a65c269db6b2f6c75`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
 ### org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.1.20
@@ -1368,46 +1594,46 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - POM SHA-256: `5f4b94dd3065a7764c37fa15de2ad6d81f40d59f8cb33f17d181c6384fb7a72e`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### org.jetbrains.kotlin:kotlin-stdlib:2.1.20
+### org.jetbrains.kotlin:kotlin-stdlib:2.2.20
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `6750e1799ee502077dae5c3d599796f667606f60d35e95cb790448dc7912b40b`
+- POM SHA-256: `4a8b086e6431bcf623637f52b2ff192e1adb913838742e5c0eea70a8dee429c4`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2
+### org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `b92d3672e7f9e8f4c4e2ab187c3e31fecc506496396f4a5f27ee1c957a42b319`
+- POM SHA-256: `224567420d3e0ed5fef40f789fded45dfd51b162319e28d77d3c9a8dec4821b8`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.10.2
+### org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.11.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `faf0c6538e53ddc0499a63664d8e763c216580b2e18e722ccbdf1b431a6afe26`
+- POM SHA-256: `f65860bce58a2bfadf05fdc516d38333421f0e387fef87e24449c0394c80d254`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.10.2
+### org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.11.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `658f576b96c832e7382406adb197d64d8e2e97de10e96dfa3700decfa2a60def`
+- POM SHA-256: `dd54b97aa3fab91fc24f5df2916c22be9429a339d2f45b7ff092332f6c19dc39`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2
+### org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `519da5400096f3462a4dae80783ad050413d4bc81ec7ae53fae76aef0ccbed4c`
+- POM SHA-256: `41b6e78c1b0d11bc99de795390df9e4ece64dc113f482d6e308f1b7a421c1d30`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2
+### org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `8d38059aff23e1b2ac216dedaccb1ba15dc7d14c80615244de091cc61332096a`
+- POM SHA-256: `24b135555039f77ced1353a46ce38a5a270496dbb0872a150e00a9536f1bb598`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
 ### org.jetbrains.kotlinx:kotlinx-serialization-bom:1.7.3
@@ -1458,6 +1684,13 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - Selected license(s): MIT
 - Classified npm production source: `expo-constants@55.0.17`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
+
+### gradle-project:::expo-iap
+
+- Platform: Android project
+- Selected license(s): MIT
+- Classified npm production source: `expo-iap@5.4.1`
+- Retained legal document(s): `219baa0f0ec67b168492214cafd8fb602c82d690105278b603f5c4568e20be00`, `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
 ### gradle-project:::expo-log-box
 
@@ -1625,6 +1858,34 @@ Copyright 2001-2008 The Apache Software Foundation
 
 This product includes software developed by
 The Apache Software Foundation (http://www.apache.org/).
+```
+
+### 219baa0f0ec67b168492214cafd8fb602c82d690105278b603f5c4568e20be00
+
+Source(s): `npm:expo-iap@5.4.1/LICENSE`
+
+```text
+MIT License
+
+Copyright (c) 2025 hyochan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 ### 283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b
@@ -1960,7 +2221,7 @@ SOFTWARE.
 
 ### 4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe
 
-Source(s): `androidx.annotation:annotation-jvm:1.9.1/annotation-jvm-1.9.1.jar/META-INF/androidx/annotation/annotation/LICENSE.txt`, `androidx.core:core-ktx:1.17.0/core-ktx-1.17.0.aar/META-INF/androidx/core/core-ktx/LICENSE.txt`, `androidx.core:core-viewtree:1.0.0/core-viewtree-1.0.0.aar/META-INF/androidx/core/core-viewtree/LICENSE.txt`, `androidx.core:core:1.17.0/core-1.17.0.aar/META-INF/androidx/core/core/LICENSE.txt`, `androidx.documentfile:documentfile:1.1.0/documentfile-1.1.0.aar/META-INF/androidx/documentfile/documentfile/LICENSE.txt`, `androidx.dynamicanimation:dynamicanimation:1.1.0/dynamicanimation-1.1.0.aar/META-INF/androidx/dynamicanimation/dynamicanimation/LICENSE.txt`, `androidx.graphics:graphics-shapes-android:1.0.1/graphics-shapes-release.aar/META-INF/androidx/graphics/graphics-shapes/LICENSE.txt`, `androidx.lifecycle:lifecycle-common-java8:2.9.3/lifecycle-common-java8-2.9.3.jar/META-INF/androidx/lifecycle/lifecycle-common-java8/LICENSE.txt`, `androidx.lifecycle:lifecycle-common-jvm:2.9.3/lifecycle-common-jvm-2.9.3.jar/META-INF/androidx/lifecycle/lifecycle-common/LICENSE.txt`, `androidx.lifecycle:lifecycle-livedata-core-ktx:2.9.3/lifecycle-livedata-core-ktx-2.9.3.aar/META-INF/androidx/lifecycle/lifecycle-livedata-core-ktx/LICENSE.txt`, `androidx.lifecycle:lifecycle-livedata-core:2.9.3/lifecycle-livedata-core-2.9.3.aar/META-INF/androidx/lifecycle/lifecycle-livedata-core/LICENSE.txt`, `androidx.lifecycle:lifecycle-process:2.9.3/lifecycle-process-2.9.3.aar/META-INF/androidx/lifecycle/lifecycle-process/LICENSE.txt`, `androidx.lifecycle:lifecycle-runtime-android:2.9.3/lifecycle-runtime-release.aar/META-INF/androidx/lifecycle/lifecycle-runtime/LICENSE.txt`, `androidx.lifecycle:lifecycle-runtime-ktx-android:2.9.3/lifecycle-runtime-ktx.aar/META-INF/androidx/lifecycle/lifecycle-runtime-ktx/LICENSE.txt`, `androidx.lifecycle:lifecycle-viewmodel-android:2.9.3/lifecycle-viewmodel-release.aar/META-INF/androidx/lifecycle/lifecycle-viewmodel/LICENSE.txt`, `androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.3/lifecycle-viewmodel-ktx-2.9.3.aar/META-INF/androidx/lifecycle/lifecycle-viewmodel-ktx/LICENSE.txt`, `androidx.lifecycle:lifecycle-viewmodel-savedstate-android:2.9.3/lifecycle-viewmodel-savedstate-release.aar/META-INF/androidx/lifecycle/lifecycle-viewmodel-savedstate/LICENSE.txt`, `androidx.lifecycle:lifecycle-viewmodel:2.9.3/lifecycle-viewmodel-2.9.3.aar/META-INF/androidx/lifecycle/lifecycle-viewmodel/LICENSE.txt`, `androidx.profileinstaller:profileinstaller:1.4.0/profileinstaller-1.4.0.aar/META-INF/androidx/profileinstaller/profileinstaller/LICENSE.txt`, `androidx.savedstate:savedstate-android:1.3.1/savedstate-release.aar/META-INF/androidx/savedstate/savedstate/LICENSE.txt`, `androidx.savedstate:savedstate-ktx:1.3.1/savedstate-ktx-1.3.1.aar/META-INF/androidx/savedstate/savedstate-ktx/LICENSE.txt`
+Source(s): `androidx.annotation:annotation-jvm:1.9.1/annotation-jvm-1.9.1.jar/META-INF/androidx/annotation/annotation/LICENSE.txt`, `androidx.collection:collection-jvm:1.5.0/collection-jvm-1.5.0.jar/META-INF/androidx/collection/collection/LICENSE.txt`, `androidx.collection:collection-ktx:1.5.0/collection-ktx-1.5.0.jar/META-INF/androidx/collection/collection-ktx/LICENSE.txt`, `androidx.compose.runtime:runtime-android:1.11.4/runtime.aar/META-INF/androidx/compose/runtime/runtime/LICENSE.txt`, `androidx.compose.runtime:runtime-annotation-android:1.11.4/runtime-annotation.aar/META-INF/androidx/compose/runtime/runtime-annotation/LICENSE.txt`, `androidx.compose.runtime:runtime-retain-android:1.11.4/runtime-retain.aar/META-INF/androidx/compose/runtime/runtime-retain/LICENSE.txt`, `androidx.compose.runtime:runtime-saveable-android:1.11.4/runtime-saveable.aar/META-INF/androidx/compose/runtime/runtime-saveable/LICENSE.txt`, `androidx.compose.ui:ui-android:1.11.4/ui.aar/META-INF/androidx/compose/ui/ui/LICENSE.txt`, `androidx.compose.ui:ui-geometry-android:1.11.4/ui-geometry.aar/META-INF/androidx/compose/ui/ui-geometry/LICENSE.txt`, `androidx.compose.ui:ui-graphics-android:1.11.4/ui-graphics.aar/META-INF/androidx/compose/ui/ui-graphics/LICENSE.txt`, `androidx.compose.ui:ui-text-android:1.11.4/ui-text.aar/META-INF/androidx/compose/ui/ui-text/LICENSE.txt`, `androidx.compose.ui:ui-unit-android:1.11.4/ui-unit.aar/META-INF/androidx/compose/ui/ui-unit/LICENSE.txt`, `androidx.compose.ui:ui-util-android:1.11.4/ui-util.aar/META-INF/androidx/compose/ui/ui-util/LICENSE.txt`, `androidx.core:core-ktx:1.18.0/core-ktx-1.18.0.aar/META-INF/androidx/core/core-ktx/LICENSE.txt`, `androidx.core:core-viewtree:1.0.0/core-viewtree-1.0.0.aar/META-INF/androidx/core/core-viewtree/LICENSE.txt`, `androidx.core:core:1.18.0/core-1.18.0.aar/META-INF/androidx/core/core/LICENSE.txt`, `androidx.documentfile:documentfile:1.1.0/documentfile-1.1.0.aar/META-INF/androidx/documentfile/documentfile/LICENSE.txt`, `androidx.dynamicanimation:dynamicanimation:1.1.0/dynamicanimation-1.1.0.aar/META-INF/androidx/dynamicanimation/dynamicanimation/LICENSE.txt`, `androidx.graphics:graphics-shapes-android:1.0.1/graphics-shapes-release.aar/META-INF/androidx/graphics/graphics-shapes/LICENSE.txt`, `androidx.lifecycle:lifecycle-common-java8:2.10.0/lifecycle-common-java8-2.10.0.jar/META-INF/androidx/lifecycle/lifecycle-common-java8/LICENSE.txt`, `androidx.lifecycle:lifecycle-common-jvm:2.10.0/lifecycle-common-jvm-2.10.0.jar/META-INF/androidx/lifecycle/lifecycle-common/LICENSE.txt`, `androidx.lifecycle:lifecycle-livedata-core-ktx:2.10.0/lifecycle-livedata-core-ktx-2.10.0.aar/META-INF/androidx/lifecycle/lifecycle-livedata-core-ktx/LICENSE.txt`, `androidx.lifecycle:lifecycle-livedata-core:2.10.0/lifecycle-livedata-core-2.10.0.aar/META-INF/androidx/lifecycle/lifecycle-livedata-core/LICENSE.txt`, `androidx.lifecycle:lifecycle-process:2.10.0/lifecycle-process-2.10.0.aar/META-INF/androidx/lifecycle/lifecycle-process/LICENSE.txt`, `androidx.lifecycle:lifecycle-runtime-android:2.10.0/lifecycle-runtime.aar/META-INF/androidx/lifecycle/lifecycle-runtime/LICENSE.txt`, `androidx.lifecycle:lifecycle-runtime-compose-android:2.10.0/lifecycle-runtime-compose.aar/META-INF/androidx/lifecycle/lifecycle-runtime-compose/LICENSE.txt`, `androidx.lifecycle:lifecycle-runtime-ktx-android:2.10.0/lifecycle-runtime-ktx.aar/META-INF/androidx/lifecycle/lifecycle-runtime-ktx/LICENSE.txt`, `androidx.lifecycle:lifecycle-viewmodel-android:2.10.0/lifecycle-viewmodel.aar/META-INF/androidx/lifecycle/lifecycle-viewmodel/LICENSE.txt`, `androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0/lifecycle-viewmodel-ktx-2.10.0.aar/META-INF/androidx/lifecycle/lifecycle-viewmodel-ktx/LICENSE.txt`, `androidx.lifecycle:lifecycle-viewmodel-savedstate-android:2.10.0/lifecycle-viewmodel-savedstate.aar/META-INF/androidx/lifecycle/lifecycle-viewmodel-savedstate/LICENSE.txt`, `androidx.lifecycle:lifecycle-viewmodel:2.10.0/lifecycle-viewmodel-2.10.0.aar/META-INF/androidx/lifecycle/lifecycle-viewmodel/LICENSE.txt`, `androidx.profileinstaller:profileinstaller:1.4.0/profileinstaller-1.4.0.aar/META-INF/androidx/profileinstaller/profileinstaller/LICENSE.txt`, `androidx.savedstate:savedstate-android:1.4.0/savedstate.aar/META-INF/androidx/savedstate/savedstate/LICENSE.txt`, `androidx.savedstate:savedstate-compose-android:1.4.0/savedstate-compose.aar/META-INF/androidx/savedstate/savedstate-compose/LICENSE.txt`, `androidx.savedstate:savedstate-ktx:1.4.0/savedstate-ktx-1.4.0.aar/META-INF/androidx/savedstate/savedstate-ktx/LICENSE.txt`, `androidx.transition:transition:1.6.0/transition-1.6.0.aar/META-INF/androidx/transition/transition/LICENSE.txt`, `androidx.window:window-core-android:1.5.0/window-core.aar/META-INF/androidx/window/window-core/LICENSE.txt`, `androidx.window:window:1.5.0/window-1.5.0.aar/META-INF/androidx/window/window/LICENSE.txt`
 
 ```text
 Apache License

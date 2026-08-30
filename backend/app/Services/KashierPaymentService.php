@@ -23,6 +23,7 @@ final readonly class KashierPaymentService
         private readonly OrderLifecycleService $orderLifecycle,
         private readonly WalletService $wallet,
         private readonly FinancialProvenanceService $financialProvenance,
+        private readonly PackageChannelPricingService $pricing,
     ) {
     }
 
@@ -102,6 +103,8 @@ final readonly class KashierPaymentService
                     'financial_status' => Order::FINANCIAL_CANCELLED,
                 ]);
 
+            $baseAmount = (float) $package->price;
+            $finalAmount = $this->pricing->directPrice($package);
             $order = Order::create([
                 'user_id' => $user->id,
                 'package_id' => $package->id,
@@ -112,9 +115,9 @@ final readonly class KashierPaymentService
                     ? $clientRequestKey
                     : 'server-' . (string) Str::uuid(),
                 'checkout_expires_at' => now()->addMinutes(self::CHECKOUT_TTL_MINUTES),
-                'amount' => $package->price,
-                'discount_amount' => 0,
-                'final_amount' => $package->price,
+                'amount' => $baseAmount,
+                'discount_amount' => round($baseAmount - $finalAmount, 2),
+                'final_amount' => $finalAmount,
                 'status' => Order::STATUS_PENDING,
                 'is_premium_user' => $user->isPremiumUser(),
             ]);

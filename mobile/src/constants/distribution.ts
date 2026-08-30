@@ -9,6 +9,7 @@ export type DistributionChannel = 'direct' | 'play' | 'appstore';
 export type DistributionCapabilities = {
   canRedeemCourseAccessCode: boolean;
   canStartExternalCheckout: boolean;
+  canStartNativeCheckout: boolean;
 };
 
 /**
@@ -24,6 +25,7 @@ export const getDistributionCapabilities = (
 ): DistributionCapabilities => ({
   canRedeemCourseAccessCode: channel !== 'appstore',
   canStartExternalCheckout: channel === 'direct',
+  canStartNativeCheckout: channel === 'play' || channel === 'appstore',
 });
 
 const configuredChannel = process.env.EXPO_PUBLIC_DISTRIBUTION_CHANNEL;
@@ -46,6 +48,10 @@ const distributionCapabilities =
 // an unknown/missing channel value.
 export const CAN_START_EXTERNAL_CHECKOUT =
   distributionCapabilities.canStartExternalCheckout;
+export const CAN_START_NATIVE_CHECKOUT =
+  distributionCapabilities.canStartNativeCheckout;
+export const CAN_START_COIN_CHECKOUT =
+  CAN_START_EXTERNAL_CHECKOUT || CAN_START_NATIVE_CHECKOUT;
 
 export const CAN_REDEEM_COURSE_ACCESS_CODE =
   distributionCapabilities.canRedeemCourseAccessCode;

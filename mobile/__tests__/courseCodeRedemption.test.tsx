@@ -55,15 +55,21 @@ const plans: CourseAccessPlan[] = [
 ];
 
 describe('course-code distribution boundary', () => {
-  it.each<[DistributionChannel, boolean, boolean]>([
-    ['direct', true, true],
-    ['play', false, true],
-    ['appstore', false, false],
+  it.each<[DistributionChannel, boolean, boolean, boolean]>([
+    ['direct', true, false, true],
+    ['play', false, true, true],
+    ['appstore', false, true, false],
   ])(
     'applies the expected checkout/redemption policy to %s',
-    (channel, canStartExternalCheckout, canRedeemCourseAccessCode) => {
+    (
+      channel,
+      canStartExternalCheckout,
+      canStartNativeCheckout,
+      canRedeemCourseAccessCode,
+    ) => {
       expect(getDistributionCapabilities(channel)).toEqual({
         canStartExternalCheckout,
+        canStartNativeCheckout,
         canRedeemCourseAccessCode,
       });
     },
@@ -205,8 +211,11 @@ describe('course-code redemption UI', () => {
           onSuccessStart={jest.fn()}
           packages={[]}
           purchasePrice={300}
+          rewardContributionLimit={300}
+          rewardContributionPercent={100}
           selectedPlan={plans[0]}
           shortfall={0}
+          usableCurrentBalance={300}
         />,
       );
     });
@@ -219,6 +228,84 @@ describe('course-code redemption UI', () => {
         node => node.props.accessibilityLabel === 'تفعيل كود الوصول',
       ),
     ).toHaveLength(0);
+
+    await ReactTestRenderer.act(() => renderer!.unmount());
+  });
+
+  it('shows the same sufficient package choices inline without opening the wallet page', async () => {
+    const onBuyCoins = jest.fn();
+    let renderer: ReactTestRenderer.ReactTestRenderer;
+
+    await ReactTestRenderer.act(() => {
+      renderer = ReactTestRenderer.create(
+        <CoursePurchaseDialog
+          accessPlans={plans}
+          balance={100}
+          bottomInset={0}
+          busy={false}
+          courseTitle="كورس الإنتاج"
+          dialogStep="topup"
+          grantActivated={false}
+          isTablet={false}
+          notice=""
+          onBuyCoins={onBuyCoins}
+          onClose={jest.fn()}
+          onConfirmPurchase={jest.fn()}
+          onSelectPlan={jest.fn()}
+          onSuccessStart={jest.fn()}
+          packages={[
+            {
+              id: 'coins-1000',
+              coins: 1000,
+              price: 99,
+              label: 'رصيد مدفوع',
+            },
+            {
+              id: 'coins-1500',
+              coins: 1500,
+              price: 139,
+              label: 'رصيد مدفوع',
+            },
+          ]}
+          purchasePrice={700}
+          rewardContributionLimit={300}
+          rewardContributionPercent={42}
+          selectedPlan={plans[2]}
+          shortfall={600}
+          sufficientPackage={{
+            id: 'coins-1000',
+            coins: 1000,
+            price: 99,
+            label: 'رصيد مدفوع',
+          }}
+          usableCurrentBalance={100}
+        />,
+      );
+    });
+
+    const tree = JSON.stringify(renderer!.toJSON());
+    expect(tree).toContain('الاختيار السريع');
+    expect(tree).toContain('٩٩');
+    expect(tree).toContain('١٣٩');
+    expect(tree).toContain('ج.م');
+    expect(tree).toContain('يتبقى ');
+    expect(tree).toContain('٤٠٠');
+    expect(tree).not.toContain('اختيار الباقة');
+    const actions = renderer!.root.findAll(
+      node =>
+        node.props.accessibilityRole === 'button' &&
+        typeof node.props.onPress === 'function' &&
+        node.props.disabled === false,
+    );
+    const paymentAction = actions.find(node =>
+      String(node.props.accessibilityLabel || '').includes('٩٩'),
+    );
+    expect(paymentAction).toBeDefined();
+    await ReactTestRenderer.act(() => paymentAction!.props.onPress());
+    expect(onBuyCoins).toHaveBeenCalledTimes(1);
+    expect(onBuyCoins).toHaveBeenCalledWith(
+      expect.objectContaining({id: 'coins-1000'}),
+    );
 
     await ReactTestRenderer.act(() => renderer!.unmount());
   });

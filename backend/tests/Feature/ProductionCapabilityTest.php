@@ -35,12 +35,36 @@ final class ProductionCapabilityTest extends TestCase
             $table->boolean('bunny_enabled')->default(false);
             $table->timestamps();
         });
+        Schema::create('packages', function (Blueprint $table): void {
+            $table->id();
+            $table->string('google_product_id')->nullable();
+            $table->string('apple_product_id')->nullable();
+            $table->boolean('google_enabled')->default(false);
+            $table->boolean('apple_enabled')->default(false);
+            $table->timestamps();
+        });
 
         DB::table('settings')->insert([
             'bunny_enabled' => true,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+        DB::table('packages')->insert([
+            'google_product_id' => 'rokn.coins.600',
+            'apple_product_id' => 'rokn.coins.600',
+            'google_enabled' => true,
+            'apple_enabled' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $googleStoreCredentials = base64_encode(json_encode([
+            'client_email' => 'play-verifier@rokn-production.iam.gserviceaccount.com',
+            'private_key' => "-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----\n",
+        ], JSON_THROW_ON_ERROR));
+        $appleStoreKey = base64_encode(
+            "-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----\n"
+        );
 
         config([
             'app.env' => 'production',
@@ -61,6 +85,15 @@ final class ProductionCapabilityTest extends TestCase
             'kashier.live.secret_key' => 'dashboard-secret',
             'kashier.live.mid' => 'MID-1',
             'kashier.live.base_url' => 'https://checkout.kashier.io',
+            'store_billing.google.package_name' => 'com.rokn',
+            'store_billing.google.credentials_base64' => $googleStoreCredentials,
+            'store_billing.google.rtdn_audience' => 'https://api.production.test/api/store-notifications/google',
+            'store_billing.google.rtdn_service_account_email' => 'play-rtdn@production.test',
+            'store_billing.apple.bundle_id' => 'com.rokn',
+            'store_billing.apple.issuer_id' => '00000000-0000-0000-0000-000000000000',
+            'store_billing.apple.key_id' => 'ABCDEFGHIJ',
+            'store_billing.apple.private_key_base64' => $appleStoreKey,
+            'store_billing.apple.root_certificate_sha256' => [str_repeat('a', 64)],
             'openrouter.api_key' => 'ai-secret',
             'openrouter.default_model' => 'provider/model',
             'openrouter.allowed_models' => ['provider/model'],
@@ -103,6 +136,7 @@ final class ProductionCapabilityTest extends TestCase
     {
         $this->clearQueueHeartbeats();
         Schema::dropIfExists('settings');
+        Schema::dropIfExists('packages');
         parent::tearDown();
     }
 
@@ -139,6 +173,9 @@ final class ProductionCapabilityTest extends TestCase
         self::assertTrue($report['capabilities']['bunny']['signing']['ready']);
         self::assertTrue($report['capabilities']['bunny']['assets']['ready']);
         self::assertTrue($report['capabilities']['payment']['ready']);
+        self::assertTrue($report['capabilities']['payment']['kashier']['ready']);
+        self::assertTrue($report['capabilities']['payment']['google_play']['ready']);
+        self::assertTrue($report['capabilities']['payment']['app_store']['ready']);
         self::assertTrue($report['capabilities']['ai']['ready']);
         self::assertTrue($report['capabilities']['mail']['ready']);
         self::assertTrue($report['capabilities']['push']['ready']);
@@ -160,6 +197,8 @@ final class ProductionCapabilityTest extends TestCase
         $response = $this->getJson('/api/health/launch-ready')->assertOk();
         $response->assertJsonPath('status', 'launch_ready')
             ->assertJsonPath('checks.bunny_assets', true)
+            ->assertJsonPath('checks.payment_google_play', true)
+            ->assertJsonPath('checks.payment_app_store', true)
             ->assertJsonPath('checks.queue', true)
             ->assertJsonPath('checks.mail', true)
             ->assertJsonPath('checks.push', true)

@@ -12,6 +12,8 @@
 <div class="admin-page orders-container">
     @include('admin.orders.partials.index.statistics')
 
+    @include('admin.orders.partials.index.payment-channel-report')
+
     @include('admin.orders.partials.index.filters')
 
     @include('admin.orders.partials.index.orders-table')

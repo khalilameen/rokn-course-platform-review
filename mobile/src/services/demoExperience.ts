@@ -21,6 +21,11 @@ export type DemoCoinPackage = {
   price: number;
   label: string;
   recommended?: boolean;
+  displayPrice?: string;
+  storeProductIds?: {
+    google?: string;
+    apple?: string;
+  };
 };
 
 export type DemoTransaction = {

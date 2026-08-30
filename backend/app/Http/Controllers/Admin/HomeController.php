@@ -10,6 +10,7 @@ use App\Models\Course;
 use App\Models\CourseModule;
 use App\Models\CourseSection;
 use App\Services\CoursePublishingService;
+use App\Services\PaymentChannelReportService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Artisan;
@@ -27,7 +28,10 @@ class HomeController extends Controller
     }
 
 
-    public function index(CoursePublishingService $publishingService)
+    public function index(
+        CoursePublishingService $publishingService,
+        PaymentChannelReportService $paymentChannels
+    )
     {
         // Content moderators work in course authoring. The executive dashboard
         // and student-submission review contain financial or learner data.
@@ -98,27 +102,34 @@ class HomeController extends Controller
             ->orderBy('count', 'desc')
             ->get();
 
-        // Cash totals use approved Kashier orders; wallet totals remain virtual units.
+        // Cash-channel totals exclude sandbox/test transactions. Wallet totals
+        // remain virtual units and are reported independently below.
         $approvedCashOrders = Order::query()
-            ->where('payment_method', Order::PAYMENT_METHOD_KASHIER)
+            ->whereIn('payment_method', $paymentChannels->methods())
             ->whereNotNull('package_id')
-            ->where('status', Order::STATUS_APPROVED);
+            ->where('status', Order::STATUS_APPROVED)
+            ->where(function ($query): void {
+                $query->whereNull('gateway_settlement_status')
+                    ->orWhere('gateway_settlement_status', '<>', 'test_purchase');
+            });
         $pendingCashOrders = Order::query()
-            ->where('payment_method', Order::PAYMENT_METHOD_KASHIER)
+            ->whereIn('payment_method', $paymentChannels->methods())
             ->whereNotNull('package_id')
             ->where('status', Order::STATUS_PENDING);
 
-        $totalRevenue = (float) (clone $approvedCashOrders)->sum('final_amount');
+        $paymentChannelReport = $paymentChannels->summary();
+        $totalRevenue = (float) $paymentChannelReport['egp']['gross_amount'];
         $pendingCash = (float) (clone $pendingCashOrders)->sum('final_amount');
 
         $monthlyRevenue = [];
         for ($i = 5; $i >= 0; $i--) {
             $date = now()->subMonths($i);
             $monthName = $date->locale('ar')->format('M Y');
-            $monthCashRevenue = (float) (clone $approvedCashOrders)
-                ->whereYear('approved_at', $date->year)
-                ->whereMonth('approved_at', $date->month)
-                ->sum('final_amount');
+            $monthReport = $paymentChannels->summary(
+                $date->copy()->startOfMonth(),
+                $date->copy()->endOfMonth()
+            );
+            $monthCashRevenue = (float) $monthReport['egp']['gross_amount'];
 
             $monthlyRevenue[] = [
                 'month' => $monthName,
@@ -128,14 +139,12 @@ class HomeController extends Controller
             ];
         }
 
-        $paymentMethods = (clone $approvedCashOrders)
-            ->selectRaw('payment_method, SUM(final_amount) as total')
-            ->groupBy('payment_method')
-            ->get()
-            ->map(function($item) {
+        $paymentMethods = $paymentChannelReport['rows']
+            ->where('currency', 'EGP')
+            ->map(function(array $item) {
                 return [
-                    'method' => $item->payment_method,
-                    'total' => (float) $item->total
+                    'method' => $item['label'],
+                    'total' => (float) $item['gross_amount'],
                 ];
             });
 
@@ -148,18 +157,21 @@ class HomeController extends Controller
             'paid_bills_count' => (clone $approvedCashOrders)->count(),
             'pending_bills_count' => (clone $pendingCashOrders)->count(),
             'active_subscriptions_count' => 0,
+            'confirmed_net_revenue' => $paymentChannelReport['egp']['confirmed_net_amount'],
+            'estimated_net_revenue' => $paymentChannelReport['egp']['estimated_net_amount'],
+            'pending_settlements_count' => $paymentChannelReport['egp']['pending_settlement_count'],
         ];
 
         $currentMonth = now();
         $previousMonth = now()->subMonth();
-        $currentMonthRevenue = (float) (clone $approvedCashOrders)
-            ->whereYear('approved_at', $currentMonth->year)
-            ->whereMonth('approved_at', $currentMonth->month)
-            ->sum('final_amount');
-        $previousMonthRevenue = (float) (clone $approvedCashOrders)
-            ->whereYear('approved_at', $previousMonth->year)
-            ->whereMonth('approved_at', $previousMonth->month)
-            ->sum('final_amount');
+        $currentMonthRevenue = (float) $paymentChannels->summary(
+            $currentMonth->copy()->startOfMonth(),
+            $currentMonth->copy()->endOfMonth()
+        )['egp']['gross_amount'];
+        $previousMonthRevenue = (float) $paymentChannels->summary(
+            $previousMonth->copy()->startOfMonth(),
+            $previousMonth->copy()->endOfMonth()
+        )['egp']['gross_amount'];
 
         $revenueStats['current_month_revenue'] = $currentMonthRevenue;
         $revenueStats['current_month_course_revenue'] = $currentMonthRevenue;
@@ -217,6 +229,7 @@ class HomeController extends Controller
             'revenueStats',
             'monthlyRevenue',
             'paymentMethods',
+            'paymentChannelReport',
             'courseStats'
         ));
     }

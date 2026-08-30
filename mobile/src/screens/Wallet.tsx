@@ -56,7 +56,10 @@ import {
   WalletSnapshot,
 } from '../services/roknApi';
 import RoknCoin, {CoinAmount, RoknCoinStack} from '../components/ui/RoknCoin';
-import {CAN_START_EXTERNAL_CHECKOUT} from '../constants/distribution';
+import {
+  CAN_START_COIN_CHECKOUT,
+  CAN_START_NATIVE_CHECKOUT,
+} from '../constants/distribution';
 import {ECONOMY_CONFIG, ECONOMY_RULES} from '../config/economy';
 import TaskBrandIcon from '../components/ui/TaskBrandIcon';
 import {
@@ -166,6 +169,22 @@ export default function Wallet() {
     });
 
     return () => subscription.remove();
+  }, [refreshWallet]);
+
+  useEffect(() => {
+    if (!CAN_START_NATIVE_CHECKOUT) return undefined;
+    let active = true;
+    let unsubscribe: () => void = () => undefined;
+    void import('../services/nativeStoreBilling').then(storeBilling => {
+      if (!active) return;
+      unsubscribe = storeBilling.subscribeNativeStoreCredits(() => {
+        void refreshWallet();
+      });
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, [refreshWallet]);
 
   const usingRemoteWallet = serverSession === true;
@@ -476,11 +495,11 @@ export default function Wallet() {
             </Pressable>
           </PremiumCard>
 
-          {CAN_START_EXTERNAL_CHECKOUT && (
+          {CAN_START_COIN_CHECKOUT && (
             <SectionHeading style={styles.sectionHeading} title="شحن الرصيد" />
           )}
         </ResponsiveFrame>
-        {CAN_START_EXTERNAL_CHECKOUT && displayedPackages.length ? (
+        {CAN_START_COIN_CHECKOUT && displayedPackages.length ? (
           <ScrollView
             contentContainerStyle={[
               styles.packages,
@@ -502,12 +521,13 @@ export default function Wallet() {
                 key={item.id}
                 onPress={() => startCheckout(item)}
                 price={String(item.price)}
+                displayPrice={item.displayPrice}
                 rPrice={String(item.coins)}
                 width={packageCardWidth}
               />
             ))}
           </ScrollView>
-        ) : CAN_START_EXTERNAL_CHECKOUT && usingRemoteWallet ? (
+        ) : CAN_START_COIN_CHECKOUT && usingRemoteWallet ? (
           <ResponsiveFrame>
             <PremiumCard style={styles.unavailableCard}>
               <Text style={styles.remoteNote}>

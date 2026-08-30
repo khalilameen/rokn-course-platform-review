@@ -2,7 +2,11 @@
 
 namespace App\Providers;
 
+use App\Contracts\StoreNotificationAuthenticityVerifier;
+use App\Contracts\StorePurchaseProviderGateway;
 use App\Http\Middleware\TrustHosts;
+use App\Services\LiveStorePurchaseProviderGateway;
+use App\Services\LiveStoreNotificationAuthenticityVerifier;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\ServiceProvider;
@@ -19,6 +23,15 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register()
     {
+        $this->app->bind(
+            StorePurchaseProviderGateway::class,
+            LiveStorePurchaseProviderGateway::class
+        );
+        $this->app->bind(
+            StoreNotificationAuthenticityVerifier::class,
+            LiveStoreNotificationAuthenticityVerifier::class
+        );
+
         // We use only FCM from the Firebase Admin SDK. Binding the contract
         // directly keeps the integration small and avoids coupling the whole
         // application to a Laravel wrapper that does not support Laravel 12.

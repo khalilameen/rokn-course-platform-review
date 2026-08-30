@@ -7,11 +7,9 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {Palette, useResponsiveLayout} from '../../constants/designSystem';
 import {
   CAN_REDEEM_COURSE_ACCESS_CODE,
-  CAN_START_EXTERNAL_CHECKOUT,
+  CAN_START_COIN_CHECKOUT,
 } from '../../constants/distribution';
-import {ECONOMY_CONFIG} from '../../config/economy';
 import {LOCAL_DEMO_ENABLED} from '../../config/runtime';
-import {formatArabicDisplayText} from '../../constants/arabicFormatting';
 import {
   DEMO_COURSE_ID,
   getDemoExperience,
@@ -86,6 +84,7 @@ export default function CourseDetails() {
     remotePackages,
     remoteSession,
     remoteRewardBalance,
+    remoteRewardContributionCap,
     remoteSpendableBalance,
     setExperience,
     setRemoteBalance,
@@ -102,16 +101,18 @@ export default function CourseDetails() {
     courseDescription,
     coursePrice,
     courseTitle,
+    checkoutPackages,
     durationMinutes,
     hasPreview,
     owned,
-    packages,
     planSpendableBalances,
     pageReady,
     previewReelCount,
     primaryActionLabel,
     projectCount,
     purchasePrice,
+    rewardContributionLimit,
+    rewardContributionPercent,
     ratingAverage,
     ratingsCount,
     reelCount,
@@ -120,6 +121,7 @@ export default function CourseDetails() {
     spendableBalance,
     studentsCount,
     sufficientPackage,
+    usableCurrentBalance,
   } = selectCourseDetailsPresentation({
     courseId,
     experience,
@@ -133,6 +135,7 @@ export default function CourseDetails() {
     remotePackages,
     remoteSession,
     remoteRewardBalance,
+    remoteRewardContributionCap,
     remoteSpendableBalance,
     routeParams: route.params,
     selectedPlanCode,
@@ -211,7 +214,7 @@ export default function CourseDetails() {
       openLoginForPurchase();
       return;
     }
-    if (!CAN_START_EXTERNAL_CHECKOUT && (coursePrice ?? 0) > 0) {
+    if (!CAN_START_COIN_CHECKOUT && (coursePrice ?? 0) > 0) {
       if (hasPreview) startPreview();
       else
         setNotice(
@@ -262,7 +265,7 @@ export default function CourseDetails() {
   useEffect(() => {
     if (
       !route.params?.openPurchase ||
-      !CAN_START_EXTERNAL_CHECKOUT ||
+      !CAN_START_COIN_CHECKOUT ||
       autoPurchaseHandledRef.current ||
       !pageReady ||
       owned ||
@@ -356,8 +359,45 @@ export default function CourseDetails() {
     setDialogStep(null);
   };
 
+  const activateSelectedCourse = async () => {
+    if (isDemoCourse) {
+      const result = await purchaseDemoCourse(
+        courseId,
+        purchasePrice,
+        (selectedPlan?.code as 'basic' | 'guided' | 'mentor') || 'basic',
+      );
+      setExperience(result.state);
+      setDialogStep(result.purchased ? 'success' : 'topup');
+      return result.purchased;
+    }
+
+    const result = await purchaseCourse(courseId, selectedPlan?.code);
+    setRemoteBalance(result.balance);
+    setRemoteSpendableBalance(result.spendableBalance);
+    setRemotePaidBalance(result.paidBalance);
+    setRemoteRewardBalance(result.rewardBalance);
+    if (result.kind === 'success') {
+      setRemoteOwned(true);
+      setDialogStep('success');
+      return true;
+    }
+
+    if (result.packages.length) setRemotePackages(result.packages);
+    setNotice(
+      'لم يصل تأكيد إضافة الرصيد بالكامل بعد. لن نطلب منك الدفع مرة أخرى؛ أعد المحاولة بعد لحظات.',
+    );
+    setDialogStep('topup');
+    return false;
+  };
+
   const buyCoins = async (coinPackage: DemoCoinPackage) => {
-    if (!CAN_START_EXTERNAL_CHECKOUT || commerceInFlightRef.current) return;
+    if (
+      !CAN_START_COIN_CHECKOUT ||
+      coinPackage.coins < shortfall ||
+      commerceInFlightRef.current
+    ) {
+      return;
+    }
     commerceInFlightRef.current = true;
     setBusy(true);
     setNotice('');
@@ -373,18 +413,7 @@ export default function CourseDetails() {
         if (result.demo) {
           const state = await getDemoExperience();
           setExperience(state);
-          const nextSpendable =
-            state.paidBalance +
-            Math.min(
-              state.rewardBalance,
-              ECONOMY_CONFIG.maxRewardContributionPerCourse,
-            );
-          setDialogStep(nextSpendable >= purchasePrice ? 'confirm' : 'topup');
-          setNotice(
-            formatArabicDisplayText(
-              `تمت إضافة ${result.coinsAdded} إلى رصيدك.`,
-            ),
-          );
+          await activateSelectedCourse();
         } else {
           try {
             const wallet = await getWallet();
@@ -392,14 +421,7 @@ export default function CourseDetails() {
             setRemoteSpendableBalance(wallet.spendableBalance);
             setRemotePaidBalance(wallet.paidBalance);
             setRemoteRewardBalance(wallet.rewardBalance);
-            setDialogStep(
-              wallet.spendableBalance >= purchasePrice ? 'confirm' : 'topup',
-            );
-            setNotice(
-              formatArabicDisplayText(
-                `تم تأكيد الدفع وإضافة ${result.coinsAdded} إلى رصيدك.`,
-              ),
-            );
+            await activateSelectedCourse();
           } catch {
             setDialogStep(null);
             setNotice(
@@ -418,7 +440,7 @@ export default function CourseDetails() {
 
   const confirmPurchase = async () => {
     if (
-      (!CAN_START_EXTERNAL_CHECKOUT && purchasePrice > 0) ||
+      (!CAN_START_COIN_CHECKOUT && purchasePrice > 0) ||
       commerceInFlightRef.current
     ) {
       return;
@@ -428,37 +450,7 @@ export default function CourseDetails() {
     setBusy(true);
     setNotice('');
     try {
-      if (isDemoCourse) {
-        const result = await purchaseDemoCourse(
-          courseId,
-          purchasePrice,
-          (selectedPlan?.code as 'basic' | 'guided' | 'mentor') || 'basic',
-        );
-        setExperience(result.state);
-        setDialogStep(result.purchased ? 'success' : 'topup');
-      } else {
-        const result = await purchaseCourse(courseId, selectedPlan?.code);
-        if (result.kind === 'success') {
-          setRemoteBalance(result.balance);
-          setRemoteSpendableBalance(result.spendableBalance);
-          setRemotePaidBalance(result.paidBalance);
-          setRemoteRewardBalance(result.rewardBalance);
-          setRemoteOwned(true);
-          setDialogStep('success');
-        } else {
-          setRemoteBalance(result.balance);
-          setRemoteSpendableBalance(result.spendableBalance);
-          setRemotePaidBalance(result.paidBalance);
-          setRemoteRewardBalance(result.rewardBalance);
-          if (result.packages.length) setRemotePackages(result.packages);
-          setNotice(
-            formatArabicDisplayText(
-              `تحتاج ${result.deficit} إضافية في رصيدك لفتح الكورس.`,
-            ),
-          );
-          setDialogStep('topup');
-        }
-      }
+      await activateSelectedCourse();
     } catch {
       setNotice('تعذّر فتح الكورس الآن. لم يتغير رصيدك.');
     } finally {
@@ -646,11 +638,14 @@ export default function CourseDetails() {
           setDialogStep(null);
           startCourse();
         }}
-        packages={packages}
+        packages={checkoutPackages}
         purchasePrice={purchasePrice}
+        rewardContributionLimit={rewardContributionLimit}
+        rewardContributionPercent={rewardContributionPercent}
         selectedPlan={selectedPlan}
         shortfall={shortfall}
         sufficientPackage={sufficientPackage}
+        usableCurrentBalance={usableCurrentBalance}
       />
 
       <CourseRetentionDialog

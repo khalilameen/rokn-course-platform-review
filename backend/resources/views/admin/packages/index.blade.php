@@ -19,6 +19,7 @@
                     <th>الاسم (EN)</th>
                     <th>السعر</th>
                     <th>العملات (Coins)</th>
+                    <th>قنوات الشراء</th>
                     <th>تاريخ الإنشاء</th>
                     <th>العمليات</th>
                 </tr>
@@ -31,6 +32,10 @@
                     <td>{{ $package->name_en }}</td>
                     <td>{{ $package->price }}</td>
                     <td>{{ $package->coins }}</td>
+                    <td>
+                        <span class="badge badge-{{ $package->google_enabled ? 'success' : 'secondary' }}">Play</span>
+                        <span class="badge badge-{{ $package->apple_enabled ? 'success' : 'secondary' }}">App Store</span>
+                    </td>
                     <td>{{ $package->created_at->format('Y-m-d') }}</td>
                     <td>
                         <a href="{{ route('admin.packages.show', $package->id) }}" class="btn btn-info btn-sm">
@@ -50,7 +55,7 @@
                 </tr>
                 @empty
                 <tr>
-                    <td colspan="7" class="text-center">لا توجد باقات حالياً</td>
+                    <td colspan="8" class="text-center">لا توجد باقات حالياً</td>
                 </tr>
                 @endforelse
             </tbody>

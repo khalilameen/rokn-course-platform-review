@@ -6,9 +6,9 @@
 
 This file retains the legal documents published with every production package, including NOTICE files. An exact name/version/integrity-bound review record is used only when an npm package publishes no standalone legal file.
 
-- Unique packages: 715
-- Resolved production package paths: 813
-- Exact package-root legal documents: 591
+- Unique packages: 716
+- Resolved production package paths: 814
+- Exact package-root legal documents: 592
 - Reviewed legal-file absence records: 124
 
 ## Explicit license choices
@@ -29,7 +29,7 @@ This file retains the legal documents published with every production package, i
 | CC-BY-4.0 | 1 |
 | CC0-1.0 | 1 |
 | ISC | 38 |
-| MIT | 551 |
+| MIT | 552 |
 | MPL-2.0 | 12 |
 | Python-2.0 | 1 |
 | Unlicense | 2 |
@@ -25022,6 +25022,42 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
 LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+### expo-iap@5.4.1
+
+- Selected license: `MIT`
+- Declared license: `MIT`
+- Legal source: `package-root`
+- Exact source: [npm](https://www.npmjs.com/package/expo-iap/v/5.4.1)
+- Integrity: `sha512-npyM/jyoiq52xr6AYNIOhvfX99nZzKlUvZYbgZ/v3BDyjvQmZquQDSeqt5Wp6tnmpIoxCfXsJnP9ByIr4md3ng==`
+
+#### LICENSE
+
+SHA-256: `219baa0f0ec67b168492214cafd8fb602c82d690105278b603f5c4568e20be00`
+
+```text
+MIT License
+
+Copyright (c) 2025 hyochan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 ### expo-keep-awake@55.0.8
