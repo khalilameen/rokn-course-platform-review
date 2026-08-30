@@ -52,6 +52,8 @@ final class AdminAuthorizationMatrixTest extends TestCase
             'admin.moderators.index',
             'admin.operating-costs.index',
             'admin.operating-costs.store',
+            'admin.operating-costs.report',
+            'admin.operating-costs.report.export',
             'admin.courses.commercial-report.export',
         ] as $name) {
             $route = Route::getRoutes()->getByName($name);

@@ -248,6 +248,10 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
 
     /* ====== Payment Methods =======*/
     Route::resource('payment-methods', 'PaymentMethodController')->middleware('admin.only');
+    Route::get('operating-costs-report', 'OperatingCostPoolController@report')
+        ->middleware('admin.only')->name('operating-costs.report');
+    Route::get('operating-costs-report.csv', 'OperatingCostPoolController@exportReport')
+        ->middleware('admin.only')->name('operating-costs.report.export');
     Route::resource('operating-costs', 'OperatingCostPoolController')
         ->only(['index', 'store', 'update', 'destroy'])
         ->parameters(['operating-costs' => 'operatingCost'])

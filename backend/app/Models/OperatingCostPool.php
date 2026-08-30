@@ -16,6 +16,11 @@ final class OperatingCostPool extends Model
         'bunny_storage' => 'Bunny: التخزين',
         'infrastructure' => 'السيرفر وقاعدة البيانات',
         'notifications' => 'الإشعارات والرسائل',
+        'email_sms' => 'البريد وSMS وOTP',
+        'monitoring' => 'المراقبة والنسخ الاحتياطي',
+        'software_licenses' => 'تراخيص وأدوات التشغيل والمتاجر',
+        'support_operations' => 'الدعم وخدمة الطلاب',
+        'tax_compliance' => 'الضرائب والامتثال المحمّلة على التشغيل',
         'other' => 'تكلفة تشغيل أخرى',
     ];
 

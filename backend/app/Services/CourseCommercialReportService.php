@@ -128,6 +128,11 @@ final class CourseCommercialReportService
                         2
                     )
                     : null;
+            $row += $this->unitEconomics(
+                $row['cash_net_complete'] ? (float) $row['cash_net_known_egp'] : null,
+                $row['service_cost_actual_egp'],
+                $row['contribution_margin_egp']
+            );
 
             return $row;
         })->values();
@@ -142,6 +147,13 @@ final class CourseCommercialReportService
         $serviceCost = $serviceCostComplete
             ? round((float) $rows->sum('service_cost_actual_egp'), 2)
             : null;
+        $unitEconomics = $this->unitEconomics(
+            $cashNetComplete ? $knownNet : null,
+            $serviceCost,
+            $cashNetComplete && $serviceCostComplete
+                ? round($knownNet - (float) $serviceCost, 2)
+                : null
+        );
 
         return [
             'rows' => $rows,
@@ -172,24 +184,63 @@ final class CourseCommercialReportService
                 ? round($knownNet - (float) $serviceCost, 2)
                 : null,
             'cost_warnings' => $costReport['unallocated_pools'],
-            'plan_breakdown' => $rows->groupBy('plan_name')->map(fn (Collection $planRows): array => [
-                'students' => $planRows->count(),
-                'coins' => (int) $planRows->sum('total_coins'),
-                'gross_egp' => round((float) $planRows->sum('cash_gross_egp'), 2),
-                'ai_cost_usd' => round((float) $planRows->sum('ai_cost_usd'), 6),
-                'service_cost_egp' => $planRows->every(fn (array $row): bool => (bool) $row['service_cost_complete'])
-                    ? round((float) $planRows->sum('service_cost_actual_egp'), 2)
-                    : null,
-                'margin_egp' => $planRows->every(fn (array $row): bool => $row['contribution_margin_egp'] !== null)
-                    ? round((float) $planRows->sum('contribution_margin_egp'), 2)
-                    : null,
-                'estimated_cost_egp' => $planRows->every(fn (array $row): bool => $row['service_cost_with_estimates_egp'] !== null)
-                    ? round((float) $planRows->sum('service_cost_with_estimates_egp'), 2)
-                    : null,
-                'estimated_margin_egp' => $planRows->every(fn (array $row): bool => $row['estimated_contribution_margin_egp'] !== null)
-                    ? round((float) $planRows->sum('estimated_contribution_margin_egp'), 2)
-                    : null,
-            ]),
+            'service_breakdown' => $costReport['service_breakdown'],
+            'plan_breakdown' => $rows->groupBy('plan_name')->map(
+                fn (Collection $planRows): array => $this->groupSummary($planRows)
+            ),
+        ] + $unitEconomics;
+    }
+
+    /** @param Collection<int, array<string, mixed>> $rows @return array<string, mixed> */
+    public function groupSummary(Collection $rows): array
+    {
+        $students = $rows->count();
+        $netComplete = $rows->every(fn (array $row): bool => (bool) $row['cash_net_complete']);
+        $costComplete = $rows->every(fn (array $row): bool => (bool) $row['service_cost_complete']);
+        $estimatedComplete = $rows->every(
+            fn (array $row): bool => $row['service_cost_with_estimates_egp'] !== null
+        );
+        $net = $netComplete ? round((float) $rows->sum('cash_net_known_egp'), 2) : null;
+        $cost = $costComplete ? round((float) $rows->sum('service_cost_actual_egp'), 2) : null;
+        $margin = $net !== null && $cost !== null ? round($net - $cost, 2) : null;
+
+        return [
+            'students' => $students,
+            'coins' => (int) $rows->sum('total_coins'),
+            'gross_egp' => round((float) $rows->sum('cash_gross_egp'), 2),
+            'net_egp' => $net,
+            'ai_requests' => (int) $rows->sum('ai_requests'),
+            'ai_tokens' => (int) $rows->sum('ai_tokens'),
+            'ai_cost_usd' => round((float) $rows->sum('ai_cost_usd'), 6),
+            'playback_minutes' => round((float) $rows->sum('playback_minutes'), 2),
+            'playback_gb_estimated' => round((float) $rows->sum('playback_gb_estimated'), 4),
+            'service_cost_egp' => $cost,
+            'margin_egp' => $margin,
+            'estimated_cost_egp' => $estimatedComplete
+                ? round((float) $rows->sum('service_cost_with_estimates_egp'), 2)
+                : null,
+            'estimated_margin_egp' => $netComplete && $estimatedComplete
+                ? round((float) $rows->sum('estimated_contribution_margin_egp'), 2)
+                : null,
+            'average_net_per_student_egp' => $students > 0 && $net !== null
+                ? round($net / $students, 2)
+                : null,
+            'average_cost_per_student_egp' => $students > 0 && $cost !== null
+                ? round($cost / $students, 2)
+                : null,
+        ] + $this->unitEconomics($net, $cost, $margin);
+    }
+
+    /** @return array<string, float|null> */
+    private function unitEconomics(?float $net, ?float $cost, ?float $margin): array
+    {
+        return [
+            'cost_to_net_revenue_percentage' => $net !== null && $net > 0 && $cost !== null
+                ? round(($cost / $net) * 100, 2)
+                : null,
+            'contribution_margin_percentage' => $net !== null && $net > 0 && $margin !== null
+                ? round(($margin / $net) * 100, 2)
+                : null,
         ];
     }
 

@@ -7,6 +7,7 @@ namespace Tests\Feature;
 use App\Models\Course;
 use App\Models\Order;
 use App\Services\CourseCommercialReportService;
+use App\Services\PlatformCommercialReportService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -124,7 +125,65 @@ final class CourseCommercialReportServiceTest extends TestCase
         self::assertSame(40.0, $report['service_cost_with_estimates_egp']);
         self::assertSame(18.5, $report['contribution_margin_egp']);
         self::assertSame(8.5, $report['estimated_contribution_margin_egp']);
+        self::assertSame(61.86, $report['cost_to_net_revenue_percentage']);
+        self::assertSame(38.14, $report['contribution_margin_percentage']);
+        self::assertSame(
+            10.0,
+            $report['service_breakdown']->firstWhere('key', 'openrouter')['actual_egp']
+        );
+        self::assertSame(
+            20.0,
+            $report['service_breakdown']->firstWhere('key', 'infrastructure')['actual_egp']
+        );
+        self::assertSame(
+            10.0,
+            $report['service_breakdown']->firstWhere('key', 'notifications')['with_estimates_egp']
+        );
         self::assertSame('منحة', $report['rows']->firstWhere('source', 'grant')['source_label']);
+
+        $platform = app(PlatformCommercialReportService::class)->report();
+        self::assertSame(2, $platform['unique_students']);
+        self::assertSame(2, $platform['enrollments']);
+        self::assertSame(30.0, $platform['service_cost_egp']);
+        self::assertSame(15.0, $platform['average_cost_per_student_egp']);
+        self::assertCount(2, $platform['student_rows']);
+    }
+
+    public function test_platform_report_allocates_shared_cost_once_across_courses(): void
+    {
+        $now = now();
+        DB::table('users')->insert([
+            'id' => 1, 'name_ar' => 'طالب متعدد الكورسات', 'email' => 'multi@example.test',
+            'password' => 'x', 'role' => 'client', 'active' => 1,
+            'created_at' => $now, 'updated_at' => $now,
+        ]);
+        DB::table('courses')->insert([
+            ['id' => 10, 'name_ar' => 'الأول', 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 11, 'name_ar' => 'الثاني', 'created_at' => $now, 'updated_at' => $now],
+        ]);
+        DB::table('course_enrollments')->insert([
+            ['id' => 1, 'user_id' => 1, 'course_id' => 10, 'is_active' => 1, 'enrolled_at' => $now, 'access_granted_at' => $now, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 2, 'user_id' => 1, 'course_id' => 11, 'is_active' => 1, 'enrolled_at' => $now, 'access_granted_at' => $now, 'created_at' => $now, 'updated_at' => $now],
+        ]);
+        DB::table('operating_cost_pools')->insert([
+            'name' => 'سيرفر مشترك', 'service_key' => 'infrastructure', 'course_id' => null,
+            'period_start' => $now->copy()->subDay()->toDateString(),
+            'period_end' => $now->copy()->addDay()->toDateString(),
+            'amount' => 100, 'currency' => 'EGP', 'fx_rate_to_egp' => null,
+            'allocation_driver' => 'active_students', 'is_final' => 1,
+            'created_at' => $now, 'updated_at' => $now,
+        ]);
+
+        $report = app(PlatformCommercialReportService::class)->report();
+
+        self::assertSame(1, $report['unique_students']);
+        self::assertSame(2, $report['enrollments']);
+        self::assertSame(100.0, $report['service_cost_egp']);
+        self::assertSame(100.0, $report['average_cost_per_student_egp']);
+        self::assertSame(
+            100.0,
+            $report['service_breakdown']->firstWhere('key', 'infrastructure')['actual_egp']
+        );
     }
 
     private function createSchema(): void
@@ -139,7 +198,8 @@ final class CourseCommercialReportServiceTest extends TestCase
             $table->boolean('active')->default(true); $table->timestamps(); $table->softDeletes();
         });
         Schema::create('courses', function (Blueprint $table): void {
-            $table->id(); $table->string('name_ar'); $table->timestamps();
+            $table->id(); $table->unsignedBigInteger('parent_id')->nullable();
+            $table->string('name_ar'); $table->timestamps();
         });
         Schema::create('course_codes', function (Blueprint $table): void {
             $table->id(); $table->string('code'); $table->boolean('is_grant')->default(false);

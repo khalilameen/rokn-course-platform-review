@@ -16,6 +16,15 @@ use Illuminate\Support\Facades\Schema;
 /** Allocates measurable and invoiced service costs to course learners. */
 final class CourseCostReportService
 {
+    public const OPENROUTER_SERVICE = 'openrouter';
+
+    /** @return array<string, string> */
+    public static function serviceLabels(): array
+    {
+        return [self::OPENROUTER_SERVICE => 'OpenRouter: الذكاء الاصطناعي']
+            + OperatingCostPool::SERVICES;
+    }
+
     /** @param Collection<int, int> $userIds @return array<string, mixed> */
     public function forCourse(Course $course, Collection $userIds): array
     {
@@ -47,6 +56,9 @@ final class CourseCostReportService
                 $row['ai_cost_egp_estimated'] = $usdToEgp > 0
                     ? round((float) $usage->cost_egp + $unsnappedUsd * $usdToEgp, 4)
                     : $row['ai_cost_egp'];
+                $row['actual_cost_by_service_egp'][self::OPENROUTER_SERVICE] = $row['ai_cost_egp'];
+                $row['cost_with_estimates_by_service_egp'][self::OPENROUTER_SERVICE]
+                    = $row['ai_cost_egp_estimated'];
                 $rows->put((int) $usage->user_id, $row);
             }
         }
@@ -62,6 +74,8 @@ final class CourseCostReportService
         $unallocatedPools = [];
         $incompleteFinalPool = false;
         $incompleteEstimatedPool = false;
+        $incompleteActualServices = [];
+        $incompleteEstimatedServices = [];
         if (Schema::hasTable('operating_cost_pools')) {
             $pools = OperatingCostPool::query()
                 ->where(function ($query) use ($course): void {
@@ -75,6 +89,15 @@ final class CourseCostReportService
                     $unallocatedPools[] = "{$pool->name}: سعر التحويل غير موجود";
                     $incompleteFinalPool = $incompleteFinalPool || (bool) $pool->is_final;
                     $incompleteEstimatedPool = $incompleteEstimatedPool || !(bool) $pool->is_final;
+                    $target = $pool->is_final
+                        ? $incompleteActualServices
+                        : $incompleteEstimatedServices;
+                    $target[$pool->service_key] = true;
+                    if ($pool->is_final) {
+                        $incompleteActualServices = $target;
+                    } else {
+                        $incompleteEstimatedServices = $target;
+                    }
                     continue;
                 }
                 $allocation = $this->poolDriver($pool, (int) $course->id, $userIds);
@@ -82,6 +105,15 @@ final class CourseCostReportService
                     $unallocatedPools[] = "{$pool->name}: لا توجد بيانات لمسبب التكلفة";
                     $incompleteFinalPool = $incompleteFinalPool || (bool) $pool->is_final;
                     $incompleteEstimatedPool = $incompleteEstimatedPool || !(bool) $pool->is_final;
+                    $target = $pool->is_final
+                        ? $incompleteActualServices
+                        : $incompleteEstimatedServices;
+                    $target[$pool->service_key] = true;
+                    if ($pool->is_final) {
+                        $incompleteActualServices = $target;
+                    } else {
+                        $incompleteEstimatedServices = $target;
+                    }
                     continue;
                 }
                 foreach ($rows as $userId => $row) {
@@ -90,6 +122,13 @@ final class CourseCostReportService
                     $allocated = round($amountEgp * min(1, max(0, $share)), 4);
                     $key = $pool->is_final ? 'allocated_operating_cost_egp' : 'estimated_operating_cost_egp';
                     $row[$key] = round((float) $row[$key] + $allocated, 4);
+                    $serviceMapKey = $pool->is_final
+                        ? 'actual_cost_by_service_egp'
+                        : 'estimated_pool_cost_by_service_egp';
+                    $row[$serviceMapKey][$pool->service_key] = round(
+                        (float) ($row[$serviceMapKey][$pool->service_key] ?? 0) + $allocated,
+                        4
+                    );
                     $rows->put($userId, $row);
                 }
             }
@@ -97,6 +136,12 @@ final class CourseCostReportService
 
         foreach ($rows as $userId => $row) {
             $hasUnsnapshottedAiCost = (float) $row['ai_cost_usd'] > 0 && $row['ai_cost_egp'] === null;
+            if ($hasUnsnapshottedAiCost) {
+                $incompleteActualServices[self::OPENROUTER_SERVICE] = true;
+            }
+            if ($row['ai_cost_egp_estimated'] === null) {
+                $incompleteEstimatedServices[self::OPENROUTER_SERVICE] = true;
+            }
             $row['service_cost_complete'] = !$hasUnsnapshottedAiCost && !$incompleteFinalPool;
             $row['service_cost_actual_egp'] = !$row['service_cost_complete']
                 ? null
@@ -112,6 +157,22 @@ final class CourseCostReportService
                     + (float) $row['estimated_operating_cost_egp'],
                     4
                 );
+            foreach (array_keys(self::serviceLabels()) as $serviceKey) {
+                $actual = $row['actual_cost_by_service_egp'][$serviceKey] ?? 0.0;
+                $estimate = $row['estimated_pool_cost_by_service_egp'][$serviceKey] ?? 0.0;
+                $estimatedBase = $serviceKey === self::OPENROUTER_SERVICE
+                    ? $row['ai_cost_egp_estimated']
+                    : $actual;
+                $row['actual_cost_by_service_egp'][$serviceKey]
+                    = isset($incompleteActualServices[$serviceKey]) ? null : round((float) $actual, 4);
+                $row['cost_with_estimates_by_service_egp'][$serviceKey]
+                    = isset($incompleteActualServices[$serviceKey])
+                        || isset($incompleteEstimatedServices[$serviceKey])
+                        || $estimatedBase === null
+                            ? null
+                            : round((float) $estimatedBase + (float) $estimate, 4);
+            }
+            unset($row['estimated_pool_cost_by_service_egp']);
             $rows->put($userId, $row);
         }
 
@@ -119,6 +180,30 @@ final class CourseCostReportService
         $estimateComplete = $rows->every(
             fn (array $row): bool => (bool) $row['service_cost_estimate_complete']
         );
+        $serviceBreakdown = collect(self::serviceLabels())->map(function (
+            string $label,
+            string $serviceKey
+        ) use ($rows, $incompleteActualServices, $incompleteEstimatedServices): array {
+            $actualComplete = !isset($incompleteActualServices[$serviceKey]);
+            $estimateComplete = $actualComplete && !isset($incompleteEstimatedServices[$serviceKey]);
+
+            return [
+                'key' => $serviceKey,
+                'label' => $label,
+                'actual_complete' => $actualComplete,
+                'actual_egp' => $actualComplete
+                    ? round((float) $rows->sum(fn (array $row): float =>
+                        (float) ($row['actual_cost_by_service_egp'][$serviceKey] ?? 0)
+                    ), 4)
+                    : null,
+                'estimate_complete' => $estimateComplete,
+                'with_estimates_egp' => $estimateComplete
+                    ? round((float) $rows->sum(fn (array $row): float =>
+                        (float) ($row['cost_with_estimates_by_service_egp'][$serviceKey] ?? 0)
+                    ), 4)
+                    : null,
+            ];
+        })->values();
 
         return [
             'users' => $rows,
@@ -134,6 +219,7 @@ final class CourseCostReportService
             'playback_gb_estimated' => round((float) $rows->sum('playback_gb_estimated'), 4),
             'complete' => $complete,
             'estimate_complete' => $estimateComplete,
+            'service_breakdown' => $serviceBreakdown,
             'unallocated_pools' => $unallocatedPools,
         ];
     }
@@ -152,6 +238,18 @@ final class CourseCostReportService
             'service_cost_with_estimates_egp' => 0.0,
             'service_cost_complete' => true,
             'service_cost_estimate_complete' => true,
+            'actual_cost_by_service_egp' => array_fill_keys(
+                array_keys(self::serviceLabels()),
+                0.0
+            ),
+            'estimated_pool_cost_by_service_egp' => array_fill_keys(
+                array_keys(self::serviceLabels()),
+                0.0
+            ),
+            'cost_with_estimates_by_service_egp' => array_fill_keys(
+                array_keys(self::serviceLabels()),
+                0.0
+            ),
         ];
     }
 

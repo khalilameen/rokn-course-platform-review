@@ -229,9 +229,14 @@ class Course extends Model
         return $this->hasMany(Order::class);
     }
 
+    public function enrollments()
+    {
+        return $this->hasMany(CourseEnrollment::class);
+    }
+
     public function activeEnrollments()
     {
-        return $this->hasMany(CourseEnrollment::class)
+        return $this->enrollments()
             ->where('is_active', true)
             ->where(function ($query) {
                 $query->whereNull('expires_at')->orWhere('expires_at', '>', now());

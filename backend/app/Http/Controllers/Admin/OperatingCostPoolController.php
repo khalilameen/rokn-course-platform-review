@@ -8,8 +8,11 @@ use App\Http\Controllers\Controller;
 use App\Models\Course;
 use App\Models\OperatingCostPool;
 use App\Models\Setting;
+use App\Services\CourseCostReportService;
+use App\Services\PlatformCommercialReportService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -88,6 +91,71 @@ final class OperatingCostPoolController extends Controller
         return back()->with('success', 'تم تحديث سعر تحويل تكلفة OpenRouter للتقارير الجديدة.');
     }
 
+    public function report(Request $request, PlatformCommercialReportService $reports): View
+    {
+        $filters = $this->reportFilters($request);
+        $report = $reports->report($filters);
+        $studentRows = $report['student_rows'];
+        $page = LengthAwarePaginator::resolveCurrentPage();
+        $perPage = (int) ($filters['per_page'] ?? 30);
+        $students = new LengthAwarePaginator(
+            $studentRows->forPage($page, $perPage)->values(),
+            $studentRows->count(),
+            $perPage,
+            $page,
+            ['path' => $request->url(), 'query' => $request->query()]
+        );
+        $courses = Course::query()
+            ->whereNull('parent_id')
+            ->whereHas('enrollments')
+            ->orderBy('name_ar')
+            ->get(['id', 'name_ar']);
+
+        return view('admin.operating-costs.report', compact(
+            'report', 'students', 'courses', 'filters'
+        ));
+    }
+
+    public function exportReport(Request $request, PlatformCommercialReportService $reports)
+    {
+        $filters = $this->reportFilters($request);
+        $report = $reports->report($filters);
+        $labels = CourseCostReportService::serviceLabels();
+
+        return response()->streamDownload(function () use ($report, $labels): void {
+            $output = fopen('php://output', 'wb');
+            fwrite($output, "\xEF\xBB\xBF");
+            fputcsv($output, array_merge([
+                'الطالب', 'البريد', 'الكورسات', 'الباقات', 'مصادر الإتاحة',
+                'صافي الدخل', 'تكلفة الخدمات', 'هامش المساهمة', 'نسبة التكلفة للصافي',
+                'طلبات AI', 'توكنات AI', 'دقائق الفيديو', 'GB مشاهدة مقدرة',
+            ], array_map(fn (string $label): string => "تكلفة {$label}", $labels)), ',', '"', '');
+            foreach ($report['student_rows'] as $row) {
+                $serviceCosts = collect($labels)->keys()->map(
+                    fn (string $key) => $row['actual_cost_by_service_egp']->get($key)
+                )->all();
+                fputcsv($output, array_map([$this, 'safeCsvValue'], array_merge([
+                    $row['user']?->name ?? 'مستخدم محذوف',
+                    $row['user']?->email,
+                    $row['courses']->implode(' | '),
+                    $row['plans']->implode(' | '),
+                    $row['sources']->implode(' | '),
+                    $row['net_egp'],
+                    $row['service_cost_egp'],
+                    $row['margin_egp'],
+                    $row['cost_to_net_revenue_percentage'],
+                    $row['ai_requests'],
+                    $row['ai_tokens'],
+                    $row['playback_minutes'],
+                    $row['playback_gb_estimated'],
+                ], $serviceCosts)), ',', '"', '');
+            }
+            fclose($output);
+        }, 'rokn-platform-unit-economics.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
     /** @return array<string, mixed> */
     private function validated(Request $request): array
     {
@@ -107,5 +175,27 @@ final class OperatingCostPoolController extends Controller
         $data['is_final'] = $request->boolean('is_final');
 
         return $data;
+    }
+
+    /** @return array<string, mixed> */
+    private function reportFilters(Request $request): array
+    {
+        return $request->validate([
+            'course_id' => ['nullable', 'integer', 'exists:courses,id'],
+            'plan' => ['nullable', 'string', 'max:100'],
+            'source' => ['nullable', Rule::in([
+                'purchase', 'grant', 'course_code', 'grant_plus_purchase', 'code_plus_purchase',
+            ])],
+            'q' => ['nullable', 'string', 'max:160'],
+            'per_page' => ['nullable', Rule::in([20, 30, 50, 100])],
+        ]);
+    }
+
+    private function safeCsvValue(mixed $value): mixed
+    {
+        if (!is_string($value)) return $value;
+        $trimmed = ltrim($value);
+
+        return preg_match('/^[=+\-@]/u', $trimmed) === 1 ? "'".$value : $value;
     }
 }

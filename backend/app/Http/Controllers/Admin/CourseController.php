@@ -216,7 +216,11 @@ class CourseController extends Controller
                 'صافي كاشير', 'حالة التسوية', 'طلبات AI', 'طلبات AI فاشلة', 'توكنات AI',
                 'تكلفة AI بالدولار', 'دقائق المشاهدة', 'GB مشاهدة مقدرة',
                 'تكلفة الخدمات الفعلية بالجنيه', 'التكلفة شاملة التقديرات', 'هامش المساهمة الفعلي',
-                'هامش المساهمة التقديري',
+                'هامش المساهمة التقديري', 'نسبة التكلفة من الصافي', 'نسبة هامش المساهمة',
+                ...array_map(
+                    fn (string $label): string => "تكلفة {$label}",
+                    \App\Services\CourseCostReportService::serviceLabels()
+                ),
             ], ',', '"', '');
             foreach ($report['rows'] as $row) {
                 fputcsv($output, array_map([$this, 'safeCsvValue'], [
@@ -229,6 +233,11 @@ class CourseController extends Controller
                     $row['playback_minutes'], $row['playback_gb_estimated'],
                     $row['service_cost_actual_egp'], $row['service_cost_with_estimates_egp'],
                     $row['contribution_margin_egp'], $row['estimated_contribution_margin_egp'],
+                    $row['cost_to_net_revenue_percentage'], $row['contribution_margin_percentage'],
+                    ...array_map(
+                        fn (string $key) => $row['actual_cost_by_service_egp'][$key] ?? null,
+                        array_keys(\App\Services\CourseCostReportService::serviceLabels())
+                    ),
                 ]), ',', '"', '');
             }
             fclose($output);

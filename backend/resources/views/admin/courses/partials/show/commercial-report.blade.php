@@ -80,6 +80,14 @@
             <span class="stat-counter">{{ number_format($commercialReport['playback_minutes'], 0) }} دقيقة</span>
             <span class="stat-label">مشاهدة · {{ number_format($commercialReport['playback_gb_estimated'], 3) }} GB مقدرة</span>
         </div>
+        <div class="stat-card">
+            <span class="stat-counter">{{ $commercialReport['cost_to_net_revenue_percentage'] === null ? '—' : number_format($commercialReport['cost_to_net_revenue_percentage'], 2).'%' }}</span>
+            <span class="stat-label">التكلفة من صافي سعر الكورس</span>
+        </div>
+        <div class="stat-card">
+            <span class="stat-counter">{{ $commercialReport['contribution_margin_percentage'] === null ? '—' : number_format($commercialReport['contribution_margin_percentage'], 2).'%' }}</span>
+            <span class="stat-label">نسبة هامش المساهمة</span>
+        </div>
     </div>
 
     @if(!$commercialReport['cash_net_complete'])
@@ -88,6 +96,13 @@
             ولن يحوّله النظام إلى «صافي» بالتخمين.
         </div>
     @endif
+
+    <div class="info-section mt-4">
+        <h3 class="section-title"><i class="fa fa-server ml-2"></i> تكلفة كل خدمة</h3>
+        <div class="table-responsive"><table class="table table-striped"><thead><tr><th>الخدمة</th><th>الفعلية</th><th>شاملة التقديرات</th></tr></thead><tbody>
+        @foreach($commercialReport['service_breakdown'] as $service)<tr><td>{{ $service['label'] }}</td><td>{{ $service['actual_egp'] === null ? 'غير مكتملة' : number_format($service['actual_egp'], 2).' ج.م' }}</td><td>{{ $service['with_estimates_egp'] === null ? 'غير مكتملة' : number_format($service['with_estimates_egp'], 2).' ج.م' }}</td></tr>@endforeach
+        </tbody></table></div>
+    </div>
 
     @if(!$commercialReport['service_cost_complete'])
         <div class="alert alert-warning mt-3">
@@ -101,14 +116,16 @@
         <h3 class="section-title"><i class="fa fa-tags ml-2"></i> توزيع الباقات</h3>
         <div class="table-responsive">
             <table class="table table-striped">
-                <thead><tr><th>الباقة</th><th>الطلاب</th><th>العملات</th><th>النقد المنسوب</th><th>OpenRouter</th><th>تكلفة فعلية</th><th>التكلفة مع التقديرات</th><th>الهامش الفعلي</th><th>الهامش التقديري</th></tr></thead>
+                <thead><tr><th>الباقة</th><th>الطلاب</th><th>العملات</th><th>صافي/طالب</th><th>تكلفة/طالب</th><th>التكلفة من الصافي</th><th>OpenRouter</th><th>تكلفة فعلية</th><th>التكلفة مع التقديرات</th><th>الهامش الفعلي</th><th>الهامش التقديري</th></tr></thead>
                 <tbody>
                 @forelse($commercialReport['plan_breakdown'] as $planName => $plan)
                     <tr>
                         <td>{{ $planName }}</td>
                         <td>{{ number_format($plan['students']) }}</td>
                         <td>{{ number_format($plan['coins']) }}</td>
-                        <td>{{ number_format($plan['gross_egp'], 2) }} ج.م</td>
+                        <td>{{ $plan['average_net_per_student_egp'] === null ? '—' : number_format($plan['average_net_per_student_egp'], 2).' ج.م' }}</td>
+                        <td>{{ $plan['average_cost_per_student_egp'] === null ? '—' : number_format($plan['average_cost_per_student_egp'], 2).' ج.م' }}</td>
+                        <td>{{ $plan['cost_to_net_revenue_percentage'] === null ? '—' : number_format($plan['cost_to_net_revenue_percentage'], 2).'%' }}</td>
                         <td>${{ number_format($plan['ai_cost_usd'], 6) }}</td>
                         <td>{{ $plan['service_cost_egp'] === null ? 'غير مكتمل' : number_format($plan['service_cost_egp'], 2).' ج.م' }}</td>
                         <td>{{ $plan['estimated_cost_egp'] === null ? 'غير مكتمل' : number_format($plan['estimated_cost_egp'], 2).' ج.م' }}</td>
@@ -116,7 +133,7 @@
                         <td>{{ $plan['estimated_margin_egp'] === null ? 'غير مكتمل' : number_format($plan['estimated_margin_egp'], 2).' ج.م' }}</td>
                     </tr>
                 @empty
-                    <tr><td colspan="9" class="text-center text-muted">لا توجد اشتراكات بعد.</td></tr>
+                    <tr><td colspan="11" class="text-center text-muted">لا توجد اشتراكات بعد.</td></tr>
                 @endforelse
                 </tbody>
             </table>
@@ -130,7 +147,7 @@
                 <thead>
                 <tr>
                     <th>الطالب</th><th>الحالة</th><th>المصدر</th><th>الفئة الحالية</th>
-                    <th>سعر العقد</th><th>المدفوع فعليًا</th><th>التوزيع</th><th>نقد كاشير</th><th>الصافي</th><th>الاستهلاك</th><th>تكلفة الخدمات</th><th>الهامش</th><th>شامل التقديرات</th>
+                    <th>سعر العقد</th><th>المدفوع فعليًا</th><th>التوزيع</th><th>نقد كاشير</th><th>الصافي</th><th>الاستهلاك</th><th>تكلفة الخدمات</th><th>نسبة التكلفة</th><th>الهامش</th><th>شامل التقديرات</th>
                 </tr>
                 </thead>
                 <tbody>
@@ -164,7 +181,9 @@
                         <td>
                             {{ $row['service_cost_actual_egp'] === null ? 'غير مكتملة' : number_format($row['service_cost_actual_egp'], 2).' ج.م' }}
                             @if($row['ai_failed_requests'])<br><small class="text-warning">{{ number_format($row['ai_failed_requests']) }} طلب AI فاشل</small>@endif
+                            <details><summary><small>تفصيل الخدمات</small></summary>@foreach(\App\Services\CourseCostReportService::serviceLabels() as $key => $label)<div><small>{{ $label }}: {{ ($row['actual_cost_by_service_egp'][$key] ?? null) === null ? 'ناقص' : number_format($row['actual_cost_by_service_egp'][$key], 2).' ج.م' }}</small></div>@endforeach</details>
                         </td>
+                        <td>{{ $row['cost_to_net_revenue_percentage'] === null ? '—' : number_format($row['cost_to_net_revenue_percentage'], 2).'%' }}</td>
                         <td>{{ $row['contribution_margin_egp'] === null ? '—' : number_format($row['contribution_margin_egp'], 2).' ج.م' }}</td>
                         <td>
                             {{ $row['service_cost_with_estimates_egp'] === null ? '—' : number_format($row['service_cost_with_estimates_egp'], 2).' ج.م تكلفة' }}
@@ -172,7 +191,7 @@
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="13" class="text-center text-muted">لا يوجد طلاب في الكورس بعد.</td></tr>
+                    <tr><td colspan="14" class="text-center text-muted">لا يوجد طلاب في الكورس بعد.</td></tr>
                 @endforelse
                 </tbody>
             </table>

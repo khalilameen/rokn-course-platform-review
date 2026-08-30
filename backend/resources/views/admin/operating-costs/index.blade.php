@@ -7,6 +7,11 @@
         'pageDescription' => 'أدخل الفاتورة الفعلية وفترتها؛ النظام يوزعها بمسبب التكلفة، لا بقسمة عشوائية.',
         'pageIcon' => 'fa-calculator',
     ])
+    <div class="text-left mb-3">
+        <a class="btn btn-primary" href="{{ route('admin.operating-costs.report') }}">
+            <i class="fa fa-line-chart ml-1"></i> تقرير كل الطلاب والتسعير
+        </a>
+    </div>
 
     <div class="row mb-4">
         <div class="col-md-4"><div class="card admin-card h-100"><div class="card-body"><div class="text-muted">فواتير نهائية ضمن الفلتر</div><div class="h3 mb-0">{{ number_format($totals['actual_egp'], 2) }} ج.م</div></div></div></div>
