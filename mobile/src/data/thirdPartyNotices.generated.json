@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "package-lock.json production dependency closure",
-  "packageCount": 636,
-  "packagePathCount": 718,
-  "inventoryHash": "a8c0dd942cb0b3e1f67d26dea9f6ff603406c585502fa57659e66a090272e5aa",
+  "packageCount": 715,
+  "packagePathCount": 813,
+  "inventoryHash": "8d63dffd9c7203354e6a444558201e4fa7e3d4e70b1b4afa2659b6e589d51f84",
   "packages": [
     {
       "name": "@babel/code-frame",
@@ -1286,6 +1286,446 @@
       "apacheNotice": null
     },
     {
+      "name": "@firebase/ai",
+      "version": "2.14.0",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fai/v/2.14.0",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/analytics-compat",
+      "version": "0.2.29",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fanalytics-compat/v/0.2.29",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/analytics-types",
+      "version": "0.8.4",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fanalytics-types/v/0.8.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/analytics",
+      "version": "0.10.23",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fanalytics/v/0.10.23",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/app-check-compat",
+      "version": "0.4.6",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fapp-check-compat/v/0.4.6",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/app-check-interop-types",
+      "version": "0.3.4",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fapp-check-interop-types/v/0.3.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/app-check-types",
+      "version": "0.5.4",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fapp-check-types/v/0.5.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/app-check",
+      "version": "0.13.0",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fapp-check/v/0.13.0",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/app-compat",
+      "version": "0.5.16",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fapp-compat/v/0.5.16",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/app-types",
+      "version": "0.9.5",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fapp-types/v/0.9.5",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/app",
+      "version": "0.16.0",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fapp/v/0.16.0",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/auth-compat",
+      "version": "0.6.9",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fauth-compat/v/0.6.9",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/auth-interop-types",
+      "version": "0.2.5",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fauth-interop-types/v/0.2.5",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/auth-types",
+      "version": "0.13.1",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fauth-types/v/0.13.1",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/auth",
+      "version": "1.13.4",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fauth/v/1.13.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/component",
+      "version": "0.7.4",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fcomponent/v/0.7.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/data-connect",
+      "version": "0.7.3",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fdata-connect/v/0.7.3",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/database-compat",
+      "version": "2.1.6",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fdatabase-compat/v/2.1.6",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/database-types",
+      "version": "1.0.21",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fdatabase-types/v/1.0.21",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/database",
+      "version": "1.1.4",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fdatabase/v/1.1.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/firestore-compat",
+      "version": "0.4.12",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Ffirestore-compat/v/0.4.12",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/firestore-types",
+      "version": "3.0.4",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Ffirestore-types/v/3.0.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/firestore",
+      "version": "4.17.0",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Ffirestore/v/4.17.0",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/functions-compat",
+      "version": "0.4.6",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Ffunctions-compat/v/0.4.6",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/functions-types",
+      "version": "0.6.4",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Ffunctions-types/v/0.6.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/functions",
+      "version": "0.13.6",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Ffunctions/v/0.13.6",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/installations-compat",
+      "version": "0.2.23",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Finstallations-compat/v/0.2.23",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/installations-types",
+      "version": "0.5.4",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Finstallations-types/v/0.5.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/installations",
+      "version": "0.6.23",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Finstallations/v/0.6.23",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/logger",
+      "version": "0.5.1",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Flogger/v/0.5.1",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/messaging-compat",
+      "version": "0.2.28",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fmessaging-compat/v/0.2.28",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/messaging-interop-types",
+      "version": "0.2.5",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fmessaging-interop-types/v/0.2.5",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/messaging",
+      "version": "0.13.1",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fmessaging/v/0.13.1",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/performance-compat",
+      "version": "0.2.26",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fperformance-compat/v/0.2.26",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/performance-types",
+      "version": "0.2.4",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fperformance-types/v/0.2.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/performance",
+      "version": "0.7.13",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fperformance/v/0.7.13",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/remote-config-compat",
+      "version": "0.2.28",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fremote-config-compat/v/0.2.28",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/remote-config-types",
+      "version": "0.5.1",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fremote-config-types/v/0.5.1",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/remote-config",
+      "version": "0.9.1",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fremote-config/v/0.9.1",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/storage-compat",
+      "version": "0.4.4",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fstorage-compat/v/0.4.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/storage-types",
+      "version": "0.8.4",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fstorage-types/v/0.8.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/storage",
+      "version": "0.14.4",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fstorage/v/0.14.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/util",
+      "version": "1.15.2",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Futil/v/1.15.2",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@firebase/webchannel-wrapper",
+      "version": "1.0.6",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40firebase%2Fwebchannel-wrapper/v/1.0.6",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
       "name": "@gorhom/bottom-sheet",
       "version": "5.2.8",
       "license": "MIT",
@@ -1304,6 +1744,26 @@
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
+    },
+    {
+      "name": "@grpc/grpc-js",
+      "version": "1.9.16",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40grpc%2Fgrpc-js/v/1.9.16",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@grpc/proto-loader",
+      "version": "0.7.15",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40grpc%2Fproto-loader/v/0.7.15",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
     },
     {
       "name": "@isaacs/ttlcache",
@@ -1456,6 +1916,96 @@
       "apacheNotice": null
     },
     {
+      "name": "@protobufjs/aspromise",
+      "version": "1.1.2",
+      "license": "BSD-3-Clause",
+      "declaredLicense": "BSD-3-Clause",
+      "sourceUrl": "https://www.npmjs.com/package/%40protobufjs%2Faspromise/v/1.1.2",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@protobufjs/base64",
+      "version": "1.1.2",
+      "license": "BSD-3-Clause",
+      "declaredLicense": "BSD-3-Clause",
+      "sourceUrl": "https://www.npmjs.com/package/%40protobufjs%2Fbase64/v/1.1.2",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@protobufjs/codegen",
+      "version": "2.0.5",
+      "license": "BSD-3-Clause",
+      "declaredLicense": "BSD-3-Clause",
+      "sourceUrl": "https://www.npmjs.com/package/%40protobufjs%2Fcodegen/v/2.0.5",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@protobufjs/eventemitter",
+      "version": "1.1.1",
+      "license": "BSD-3-Clause",
+      "declaredLicense": "BSD-3-Clause",
+      "sourceUrl": "https://www.npmjs.com/package/%40protobufjs%2Feventemitter/v/1.1.1",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@protobufjs/fetch",
+      "version": "1.1.1",
+      "license": "BSD-3-Clause",
+      "declaredLicense": "BSD-3-Clause",
+      "sourceUrl": "https://www.npmjs.com/package/%40protobufjs%2Ffetch/v/1.1.1",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@protobufjs/float",
+      "version": "1.0.2",
+      "license": "BSD-3-Clause",
+      "declaredLicense": "BSD-3-Clause",
+      "sourceUrl": "https://www.npmjs.com/package/%40protobufjs%2Ffloat/v/1.0.2",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@protobufjs/path",
+      "version": "1.1.2",
+      "license": "BSD-3-Clause",
+      "declaredLicense": "BSD-3-Clause",
+      "sourceUrl": "https://www.npmjs.com/package/%40protobufjs%2Fpath/v/1.1.2",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@protobufjs/pool",
+      "version": "1.1.0",
+      "license": "BSD-3-Clause",
+      "declaredLicense": "BSD-3-Clause",
+      "sourceUrl": "https://www.npmjs.com/package/%40protobufjs%2Fpool/v/1.1.0",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@protobufjs/utf8",
+      "version": "1.1.2",
+      "license": "BSD-3-Clause",
+      "declaredLicense": "BSD-3-Clause",
+      "sourceUrl": "https://www.npmjs.com/package/%40protobufjs%2Futf8/v/1.1.2",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
       "name": "@react-native-async-storage/async-storage",
       "version": "2.2.0",
       "license": "MIT",
@@ -1474,6 +2024,26 @@
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
+    },
+    {
+      "name": "@react-native-firebase/app",
+      "version": "26.3.2",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40react-native-firebase%2Fapp/v/26.3.2",
+      "legalSource": "package-root",
+      "legalFileCount": 3,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "@react-native-firebase/messaging",
+      "version": "26.3.2",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/%40react-native-firebase%2Fmessaging/v/26.3.2",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
     },
     {
       "name": "@react-native/assets-registry",
@@ -3266,6 +3836,16 @@
       "apacheNotice": null
     },
     {
+      "name": "faye-websocket",
+      "version": "0.11.4",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/faye-websocket/v/0.11.4",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
       "name": "fb-dotslash",
       "version": "0.5.8",
       "license": "MIT",
@@ -3334,6 +3914,16 @@
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
+    },
+    {
+      "name": "firebase",
+      "version": "12.17.1",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/firebase/v/12.17.1",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
     },
     {
       "name": "flow-enums-runtime",
@@ -3656,6 +4246,16 @@
       "apacheNotice": null
     },
     {
+      "name": "http-parser-js",
+      "version": "0.5.10",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/http-parser-js/v/0.5.10",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
       "name": "https-proxy-agent",
       "version": "5.0.1",
       "license": "MIT",
@@ -3686,21 +4286,21 @@
       "apacheNotice": null
     },
     {
-      "name": "ignore",
-      "version": "5.3.2",
-      "license": "MIT",
-      "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/ignore/v/5.3.2",
+      "name": "idb",
+      "version": "7.1.1",
+      "license": "ISC",
+      "declaredLicense": "ISC",
+      "sourceUrl": "https://www.npmjs.com/package/idb/v/7.1.1",
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
     },
     {
-      "name": "image-size",
-      "version": "1.2.1",
+      "name": "ignore",
+      "version": "5.3.2",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/image-size/v/1.2.1",
+      "sourceUrl": "https://www.npmjs.com/package/ignore/v/5.3.2",
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -4186,6 +4786,16 @@
       "apacheNotice": null
     },
     {
+      "name": "lodash.camelcase",
+      "version": "4.3.0",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/lodash.camelcase/v/4.3.0",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
       "name": "lodash.debounce",
       "version": "4.0.8",
       "license": "MIT",
@@ -4214,6 +4824,16 @@
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
+    },
+    {
+      "name": "long",
+      "version": "5.3.2",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/long/v/5.3.2",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
     },
     {
       "name": "loose-envify",
@@ -4336,11 +4956,31 @@
       "apacheNotice": null
     },
     {
+      "name": "metro-babel-transformer",
+      "version": "0.83.8",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/metro-babel-transformer/v/0.83.8",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
       "name": "metro-cache-key",
       "version": "0.83.7",
       "license": "MIT",
       "declaredLicense": "MIT",
       "sourceUrl": "https://www.npmjs.com/package/metro-cache-key/v/0.83.7",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "metro-cache-key",
+      "version": "0.83.8",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/metro-cache-key/v/0.83.8",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -4356,11 +4996,21 @@
       "apacheNotice": null
     },
     {
-      "name": "metro-config",
-      "version": "0.83.7",
+      "name": "metro-cache",
+      "version": "0.83.8",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/metro-config/v/0.83.7",
+      "sourceUrl": "https://www.npmjs.com/package/metro-cache/v/0.83.8",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "metro-config",
+      "version": "0.83.8",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/metro-config/v/0.83.8",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -4376,11 +5026,31 @@
       "apacheNotice": null
     },
     {
+      "name": "metro-core",
+      "version": "0.83.8",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/metro-core/v/0.83.8",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
       "name": "metro-file-map",
       "version": "0.83.7",
       "license": "MIT",
       "declaredLicense": "MIT",
       "sourceUrl": "https://www.npmjs.com/package/metro-file-map/v/0.83.7",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "metro-file-map",
+      "version": "0.83.8",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/metro-file-map/v/0.83.8",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -4396,11 +5066,31 @@
       "apacheNotice": null
     },
     {
+      "name": "metro-minify-terser",
+      "version": "0.83.8",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/metro-minify-terser/v/0.83.8",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
       "name": "metro-resolver",
       "version": "0.83.7",
       "license": "MIT",
       "declaredLicense": "MIT",
       "sourceUrl": "https://www.npmjs.com/package/metro-resolver/v/0.83.7",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "metro-resolver",
+      "version": "0.83.8",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/metro-resolver/v/0.83.8",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -4416,11 +5106,31 @@
       "apacheNotice": null
     },
     {
+      "name": "metro-runtime",
+      "version": "0.83.8",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/metro-runtime/v/0.83.8",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
       "name": "metro-source-map",
       "version": "0.83.7",
       "license": "MIT",
       "declaredLicense": "MIT",
       "sourceUrl": "https://www.npmjs.com/package/metro-source-map/v/0.83.7",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "metro-source-map",
+      "version": "0.83.8",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/metro-source-map/v/0.83.8",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -4436,6 +5146,16 @@
       "apacheNotice": null
     },
     {
+      "name": "metro-symbolicate",
+      "version": "0.83.8",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/metro-symbolicate/v/0.83.8",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
       "name": "metro-transform-plugins",
       "version": "0.83.7",
       "license": "MIT",
@@ -4446,21 +5166,31 @@
       "apacheNotice": null
     },
     {
-      "name": "metro-transform-worker",
-      "version": "0.83.7",
+      "name": "metro-transform-plugins",
+      "version": "0.83.8",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/metro-transform-worker/v/0.83.7",
+      "sourceUrl": "https://www.npmjs.com/package/metro-transform-plugins/v/0.83.8",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "metro-transform-worker",
+      "version": "0.83.8",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/metro-transform-worker/v/0.83.8",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
     },
     {
       "name": "metro",
-      "version": "0.83.7",
+      "version": "0.83.8",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/metro/v/0.83.7",
+      "sourceUrl": "https://www.npmjs.com/package/metro/v/0.83.8",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -4721,6 +5451,16 @@
       "license": "MIT",
       "declaredLicense": "MIT",
       "sourceUrl": "https://www.npmjs.com/package/ob1/v/0.83.7",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "ob1",
+      "version": "0.83.8",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/ob1/v/0.83.8",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -5026,6 +5766,16 @@
       "apacheNotice": null
     },
     {
+      "name": "protobufjs",
+      "version": "7.6.6",
+      "license": "BSD-3-Clause",
+      "declaredLicense": "BSD-3-Clause",
+      "sourceUrl": "https://www.npmjs.com/package/protobufjs/v/7.6.6",
+      "legalSource": "package-root",
+      "legalFileCount": 2,
+      "apacheNotice": null
+    },
+    {
       "name": "proxy-from-env",
       "version": "2.1.0",
       "license": "MIT",
@@ -5046,21 +5796,21 @@
       "apacheNotice": null
     },
     {
-      "name": "queue",
-      "version": "6.0.2",
-      "license": "MIT",
-      "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/queue/v/6.0.2",
-      "legalSource": "package-root",
-      "legalFileCount": 1,
-      "apacheNotice": null
-    },
-    {
       "name": "range-parser",
       "version": "1.2.1",
       "license": "MIT",
       "declaredLicense": "MIT",
       "sourceUrl": "https://www.npmjs.com/package/range-parser/v/1.2.1",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "re2js",
+      "version": "2.8.6",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/re2js/v/2.8.6",
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -5966,6 +6716,16 @@
       "apacheNotice": null
     },
     {
+      "name": "tslib",
+      "version": "2.8.1",
+      "license": "0BSD",
+      "declaredLicense": "0BSD",
+      "sourceUrl": "https://www.npmjs.com/package/tslib/v/2.8.1",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
       "name": "type-detect",
       "version": "4.0.8",
       "license": "MIT",
@@ -6184,6 +6944,36 @@
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
+    },
+    {
+      "name": "web-vitals",
+      "version": "4.2.4",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/web-vitals/v/4.2.4",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "websocket-driver",
+      "version": "0.7.5",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/websocket-driver/v/0.7.5",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
+    },
+    {
+      "name": "websocket-extensions",
+      "version": "0.1.4",
+      "license": "Apache-2.0",
+      "declaredLicense": "Apache-2.0",
+      "sourceUrl": "https://www.npmjs.com/package/websocket-extensions/v/0.1.4",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": "not-published"
     },
     {
       "name": "whatwg-fetch",

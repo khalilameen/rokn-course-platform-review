@@ -21,6 +21,7 @@ import {
 import {
   reconcilePushRegistration,
   subscribeToPushResponses,
+  subscribeToPushTokenRefresh,
 } from '../services/pushNotifications';
 import {restoreSecureAuthState} from '../services/secureSession';
 import {checkForAppUpdate} from '../services/appVersionCheck';
@@ -98,7 +99,12 @@ const AppInitializer: FC = () => {
     // Cold-start notification responses must wait until NavigationContainer
     // exists; otherwise the OS opens an internal course URL in the browser.
     if (!appLoaded || !sessionReady) return undefined;
-    return subscribeToPushResponses();
+    const unsubscribeResponses = subscribeToPushResponses();
+    const unsubscribeTokenRefresh = subscribeToPushTokenRefresh();
+    return () => {
+      unsubscribeResponses();
+      unsubscribeTokenRefresh();
+    };
   }, [appLoaded, sessionReady]);
 
   useEffect(() => {

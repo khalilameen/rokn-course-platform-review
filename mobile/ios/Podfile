@@ -12,11 +12,12 @@ require Pod::Executable.execute_command('node', ['-p',
 platform :ios, podfile_properties['ios.deploymentTarget'] || min_ios_version_supported
 prepare_react_native_project!
 
-linkage = ENV['USE_FRAMEWORKS']
-if linkage != nil
-  Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
-  use_frameworks! :linkage => linkage.to_sym
-end
+# Firebase's Swift SDK is resolved through SPM by React Native Firebase v26 and
+# therefore needs dynamic frameworks. Keep the environment override for local
+# diagnostics, while release and CI builds use the supported default.
+linkage = ENV['USE_FRAMEWORKS'] || 'dynamic'
+Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
+use_frameworks! :linkage => linkage.to_sym
 
 target 'Rokn' do
   use_expo_modules!

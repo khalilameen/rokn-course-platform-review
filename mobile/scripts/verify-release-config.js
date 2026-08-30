@@ -70,13 +70,12 @@ const iosProject = read('ios/Rokn.xcodeproj/project.pbxproj');
 const iosAppDelegate = read('ios/Rokn/AppDelegate.swift');
 const iosEntitlements = read('ios/Rokn/Rokn.entitlements');
 const iosInfoPlist = read('ios/Rokn/Info.plist');
-const metroConfig = read('metro.config.js');
-const metroImagePolicy = read('scripts/metro-image-parser-policy.js');
+const iosPodfile = read('ios/Podfile');
 const runtimeConfig = read('src/config/runtime.ts');
 const apiConfig = read('src/constants/api.ts');
 const environmentExample = read('.env.example');
 const androidReleaseScript = read('scripts/build-android-release.ps1');
-const metroRuntimeConfig = require(path.join(root, 'metro.config.js'));
+const nativePushTokens = read('src/services/nativePushTokens.ts');
 const mobileCi = read('../.github/workflows/mobile-ci.yml');
 const productionApiBase =
   'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/';
@@ -223,11 +222,24 @@ assert(
     ),
   'The iOS Firebase config is not bundled in the Rokn application target.',
 );
+const firebaseAppVersion = packageJson.dependencies?.['@react-native-firebase/app'];
+const firebaseMessagingVersion =
+  packageJson.dependencies?.['@react-native-firebase/messaging'];
 assert(
-  !/(?:import\s+(?:Firebase|FBSDKCoreKit)|FirebaseApp\.configure\(|ApplicationDelegate\.shared)/.test(
-    iosAppDelegate,
-  ),
-  'The iOS AppDelegate bootstraps a native social/Firebase SDK that is not part of the locked dependency graph.',
+  firebaseAppVersion === firebaseMessagingVersion &&
+    packageLock.packages?.['node_modules/@react-native-firebase/app']?.version ===
+      firebaseAppVersion &&
+    packageLock.packages?.['node_modules/@react-native-firebase/messaging']?.version ===
+      firebaseMessagingVersion,
+  'React Native Firebase app and messaging must share one exact locked version.',
+);
+assert(
+  [...iosAppDelegate.matchAll(/\bimport Firebase\b/g)].length === 1 &&
+    [...iosAppDelegate.matchAll(/\bFirebaseApp\.configure\(\)/g)].length === 1 &&
+    !/(?:import\s+FBSDKCoreKit|ApplicationDelegate\.shared)/.test(
+      iosAppDelegate,
+    ),
+  'The iOS AppDelegate must initialize the locked Firebase SDK exactly once.',
 );
 assert(
   /override\s+func\s+application\(\s*_\s+application:\s*UIApplication,\s*didFinishLaunchingWithOptions/.test(
@@ -367,6 +379,38 @@ assert(
   'iOS remote-notification entitlement is missing.',
 );
 assert(
+  Array.isArray(app.ios?.infoPlist?.UIBackgroundModes) &&
+    ['fetch', 'remote-notification'].every(mode =>
+      app.ios.infoPlist.UIBackgroundModes.includes(mode),
+    ) &&
+    /<key>UIBackgroundModes<\/key>[\s\S]*?<string>fetch<\/string>[\s\S]*?<string>remote-notification<\/string>/.test(
+      iosInfoPlist,
+    ),
+  'iOS background push modes are missing from Expo or the native target.',
+);
+assert(
+  packageJson.dependencies?.['@react-native-firebase/app'] &&
+    packageJson.dependencies?.['@react-native-firebase/messaging'] &&
+    app.plugins?.includes('@react-native-firebase/app') &&
+    app.plugins?.includes('@react-native-firebase/messaging'),
+  'Expo configuration does not preserve the native Firebase messaging integration.',
+);
+assert(
+  /Platform\.OS === 'ios'[\s\S]*registerDeviceForRemoteMessages\(messaging\)[\s\S]*getToken\(messaging\)/.test(
+    nativePushTokens,
+  ) &&
+    /Platform\.OS === 'ios'[\s\S]*onTokenRefresh\(getMessaging\(\)/.test(
+      nativePushTokens,
+    ),
+  'iOS push registration and token rotation must use the backend-compatible Firebase token.',
+);
+assert(
+  /linkage\s*=\s*ENV\['USE_FRAMEWORKS'\]\s*\|\|\s*'dynamic'/.test(
+    iosPodfile,
+  ) && /use_frameworks!\s*:linkage\s*=>\s*linkage\.to_sym/.test(iosPodfile),
+  'The iOS Podfile does not use the Firebase-supported dynamic framework linkage.',
+);
+assert(
   iosEntitlements.includes('com.apple.developer.applesignin'),
   'Sign in with Apple entitlement is missing.',
 );
@@ -430,23 +474,10 @@ assert(
   'The protected smoke job does not verify the pinned Maestro release.',
 );
 assert(
-  metroConfig.includes('applyMetroImageParserPolicy()') &&
-    ['heif', 'icns', 'jxl', 'jxl-stream'].every(type =>
-      metroImagePolicy.includes(`'${type}'`),
-    ),
-  'Metro does not disable the image parsers covered by the current image-size denial-of-service advisories.',
-);
-const blockedMetroAssetExtensions = ['heic', 'heif', 'icns', 'jxl'];
-const metroAssetExtensions = new Set(
-  (metroRuntimeConfig.resolver?.assetExts || []).map(extension =>
-    String(extension).toLowerCase(),
-  ),
-);
-assert(
-  blockedMetroAssetExtensions.every(
-    extension => !metroAssetExtensions.has(extension),
-  ),
-  'Metro still accepts an asset extension handled by a disabled image-size parser.',
+  ['metro', 'metro-config', 'metro-transform-worker'].every(
+    name => packageLock.packages?.[`node_modules/${name}`]?.version === '0.83.8',
+  ) && !packageLock.packages?.['node_modules/image-size'],
+  'Metro must remain on the image-parser-safe 0.83.8 patch without image-size.',
 );
 
 assert(

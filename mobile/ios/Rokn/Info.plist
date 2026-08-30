@@ -78,5 +78,10 @@
 		<string>Cairo-Black.ttf</string>
 		<string>Cairo-Bold.ttf</string>
 	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>remote-notification</string>
+	</array>
 </dict>
 </plist>

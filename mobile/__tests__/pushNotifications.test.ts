@@ -8,6 +8,16 @@ const mockRequestPermissions = jest.fn();
 const mockGetDeviceToken = jest.fn();
 const mockNavigate = jest.fn();
 const mockDeleteNativeToken = jest.fn(async () => true);
+const mockFirebaseRegister = jest.fn(async (_messaging?: unknown) => undefined);
+const mockFirebaseGetToken = jest.fn(
+  async (_messaging?: unknown) => 'ios-fcm-token',
+);
+const mockFirebaseDeleteToken = jest.fn(
+  async (_messaging?: unknown) => undefined,
+);
+const mockFirebaseOnTokenRefresh = jest.fn(
+  (_messaging?: unknown, _listener?: (token: string) => void) => jest.fn(),
+);
 const mockOpenUrl = jest.fn(async (_url?: unknown) => true);
 
 jest.mock('react-native', () => ({
@@ -25,11 +35,21 @@ jest.mock('expo-notifications', () => ({
   getPermissionsAsync: () => mockGetPermissions(),
   requestPermissionsAsync: () => mockRequestPermissions(),
   getDevicePushTokenAsync: () => mockGetDeviceToken(),
+  addPushTokenListener: jest.fn(() => ({remove: jest.fn()})),
   addNotificationResponseReceivedListener: jest.fn(() => ({
     remove: jest.fn(),
   })),
   getLastNotificationResponseAsync: jest.fn(async () => null),
   clearLastNotificationResponseAsync: jest.fn(async () => undefined),
+}));
+
+jest.mock('@react-native-firebase/messaging', () => ({
+  getMessaging: jest.fn(() => ({kind: 'messaging'})),
+  registerDeviceForRemoteMessages: (...args: unknown[]) =>
+    mockFirebaseRegister(...args),
+  getToken: (...args: unknown[]) => mockFirebaseGetToken(...args),
+  deleteToken: (...args: unknown[]) => mockFirebaseDeleteToken(...args),
+  onTokenRefresh: (...args: unknown[]) => mockFirebaseOnTokenRefresh(...args),
 }));
 
 jest.mock('../src/constants/helpers', () => ({
@@ -66,6 +86,7 @@ import {
 describe('push notification opt-in', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (jest.requireMock('react-native').Platform as {OS: string}).OS = 'android';
     mockGetPermissions.mockResolvedValue({
       granted: true,
       status: 'granted',
@@ -102,6 +123,38 @@ describe('push notification opt-in', () => {
       device_type: 'android',
       device_os: 'android',
     });
+  });
+
+  it('registers an iOS FCM token instead of sending a raw APNs token', async () => {
+    (jest.requireMock('react-native').Platform as {OS: string}).OS = 'ios';
+    mockGetItem.mockImplementation(async (key: string) => {
+      if (key === 'USER_DATA') return {api_token: 'session-token'};
+      if (key.startsWith('PREF_NOTIFICATIONS')) return true;
+      return null;
+    });
+
+    await expect(registerPushDeviceIfEligible()).resolves.toBe(true);
+    expect(mockFirebaseRegister).toHaveBeenCalledTimes(1);
+    expect(mockFirebaseGetToken).toHaveBeenCalledTimes(1);
+    expect(mockGetDeviceToken).not.toHaveBeenCalled();
+    expect(mockPost).toHaveBeenCalledWith('user/device-token', {
+      device_token: 'ios-fcm-token',
+      device_type: 'ios',
+      device_os: 'ios',
+    });
+  });
+
+  it('deletes the iOS FCM token when the account binding is removed', async () => {
+    (jest.requireMock('react-native').Platform as {OS: string}).OS = 'ios';
+    mockGetItem.mockImplementation(async (key: string) => {
+      if (key === 'USER_DATA') return {api_token: 'session-token'};
+      if (key.includes('@rokn/push-device-token')) return 'ios-fcm-token';
+      return null;
+    });
+
+    await expect(unregisterPushDevice()).resolves.toBe(true);
+    expect(mockFirebaseDeleteToken).toHaveBeenCalledTimes(1);
+    expect(mockDeleteNativeToken).not.toHaveBeenCalled();
   });
 
   it('removes this installation token when notifications are disabled', async () => {

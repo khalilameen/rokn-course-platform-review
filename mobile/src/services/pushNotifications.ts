@@ -20,6 +20,10 @@ import {
   retryPendingNativePushTokenInvalidation,
 } from './pushDeviceState';
 import {normalizeNotificationKind} from './notificationCampaigns';
+import {
+  getBackendPushToken,
+  subscribeToBackendPushTokenRefresh,
+} from './nativePushTokens';
 
 const PUSH_CHANNELS = {
   updates: 'rokn-updates',
@@ -81,34 +85,9 @@ const prepareAndroidChannel = async () => {
   ]);
 };
 
-const rawTokenValue = (value: unknown): string => {
-  if (typeof value === 'string') return value.trim();
-  if (value && typeof value === 'object' && 'data' in value) {
-    return String((value as {data?: unknown}).data || '').trim();
-  }
-  return '';
-};
-
-/**
- * Register only after both account authentication and the learner's explicit
- * opt-in. Calling with requestPermission=false is safe during bootstrap: it
- * never opens an OS prompt.
- */
-export const registerPushDeviceIfEligible = async ({
-  requestPermission = false,
-}: {requestPermission?: boolean} = {}) => {
-  // The backend currently accepts FCM tokens; enable iOS with its sender.
-  if (Platform.OS !== 'android') return false;
-  // Never mint/register a replacement while a pre-logout FCM token may still
-  // be alive. The device-only tombstone is safe to retry even for a guest.
-  if (!(await retryPendingNativePushTokenInvalidation())) return false;
-  if (!(await currentSessionToken())) return false;
+const registerTokenForCurrentAccount = async (token: string) => {
+  if (!token || !(await currentSessionToken())) return false;
   if (!(await getSmartRemindersEnabled())) return false;
-  if (!(await permissionGranted(requestPermission))) return false;
-
-  await prepareAndroidChannel();
-  const token = rawTokenValue(await Notifications.getDevicePushTokenAsync());
-  if (!token) return false;
 
   const tokenKey = await pushStorageKey(PUSH_TOKEN_KEY);
   const previousToken = await getItem<string>(tokenKey);
@@ -127,6 +106,28 @@ export const registerPushDeviceIfEligible = async ({
   }
 
   return true;
+};
+
+/**
+ * Register only after both account authentication and the learner's explicit
+ * opt-in. Calling with requestPermission=false is safe during bootstrap: it
+ * never opens an OS prompt.
+ */
+export const registerPushDeviceIfEligible = async ({
+  requestPermission = false,
+}: {requestPermission?: boolean} = {}) => {
+  // Never mint/register a replacement while a pre-logout FCM token may still
+  // be alive. The device-only tombstone is safe to retry even for a guest.
+  if (!(await retryPendingNativePushTokenInvalidation())) return false;
+  if (!(await currentSessionToken())) return false;
+  if (!(await getSmartRemindersEnabled())) return false;
+  if (!(await permissionGranted(requestPermission))) return false;
+
+  await prepareAndroidChannel();
+  const token = await getBackendPushToken();
+  if (!token) return false;
+
+  return registerTokenForCurrentAccount(token);
 };
 
 export const unregisterPushDevice = async () => {
@@ -162,6 +163,11 @@ export const reconcilePushRegistration = async () => {
   }
   return unregisterPushDevice().catch(() => false);
 };
+
+export const subscribeToPushTokenRefresh = () =>
+  subscribeToBackendPushTokenRefresh(token => {
+    void registerTokenForCurrentAccount(token).catch(() => undefined);
+  });
 
 export const openNotificationLink = async (
   response: Notifications.NotificationResponse,
