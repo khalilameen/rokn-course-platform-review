@@ -61,11 +61,10 @@ class LoginController extends Controller
     {
         if (!$request->user()) {
             return redirect()->route('login');
-        } elseif (in_array(strtolower(trim((string) $request->user()->role)), ['admin', 'moderator'], true)) {
-            return redirect()->route('admin.dashboard');
-        } else {
-            return redirect()->route('home');
         }
+
+        // login() has already rejected every non-dashboard identity.
+        return redirect()->route('admin.dashboard');
     }
 
 

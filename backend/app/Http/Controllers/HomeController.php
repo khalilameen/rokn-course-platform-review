@@ -2,8 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-
 class HomeController extends Controller
 {
     /**
@@ -23,7 +21,8 @@ class HomeController extends Controller
      */
     public function index()
     {
-        echo "<strong>Frenchawy.com</strong>";
-        //return view('home');
+        // Keep Laravel's conventional /home target for framework redirects,
+        // but never render a second or legacy dashboard surface.
+        return redirect()->route('admin.dashboard');
     }
 }

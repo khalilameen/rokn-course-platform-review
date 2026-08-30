@@ -153,6 +153,16 @@ final class AdminLoginSecurityTest extends TestCase
         self::assertFalse(User::query()->where('email', 'unexpected@rokn.test')->exists());
     }
 
+    public function test_legacy_home_target_never_renders_a_second_dashboard_surface(): void
+    {
+        $this->get('/home')->assertRedirect(route('login'));
+
+        $admin = $this->createAdmin('home-admin@rokn.test', 'correct-password');
+        $this->actingAs($admin, 'web')
+            ->get('/home')
+            ->assertRedirect(route('admin.dashboard'));
+    }
+
     public function test_password_reset_mail_is_limited_to_dashboard_roles_without_enumeration(): void
     {
         Notification::fake();
