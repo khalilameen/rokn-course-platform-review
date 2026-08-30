@@ -2,7 +2,7 @@
   "expo": {
     "name": "Rokn",
     "slug": "rokn",
-    "version": "1.0.22",
+    "version": "1.0.23",
     "icon": "./src/assets/images/brand/rokn-app-icon-1024.png",
     "orientation": "default",
     "scheme": "rokn",
@@ -29,7 +29,7 @@
     },
     "android": {
       "package": "com.rokn",
-      "versionCode": 23,
+      "versionCode": 24,
       "googleServicesFile": "./android/app/google-services.json",
       "intentFilters": [
         {
@@ -58,6 +58,25 @@
           "data": [
             {"scheme": "https"},
             {"host": "www.rokn.app"},
+            {"path": "/home"},
+            {"path": "/profile"},
+            {"path": "/wallet"},
+            {"path": "/course"},
+            {"path": "/courses"},
+            {"pathPrefix": "/home/"},
+            {"pathPrefix": "/profile/"},
+            {"pathPrefix": "/wallet/"},
+            {"pathPrefix": "/course/"},
+            {"pathPrefix": "/courses/"}
+          ]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "category": ["BROWSABLE", "DEFAULT"],
+          "data": [
+            {"scheme": "https"},
+            {"host": "rokn-course-platform-review-production-b7gpy1.laravel.cloud"},
             {"path": "/home"},
             {"path": "/profile"},
             {"path": "/wallet"},
@@ -122,7 +141,7 @@
     },
     "ios": {
       "bundleIdentifier": "com.rokn",
-      "buildNumber": "21",
+      "buildNumber": "22",
       "googleServicesFile": "./ios/GoogleService-Info.plist",
       "supportsTablet": true,
       "usesAppleSignIn": true,
@@ -132,6 +151,7 @@
       "associatedDomains": [
         "applinks:rokn.app",
         "applinks:www.rokn.app",
+        "applinks:rokn-course-platform-review-production-b7gpy1.laravel.cloud",
         "applinks:rokn.com",
         "applinks:www.rokn.com"
       ]

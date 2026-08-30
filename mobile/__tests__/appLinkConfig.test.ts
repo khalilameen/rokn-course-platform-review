@@ -3,7 +3,13 @@ import path from 'path';
 import renderIntentFilters from '@expo/config-plugins/build/android/IntentFilters';
 import appConfig from '../app.json';
 
-const hosts = ['rokn.app', 'www.rokn.app', 'rokn.com', 'www.rokn.com'];
+const hosts = [
+  'rokn.app',
+  'www.rokn.app',
+  'rokn-course-platform-review-production-b7gpy1.laravel.cloud',
+  'rokn.com',
+  'www.rokn.com',
+];
 const paths = ['/home', '/profile', '/wallet', '/course', '/courses'];
 const expectedData = (host: string) => [
   {scheme: 'https'},
@@ -62,6 +68,19 @@ describe('native app-link scope', () => {
           return `android:${key}="${value}"`;
         }),
       );
+    }
+  });
+
+  it('keeps Expo and native iOS associated domains in sync', () => {
+    expect(appConfig.expo.ios.associatedDomains).toEqual(
+      hosts.map(host => `applinks:${host}`),
+    );
+    const entitlements = fs.readFileSync(
+      path.resolve(__dirname, '../ios/Rokn/Rokn.entitlements'),
+      'utf8',
+    );
+    for (const host of hosts) {
+      expect(entitlements).toContain(`<string>applinks:${host}</string>`);
     }
   });
 

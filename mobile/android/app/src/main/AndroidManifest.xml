@@ -104,6 +104,23 @@
             <category android:name="android.intent.category.DEFAULT" />
             <category android:name="android.intent.category.BROWSABLE" />
             <data android:scheme="https" />
+            <data android:host="rokn-course-platform-review-production-b7gpy1.laravel.cloud" />
+            <data android:path="/home" />
+            <data android:path="/profile" />
+            <data android:path="/wallet" />
+            <data android:path="/course" />
+            <data android:path="/courses" />
+            <data android:pathPrefix="/home/" />
+            <data android:pathPrefix="/profile/" />
+            <data android:pathPrefix="/wallet/" />
+            <data android:pathPrefix="/course/" />
+            <data android:pathPrefix="/courses/" />
+        </intent-filter>
+        <intent-filter android:autoVerify="true">
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
             <data android:host="rokn.com" />
             <data android:path="/home" />
             <data android:path="/profile" />

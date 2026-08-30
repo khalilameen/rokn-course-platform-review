@@ -38,6 +38,7 @@ const linking: LinkingOptions<RootStackParamList> = {
     'rokn://',
     'https://rokn.app',
     'https://www.rokn.app',
+    'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud',
     // Keep already-shared legacy links functional during the domain cutover.
     'https://rokn.com',
     'https://www.rokn.com',

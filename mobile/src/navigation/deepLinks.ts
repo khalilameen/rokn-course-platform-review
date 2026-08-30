@@ -32,7 +32,7 @@ export const parseRoknDestination = (
 
   const path = raw
     .replace(
-      /^(?:rokn:\/\/|https?:\/\/(?:www\.)?rokn\.(?:app|com)\/)/i,
+      /^(?:rokn:\/\/|https?:\/\/(?:(?:www\.)?rokn\.(?:app|com)|rokn-course-platform-review-production-b7gpy1\.laravel\.cloud)\/)/i,
       '',
     )
     .replace(/^\/+/, '')
@@ -58,6 +58,6 @@ export const parseRoknDestination = (
 
 export const isExternalWebLink = (rawLink?: string | null) =>
   /^https:\/\//i.test(String(rawLink || '').trim()) &&
-  !/^https:\/\/(?:www\.)?rokn\.(?:app|com)(?:\/|$)/i.test(
+  !/^https:\/\/(?:(?:www\.)?rokn\.(?:app|com)|rokn-course-platform-review-production-b7gpy1\.laravel\.cloud)(?:\/|$)/i.test(
     String(rawLink || '').trim(),
   );

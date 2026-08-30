@@ -22,6 +22,11 @@ describe('Rokn deep links', () => {
       name: 'Reels',
       params: {courseId: 'design', reelId: 'lesson-7'},
     });
+    expect(
+      parseRoknDestination(
+        'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/course/42',
+      ),
+    ).toEqual({name: 'CourseDetails', params: {courseId: '42'}});
   });
 
   it('rejects incomplete internal links instead of navigating silently', () => {
@@ -40,6 +45,11 @@ describe('Rokn deep links', () => {
     expect(isExternalWebLink('https://support.example.org/help')).toBe(true);
     expect(isExternalWebLink('https://rokn.app/course/42')).toBe(false);
     expect(isExternalWebLink('https://rokn.com/course/42')).toBe(false);
+    expect(
+      isExternalWebLink(
+        'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/course/42',
+      ),
+    ).toBe(false);
     expect(isExternalWebLink('http://support.example.org/help')).toBe(false);
     expect(isExternalWebLink('tel:+201000000000')).toBe(false);
   });
