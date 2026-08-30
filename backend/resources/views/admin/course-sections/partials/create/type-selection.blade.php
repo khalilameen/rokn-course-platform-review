@@ -12,8 +12,8 @@
                             <div class="type-icon type-lesson">
                                 <i class="fa fa-play-circle"></i>
                             </div>
-                            <div class="type-name">درس</div>
-                            <div class="type-description">درس فيديو تعليمي مع شرح مفصل</div>
+                            <div class="type-name">مقطع فيديو</div>
+                            <div class="type-description">عنوان وكابشن وفيديو يظهر في مشغل الريلز</div>
                         </div>
 
                        <!-- commented intentially in case it is needed in the future
@@ -45,8 +45,8 @@
                             <div class="type-icon type-project">
                                 <i class="fa fa-project-diagram"></i>
                             </div>
-                            <div class="type-name">مشروع</div>
-                            <div class="type-description">مشروع تطبيقي مع تقييم AI</div>
+                            <div class="type-name">مشروع عبور</div>
+                            <div class="type-description">اختياري؛ يظهر بعد مقاطع الوحدة ويمنع الانتقال حتى يجتازه الطالب</div>
                         </div>
                     </div>
 

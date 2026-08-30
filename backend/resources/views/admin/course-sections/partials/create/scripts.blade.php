@@ -1,5 +1,16 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    const visibleTitleAr = document.getElementById('title_ar');
+    const visibleTitleEn = document.getElementById('title_en');
+    const lessonTitleAr = document.getElementById('lesson_title_ar');
+    const lessonTitleEn = document.getElementById('lesson_title_en');
+    const syncLessonTitles = () => {
+        if (lessonTitleAr && visibleTitleAr) lessonTitleAr.value = visibleTitleAr.value;
+        if (lessonTitleEn && visibleTitleEn) lessonTitleEn.value = visibleTitleEn.value;
+    };
+    visibleTitleAr?.addEventListener('input', syncLessonTitles);
+    visibleTitleEn?.addEventListener('input', syncLessonTitles);
+    syncLessonTitles();
     const typeOptions = document.querySelectorAll('.type-option');
     const sectionTypeInput = document.getElementById('section_type');
     const dynamicForms = document.querySelectorAll('.dynamic-form');

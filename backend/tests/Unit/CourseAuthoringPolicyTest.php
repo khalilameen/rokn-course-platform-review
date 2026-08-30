@@ -1,0 +1,52 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Unit;
+
+use PHPUnit\Framework\TestCase;
+
+final class CourseAuthoringPolicyTest extends TestCase
+{
+    public function test_publishing_allows_theory_modules_without_crossing_projects(): void
+    {
+        $source = file_get_contents(dirname(__DIR__, 2).'/app/Services/CoursePublishingService.php');
+
+        self::assertNotFalse($source);
+        self::assertStringNotContainsString('أضف مشروع العبور بعد آخر خطوة', $source);
+        self::assertStringContainsString('$projects->count() > 1', $source);
+        self::assertStringContainsString('$projects->isNotEmpty()', $source);
+        self::assertStringContainsString('$graduationProjectsCount === 1', $source);
+    }
+
+    public function test_authoring_ui_exposes_one_visible_reel_title_and_a_separate_caption(): void
+    {
+        $basic = file_get_contents(dirname(__DIR__, 2).'/resources/views/admin/course-sections/partials/create/basic-information.blade.php');
+        $lesson = file_get_contents(dirname(__DIR__, 2).'/resources/views/admin/course-sections/partials/create/lesson-form.blade.php');
+        $scripts = file_get_contents(dirname(__DIR__, 2).'/resources/views/admin/course-sections/partials/create/scripts.blade.php');
+
+        self::assertStringContainsString('العنوان الذي سيظهر للطالب', $basic);
+        self::assertStringContainsString('كابشن المقطع', $lesson);
+        self::assertStringContainsString('lesson-title-sync-fields', $lesson);
+        self::assertStringContainsString('syncLessonTitles', $scripts);
+    }
+
+    public function test_modules_only_ask_moderators_for_a_title_and_attachments(): void
+    {
+        foreach (['create', 'edit'] as $screen) {
+            $source = file_get_contents(dirname(__DIR__, 2)."/resources/views/admin/course-modules/{$screen}.blade.php");
+
+            self::assertNotFalse($source);
+            self::assertStringContainsString("Form::text('title_ar'", $source);
+            self::assertStringNotContainsString("Form::textarea('description_ar'", $source);
+            self::assertStringNotContainsString("Form::textarea('description_en'", $source);
+        }
+
+        foreach (['CourseResource.php', 'BaseCourseResource.php'] as $resource) {
+            $source = file_get_contents(dirname(__DIR__, 2)."/app/Http/Resources/{$resource}");
+
+            self::assertNotFalse($source);
+            self::assertStringNotContainsString("'description' => \$module->description", $source);
+        }
+    }
+}

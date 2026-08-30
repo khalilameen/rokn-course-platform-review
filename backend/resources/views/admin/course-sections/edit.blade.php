@@ -10,6 +10,7 @@
 @endsection
 
 @section('content')
+@php($editorLabel = $section->getSectionType() === 'project' ? 'مشروع العبور' : ($section->getSectionType() === 'lesson' ? 'المقطع' : 'المحتوى'))
 
 <div class="admin-page fade-in">
     <!-- Header Section -->
@@ -19,9 +20,9 @@
                 <div>
                     <h1 class="mb-2">
                         <i class="fa fa-edit ml-2"></i>
-                        تعديل القسم
+                        تعديل {{ $editorLabel }}
                     </h1>
-                    <p class="mb-0 opacity-75">تحديث محتوى القسم</p>
+                    <p class="mb-0 opacity-75">حدّث ما سيظهر للطالب داخل الكورس</p>
                 </div>
             </div>
 
@@ -56,6 +57,7 @@
         <div class="form-container">
             <form action="{{ route('admin.courses.sections.update', [$course, $section]) }}" method="POST" id="sectionForm" enctype="multipart/form-data">
                 @csrf
+                <input type="hidden" name="return_to" value="{{ request('return_to') === 'studio' ? 'studio' : '' }}">
                 @method('PUT')
 
                 @include('admin.course-sections.partials.edit.basic-information')
@@ -80,7 +82,7 @@
         <!-- Form Actions -->
         <div class="form-actions">
             <div>
-                <a href="{{ route('admin.courses.sections.index', $course) }}" class="btn-modern btn-secondary">
+                <a href="{{ request('return_to') === 'studio' ? route('admin.courses.show', $course) : route('admin.courses.sections.index', $course) }}" class="btn-modern btn-secondary">
                     <i class="fa fa-arrow-left"></i>
                     إلغاء والعودة
                 </a>

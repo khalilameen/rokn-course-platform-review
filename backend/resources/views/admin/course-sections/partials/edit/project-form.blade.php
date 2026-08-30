@@ -10,6 +10,10 @@
                         <h3 class="section-title">تفاصيل المشروع</h3>
                     </div>
 
+                    <div class="alert alert-info">
+                        مشروع العبور اختياري. وجوده في هذه الوحدة يعني أنه آخر خطوة فيها، ولا تنتقل للتي بعدها قبل اجتيازه.
+                    </div>
+
                     <div class="row">
                         <div class="col-md-6">
                             <div class="form-group">

@@ -1,3 +1,18 @@
+@php
+    $headerUser = auth()->user();
+    $headerIsAdministrator = strtolower(trim((string) $headerUser?->role)) === 'admin';
+    $headerNotifications = $headerIsAdministrator ? $headerUser->unreadNotifications : collect();
+    $headerProfileImage = $headerUser?->getRawOriginal('profile_image');
+    if ($headerProfileImage && !filter_var($headerProfileImage, FILTER_VALIDATE_URL)) {
+        $headerProfileImage = asset('storage/' . ltrim($headerProfileImage, '/'));
+    }
+    if (!$headerProfileImage && ($legacyProfileImage = $headerUser?->getRawOriginal('image'))) {
+        $headerProfileImage = filter_var($legacyProfileImage, FILTER_VALIDATE_URL)
+            ? $legacyProfileImage
+            : asset(ltrim($legacyProfileImage, '/'));
+    }
+    $headerProfileImage = $headerProfileImage ?: asset('images/admin.jpg');
+@endphp
 <header id="header" class="modern-header">
 
     <div class="modern-header-content">
@@ -14,6 +29,7 @@
                 <i class="fa fa-bars" aria-hidden="true"></i>
             </button>
 
+            @if($headerIsAdministrator)
             <div class="modern-notification">
                 <button
                     type="button"
@@ -24,17 +40,17 @@
                     aria-expanded="false"
                 >
                     <i class="fa fa-bell" aria-hidden="true"></i>
-                    @if(auth()->user()->unreadNotifications->count() > 0)
-                        <span class="notification-badge">{{ auth()->user()->unreadNotifications->count() }}</span>
+                    @if($headerNotifications->isNotEmpty())
+                        <span class="notification-badge">{{ $headerNotifications->count() }}</span>
                     @endif
                 </button>
 
                 <div class="notification-dropdown" id="notificationMenu" aria-hidden="true">
                     <div class="notification-header">
-                        <h6>لديك {{ auth()->user()->unreadNotifications->count() }} إشعارات جديدة</h6>
+                        <h6>لديك {{ $headerNotifications->count() }} إشعارات جديدة</h6>
                     </div>
                     <div class="notification-list">
-                        @forelse(auth()->user()->unreadNotifications as $notification)
+                        @forelse($headerNotifications as $notification)
                             <a class="notification-item" href="{{ route('admin.users.show', [$notification->data['data'], 'n_id' => $notification->id]) }}">
                                 <div class="notification-content">
                                     <p>طلب جديد من {{ \App\Models\User::find($notification->data['data'])?->name }} </p>
@@ -52,6 +68,7 @@
                     </div>
                 </div>
             </div>
+            @endif
 
             <button type="button" class="dark-mode-toggle" id="darkModeToggle" title="تبديل الوضع الليلي" aria-label="تبديل الوضع الليلي">
                 <i class="fa fa-moon-o" aria-hidden="true"></i>
@@ -72,16 +89,16 @@
                     aria-expanded="false"
                 >
                     <div class="user-info">
-                        <span class="user-name">{{ auth()->user()->name ?? 'المسؤول' }}</span>
-                        <span class="user-role">مسؤول النظام</span>
+                        <span class="user-name">{{ $headerUser->name ?? 'المسؤول' }}</span>
+                        <span class="user-role">{{ $headerIsAdministrator ? 'مسؤول النظام' : 'محرر المحتوى' }}</span>
                     </div>
                     <div class="user-avatar-wrapper">
-                        <img src="/images/admin.jpg" alt="">
+                        <img src="{{ $headerProfileImage }}" alt="صورة {{ $headerUser->name ?? 'المستخدم' }}">
                     </div>
                 </button>
 
                 <div class="user-dropdown" id="userMenu" aria-hidden="true">
-                    @if(auth()->user()?->role === 'admin')
+                    @if($headerIsAdministrator)
                     <a class="user-dropdown-item" href="{{ route('admin.admin_data') }}">
                         <span>تعديل بيانات الدخول</span>
                         <i class="fa fa-user"></i>

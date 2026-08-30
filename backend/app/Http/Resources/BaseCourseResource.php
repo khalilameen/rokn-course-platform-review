@@ -171,7 +171,6 @@ class BaseCourseResource extends JsonResource
                     return [
                         'id' => $module->id,
                         'title' => $module->title,
-                        'description' => $module->description,
                         'attachment_platform' => $module->attachment_platform,
                         'order' => $module->order,
                         // Buyers receive attachment links from CourseResource.

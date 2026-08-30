@@ -19,6 +19,7 @@
 
         <div class="form-body">
             {!! Form::model($module, ['route' => ['admin.courses.modules.update', [$course, $module]], 'method' => 'PUT']) !!}
+            <input type="hidden" name="return_to" value="{{ request('return_to') === 'studio' ? 'studio' : '' }}">
 
             <div class="row">
                 <div class="col-md-6">
@@ -31,21 +32,6 @@
                     <div class="form-group-modern">
                         <label for="title_en" class="form-label-modern">عنوان الوحدة (بالإنجليزية)</label>
                         {!! Form::text('title_en', null, ['class' => 'form-control-modern']) !!}
-                    </div>
-                </div>
-            </div>
-
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="form-group-modern">
-                        <label for="description_ar" class="form-label-modern">وصف الوحدة (بالعربية)</label>
-                        {!! Form::textarea('description_ar', null, ['class' => 'form-control-modern', 'rows' => 3]) !!}
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="form-group-modern">
-                        <label for="description_en" class="form-label-modern">وصف الوحدة (بالإنجليزية)</label>
-                        {!! Form::textarea('description_en', null, ['class' => 'form-control-modern', 'rows' => 3]) !!}
                     </div>
                 </div>
             </div>
@@ -74,7 +60,7 @@
                     <i class="fa fa-save"></i>
                     تحديث الوحدة
                 </button>
-                <a href="{{ route('admin.courses.sections.index', $course) }}" class="btn-modern btn-secondary">
+                <a href="{{ request('return_to') === 'studio' ? route('admin.courses.show', $course) : route('admin.courses.sections.index', $course) }}" class="btn-modern btn-secondary">
                     <i class="fa fa-arrow-right"></i>
                     إلغاء
                 </a>

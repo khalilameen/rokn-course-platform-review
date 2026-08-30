@@ -2,7 +2,7 @@
 
 @php
     $isAdministrator = strtolower(trim((string) auth()->user()?->role)) === 'admin';
-    $dashboardHome = $isAdministrator ? route('admin.dashboard') : route('admin.courses.index');
+    $dashboardHome = route('admin.dashboard');
 @endphp
 
 <aside id="left-panel" class="left-panel modern-sidebar" aria-label="القائمة الرئيسية">
@@ -27,8 +27,8 @@
         <div id="main-menu" class="main-menu">
             <ul class="modern-nav">
                 <!-- Dashboard Section -->
-                <li class="nav-item{{ isRouteActive($isAdministrator ? 'admin.dashboard' : 'admin.courses.*') ? ' active' : '' }}">
-                    <a href="{{ $dashboardHome }}" class="nav-link">
+                <li class="nav-item{{ isRouteActive('admin.dashboard') ? ' active' : '' }}">
+                    <a href="{{ $dashboardHome }}" class="nav-link" @if(isRouteActive('admin.dashboard')) aria-current="page" @endif>
                         <i class="menu-icon fa fa-dashboard"></i>
                         <span class="menu-text">{{ $isAdministrator ? 'الرئيسية' : 'مساحة المحتوى' }}</span>
                     </a>
@@ -68,7 +68,7 @@
 
 
                 <li class="nav-item{{ isRouteActive('admin.courses.*') ? ' active' : '' }}">
-                    <a href="{{ route('admin.courses.index') }}" class="nav-link">
+                    <a href="{{ route('admin.courses.index') }}" class="nav-link" @if(isRouteActive('admin.courses.*')) aria-current="page" @endif>
                         <i class="menu-icon fa fa-book"></i>
                         <span class="menu-text">الكورسات</span>
                     </a>

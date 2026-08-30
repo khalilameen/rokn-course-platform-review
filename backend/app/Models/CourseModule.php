@@ -78,7 +78,10 @@ class CourseModule extends Model
      */
     public function projectSection()
     {
-        return $this->hasOne(CourseSection::class, 'module_id')->where('section_type', 'project');
+        return $this->hasOne(CourseSection::class, 'module_id')->where(function ($query): void {
+            $query->where('section_type', 'project')
+                ->orWhere('sectionable_type', Project::class);
+        });
     }
 
     /**
@@ -86,7 +89,10 @@ class CourseModule extends Model
      */
     public function hasProject(): bool
     {
-        return $this->sections()->where('section_type', 'project')->exists();
+        return $this->sections()->where(function ($query): void {
+            $query->where('section_type', 'project')
+                ->orWhere('sectionable_type', Project::class);
+        })->exists();
     }
 
     /**

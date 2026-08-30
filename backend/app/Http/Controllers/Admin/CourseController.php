@@ -163,8 +163,8 @@ class CourseController extends Controller
             $course->teachers()->attach($request->teacher_ids);
         }
         $this->forgetCatalogCache($course);
-        return redirect()->route('admin.courses.sections.index', $course->id)
-            ->with('success', 'تم حفظ الكورس كمسودة. أكمل الوحدات والخطوات والمشروعات ثم انشره من صفحة التعديل.');
+        return redirect()->route('admin.courses.show', $course)
+            ->with('success', 'تم حفظ الكورس كمسودة. أضف الوحدات والمقاطع، وأضف مشاريع العبور فقط حيث يحتاج المحتوى إليها.');
     }
 
     /**
@@ -179,8 +179,18 @@ class CourseController extends Controller
         CourseCommercialReportService $commercialReports
     )
     {
-        $course->load(['classifications', 'teachers']);
+        $course->load([
+            'classifications',
+            'teachers',
+            'level',
+            'photo',
+            'modules' => fn ($query) => $query->with([
+                'sections' => fn ($sections) => $sections->with('sectionable')->orderBy('order'),
+            ])->orderBy('order'),
+        ]);
         $sections = $course->sections()->with('sectionable')->orderBy('order')->get();
+        $course->setRelation('sections', $sections);
+        $ungroupedSections = $sections->whereNull('module_id')->values();
         $publishingAudit = $publishingService->audit($course);
         $designSettings = $this->getDesignSettings();
         $commercialReport = $this->isAdministrator()
@@ -192,6 +202,7 @@ class CourseController extends Controller
         return view('admin.courses.show', compact(
             'course',
             'sections',
+            'ungroupedSections',
             'publishingAudit',
             'designSettings',
             'commercialReport',
@@ -382,7 +393,14 @@ class CourseController extends Controller
             )
         );
 
-        return redirect()->route('admin.courses.index')->with('success', 'تم التحديث بنجاح ');
+        $destination = $request->input('return_to') === 'studio'
+            ? 'admin.courses.show'
+            : 'admin.courses.index';
+
+        return redirect()->route(
+            $destination,
+            $destination === 'admin.courses.show' ? $course : []
+        )->with('success', 'تم تحديث الكورس بنجاح.');
     }
 
     /**

@@ -6,6 +6,10 @@ namespace Tests\Feature;
 
 use App\Http\Controllers\Admin\CourseSectionController;
 use App\Models\Course;
+use App\Models\CourseModule;
+use App\Models\CourseSection;
+use App\Models\Lesson;
+use App\Models\Project;
 use App\Services\BunnyService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
@@ -125,6 +129,44 @@ final class CourseSectionAtomicityTest extends TestCase
             'section_type' => 'lesson',
         ]);
         self::assertTrue($response->isRedirect());
+    }
+
+    public function test_reorder_keeps_the_optional_crossing_project_last_in_its_module(): void
+    {
+        $course = Course::create(['name_ar' => 'اختبار']);
+        $module = CourseModule::create(['course_id' => $course->id]);
+        $lesson = CourseSection::create([
+            'title_ar' => 'مقطع',
+            'title_en' => 'Clip',
+            'course_id' => $course->id,
+            'module_id' => $module->id,
+            'section_type' => 'lesson',
+            'sectionable_type' => Lesson::class,
+            'sectionable_id' => 10,
+            'order' => 1,
+        ]);
+        $project = CourseSection::create([
+            'title_ar' => 'مشروع عبور',
+            'title_en' => 'Crossing project',
+            'course_id' => $course->id,
+            'module_id' => $module->id,
+            'section_type' => 'project',
+            'sectionable_type' => Project::class,
+            'sectionable_id' => 20,
+            'order' => 2,
+        ]);
+        $request = Request::create('/dashboard/courses/1/sections/reorder', 'POST', [
+            'sections' => [
+                ['id' => $project->id, 'order' => 1, 'module_id' => $module->id],
+                ['id' => $lesson->id, 'order' => 2, 'module_id' => $module->id],
+            ],
+        ]);
+
+        $response = app(CourseSectionController::class)->reorder($request, $course);
+
+        self::assertTrue($response->getData(true)['success']);
+        self::assertSame(1, (int) $lesson->fresh()->order);
+        self::assertSame(2, (int) $project->fresh()->order);
     }
 
     private function lessonRequest(?string $sectionTitleEn): Request

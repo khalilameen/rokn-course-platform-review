@@ -19,6 +19,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use RuntimeException;
 use Throwable;
 
@@ -463,7 +464,7 @@ class CourseSectionController extends Controller
                             $transactionStarted = false;
 
                             // Redirect immediately since section already exists
-                            return redirect()->route('admin.courses.sections.index', $course)
+                            return $this->authoringRedirect($request, $course)
                                 ->with('success', 'تم حفظ القسم بنجاح');
                         }
                     }
@@ -540,6 +541,7 @@ class CourseSectionController extends Controller
             ]);
 
             $section->save();
+            $this->normalizeModuleOrder($course, $section->module_id);
 
             DB::commit();
             $transactionStarted = false;
@@ -566,7 +568,7 @@ class CourseSectionController extends Controller
                 ]);
             }
 
-            return redirect()->route('admin.courses.sections.index', $course)
+            return $this->authoringRedirect($request, $course)
                 ->with('success', 'تم إضافة القسم بنجاح');
         } catch (Throwable $e) {
             if ($transactionStarted) {
@@ -874,6 +876,7 @@ class CourseSectionController extends Controller
             }
 
             // Update the section
+            $previousModuleId = $section->module_id;
             $section->update([
                 'title_ar' => $request->title_ar,
                 'title_en' => $request->title_en,
@@ -883,6 +886,9 @@ class CourseSectionController extends Controller
                 'module_id' => $request->module_id,
                 'section_type' => $sectionType,
             ]);
+            foreach (array_unique(array_filter([$previousModuleId, $section->module_id])) as $moduleId) {
+                $this->normalizeModuleOrder($course, (int) $moduleId);
+            }
 
             DB::commit();
             $transactionStarted = false;
@@ -916,7 +922,7 @@ class CourseSectionController extends Controller
                 ]);
             }
 
-            return redirect()->route('admin.courses.sections.index', $course)
+            return $this->authoringRedirect($request, $course)
                 ->with('success', 'تم تحديث القسم بنجاح');
         } catch (Throwable $e) {
             if ($transactionStarted) {
@@ -1004,7 +1010,50 @@ class CourseSectionController extends Controller
             ],
         ]);
 
-        DB::transaction(function () use ($request, $course): void {
+        $requestedModules = collect($request->input('sections', []))
+            ->filter(fn (array $section): bool => array_key_exists('module_id', $section))
+            ->mapWithKeys(fn (array $section): array => [
+                (int) $section['id'] => $section['module_id'] === null
+                    ? null
+                    : (int) $section['module_id'],
+            ]);
+        $projectLayout = CourseSection::query()
+            ->where('course_id', $course->id)
+            ->where(function ($query): void {
+                $query->where('section_type', 'project')
+                    ->orWhere('sectionable_type', Project::class);
+            })
+            ->get(['id', 'module_id'])
+            ->map(fn (CourseSection $section): array => [
+                'id' => $section->id,
+                'module_id' => $requestedModules->has($section->id)
+                    ? $requestedModules->get($section->id)
+                    : $section->module_id,
+            ]);
+
+        if ($projectLayout->contains(fn (array $project): bool => $project['module_id'] === null)) {
+            throw ValidationException::withMessages([
+                'sections' => 'مشروع العبور يجب أن يبقى داخل وحدة.',
+            ]);
+        }
+        if ($projectLayout->groupBy('module_id')->contains(fn ($projects): bool => $projects->count() > 1)) {
+            throw ValidationException::withMessages([
+                'sections' => 'يمكن لكل وحدة أن تحتوي مشروع عبور واحدًا فقط.',
+            ]);
+        }
+
+        $sectionIds = collect($request->input('sections', []))->pluck('id')->map(fn ($id): int => (int) $id);
+        $affectedModuleIds = CourseSection::query()
+            ->where('course_id', $course->id)
+            ->whereIn('id', $sectionIds)
+            ->pluck('module_id')
+            ->merge($requestedModules->values())
+            ->filter()
+            ->map(fn ($moduleId): int => (int) $moduleId)
+            ->unique()
+            ->values();
+
+        DB::transaction(function () use ($request, $course, $affectedModuleIds): void {
             Course::query()->whereKey($course->id)->lockForUpdate()->firstOrFail();
             foreach ($request->sections as $sectionData) {
                 $updateData = ['order' => $sectionData['order']];
@@ -1015,6 +1064,9 @@ class CourseSectionController extends Controller
                 CourseSection::where('id', $sectionData['id'])
                     ->where('course_id', $course->id)
                     ->update($updateData);
+            }
+            foreach ($affectedModuleIds as $moduleId) {
+                $this->normalizeModuleOrder($course, $moduleId);
             }
         });
 
@@ -1036,6 +1088,33 @@ class CourseSectionController extends Controller
             ],
             'order' => 'nullable|integer|min:0',
         ]);
+
+        if ($request->input('section_type') !== 'project') {
+            return;
+        }
+
+        if (!$request->filled('module_id')) {
+            throw ValidationException::withMessages([
+                'module_id' => 'اختر الوحدة التي سيغلق مشروع العبور نهايتها.',
+            ]);
+        }
+
+        $currentSection = $request->route('section');
+        $projectAlreadyExists = CourseSection::query()
+            ->where('course_id', $course->id)
+            ->where('module_id', $request->integer('module_id'))
+            ->where(function ($query): void {
+                $query->where('section_type', 'project')
+                    ->orWhere('sectionable_type', Project::class);
+            })
+            ->when($currentSection instanceof CourseSection, fn ($query) => $query->where('id', '!=', $currentSection->id))
+            ->exists();
+
+        if ($projectAlreadyExists) {
+            throw ValidationException::withMessages([
+                'module_id' => 'هذه الوحدة لها مشروع عبور بالفعل. يمكن لكل وحدة أن تحتوي مشروع عبور واحدًا فقط.',
+            ]);
+        }
     }
 
     private function validateLessonRequest(Request $request, bool $videoRequired): void
@@ -1062,6 +1141,39 @@ class CourseSectionController extends Controller
     private function ensureSectionBelongsToCourse(Course $course, CourseSection $section): void
     {
         abort_unless((int) $section->course_id === (int) $course->id, 404);
+    }
+
+    private function normalizeModuleOrder(Course $course, int|string|null $moduleId): void
+    {
+        if (!$moduleId) {
+            return;
+        }
+
+        $sections = CourseSection::query()
+            ->where('course_id', $course->id)
+            ->where('module_id', $moduleId)
+            ->orderBy('order')
+            ->orderBy('id')
+            ->get()
+            ->sortBy(fn (CourseSection $section): int => $section->isProject() ? 1 : 0)
+            ->values();
+
+        foreach ($sections as $index => $section) {
+            $normalizedOrder = $index + 1;
+            if ((int) $section->order !== $normalizedOrder) {
+                $section->updateQuietly(['order' => $normalizedOrder]);
+            }
+        }
+    }
+
+    private function authoringRedirect(Request $request, Course $course)
+    {
+        return redirect()->route(
+            $request->input('return_to') === 'studio'
+                ? 'admin.courses.show'
+                : 'admin.courses.sections.index',
+            $course
+        );
     }
 
     /**

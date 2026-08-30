@@ -10,6 +10,7 @@
 @endsection
 
 @section('content')
+@php($editorLabel = request('type') === 'project' ? 'مشروع عبور' : (request('type') === 'lesson' ? 'مقطع فيديو' : 'محتوى'))
 
 <div class="admin-page fade-in">
     <!-- Header Section -->
@@ -19,9 +20,9 @@
                 <div>
                     <h1 class="mb-2">
                         <i class="fa fa-plus-circle ml-2"></i>
-                        إضافة قسم جديد
+                        إضافة {{ $editorLabel }}
                     </h1>
-                    <p class="mb-0 opacity-75">إضافة محتوى جديد لكورسك</p>
+                    <p class="mb-0 opacity-75">اكتب العنوان الظاهر للطالب ثم أكمل بيانات {{ $editorLabel }}</p>
                 </div>
             </div>
 
@@ -56,6 +57,7 @@
         <div class="form-container">
             <form action="{{ route('admin.courses.sections.store', $course) }}" method="POST" id="sectionForm" enctype="multipart/form-data">
                 @csrf
+                <input type="hidden" name="return_to" value="{{ request('return_to') === 'studio' ? 'studio' : '' }}">
 
                 @include('admin.course-sections.partials.create.basic-information')
 
@@ -79,7 +81,7 @@
         <!-- Form Actions -->
         <div class="form-actions">
             <div>
-                <a href="{{ route('admin.courses.sections.index', $course) }}" class="btn-modern btn-secondary">
+                <a href="{{ request('return_to') === 'studio' ? route('admin.courses.show', $course) : route('admin.courses.sections.index', $course) }}" class="btn-modern btn-secondary">
                     <i class="fa fa-arrow-left"></i>
                     إلغاء والعودة
                 </a>
@@ -87,7 +89,7 @@
             <div>
                 <button type="submit" form="sectionForm" class="btn-modern btn-primary">
                     <i class="fa fa-save"></i>
-                    حفظ القسم
+                    حفظ {{ $editorLabel }}
                 </button>
             </div>
         </div>

@@ -118,3 +118,4 @@
     cursor: pointer;
     transition: all 0.3s;
 }
+.lesson-title-sync-fields { display: none !important; }

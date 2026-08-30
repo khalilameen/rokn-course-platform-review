@@ -73,6 +73,7 @@
 
         <!-- Form -->
         {!! Form::model($course, ['method' => 'PATCH', 'files' => true, 'url' => route('admin.courses.update', $course->id), 'id' => 'courseEditForm']) !!}
+        <input type="hidden" name="return_to" value="{{ request('return_to') === 'studio' ? 'studio' : '' }}">
 
         <div class="form-sections">
             @include('admin.courses.partials.edit.basic-information')

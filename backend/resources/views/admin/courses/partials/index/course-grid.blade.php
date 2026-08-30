@@ -171,8 +171,8 @@
                             <!-- Course Actions -->
                             <div class="course-actions">
                                 <a href="{{ route('admin.courses.show', $course->id) }}" class="btn-card btn-card-primary">
-                                    <i class="fa fa-eye"></i>
-                                    عرض
+                                    <i class="fa fa-magic"></i>
+                                    فتح الاستوديو
                                 </a>
                                 <a href="{{ route('admin.courses.edit', $course->id) }}" class="btn-card btn-card-success">
                                     <i class="fa fa-edit"></i>

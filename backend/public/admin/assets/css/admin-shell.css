@@ -1322,3 +1322,16 @@ body.admin-shell.open .modern-nav .menu-text {
         transition-duration: .01ms !important;
     }
 }
+.admin-skip-link {
+    position: fixed;
+    top: 8px;
+    right: 8px;
+    z-index: 10050;
+    padding: 10px 14px;
+    color: #fff;
+    border-radius: 8px;
+    background: #20286f;
+    transform: translateY(-150%);
+}
+
+.admin-skip-link:focus { transform: translateY(0); }

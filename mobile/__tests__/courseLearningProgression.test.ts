@@ -33,6 +33,7 @@ import type {CourseLearningData} from '../src/components/VideoPlayer/types';
 import {publicRequest} from '../src/constants/api';
 import {accountScopedStorageKey} from '../src/constants/helpers';
 import {hasSession} from '../src/services/roknApi';
+import {buildAccessibleFeed} from '../src/screens/reels/presentation';
 
 const apiPost = publicRequest.post as jest.MockedFunction<
   typeof publicRequest.post
@@ -169,6 +170,63 @@ describe('course progression boundaries', () => {
     });
     expect(course?.modules[0].attachments).toHaveLength(1);
     expect(course?.modules[0].attachments[0].platform).toBe('computer');
+  });
+
+  it('keeps reel titles and captions separate and allows theory modules without projects', () => {
+    const course = mapCoursePayload({
+      data: {
+        course: {
+          id: 'theory-course',
+          title: 'كورس نظري',
+          modules: [
+            {
+              id: 'module-1',
+              title: 'الوحدة الأولى',
+              order: 1,
+              sections: [
+                {
+                  id: 'section-1',
+                  type: 'lesson',
+                  order: 1,
+                  title: 'العنوان الظاهر على الريل',
+                  content: {
+                    id: 'lesson-1',
+                    title: 'عنوان التخزين الداخلي',
+                    description: 'هذا هو الكابشن المستقل أسفل الفيديو',
+                    video_url: 'https://cdn.example/lesson-1.m3u8',
+                  },
+                },
+              ],
+            },
+            {
+              id: 'module-2',
+              title: 'الوحدة الثانية',
+              order: 2,
+              sections: [
+                {
+                  id: 'section-2',
+                  type: 'lesson',
+                  order: 1,
+                  title: 'مقطع بلا مشروع قبله',
+                  content: {
+                    id: 'lesson-2',
+                    video_url: 'https://cdn.example/lesson-2.m3u8',
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(course?.modules[0].reels[0]).toMatchObject({
+      title: 'العنوان الظاهر على الريل',
+      caption: 'هذا هو الكابشن المستقل أسفل الفيديو',
+    });
+    expect(course?.modules[0].project).toBeUndefined();
+    expect(course?.modules[1].project).toBeUndefined();
+    expect(buildAccessibleFeed(course!)).toHaveLength(2);
   });
 
   it('never unlocks the next module for a reviewing project', () => {

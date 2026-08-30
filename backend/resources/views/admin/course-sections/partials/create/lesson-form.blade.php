@@ -8,22 +8,22 @@
                         <div class="section-icon">
                             <i class="fa fa-play-circle"></i>
                         </div>
-                        <h3 class="section-title">تفاصيل الدرس</h3>
+                        <h3 class="section-title">المقطع داخل مشغل الريلز</h3>
                     </div>
 
-                    <div class="row">
+                    <div class="row lesson-title-sync-fields" aria-hidden="true">
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label class="form-label" for="lesson_title_ar">عنوان الدرس (بالعربية) *</label>
+                                <label class="form-label" for="lesson_title_ar">العنوان الداخلي للمقطع (بالعربية) *</label>
                                 <input type="text" id="lesson_title_ar" name="lesson_title_ar" class="form-control"
-                                       value="{{ old('lesson_title_ar') }}" placeholder="أدخل عنوان الدرس بالعربية" data-required="true">
+                                       value="{{ old('lesson_title_ar') }}" placeholder="يُنسخ تلقائيًا من العنوان الظاهر" data-required="true" readonly>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label class="form-label" for="lesson_title_en">عنوان الدرس (بالإنجليزية)</label>
+                                <label class="form-label" for="lesson_title_en">العنوان الداخلي للمقطع (بالإنجليزية)</label>
                                 <input type="text" id="lesson_title_en" name="lesson_title_en" class="form-control"
-                                       value="{{ old('lesson_title_en') }}" placeholder="Enter English lesson title">
+                                       value="{{ old('lesson_title_en') }}" placeholder="Copied from the visible title" readonly>
                             </div>
                         </div>
                     </div>
@@ -31,14 +31,14 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label class="form-label" for="lesson_description_ar">وصف الدرس (بالعربية)</label>
+                                <label class="form-label" for="lesson_description_ar">كابشن المقطع (بالعربية)</label>
                                 <textarea id="lesson_description_ar" name="lesson_description_ar" class="form-control" rows="4"
-                                          placeholder="أدخل وصف الدرس بالعربية">{{ old('lesson_description_ar') }}</textarea>
+                                          placeholder="النص الذي يظهر أسفل الفيديو مثل كابشن تيك توك">{{ old('lesson_description_ar') }}</textarea>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="form-group">
-                                <label class="form-label" for="lesson_description_en">وصف الدرس (بالإنجليزية)</label>
+                                <label class="form-label" for="lesson_description_en">كابشن المقطع (بالإنجليزية)</label>
                                 <textarea id="lesson_description_en" name="lesson_description_en" class="form-control" rows="4"
                                           placeholder="Enter English lesson description">{{ old('lesson_description_en') }}</textarea>
                             </div>

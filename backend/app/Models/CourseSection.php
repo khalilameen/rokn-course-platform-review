@@ -82,7 +82,7 @@ class CourseSection extends Model
      */
     public function isProject(): bool
     {
-        return $this->section_type === 'project';
+        return $this->getSectionType() === 'project';
     }
 
     /**
@@ -90,7 +90,7 @@ class CourseSection extends Model
      */
     public function isLesson(): bool
     {
-        return $this->section_type === 'lesson';
+        return $this->getSectionType() === 'lesson';
     }
 
     /**

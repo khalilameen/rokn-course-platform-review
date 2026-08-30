@@ -165,7 +165,6 @@ class CourseResource extends BaseCourseResource
                 $moduleData = [
                     'id' => $module->id,
                     'title' => $module->title,
-                    'description' => $module->description,
                     'attachment_platform' => $module->attachment_platform,
                     'order' => $module->order,
                     'is_locked' => $moduleIsLocked,

@@ -254,6 +254,7 @@ class AdminDashboardViewTest extends TestCase
             'payment reconciliation action' => ['payment-reconciliation-findings/partials/action-form.blade.php'],
             'settings dashboard' => ['settings/index.blade.php'],
             'home dashboard' => ['home/index.blade.php'],
+            'moderator workspace' => ['home/moderator.blade.php'],
             'course codes list' => ['course-codes/index.blade.php'],
             'course code details' => ['course-codes/show.blade.php'],
             'course code create' => ['course-codes/create.blade.php'],
@@ -325,8 +326,8 @@ class AdminDashboardViewTest extends TestCase
             ],
             'course details' => [
                 'show',
-                ['overview', 'sections', 'statistics', 'scripts'],
-                ['admin.courses.sections.destroy', 'publishingAudit', 'switchTab'],
+                ['statistics', 'commercial-report', 'scripts'],
+                ['courseStudio', 'publishingAudit', 'studentPreviewToggle', 'admin.courses.sections.reorder'],
             ],
             'course xml export' => [
                 'exist',

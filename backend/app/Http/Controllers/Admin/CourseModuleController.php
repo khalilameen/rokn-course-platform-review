@@ -41,8 +41,6 @@ class CourseModuleController extends Controller
         $request->validate([
             'title_ar' => 'required|string|max:255',
             'title_en' => 'nullable|string|max:255',
-            'description_ar' => 'nullable|string',
-            'description_en' => 'nullable|string',
             'attachments_link' => 'nullable|url|max:2000',
             'attachment_platform' => 'required|in:computer,mobile,both',
             'order' => 'nullable|integer|min:0'
@@ -55,14 +53,12 @@ class CourseModuleController extends Controller
             'course_id' => $course->id,
             'title_ar' => $request->title_ar,
             'title_en' => $request->title_en,
-            'description_ar' => $request->description_ar,
-            'description_en' => $request->description_en,
             'attachments_link' => $request->attachments_link,
             'attachment_platform' => $request->attachment_platform,
             'order' => $order
         ]);
 
-        return redirect()->route('admin.courses.sections.index', $course)
+        return $this->authoringRedirect($request, $course)
             ->with('success', 'تم إضافة الوحدة بنجاح');
     }
 
@@ -92,8 +88,6 @@ class CourseModuleController extends Controller
         $request->validate([
             'title_ar' => 'required|string|max:255',
             'title_en' => 'nullable|string|max:255',
-            'description_ar' => 'nullable|string',
-            'description_en' => 'nullable|string',
             'attachments_link' => 'nullable|url|max:2000',
             'attachment_platform' => 'required|in:computer,mobile,both',
             'order' => 'nullable|integer|min:0'
@@ -102,14 +96,12 @@ class CourseModuleController extends Controller
         $module->update([
             'title_ar' => $request->title_ar,
             'title_en' => $request->title_en,
-            'description_ar' => $request->description_ar,
-            'description_en' => $request->description_en,
             'attachments_link' => $request->attachments_link,
             'order' => $request->input('order', $module->order),
             'attachment_platform' => $request->attachment_platform,
         ]);
 
-        return redirect()->route('admin.courses.sections.index', $course)
+        return $this->authoringRedirect($request, $course)
             ->with('success', 'تم تحديث الوحدة بنجاح');
     }
 
@@ -165,5 +157,15 @@ class CourseModuleController extends Controller
     private function ensureModuleBelongsToCourse(Course $course, CourseModule $module): void
     {
         abort_unless((int) $module->course_id === (int) $course->id, 404);
+    }
+
+    private function authoringRedirect(Request $request, Course $course)
+    {
+        return redirect()->route(
+            $request->input('return_to') === 'studio'
+                ? 'admin.courses.show'
+                : 'admin.courses.sections.index',
+            $course
+        );
     }
 }

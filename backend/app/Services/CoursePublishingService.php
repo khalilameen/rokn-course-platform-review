@@ -123,9 +123,9 @@ final class CoursePublishingService
                 }
             }
 
-            if ($projects->isEmpty()) {
-                $issues[] = "{$moduleLabel}: أضف مشروع العبور بعد آخر خطوة.";
-            } elseif ($sections->last()?->getSectionType() !== 'project') {
+            if ($projects->count() > 1) {
+                $issues[] = "{$moduleLabel}: يمكن إضافة مشروع عبور واحد فقط؛ قسّم المشاريع على وحدات مستقلة.";
+            } elseif ($projects->isNotEmpty() && $sections->last()?->getSectionType() !== 'project') {
                 $issues[] = "{$moduleLabel}: يجب أن يكون مشروع العبور آخر جزء في الوحدة.";
             }
         }
@@ -151,11 +151,13 @@ final class CoursePublishingService
             $issues[] = 'حدد مشروع تخرج واحدًا فقط، وهو مشروع آخر وحدة.';
         }
 
-        $lastModule = $course->modules->sortBy('order')->last();
-        $lastSection = $lastModule?->sections->sortBy('order')->last();
-        $graduationProject = $lastSection?->sectionable;
-        if (!$graduationProject instanceof Project || !$graduationProject->is_graduation_project) {
-            $issues[] = 'اجعل مشروع آخر وحدة مشروع التخرج حتى تُصدر الشهادة بصورة صحيحة.';
+        if ($graduationProjectsCount === 1) {
+            $lastModule = $course->modules->sortBy('order')->last();
+            $lastSection = $lastModule?->sections->sortBy('order')->last();
+            $graduationProject = $lastSection?->sectionable;
+            if (!$graduationProject instanceof Project || !$graduationProject->is_graduation_project) {
+                $issues[] = 'مشروع التخرج - إن اخترته - يجب أن يكون آخر جزء في آخر وحدة.';
+            }
         }
 
         if ($course->ai_chat_enabled && trim((string) $course->chat_ai_prompt) === '') {

@@ -22,6 +22,7 @@
 </head>
 <body class="admin-shell">
 @auth
+    <a class="admin-skip-link" href="#main-content">انتقل إلى المحتوى الرئيسي</a>
     @include('admin.includes.aside')
     <button
         type="button"
@@ -38,9 +39,11 @@
         <div class="breadcrumbs">
             @yield('breadcrumbs')
         </div>
-        <div class="content mt-3" id="app">
+        <main class="content mt-3" id="main-content" tabindex="-1">
+            <div id="app">
             @yield('content')
-        </div>
+            </div>
+        </main>
     </div>
 @endauth
 <!-- Scripts -->

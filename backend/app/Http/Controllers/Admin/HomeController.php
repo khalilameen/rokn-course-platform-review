@@ -6,6 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Order;
 use App\Models\Bill;
+use App\Models\Course;
+use App\Models\CourseModule;
+use App\Models\CourseSection;
+use App\Services\CoursePublishingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Artisan;
@@ -23,12 +27,33 @@ class HomeController extends Controller
     }
 
 
-    public function index()
+    public function index(CoursePublishingService $publishingService)
     {
         // Content moderators work in course authoring. The executive dashboard
         // and student-submission review contain financial or learner data.
         if (strtolower((string) optional(auth()->user())->role) !== 'admin') {
-            return redirect()->route('admin.courses.index');
+            $courses = Course::query()
+                ->with([
+                    'photo',
+                    'teachers:id,name,name_ar,name_en,profile_image',
+                    'classifications:id,name_ar,name_en',
+                ])
+                ->withCount(['modules', 'sections'])
+                ->whereNull('parent_id')
+                ->latest('updated_at')
+                ->paginate(12)
+                ->withQueryString();
+            $publishingAudits = $courses->getCollection()->mapWithKeys(
+                fn (Course $course): array => [$course->id => $publishingService->auditCatalogCard($course)]
+            );
+            $contentSummary = [
+                'courses' => Course::query()->whereNull('parent_id')->count(),
+                'modules' => CourseModule::query()->whereHas('course', fn ($query) => $query->whereNull('parent_id'))->count(),
+                'sections' => CourseSection::query()->whereHas('course', fn ($query) => $query->whereNull('parent_id'))->count(),
+                'published' => Course::query()->whereNull('parent_id')->where('is_coming_soon', false)->count(),
+            ];
+
+            return view('admin.home.moderator', compact('courses', 'publishingAudits', 'contentSummary'));
         }
 
         $provider_requests = User::where('provider_request', true)->get();

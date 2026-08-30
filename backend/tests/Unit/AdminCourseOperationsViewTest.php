@@ -36,12 +36,14 @@ final class AdminCourseOperationsViewTest extends TestCase
             'admin.courses.modules.store',
             'admin.courses.modules.update',
             "Form::text('title_ar'",
-            "Form::textarea('description_ar'",
             "Form::text('attachments_link'",
             "Form::select('attachment_platform'",
         ] as $contract) {
             self::assertStringContainsString($contract, $source);
         }
+
+        self::assertStringNotContainsString("Form::textarea('description_ar'", $source);
+        self::assertStringNotContainsString("Form::textarea('description_en'", $source);
     }
 
     public function test_teacher_editor_keeps_account_and_profile_fields(): void
