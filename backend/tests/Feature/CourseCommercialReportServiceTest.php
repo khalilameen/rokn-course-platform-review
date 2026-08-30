@@ -87,10 +87,18 @@ final class CourseCommercialReportServiceTest extends TestCase
             'amount' => 50, 'allocated_at' => $now, 'created_at' => $now, 'updated_at' => $now,
         ]);
         DB::table('ai_usage_events')->insert([
-            'request_id' => '11111111-1111-4111-8111-111111111111',
-            'user_id' => 1, 'course_id' => 10, 'status' => 'completed',
-            'total_tokens' => 500, 'cost_usd' => 0.2, 'fx_rate_to_egp' => 50, 'cost_egp' => 10,
-            'created_at' => $now, 'updated_at' => $now,
+            [
+                'request_id' => '11111111-1111-4111-8111-111111111111',
+                'user_id' => 1, 'course_id' => 10, 'status' => 'completed',
+                'total_tokens' => 500, 'cost_usd' => 0.2, 'fx_rate_to_egp' => 50, 'cost_egp' => 10,
+                'created_at' => $now, 'updated_at' => $now,
+            ],
+            [
+                'request_id' => '22222222-2222-4222-8222-222222222222',
+                'user_id' => 1, 'course_id' => 10, 'status' => 'failed',
+                'total_tokens' => 0, 'cost_usd' => 0, 'fx_rate_to_egp' => 50, 'cost_egp' => 0,
+                'created_at' => $now, 'updated_at' => $now,
+            ],
         ]);
         DB::table('operating_cost_pools')->insert([
             [
@@ -121,6 +129,7 @@ final class CourseCommercialReportServiceTest extends TestCase
         self::assertSame(48.5, $report['cash_net_egp']);
         self::assertTrue($report['cash_net_complete']);
         self::assertSame(0.2, $report['ai_cost_usd']);
+        self::assertSame(1, $report['rows']->firstWhere('user.id', 1)['ai_failed_requests']);
         self::assertSame(30.0, $report['service_cost_actual_egp']);
         self::assertSame(40.0, $report['service_cost_with_estimates_egp']);
         self::assertSame(18.5, $report['contribution_margin_egp']);
@@ -146,6 +155,8 @@ final class CourseCommercialReportServiceTest extends TestCase
         self::assertSame(2, $platform['enrollments']);
         self::assertSame(30.0, $platform['service_cost_egp']);
         self::assertSame(15.0, $platform['average_cost_per_student_egp']);
+        self::assertSame(1, $platform['ai_failed_requests']);
+        self::assertSame(50.0, $platform['ai_failure_rate_percentage']);
         self::assertCount(2, $platform['student_rows']);
     }
 

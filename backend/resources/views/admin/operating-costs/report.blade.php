@@ -42,7 +42,7 @@
         <div class="stat-card"><span class="stat-counter">{{ $report['contribution_margin_percentage'] === null ? '—' : number_format($report['contribution_margin_percentage'], 2).'%' }}</span><span class="stat-label">نسبة هامش المساهمة</span></div>
         <div class="stat-card"><span class="stat-counter">{{ $report['average_net_per_student_egp'] === null ? '—' : number_format($report['average_net_per_student_egp'], 2).' ج.م' }}</span><span class="stat-label">متوسط الصافي لكل طالب</span></div>
         <div class="stat-card"><span class="stat-counter">{{ $report['average_cost_per_student_egp'] === null ? '—' : number_format($report['average_cost_per_student_egp'], 2).' ج.م' }}</span><span class="stat-label">متوسط التكلفة لكل طالب</span></div>
-        <div class="stat-card"><span class="stat-counter">${{ number_format($report['ai_cost_usd'], 6) }}</span><span class="stat-label">OpenRouter · {{ number_format($report['ai_requests']) }} طلب</span></div>
+        <div class="stat-card"><span class="stat-counter">${{ number_format($report['ai_cost_usd'], 6) }}</span><span class="stat-label">OpenRouter · {{ number_format($report['ai_requests']) }} ناجح · {{ number_format($report['ai_failed_requests']) }} فاشل</span></div>
         <div class="stat-card"><span class="stat-counter">{{ number_format($report['playback_gb_estimated'], 3) }} GB</span><span class="stat-label">{{ number_format($report['playback_minutes'], 0) }} دقيقة فيديو</span></div>
     </div>
 
@@ -57,7 +57,7 @@
         <thead><tr><th>الخدمة</th><th>الاستهلاك المقاس</th><th>تكلفة فعلية</th><th>من إجمالي التكلفة</th><th>شاملة التقديرات</th><th>ملاحظة القرار</th></tr></thead>
         <tbody>@foreach($report['service_breakdown'] as $service)<tr>
             <td>{{ $service['label'] }}</td>
-            <td>@if($service['key'] === 'openrouter'){{ number_format($service['requests']) }} طلب · {{ number_format($service['units']) }} توكن<br><small>${{ number_format($service['cost_usd'], 6) }}@if($report['ai_cost_per_1000_tokens_usd'] !== null) · ${{ number_format($report['ai_cost_per_1000_tokens_usd'], 6) }}/1000 توكن@endif</small>@elseif($service['key'] === 'bunny_delivery'){{ number_format($service['minutes'], 0) }} دقيقة · {{ number_format($service['units'], 3) }} GB@else<span class="text-muted">توزيع الفاتورة حسب مسبب التكلفة</span>@endif</td>
+            <td>@if($service['key'] === 'openrouter'){{ number_format($service['requests']) }} ناجح · {{ number_format($service['failed_requests']) }} فاشل · {{ number_format($service['units']) }} توكن<br><small>${{ number_format($service['cost_usd'], 6) }}@if($report['ai_cost_per_1000_tokens_usd'] !== null) · ${{ number_format($report['ai_cost_per_1000_tokens_usd'], 6) }}/1000 توكن@endif @if($report['ai_failure_rate_percentage'] !== null)· فشل {{ number_format($report['ai_failure_rate_percentage'], 2) }}%@endif</small>@elseif($service['key'] === 'bunny_delivery'){{ number_format($service['minutes'], 0) }} دقيقة · {{ number_format($service['units'], 3) }} GB@else<span class="text-muted">توزيع الفاتورة حسب مسبب التكلفة</span>@endif</td>
             <td>{{ $service['actual_egp'] === null ? 'غير مكتملة' : number_format($service['actual_egp'], 2).' ج.م' }}</td>
             <td>{{ $service['share_of_actual_cost_percentage'] === null ? '—' : number_format($service['share_of_actual_cost_percentage'], 2).'%' }}</td>
             <td>{{ $service['with_estimates_egp'] === null ? 'غير مكتملة' : number_format($service['with_estimates_egp'], 2).' ج.م' }}</td>
@@ -80,7 +80,7 @@
         <tbody>@forelse($students as $row)<tr>
             <td><strong>{{ $row['user']?->name ?? 'مستخدم محذوف' }}</strong><br><small class="text-muted">{{ $row['user']?->email }}</small></td>
             <td>{{ $row['courses']->implode('، ') }}<br><small>{{ $row['plans']->implode('، ') }} · {{ $row['sources']->implode('، ') }}</small></td>
-            <td>{{ number_format($row['ai_requests']) }} AI · {{ number_format($row['ai_tokens']) }} توكن<br>{{ number_format($row['playback_minutes'], 0) }} دقيقة · {{ number_format($row['playback_gb_estimated'], 3) }} GB</td>
+            <td>{{ number_format($row['ai_requests']) }} AI ناجح · {{ number_format($row['ai_failed_requests']) }} فاشل@if($row['ai_failure_rate_percentage'] !== null) ({{ number_format($row['ai_failure_rate_percentage'], 2) }}%)@endif · {{ number_format($row['ai_tokens']) }} توكن<br>{{ number_format($row['playback_minutes'], 0) }} دقيقة · {{ number_format($row['playback_gb_estimated'], 3) }} GB</td>
             <td>{{ $row['net_egp'] === null ? 'غير مكتمل' : number_format($row['net_egp'], 2).' ج.م' }}</td>
             <td>{{ $row['service_cost_egp'] === null ? 'غير مكتملة' : number_format($row['service_cost_egp'], 2).' ج.م' }}</td>
             <td>{{ $row['cost_to_net_revenue_percentage'] === null ? '—' : number_format($row['cost_to_net_revenue_percentage'], 2).'%' }}</td>

@@ -128,7 +128,8 @@ final class OperatingCostPoolController extends Controller
             fputcsv($output, array_merge([
                 'الطالب', 'البريد', 'الكورسات', 'الباقات', 'مصادر الإتاحة',
                 'صافي الدخل', 'تكلفة الخدمات', 'هامش المساهمة', 'نسبة التكلفة للصافي',
-                'طلبات AI', 'توكنات AI', 'دقائق الفيديو', 'GB مشاهدة مقدرة',
+                'طلبات AI ناجحة', 'طلبات AI فاشلة', 'نسبة فشل AI',
+                'توكنات AI', 'دقائق الفيديو', 'GB مشاهدة مقدرة',
             ], array_map(fn (string $label): string => "تكلفة {$label}", $labels)), ',', '"', '');
             foreach ($report['student_rows'] as $row) {
                 $serviceCosts = collect($labels)->keys()->map(
@@ -145,6 +146,8 @@ final class OperatingCostPoolController extends Controller
                     $row['margin_egp'],
                     $row['cost_to_net_revenue_percentage'],
                     $row['ai_requests'],
+                    $row['ai_failed_requests'],
+                    $row['ai_failure_rate_percentage'],
                     $row['ai_tokens'],
                     $row['playback_minutes'],
                     $row['playback_gb_estimated'],

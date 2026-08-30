@@ -206,6 +206,9 @@ final class CourseCommercialReportService
         $net = $netComplete ? round((float) $rows->sum('cash_net_known_egp'), 2) : null;
         $cost = $costComplete ? round((float) $rows->sum('service_cost_actual_egp'), 2) : null;
         $margin = $net !== null && $cost !== null ? round($net - $cost, 2) : null;
+        $aiRequests = (int) $rows->sum('ai_requests');
+        $aiFailedRequests = (int) $rows->sum('ai_failed_requests');
+        $aiAttempts = $aiRequests + $aiFailedRequests;
 
         return [
             'students' => $students,
@@ -213,7 +216,11 @@ final class CourseCommercialReportService
             'coins' => (int) $rows->sum('total_coins'),
             'gross_egp' => round((float) $rows->sum('cash_gross_egp'), 2),
             'net_egp' => $net,
-            'ai_requests' => (int) $rows->sum('ai_requests'),
+            'ai_requests' => $aiRequests,
+            'ai_failed_requests' => $aiFailedRequests,
+            'ai_failure_rate_percentage' => $aiAttempts > 0
+                ? round(($aiFailedRequests / $aiAttempts) * 100, 2)
+                : null,
             'ai_tokens' => (int) $rows->sum('ai_tokens'),
             'ai_cost_usd' => round((float) $rows->sum('ai_cost_usd'), 6),
             'playback_minutes' => round((float) $rows->sum('playback_minutes'), 2),
