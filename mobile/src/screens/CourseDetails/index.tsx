@@ -82,14 +82,18 @@ export default function CourseDetails() {
     remoteError,
     remoteLoading,
     remoteOwned,
+    remotePaidBalance,
     remotePackages,
     remoteSession,
+    remoteRewardBalance,
     remoteSpendableBalance,
     setExperience,
     setRemoteBalance,
     setRemoteOwned,
+    setRemotePaidBalance,
     setRemotePackages,
     setRemoteSpendableBalance,
+    setRemoteRewardBalance,
   } = useCourseDetailsData({courseId, isDemoCourse, setNotice});
 
   const {
@@ -102,6 +106,7 @@ export default function CourseDetails() {
     hasPreview,
     owned,
     packages,
+    planSpendableBalances,
     pageReady,
     previewReelCount,
     primaryActionLabel,
@@ -124,8 +129,10 @@ export default function CourseDetails() {
     remoteError,
     remoteLoading,
     remoteOwned,
+    remotePaidBalance,
     remotePackages,
     remoteSession,
+    remoteRewardBalance,
     remoteSpendableBalance,
     routeParams: route.params,
     selectedPlanCode,
@@ -383,6 +390,8 @@ export default function CourseDetails() {
             const wallet = await getWallet();
             setRemoteBalance(wallet.balance);
             setRemoteSpendableBalance(wallet.spendableBalance);
+            setRemotePaidBalance(wallet.paidBalance);
+            setRemoteRewardBalance(wallet.rewardBalance);
             setDialogStep(
               wallet.spendableBalance >= purchasePrice ? 'confirm' : 'topup',
             );
@@ -432,11 +441,15 @@ export default function CourseDetails() {
         if (result.kind === 'success') {
           setRemoteBalance(result.balance);
           setRemoteSpendableBalance(result.spendableBalance);
+          setRemotePaidBalance(result.paidBalance);
+          setRemoteRewardBalance(result.rewardBalance);
           setRemoteOwned(true);
           setDialogStep('success');
         } else {
           setRemoteBalance(result.balance);
           setRemoteSpendableBalance(result.spendableBalance);
+          setRemotePaidBalance(result.paidBalance);
+          setRemoteRewardBalance(result.rewardBalance);
           if (result.packages.length) setRemotePackages(result.packages);
           setNotice(
             formatArabicDisplayText(
@@ -624,7 +637,9 @@ export default function CourseDetails() {
         onSelectPlan={plan => {
           setSelectedPlanCode(plan.code);
           setDialogStep(
-            spendableBalance >= plan.priceCoins ? 'confirm' : 'topup',
+            (planSpendableBalances[plan.code] ?? 0) >= plan.priceCoins
+              ? 'confirm'
+              : 'topup',
           );
         }}
         onSuccessStart={() => {

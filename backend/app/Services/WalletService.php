@@ -42,6 +42,21 @@ final readonly class WalletService
         ];
     }
 
+    public function coursePaidContribution(int $userId, int $courseId): int
+    {
+        return max(0, (int) WalletTransaction::query()
+            ->where('user_id', $userId)
+            ->where('direction', WalletTransaction::DIRECTION_DEBIT)
+            ->where('source_type', Course::class)
+            ->where('source_id', $courseId)
+            ->whereIn('category', [
+                'course_purchase',
+                'course_chat_upgrade',
+                'course_full_track_upgrade',
+            ])
+            ->sum('paid_amount'));
+    }
+
     public function credit(
         int $userId,
         int $amount,

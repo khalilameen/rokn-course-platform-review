@@ -31,6 +31,10 @@ class CoinEarningMethodController extends Controller
             'how_to_use_coins_en' => 'nullable|string',
             'reward_balance_cap' => 'required|integer|min:0|max:1000000',
             'max_reward_contribution_per_course' => 'required|integer|min:0|max:1000000',
+            'recommended_social_provider' => 'required|string|in:facebook,google,tiktok,apple',
+            'recommended_provider_bonus_coins' => 'required|integer|min:0|max:1000000',
+            'recommended_provider_badge_ar' => 'nullable|string|max:255',
+            'recommended_provider_badge_en' => 'nullable|string|max:255',
         ]);
 
         Setting::firstOrCreate([])->update($validated);

@@ -45,9 +45,13 @@
     @else
         <section class="moderator-course-list" aria-label="قائمة الكورسات">
             @foreach($courses as $course)
-                @php($audit = $publishingAudits->get($course->id))
+                @php
+                    $audit = $publishingAudits->get($course->id);
+                    $courseTitle = trim((string) ($course->name_ar ?: $course->name_en)) ?: 'كورس بلا عنوان';
+                    $courseDescription = trim((string) ($course->description_ar ?: $course->description_en)) ?: 'أضف وصفًا واضحًا للكورس ليظهر للطالب.';
+                @endphp
                 <article class="moderator-course-row">
-                    <a class="moderator-course-row__cover" href="{{ route('admin.courses.show', $course) }}" aria-label="فتح استوديو {{ $course->title }}">
+                    <a class="moderator-course-row__cover" href="{{ route('admin.courses.show', $course) }}" aria-label="فتح استوديو {{ $courseTitle }}">
                         @if($course->image)
                             <img src="{{ $course->image }}" alt="">
                         @else
@@ -56,7 +60,7 @@
                     </a>
                     <div class="moderator-course-row__body">
                         <div class="moderator-course-row__title-line">
-                            <h3><a href="{{ route('admin.courses.show', $course) }}">{{ $course->title ?: 'كورس بلا عنوان' }}</a></h3>
+                            <h3><a href="{{ route('admin.courses.show', $course) }}">{{ $courseTitle }}</a></h3>
                             @if(!$course->is_coming_soon)
                                 <span class="moderator-status moderator-status--published">منشور</span>
                             @elseif($audit && $audit['ready'])
@@ -65,7 +69,7 @@
                                 <span class="moderator-status moderator-status--draft">مسودة</span>
                             @endif
                         </div>
-                        <p>{{ Illuminate\Support\Str::limit($course->description ?: 'أضف وصفًا واضحًا للكورس ليظهر للطالب.', 120) }}</p>
+                        <p>{{ Illuminate\Support\Str::limit($courseDescription, 120) }}</p>
                         <div class="moderator-course-row__meta">
                             <span><i class="fa fa-list-alt" aria-hidden="true"></i> {{ $course->modules_count }} وحدات</span>
                             <span><i class="fa fa-play-circle" aria-hidden="true"></i> {{ $course->sections_count }} عناصر</span>

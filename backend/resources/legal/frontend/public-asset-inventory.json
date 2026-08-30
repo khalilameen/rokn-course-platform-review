@@ -121,7 +121,7 @@
     },
     {
       "path": "public/admin/assets/css/course-studio.css",
-      "sha256": "5fe73f6caca9165ce60d205a93302359d5ef6a966755ed257e20cb0d3eaf3ddd",
+      "sha256": "f3832fa1e93b8d490f83154e62853cb5798c33e7f630148cdc87fcede2ddbf89",
       "classification": "first_party"
     },
     {
@@ -228,7 +228,7 @@
     },
     {
       "path": "public/admin/assets/css/notifications-dashboard.css",
-      "sha256": "c62138849c6bc39fbfd65e63aab61bcb83ead3ca4f003d3cbf9771c59da112d4",
+      "sha256": "9d4adf72138b8a7043b5afe206d578d4a383ec61300adde0fa8c385c69500aed",
       "classification": "first_party"
     },
     {

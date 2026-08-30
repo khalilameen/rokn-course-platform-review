@@ -18,6 +18,8 @@ Route::get('health/launch-ready', [\App\Http\Controllers\API\OperationalHealthCo
 */
 
 $registerCourseApiRoutes = function () {
+        Route::post('whatsapp/webhook', [\App\Http\Controllers\API\WhatsAppConnectionController::class, 'webhook'])
+            ->middleware('throttle:120,1');
         Route::get('product-features', [\App\Http\Controllers\API\ProductFeatureController::class, 'index'])
             ->middleware('throttle:60,1');
         Route::post('client-events', [\App\Http\Controllers\API\ClientEventController::class, 'store'])
@@ -60,6 +62,8 @@ $registerCourseApiRoutes = function () {
             Route::post('reset-password', [\App\Http\Controllers\API\SignController::class,'otpDisabled']);
 
             Route::apiResource('admin_notification', \App\Http\Controllers\API\AdminNotificationsController::class, ['only' => ['index']]);
+            Route::get('engagement/messages/{systemKey}', [\App\Http\Controllers\API\AdminNotificationsController::class, 'message'])
+                ->whereIn('systemKey', ['guest_registration_prompt', 'welcome_bonus_received']);
 
             Route::middleware('auth:api')->group(function () {
                 /*----Logout------*/
@@ -132,6 +136,9 @@ $registerCourseApiRoutes = function () {
                 Route::get('coin-earning-methods', [\App\Http\Controllers\API\CoinEarningMethodController::class, 'index']);
                 Route::post('coin-earning-methods/{method}/start', [\App\Http\Controllers\API\CoinEarningMethodController::class, 'start']);
                 Route::post('claim-coins', [\App\Http\Controllers\API\CoinEarningMethodController::class, 'claim']);
+                Route::get('engagement/next', [\App\Http\Controllers\API\EngagementController::class, 'next']);
+                Route::get('whatsapp-connection', [\App\Http\Controllers\API\WhatsAppConnectionController::class, 'show']);
+                Route::put('whatsapp-connection/consent', [\App\Http\Controllers\API\WhatsAppConnectionController::class, 'consent'])->middleware('throttle:10,1');
 
                 // Wallet ledger
                 Route::get('wallet', [\App\Http\Controllers\API\WalletController::class, 'show']);

@@ -16,6 +16,7 @@ use App\Models\Package;
 use App\Models\Setting;
 use App\Services\AiEntitlementBudgetService;
 use App\Services\CourseAccessPlanService;
+use App\Services\FinancialAnomalyService;
 use App\Services\FinancialProvenanceService;
 use App\Services\StudentNotificationService;
 use App\Services\WalletService;
@@ -29,6 +30,7 @@ final class CoursePurchaseController extends Controller
         CourseAuthorizationRequest $request,
         WalletService $walletService,
         FinancialProvenanceService $provenance,
+        FinancialAnomalyService $financialRisk,
         CourseAccessPlanService $planService,
         AiEntitlementBudgetService $aiBudget
     ): JsonResponse
@@ -164,14 +166,30 @@ final class CoursePurchaseController extends Controller
                     (int) $user->id,
                     (int) $lockedCourse->id
                 );
+                $minimumPaidCoins = max(0, (int) ($planSnapshot['minimum_paid_coins'] ?? 0));
+                $paidFloorRemaining = max(
+                    0,
+                    $minimumPaidCoins - $walletService->coursePaidContribution(
+                        (int) $user->id,
+                        (int) $lockedCourse->id
+                    )
+                );
+                $maximumRewardForPurchase = min(
+                    $rewardContribution['remaining'],
+                    max(0, $amount - min($amount, $paidFloorRemaining))
+                );
                 $walletTransaction = $walletService->debit(
                     $user->id,
                     $amount,
                     'course_purchase',
                     $walletIdempotencyKey,
                     $lockedCourse,
-                    ['course_title' => $lockedCourse->name_ar],
-                    $rewardContribution['remaining']
+                    [
+                        'course_title' => $lockedCourse->name_ar,
+                        'minimum_paid_coins' => $minimumPaidCoins,
+                        'paid_floor_remaining_before_purchase' => $paidFloorRemaining,
+                    ],
+                    $maximumRewardForPurchase
                 );
 
                 // Course orders preserve the paid/reward coin attribution.
@@ -243,6 +261,15 @@ final class CoursePurchaseController extends Controller
                 (int) $user->id,
                 (int) $course->id
             );
+            $selectedPlan = $planService->selectedPlan($course, $requestedPlanCode);
+            $minimumPaidCoins = max(0, (int) ($selectedPlan?->minimum_paid_coins ?? 0));
+            $paidFloorRemaining = max(
+                0,
+                $minimumPaidCoins - $walletService->coursePaidContribution(
+                    (int) $user->id,
+                    (int) $course->id
+                )
+            );
             $recommendedPackages = Package::query()
                 ->where('coins', '>=', $deficit)
                 ->where('coins', '>', 0)
@@ -267,6 +294,8 @@ final class CoursePurchaseController extends Controller
                     'reward_contribution_cap_per_course' => $rewardContribution['cap'],
                     'reward_contribution_used_for_course' => $rewardContribution['used'],
                     'reward_contribution_remaining_for_course' => $rewardContribution['remaining'],
+                    'minimum_paid_coins_required' => $minimumPaidCoins,
+                    'paid_coin_floor_remaining' => $paidFloorRemaining,
                     'deficit' => $deficit,
                     'recommended_packages' => $recommendedPackages,
                     // Mobile resumes the purchase after the embedded checkout.
@@ -340,6 +369,14 @@ final class CoursePurchaseController extends Controller
             (int) $user->id,
             (int) $course->id
         );
+        $minimumPaidCoins = max(0, (int) data_get($result, 'plan_terms.minimum_paid_coins', 0));
+        $paidContributionForCourse = $walletService->coursePaidContribution(
+            (int) $user->id,
+            (int) $course->id
+        );
+        $financialReviewRequired = !$financialRisk->allowsVariableCostFeatures(
+            $result['enrollment']->fresh()
+        );
 
         return response()->json([
             'status' => 200,
@@ -360,6 +397,9 @@ final class CoursePurchaseController extends Controller
                 'reward_contribution_cap_per_course' => $rewardContribution['cap'],
                 'reward_contribution_used_for_course' => $rewardContribution['used'],
                 'reward_contribution_remaining_for_course' => $rewardContribution['remaining'],
+                'minimum_paid_coins_required' => $minimumPaidCoins,
+                'paid_coin_floor_remaining' => max(0, $minimumPaidCoins - $paidContributionForCourse),
+                'financial_review_required' => $financialReviewRequired,
                 'allocation' => [
                     'total_coins' => (int) ($result['order']?->total_coins ?? 0),
                     'paid_coins' => (int) ($result['order']?->paid_coins ?? 0),

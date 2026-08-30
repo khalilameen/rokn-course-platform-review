@@ -18,6 +18,7 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Services\CourseChatAccessService;
 use App\Services\CourseAccessPlanService;
+use App\Services\FinancialAnomalyService;
 use App\Services\FinancialProvenanceService;
 use App\Services\WalletService;
 use Illuminate\Database\Eloquent\Builder;
@@ -109,6 +110,7 @@ final class CourseChatUpgradeController extends Controller
         CourseChatAccessService $access,
         WalletService $wallet,
         FinancialProvenanceService $provenance,
+        FinancialAnomalyService $financialRisk,
         CourseAccessPlanService $plans
     ): JsonResponse
     {
@@ -287,6 +289,18 @@ final class CourseChatUpgradeController extends Controller
                     (int) $user->id,
                     (int) $paidCourse->id
                 );
+                $minimumPaidCoins = max(0, (int) ($planSnapshot['minimum_paid_coins'] ?? 0));
+                $paidFloorRemaining = max(
+                    0,
+                    $minimumPaidCoins - $wallet->coursePaidContribution(
+                        (int) $user->id,
+                        (int) $paidCourse->id
+                    )
+                );
+                $maximumRewardForUpgrade = min(
+                    $rewardContribution['remaining'],
+                    max(0, $price - min($price, $paidFloorRemaining))
+                );
                 $walletTransaction = $wallet->debit(
                     (int) $user->id,
                     $price,
@@ -298,8 +312,10 @@ final class CourseChatUpgradeController extends Controller
                         'enrollment_id' => (int) $enrollment->id,
                         'base_order_id' => (int) $enrollment->order_id,
                         'parent_order_id' => $originalOrderId,
+                        'minimum_paid_coins' => $minimumPaidCoins,
+                        'paid_floor_remaining_before_upgrade' => $paidFloorRemaining,
                     ],
-                    $rewardContribution['remaining']
+                    $maximumRewardForUpgrade
                 );
 
                 $order->forceFill([
@@ -389,6 +405,19 @@ final class CourseChatUpgradeController extends Controller
         $payload['amount_deducted'] = (int) $result['amount'];
         $payload['order_id'] = $result['order']->id ?? null;
         $payload['idempotent_replay'] = (bool) ($result['idempotent_replay'] ?? false);
+        $payload['allocation'] = [
+            'total_coins' => (int) ($result['order']->total_coins ?? 0),
+            'paid_coins' => (int) ($result['order']->paid_coins ?? 0),
+            'reward_coins' => (int) ($result['order']->reward_coins ?? 0),
+            'spend_policy' => 'reward_first_with_paid_floor',
+        ];
+        $enrollment = $access->activeEnrollmentFor(
+            (int) $user->id,
+            (int) $result['course']->id
+        );
+        $payload['financial_review_required'] = $enrollment
+            ? !$financialRisk->allowsVariableCostFeatures($enrollment)
+            : true;
 
         return response()->json([
             'status' => 200,
@@ -512,9 +541,16 @@ final class CourseChatUpgradeController extends Controller
             (int) $user->id,
             (int) $course->id
         );
-        $rewardContribution = min($price, $reward, $rewardPolicy['remaining']);
+        $minimumPaidCoins = max(0, (int) ($targetPlan?->minimum_paid_coins ?? 0));
+        $paidForCourse = $wallet->coursePaidContribution((int) $user->id, (int) $course->id);
+        $paidFloorRemaining = max(0, $minimumPaidCoins - $paidForCourse);
+        $maximumRewardForUpgrade = min(
+            $rewardPolicy['remaining'],
+            max(0, $price - min($price, $paidFloorRemaining))
+        );
+        $rewardContribution = min($price, $reward, $maximumRewardForUpgrade);
         $paidContribution = min($paid, max(0, $price - $rewardContribution));
-        $spendable = $paid + min($reward, $rewardPolicy['remaining']);
+        $spendable = $paid + min($reward, $maximumRewardForUpgrade);
         $deficit = max(0, $price - $spendable);
 
         return [
@@ -535,6 +571,8 @@ final class CourseChatUpgradeController extends Controller
             'reward_contribution_cap_per_course' => $rewardPolicy['cap'],
             'reward_contribution_used_for_course' => $rewardPolicy['used'],
             'reward_contribution_remaining_for_course' => $rewardPolicy['remaining'],
+            'minimum_paid_coins_required' => $minimumPaidCoins,
+            'paid_coin_floor_remaining' => $paidFloorRemaining,
             'estimated_allocation' => [
                 'paid_coins' => $paidContribution,
                 'reward_coins' => $rewardContribution,

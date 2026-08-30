@@ -2,6 +2,7 @@ import * as access from '../src/services/api/access';
 import * as certificates from '../src/services/api/certificates';
 import * as courses from '../src/services/api/courses';
 import * as economy from '../src/services/api/economy';
+import * as engagement from '../src/services/api/engagement';
 import * as learning from '../src/services/api/learning';
 import * as notifications from '../src/services/api/notifications';
 import * as profile from '../src/services/api/profile';
@@ -15,6 +16,7 @@ describe('roknApi compatibility facade', () => {
       certificates,
       courses,
       economy,
+      engagement,
       learning,
       notifications,
       profile,

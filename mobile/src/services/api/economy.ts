@@ -185,6 +185,9 @@ export type CoinTask = {
 };
 
 const taskDescription = (requiresExternalVisit: boolean, actionKey: string) => {
+  if (actionKey === 'link_whatsapp') {
+    return 'اضغط، ابعت الرسالة الجاهزة، وارجع تلاقي العملات وصلت.';
+  }
   if (actionKey.toLowerCase().includes('coin_guide')) {
     return 'راجع قواعد الرصيد مرة واحدة ثم استلم مكافأتك.';
   }
@@ -199,6 +202,7 @@ const truthfulTaskTitle = (title: string, actionKey: string) => {
   if (key.includes('instagram')) return 'افتح حساب ركن على Instagram';
   if (key.includes('tiktok')) return 'افتح حساب ركن على TikTok';
   if (key.includes('youtube')) return 'افتح قناة ركن على YouTube';
+  if (key === 'link_whatsapp') return 'اربط واتسابك بحساب ركن';
   return title;
 };
 

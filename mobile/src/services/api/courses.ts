@@ -116,6 +116,7 @@ export type CourseAccessPlan = {
   code: 'basic' | 'guided' | 'mentor' | string;
   name: string;
   priceCoins: number;
+  minimumPaidCoins?: number;
   chatEnabled: boolean;
   chatMessageLimit: number;
   projectFeedbackLevel: 'pass_only' | 'report' | 'enhanced' | string;
@@ -392,6 +393,7 @@ const mapCourseDetails = (course: CourseDto): CourseDetails => {
           String(plan.name_ar || '').trim() ||
           fallbackName,
         priceCoins: Number(plan.price_coins),
+        minimumPaidCoins: Math.max(0, Number(plan.minimum_paid_coins) || 0),
         chatEnabled: valueAsBoolean(plan.chat_enabled),
         chatMessageLimit: Math.max(0, Number(plan.chat_message_limit) || 0),
         projectFeedbackLevel: String(

@@ -102,6 +102,28 @@ describe('course details presentation contract', () => {
     expect(packages.map(item => item.id)).toEqual(['large', 'small']);
   });
 
+  it('keeps reward coins visible but excludes the part above the selected plan discount', () => {
+    const result = presentation({
+      remoteBalance: 650,
+      remotePaidBalance: 100,
+      remoteRewardBalance: 550,
+      remoteSpendableBalance: 500,
+      remoteCourse: {
+        ...course,
+        accessPlans: course.accessPlans.map(item =>
+          item.code === 'mentor'
+            ? {...item, minimumPaidCoins: 400}
+            : item,
+        ),
+      },
+    });
+
+    expect(result.balance).toBe(650);
+    expect(result.spendableBalance).toBe(400);
+    expect(result.shortfall).toBe(300);
+    expect(result.planSpendableBalances.mentor).toBe(400);
+  });
+
   it('keeps the responsive hero height bounded by the viewport', () => {
     expect(
       selectCourseHeroHeight({

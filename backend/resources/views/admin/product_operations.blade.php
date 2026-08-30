@@ -11,6 +11,46 @@
         </div>
     </div>
 
+    <div class="card admin-card mb-4 {{ $financialAnomalies->isNotEmpty() ? 'border-danger' : '' }}">
+        <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 admin-gap">
+                <div>
+                    <h2 class="h5 mb-1">مراجعة تكلفة الاشتراكات</h2>
+                    <small class="text-muted">أي اشتراك أقل من الحد المدفوع يتوقف عنه AI وحده، بينما يستمر باقي الطلاب والخدمات.</small>
+                </div>
+                <span class="badge {{ $financialAnomalies->isEmpty() ? 'badge-success' : 'badge-danger' }} p-2">
+                    {{ $financialAnomalies->isEmpty() ? 'لا توجد فروق' : number_format($counts['financial_anomalies']).' تنبيه مفتوح' }}
+                </span>
+            </div>
+            @if($financialAnomalies->isEmpty())
+                <div class="alert alert-success mb-0">كل اشتراكات الخدمات المدفوعة مطابقة للحد الأدنى المحفوظ في عقودها.</div>
+            @else
+                <div class="alert alert-danger">
+                    تم عزل مزايا التكلفة المتغيرة للحسابات التالية تلقائيًا. لا يوجد إيقاف عام للطلاب الدافعين.
+                </div>
+                <div class="table-responsive"><table class="table table-sm admin-table mb-0">
+                    <thead><tr><th>الطالب</th><th>الكورس والفئة</th><th>المفروض مدفوع</th><th>الفعلي</th><th>الطلب</th><th>اكتُشف</th></tr></thead>
+                    <tbody>@foreach($financialAnomalies as $anomaly)
+                        <tr>
+                            <td>
+                                <a href="{{ route('admin.users.show', $anomaly->user_id) }}">{{ $anomaly->user?->name ?: '#'.$anomaly->user_id }}</a>
+                                <br><small>{{ $anomaly->user?->email }}</small>
+                            </td>
+                            <td>
+                                {{ $anomaly->course?->name_ar ?: $anomaly->course?->name_en }}
+                                <br><small>{{ data_get($anomaly->metadata, 'plan_code', '—') }}</small>
+                            </td>
+                            <td><strong>{{ number_format($anomaly->expected_paid_coins) }}</strong> عملة</td>
+                            <td class="text-danger"><strong>{{ number_format($anomaly->actual_paid_coins) }}</strong> عملة</td>
+                            <td>{{ $anomaly->order?->order_ref ?: '#'.($anomaly->order_id ?: '—') }}</td>
+                            <td>{{ optional($anomaly->detected_at)->diffForHumans() }}</td>
+                        </tr>
+                    @endforeach</tbody>
+                </table></div>
+            @endif
+        </div>
+    </div>
+
     <div class="card admin-card mb-4"><div class="card-body">
         <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 admin-gap">
             <div><h2 class="h5 mb-1">جاهزية الوسائط</h2><small class="text-muted">حالة تجهيز الفيديو قبل النشر، لا مجرد وجود رابط.</small></div>

@@ -89,6 +89,7 @@ final readonly class CourseAccessPlanService
             'code' => (string) $plan->code,
             'name_ar' => (string) $plan->name_ar,
             'price_coins' => (int) $plan->price_coins,
+            'minimum_paid_coins' => (int) $plan->minimum_paid_coins,
             'sort_order' => (int) $plan->sort_order,
             'chat_enabled' => (bool) $plan->chat_enabled,
             'chat_message_limit' => (int) $plan->chat_message_limit,
@@ -128,6 +129,7 @@ final readonly class CourseAccessPlanService
             'code' => $plan->code,
             'name_ar' => $plan->name_ar,
             'price_coins' => $plan->price_coins,
+            'minimum_paid_coins' => $plan->minimum_paid_coins,
             'chat_enabled' => $plan->chat_enabled,
             'chat_message_limit' => $plan->chat_message_limit,
             'project_feedback_level' => $plan->project_feedback_level,
@@ -145,6 +147,7 @@ final readonly class CourseAccessPlanService
             'code' => (string) ($terms['code'] ?? ''),
             'name' => (string) ($terms['name_ar'] ?? ''),
             'price_coins' => max(0, (int) ($terms['price_coins'] ?? 0)),
+            'minimum_paid_coins' => max(0, (int) ($terms['minimum_paid_coins'] ?? 0)),
             'chat_enabled' => (bool) ($terms['chat_enabled'] ?? false),
             'chat_message_limit' => max(0, (int) ($terms['chat_message_limit'] ?? 0)),
             'project_feedback_level' => $feedback,
@@ -203,7 +206,8 @@ final readonly class CourseAccessPlanService
             $input,
             $allowedCodes,
             $allowedFeedback,
-            $allowedModels
+            $allowedModels,
+            $prices
         ): void {
             // Plan updates and purchases serialize on the course row.
             $lockedCourse = Course::query()->lockForUpdate()->findOrFail($course->id);
@@ -221,6 +225,7 @@ final readonly class CourseAccessPlanService
                     $feedback = 'pass_only';
                 }
                 $chatEnabled = !empty($row['chat_enabled']);
+                $minimumPaidCoins = max(0, (int) ($row['minimum_paid_coins'] ?? 0));
                 $chatBudget = max(0, (float) ($row['ai_budget_usd'] ?? 0));
                 $chatReserve = max(0, (float) ($row['request_reserve_usd'] ?? 0));
                 $projectBudget = max(0, (float) ($row['project_feedback_budget_usd'] ?? 0));
@@ -243,6 +248,19 @@ final readonly class CourseAccessPlanService
                         "access_plans.{$code}" => ['ميزانية المحادثة أو حجز الطلب غير صالحين لهذه الخطة.'],
                     ]);
                 }
+                $hasVariableCost = $chatEnabled || $feedback !== 'pass_only';
+                $priceCoins = max(0, (int) ($row['price_coins'] ?? 0));
+                $maximumPaidFloor = max(0, $priceCoins - (int) $prices['basic']);
+                if (
+                    $minimumPaidCoins > $maximumPaidFloor
+                    || ($hasVariableCost && $minimumPaidCoins <= 0)
+                ) {
+                    throw ValidationException::withMessages([
+                        "access_plans.{$code}.minimum_paid_coins" => [
+                            'الفئة ذات التكلفة المتغيرة تحتاج حدًا مدفوعًا موجبًا لا يزيد عن فرق سعرها عن فئة التعلّم.',
+                        ],
+                    ]);
+                }
                 if ($feedback !== 'pass_only' && (
                     (int) ($row['project_feedback_token_budget'] ?? 0) < $maxOutputTokens
                     || $projectBudget <= 0
@@ -258,6 +276,7 @@ final readonly class CourseAccessPlanService
                     'name_ar' => trim((string) ($row['name_ar'] ?? '')) ?: $this->defaultName($code),
                     'name_en' => trim((string) ($row['name_en'] ?? '')) ?: null,
                     'price_coins' => max(0, (int) ($row['price_coins'] ?? 0)),
+                    'minimum_paid_coins' => $minimumPaidCoins,
                     'chat_enabled' => $chatEnabled,
                     'chat_message_limit' => $chatEnabled ? max(1, (int) ($row['chat_message_limit'] ?? 1)) : 0,
                     'chat_token_budget' => $chatEnabled ? max(100, (int) ($row['chat_token_budget'] ?? 100)) : 0,
@@ -304,6 +323,7 @@ final readonly class CourseAccessPlanService
                 'name_ar' => 'التعلّم',
                 'name_en' => 'Learning',
                 'price_coins' => $base,
+                'minimum_paid_coins' => 0,
                 'chat_enabled' => false,
                 'chat_message_limit' => 0,
                 'chat_token_budget' => 0,
@@ -324,6 +344,7 @@ final readonly class CourseAccessPlanService
                 'name_ar' => 'التعلّم بإرشاد',
                 'name_en' => 'Guided learning',
                 'price_coins' => $guidedPrice,
+                'minimum_paid_coins' => $this->costToCoins(.45 + .20, $round),
                 'chat_enabled' => true,
                 'chat_message_limit' => 25,
                 'chat_token_budget' => 12000,
@@ -344,6 +365,7 @@ final readonly class CourseAccessPlanService
                 'name_ar' => 'التعلّم بمتابعة',
                 'name_en' => 'Supported learning',
                 'price_coins' => $mentorPrice,
+                'minimum_paid_coins' => $this->costToCoins(1.50 + .60, $round),
                 'chat_enabled' => true,
                 'chat_message_limit' => 80,
                 'chat_token_budget' => 42000,

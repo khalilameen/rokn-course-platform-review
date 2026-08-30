@@ -60,6 +60,11 @@ import {
 } from './home/homeCatalogue';
 import {useHomeCatalogue} from './home/useHomeCatalogue';
 import {HomeCampaign, HomeOverlays} from './home/HomeOverlays';
+import {
+  EngagementMessage,
+  getEngagementMessage,
+  getNextEngagementMessage,
+} from '../services/api/engagement';
 
 const QUICK_SEARCHES = [
   'العمل الحر',
@@ -82,6 +87,9 @@ const Home = () => {
   const [bonusChecked, setBonusChecked] = useState(false);
   const [campaign, setCampaign] = useState<HomeCampaign | null>(null);
   const [campaignImageFailed, setCampaignImageFailed] = useState(false);
+  const [guestPrompt, setGuestPrompt] = useState<EngagementMessage | null>(null);
+  const [welcomeMessage, setWelcomeMessage] = useState<EngagementMessage | null>(null);
+  const [rewardPrompt, setRewardPrompt] = useState<EngagementMessage | null>(null);
 
   const demoCourse = useMemo<DemoCourse>(
     () => ({
@@ -165,9 +173,74 @@ const Home = () => {
   };
 
   useEffect(() => {
+    if (!bonusChecked || catalogueLoading || serverSession === null) return;
+    let active = true;
+
+    const loadExperienceMessage = async () => {
+      if (welcomeBonus !== null) {
+        const message = await getEngagementMessage('welcome_bonus_received');
+        if (active) setWelcomeMessage(message);
+        return;
+      }
+      if (serverSession) {
+        if (active) setGuestPrompt(null);
+        const message = await getNextEngagementMessage();
+        if (!message || !active) return;
+        const identity = message.campaignKey || `${message.key}/${message.taskId || message.id}`;
+        const seenKey = `@rokn/engagement/seen/${identity}`;
+        if (await getItem(seenKey)) return;
+        if (active) setRewardPrompt(message);
+        return;
+      }
+
+      const message = await getEngagementMessage('guest_registration_prompt');
+      if (!message || !active) return;
+      const seenKey = `@rokn/engagement/seen/${message.key}/${message.version}`;
+      if (await getItem(seenKey)) return;
+      if (active) setGuestPrompt(message);
+    };
+
+    void loadExperienceMessage().catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [bonusChecked, catalogueLoading, serverSession, welcomeBonus]);
+
+  const dismissGuestPrompt = () => {
+    const message = guestPrompt;
+    setGuestPrompt(null);
+    if (message) {
+      void saveItem(
+        `@rokn/engagement/seen/${message.key}/${message.version}`,
+        true,
+      );
+    }
+  };
+
+  const openGuestPrompt = () => {
+    dismissGuestPrompt();
+    navigation.navigate('Login');
+  };
+
+  const dismissRewardPrompt = () => {
+    const message = rewardPrompt;
+    setRewardPrompt(null);
+    if (message) {
+      const identity = message.campaignKey || `${message.key}/${message.taskId || message.id}`;
+      void saveItem(`@rokn/engagement/seen/${identity}`, true);
+    }
+  };
+
+  const openRewardPrompt = () => {
+    dismissRewardPrompt();
+    navigation.navigate('Wallet');
+  };
+
+  useEffect(() => {
     if (
       !bonusChecked ||
       welcomeBonus !== null ||
+      rewardPrompt !== null ||
       catalogueLoading ||
       serverSession === null
     ) {
@@ -229,6 +302,7 @@ const Home = () => {
     serverSession,
     remoteCourses,
     welcomeBonus,
+    rewardPrompt,
   ]);
 
   const dismissCampaign = async (open = false) => {
@@ -507,6 +581,13 @@ const Home = () => {
         onCampaignImageError={() => setCampaignImageFailed(true)}
         onDismissCampaign={open => void dismissCampaign(open)}
         onDismissWelcome={dismissWelcomeBonus}
+        guestPrompt={guestPrompt}
+        onDismissGuestPrompt={dismissGuestPrompt}
+        onOpenGuestPrompt={openGuestPrompt}
+        welcomeMessage={welcomeMessage}
+        rewardPrompt={rewardPrompt}
+        onDismissRewardPrompt={dismissRewardPrompt}
+        onOpenRewardPrompt={openRewardPrompt}
         welcomeBonus={welcomeBonus}
       />
     </Container>

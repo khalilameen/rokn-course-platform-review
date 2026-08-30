@@ -10,6 +10,7 @@ use App\Models\Course;
 use App\Models\CourseAccessPlan;
 use App\Models\CourseEnrollment;
 use App\Models\CourseSection;
+use App\Models\FinancialAnomaly;
 use App\Models\Order;
 use App\Models\Package;
 use App\Models\Setting;
@@ -17,9 +18,11 @@ use App\Models\User;
 use App\Models\WalletDebitAllocation;
 use App\Models\WalletTransaction;
 use App\Services\FinancialProvenanceService;
+use App\Services\FinancialAnomalyService;
 use App\Services\WalletService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 final class CourseRewardContributionCapTest extends TestCase
@@ -220,6 +223,89 @@ final class CourseRewardContributionCapTest extends TestCase
         self::assertSame(20, (int) $fresh->wallet_coins);
         self::assertSame(0, (int) $fresh->wallet_purchased_coins);
         self::assertSame(20, (int) $fresh->wallet_reward_coins);
+    }
+
+    public function test_ai_plan_floor_uses_paid_coins_even_when_reward_balance_is_large_and_isolates_a_forged_enrollment(): void
+    {
+        Queue::fake();
+        $user = $this->user();
+        $course = $this->course(true);
+        $this->plans($course);
+        CourseAccessPlan::query()->where('course_id', $course->id)->where('code', 'guided')
+            ->update(['minimum_paid_coins' => 40]);
+        CourseAccessPlan::query()->where('course_id', $course->id)->where('code', 'mentor')
+            ->update(['minimum_paid_coins' => 190]);
+        $this->creditPaid($user, 190);
+        $this->creditReward($user, 500);
+
+        $this->actingAs($user, 'api')->postJson('/api/v1/courses/authorize', [
+            'course_id' => $course->id,
+            'access_plan_code' => 'basic',
+            'idempotency_key' => 'paid-floor-base-purchase-0001',
+        ])->assertOk()->assertJsonPath('data.allocation.reward_coins', 40);
+
+        $this->actingAs($user, 'api')->postJson("/api/v1/courses/{$course->id}/full-track-upgrade", [
+            'target_plan_code' => 'guided',
+            'idempotency_key' => 'paid-floor-guided-upgrade-0001',
+        ])->assertOk()
+            ->assertJsonPath('data.allocation.paid_coins', 40)
+            ->assertJsonPath('data.allocation.reward_coins', 0)
+            ->assertJsonPath('data.financial_review_required', false);
+
+        $this->actingAs($user, 'api')->postJson("/api/v1/courses/{$course->id}/full-track-upgrade", [
+            'target_plan_code' => 'mentor',
+            'idempotency_key' => 'paid-floor-mentor-upgrade-0001',
+        ])->assertOk()
+            ->assertJsonPath('data.allocation.paid_coins', 150)
+            ->assertJsonPath('data.allocation.reward_coins', 0)
+            ->assertJsonPath('data.financial_review_required', false);
+
+        self::assertSame(190, app(WalletService::class)->coursePaidContribution(
+            (int) $user->id,
+            (int) $course->id
+        ));
+        self::assertSame(40, (int) WalletTransaction::query()
+            ->where('user_id', $user->id)
+            ->where('source_type', Course::class)
+            ->where('source_id', $course->id)
+            ->sum('reward_amount'));
+
+        $forgedUser = $this->user();
+        $forgedOrder = Order::query()->create([
+            'user_id' => $forgedUser->id,
+            'course_id' => $course->id,
+            'access_plan_id' => $course->accessPlans()->where('code', 'mentor')->value('id'),
+            'access_plan_snapshot' => app(\App\Services\CourseAccessPlanService::class)->snapshot(
+                $course->accessPlans()->where('code', 'mentor')->firstOrFail()
+            ),
+            'payment_method' => Order::PAYMENT_METHOD_WALLET_COINS,
+            'amount' => 230,
+            'final_amount' => 230,
+            'total_coins' => 230,
+            'paid_coins' => 0,
+            'reward_coins' => 230,
+            'status' => Order::STATUS_APPROVED,
+            'financial_status' => Order::FINANCIAL_SETTLED,
+            'approved_at' => now(),
+        ]);
+        $forgedEnrollment = CourseEnrollment::query()->create([
+            'user_id' => $forgedUser->id,
+            'course_id' => $course->id,
+            'order_id' => $forgedOrder->id,
+            'access_plan_order_id' => $forgedOrder->id,
+            'access_plan_id' => $forgedOrder->access_plan_id,
+            'access_plan_snapshot' => $forgedOrder->access_plan_snapshot,
+            'is_active' => true,
+            'enrolled_at' => now(),
+        ]);
+
+        self::assertFalse(app(FinancialAnomalyService::class)
+            ->allowsVariableCostFeatures($forgedEnrollment));
+        self::assertTrue(app(FinancialAnomalyService::class)
+            ->allowsVariableCostFeatures(CourseEnrollment::query()
+                ->where('user_id', $user->id)->where('course_id', $course->id)->firstOrFail()));
+        self::assertSame(1, FinancialAnomaly::query()->where('status', 'open')->count());
+        self::assertSame((int) $forgedUser->id, (int) FinancialAnomaly::query()->value('user_id'));
     }
 
     private function user(): User

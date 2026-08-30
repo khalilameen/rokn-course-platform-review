@@ -21,6 +21,7 @@ import {
   Type,
   textDirection,
 } from '../../constants/designSystem';
+import type {EngagementMessage} from '../../services/api/engagement';
 
 export type HomeCampaign = {
   id: string;
@@ -38,6 +39,13 @@ type Props = {
   onCampaignImageError: () => void;
   onDismissCampaign: (open: boolean) => void;
   onDismissWelcome: () => void;
+  guestPrompt: EngagementMessage | null;
+  onDismissGuestPrompt: () => void;
+  onOpenGuestPrompt: () => void;
+  welcomeMessage: EngagementMessage | null;
+  rewardPrompt: EngagementMessage | null;
+  onDismissRewardPrompt: () => void;
+  onOpenRewardPrompt: () => void;
   welcomeBonus: number | null;
 };
 
@@ -47,6 +55,13 @@ export const HomeOverlays = ({
   onCampaignImageError,
   onDismissCampaign,
   onDismissWelcome,
+  guestPrompt,
+  onDismissGuestPrompt,
+  onOpenGuestPrompt,
+  welcomeMessage,
+  rewardPrompt,
+  onDismissRewardPrompt,
+  onOpenRewardPrompt,
   welcomeBonus,
 }: Props) => (
   <>
@@ -57,11 +72,17 @@ export const HomeOverlays = ({
       visible={welcomeBonus !== null}>
       <View style={styles.overlay}>
         <View style={styles.welcomeCard}>
-          <RoknCoinStack size={112} />
-          <Text style={styles.welcomeTitle}>هدية البداية وصلت</Text>
+          {welcomeMessage?.imageUrl ? (
+            <Image source={{uri: welcomeMessage.imageUrl}} style={styles.promptImage} />
+          ) : (
+            <RoknCoinStack size={112} />
+          )}
+          <Text style={styles.welcomeTitle}>{welcomeMessage?.title || 'رصيدك بدأ'}</Text>
           <Text style={styles.welcomeText}>
-            ضفنا {formatArabicNumber(Number(welcomeBonus || 0))} لرصيدك
-            {'\n'}اختار اللي ناسبك وابدأ على مهلك
+            {welcomeMessage?.description ||
+              `نزلنا لك ${formatArabicNumber(
+                Number(welcomeBonus || 0),
+              )} عملة ركن في المحفظة. دي عملات داخل التطبيق، مش جنيهات.`}
           </Text>
           <Pressable
             accessibilityRole="button"
@@ -70,7 +91,65 @@ export const HomeOverlays = ({
               styles.actionButton,
               pressed && styles.pressed,
             ]}>
-            <Text style={styles.actionButtonText}>شوف الكورسات</Text>
+            <Text style={styles.actionButtonText}>
+              {welcomeMessage?.actionLabel || 'شوف الكورسات'}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+
+    <Modal
+      animationType="fade"
+      onRequestClose={onDismissRewardPrompt}
+      transparent
+      visible={rewardPrompt !== null}>
+      <View style={styles.overlay}>
+        <View style={styles.welcomeCard}>
+          {rewardPrompt?.imageUrl ? (
+            <Image source={{uri: rewardPrompt.imageUrl}} style={styles.promptImage} />
+          ) : (
+            <RoknCoinStack size={112} />
+          )}
+          <Text style={styles.welcomeTitle}>{rewardPrompt?.title}</Text>
+          <Text style={styles.welcomeText}>{rewardPrompt?.description}</Text>
+          <Pressable accessibilityRole="button" onPress={onOpenRewardPrompt} style={({pressed}) => [styles.actionButton, pressed && styles.pressed]}>
+            <Text style={styles.actionButtonText}>{rewardPrompt?.actionLabel || 'شوف المهمة'}</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={onDismissRewardPrompt} style={({pressed}) => [styles.secondaryButton, pressed && styles.pressed]}>
+            <Text style={styles.secondaryButtonText}>{rewardPrompt?.secondaryActionLabel || 'مش دلوقتي'}</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+
+    <Modal
+      animationType="fade"
+      onRequestClose={onDismissGuestPrompt}
+      transparent
+      visible={guestPrompt !== null}>
+      <View style={styles.overlay}>
+        <View style={styles.welcomeCard}>
+          {guestPrompt?.imageUrl ? (
+            <Image source={{uri: guestPrompt.imageUrl}} style={styles.promptImage} />
+          ) : (
+            <RoknCoinStack size={112} />
+          )}
+          <Text style={styles.welcomeTitle}>{guestPrompt?.title}</Text>
+          <Text style={styles.welcomeText}>{guestPrompt?.description}</Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onOpenGuestPrompt}
+            style={({pressed}) => [styles.actionButton, pressed && styles.pressed]}>
+            <Text style={styles.actionButtonText}>{guestPrompt?.actionLabel}</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onDismissGuestPrompt}
+            style={({pressed}) => [styles.secondaryButton, pressed && styles.pressed]}>
+            <Text style={styles.secondaryButtonText}>
+              {guestPrompt?.secondaryActionLabel || 'كمّل كزائر'}
+            </Text>
           </Pressable>
         </View>
       </View>
@@ -171,6 +250,20 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.primary,
   },
   actionButtonText: {...Type.bodyStrong, color: '#FFFFFF'},
+  secondaryButton: {
+    minHeight: Accessibility.minTouchTarget,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: Spacing.xs,
+    paddingHorizontal: Spacing.lg,
+  },
+  secondaryButtonText: {...Type.bodyStrong, color: Palette.textMuted},
+  promptImage: {
+    width: 112,
+    height: 92,
+    borderRadius: Radius.md,
+    resizeMode: 'cover',
+  },
   campaignCard: {
     width: '100%',
     maxWidth: 440,

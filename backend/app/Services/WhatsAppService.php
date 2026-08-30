@@ -57,9 +57,14 @@ final class WhatsAppService
      * @param string $message
      * @return bool
      */
+    public function sendTextMessage(string $phone, string $message): bool
+    {
+        return $this->sendMessage($phone, $message);
+    }
+
     protected function sendMessage(string $phone, string $message): bool
     {
-        $formattedPhone = (string) preg_replace('/^0/', '', $phone);
+        $formattedPhone = (string) preg_replace('/\D+/', '', $phone);
 
         $data = [
             'device' => $this->device,

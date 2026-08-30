@@ -12,10 +12,16 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class User extends Authenticatable
 {
     use Notifiable, HasPhoto, HasApiTokens, SoftDeletes, ResolvesLocalizedAttributes;
+
+    public function whatsappConnection(): HasOne
+    {
+        return $this->hasOne(UserWhatsAppConnection::class);
+    }
 
     /**
      * The attributes that are mass assignable.

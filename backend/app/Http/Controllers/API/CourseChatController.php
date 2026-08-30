@@ -194,9 +194,9 @@ final class CourseChatController extends Controller
                     }
 
                     $dailyKey = sprintf(
-                        'course-chat:daily:%s:%d',
+                        'course-chat:daily:%s:%s',
                         now()->format('Y-m-d'),
-                        $user->id
+                        $enrollment ? 'enrollment-'.$enrollment->id : 'user-'.$user->id.'-course-'.$course->id
                     );
                     $dailyLimit = $this->cappedPositiveSetting(
                         'ai_daily_user_limit',
@@ -213,16 +213,6 @@ final class CourseChatController extends Controller
                         ];
                     }
 
-                    if (!$this->consumeGlobalBudget($maxTokens)) {
-                        return [
-                            'answer' => null,
-                            'cached' => false,
-                            'quota' => true,
-                            'global_budget' => false,
-                            'plan_budget' => true,
-                        ];
-                    }
-
                     try {
                         $reservation = $enrollment
                             ? $planBudget->reserve($enrollment, 'course_chat', $estimatedTokens, $model)
@@ -234,6 +224,22 @@ final class CourseChatController extends Controller
                             'quota' => true,
                             'global_budget' => true,
                             'plan_budget' => false,
+                        ];
+                    }
+
+                    // A caller must first reserve from its own immutable plan
+                    // budget. Otherwise an exhausted/abusive account could
+                    // repeatedly consume the platform emergency counter and
+                    // degrade service for unrelated paying learners.
+                    if (!$this->consumeGlobalBudget($maxTokens)) {
+                        $planBudget->release($reservation, 'platform_emergency_budget_reached');
+
+                        return [
+                            'answer' => null,
+                            'cached' => false,
+                            'quota' => true,
+                            'global_budget' => false,
+                            'plan_budget' => true,
                         ];
                     }
 

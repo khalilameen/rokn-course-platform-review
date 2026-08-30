@@ -80,6 +80,7 @@ class CourseRequest extends FormRequest
             'access_plans.*' => 'array',
             'access_plans.*.name_ar' => 'required_with:access_plans|string|max:120',
             'access_plans.*.price_coins' => 'required_with:access_plans|integer|min:0|max:100000000',
+            'access_plans.*.minimum_paid_coins' => 'required_with:access_plans|integer|min:0|max:100000000',
             'access_plans.*.is_active' => 'nullable|boolean',
             'access_plans.*.chat_enabled' => 'nullable|boolean',
             'access_plans.*.chat_message_limit' => 'nullable|integer|min:0|max:100000',
@@ -118,6 +119,21 @@ class CourseRequest extends FormRequest
             foreach (['basic', 'guided', 'mentor'] as $code) {
                 $row = is_array($plans[$code] ?? null) ? $plans[$code] : [];
                 $maxOutput = max(80, (int) ($row['max_output_tokens'] ?? 320));
+                $priceCoins = max(0, (int) ($row['price_coins'] ?? 0));
+                $minimumPaidCoins = max(0, (int) ($row['minimum_paid_coins'] ?? 0));
+                $feedback = (string) ($row['project_feedback_level'] ?? 'pass_only');
+                $hasVariableCost = !empty($row['chat_enabled'])
+                    || in_array($feedback, ['report', 'enhanced'], true);
+                $maximumPaidFloor = max(0, $priceCoins - $basic);
+                if (
+                    $minimumPaidCoins > $maximumPaidFloor
+                    || ($hasVariableCost && $minimumPaidCoins <= 0)
+                ) {
+                    $validator->errors()->add(
+                        "access_plans.{$code}.minimum_paid_coins",
+                        'اكتب حدًا موجبًا للفئة المكلفة لا يزيد عن فرق سعرها عن فئة التعلّم؛ حتى تظل الترقية ممكنة مهما كان رصيد المكافآت.'
+                    );
+                }
 
                 if (!empty($row['chat_enabled'])) {
                     $budget = (float) ($row['ai_budget_usd'] ?? 0);
@@ -136,7 +152,6 @@ class CourseRequest extends FormRequest
                     }
                 }
 
-                $feedback = (string) ($row['project_feedback_level'] ?? 'pass_only');
                 if (in_array($feedback, ['report', 'enhanced'], true)) {
                     $budget = (float) ($row['project_feedback_budget_usd'] ?? 0);
                     $reserve = (float) ($row['project_feedback_reserve_usd'] ?? 0);

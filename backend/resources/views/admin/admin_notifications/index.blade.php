@@ -1,34 +1,36 @@
 @extends('admin.layouts.app')
 
-@section('page.title', 'اشعارات الإدارة')
-
+@section('page.title', 'قوالب الإشعارات')
+@section('styles')<link rel="stylesheet" href="{{ asset('admin/assets/css/notifications-dashboard.css') }}">@endsection
 
 @section('content')
-    <div class="admin-page row">
-        <div class="col-md-10 offset-md-1">
-            <div class="card">
-                <div class="card-header"><i class="fa fa-th-large"></i><strong class="card-title pr-2">اشعارات الإدارة</strong>
-                    <div class="pull-left"><a href="{{ route('admin.admin_notifications.create') }}">إضافة اشعار  <i class="fa fa-plus-square-o"></i></a></div>
-                </div>
-                <div class="card-body card-block">
-                    @foreach($admin_notifications as $admin_notification)
-                        <div class="row connection-block">
-                        <div class="col-sm-9 col-xs-6 text-right">
-                            <img class="ico_cat" src="{{ $admin_notification->image ? $admin_notification->image : '/images/cars/car-1.png' }}" />
-                            {{ $admin_notification->name }}
-                        </div>
-                        <div class="col-sm-3 col-xs-6 text-left">
-                            <a href="{{ route('admin.admin_notifications.edit', $admin_notification->id) }}" class="btn btn-sm btn-primary"><i class="fa fa-pencil-square"></i>&nbsp; تعديل</a>
-                            <button type="submit" form="deleteForm{{$admin_notification->id}}" class="btn btn-sm btn-danger"><i class="fa fa-close"></i>&nbsp; حذف</button>
-                        </div>
-                            <form class="d-none" id="deleteForm{{$admin_notification->id}}" action="{{ route('admin.admin_notifications.destroy', $admin_notification->id) }}" method="post">
-                                <input name="_method" type="hidden" value="DELETE">
-                                @csrf
-                            </form>
-                    </div>
-                    @endforeach
-                </div>
-            </div>
+<div class="admin-page notifications-page" dir="rtl">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 admin-gap">
+        <div><h1 class="h3 mb-1">نبرة الإشعارات وتجربة العودة</h1><p class="text-muted mb-0">عدّل ما يراه الطالب قبل التسجيل وبعده، ورسائل الاحتفاظ والجديد، من مكان واحد.</p></div>
+        <div>
+            <a class="btn btn-light" href="{{ route('admin.notifications.index') }}">سجل الإرسال</a>
+            <a class="btn btn-primary" href="{{ route('admin.admin_notifications.create') }}"><i class="fa fa-plus ml-1"></i> إضافة قالب أو إعلان</a>
         </div>
     </div>
+    @if(session('success'))<div class="alert alert-success">{{ session('success') }}</div>@endif
+    <div class="notification-template-grid">
+        @forelse($admin_notifications as $notification)
+            <article class="notification-template-card {{ !$notification->is_active ? 'is-disabled' : '' }}">
+                <div class="notification-template-card__visual">@if($notification->image)<img src="{{ $notification->image }}" alt="">@else<i class="fa fa-bell-o" aria-hidden="true"></i>@endif</div>
+                <div class="notification-template-card__copy">
+                    <div class="notification-template-card__meta"><span>{{ \App\Models\AdminNotification::SURFACES[$notification->surface] ?? $notification->surface }}</span><span>{{ $notification->is_active ? 'مفعّل' : 'متوقف' }}</span>@if($notification->cooldown_hours)<span>تهدئة {{ $notification->cooldown_hours }}س</span>@endif</div>
+                    <h2>{{ $notification->title_ar }}</h2>
+                    <p>{{ $notification->description_ar }}</p>
+                    <small><code>{{ $notification->system_key ?: 'إعلان يدوي' }}</code> · أولوية {{ $notification->priority }}</small>
+                </div>
+                <div class="notification-template-card__actions">
+                    <a class="btn btn-sm btn-primary" href="{{ route('admin.admin_notifications.edit', $notification) }}">تعديل</a>
+                    <form action="{{ route('admin.admin_notifications.destroy', $notification) }}" method="post" onsubmit="return confirm('حذف هذا القالب؟')">@csrf @method('DELETE')<button class="btn btn-sm btn-outline-danger" type="submit">حذف</button></form>
+                </div>
+            </article>
+        @empty
+            <div class="card p-5 text-center text-muted">لا توجد قوالب بعد.</div>
+        @endforelse
+    </div>
+</div>
 @endsection

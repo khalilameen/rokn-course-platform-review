@@ -42,6 +42,7 @@ final class RepositorySecretScanner
         'REWARD_TOMBSTONE_HMAC_KEY',
         'WHATSAPP_ACCESS_TOKEN',
         'WHATSAPP_APP_SECRET',
+        'WHATSAPP_WEBHOOK_SECRET',
         'WHATSPIE_API_KEY',
         'UPLOAD_KEY_PASSWORD',
         'UPLOAD_STORE_PASSWORD',
@@ -55,6 +56,7 @@ final class RepositorySecretScanner
         'API_TOKEN_ALLOW_LEGACY_TRANSPORTS',
         'OPENROUTER_GLOBAL_DAILY_TOKEN_BUDGET',
         'OPENROUTER_GLOBAL_MONTHLY_TOKEN_BUDGET',
+        'WHATSAPP_LINK_TOKEN_MINUTES',
     ];
 
     /**

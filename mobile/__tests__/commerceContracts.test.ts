@@ -118,13 +118,22 @@ describe('commerce API contracts', () => {
 
   it('sends the selected plan and preserves insufficient-balance details', async () => {
     mockPost.mockResolvedValueOnce({
-      data: {data: {total_balance: 500, spendable_balance: 450}},
+      data: {
+        data: {
+          total_balance: 500,
+          spendable_balance: 450,
+          purchased_balance: 300,
+          reward_balance: 200,
+        },
+      },
     });
 
     await expect(purchaseCourse('64', 'guided')).resolves.toEqual({
       kind: 'success',
       balance: 500,
       spendableBalance: 450,
+      paidBalance: 300,
+      rewardBalance: 200,
     });
     expect(mockPost).toHaveBeenNthCalledWith(1, 'courses/authorize', {
       course_id: 64,
@@ -138,6 +147,8 @@ describe('commerce API contracts', () => {
           data: {
             total_balance: 100,
             spendable_balance: 80,
+            purchased_balance: 60,
+            reward_balance: 40,
             deficit: 520,
             recommended_packages: [
               {id: 7, coins: 600, price: 49, name_ar: 'باقة مناسبة'},
@@ -151,6 +162,8 @@ describe('commerce API contracts', () => {
       kind: 'insufficient',
       balance: 100,
       spendableBalance: 80,
+      paidBalance: 60,
+      rewardBalance: 40,
       deficit: 520,
       packages: [
         {id: '7', coins: 600, price: 49, label: 'باقة مناسبة'},

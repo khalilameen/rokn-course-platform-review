@@ -1,53 +1,54 @@
-<div class="row form-group">
-    <div class="col-md-2">
-        <label for="title_ar'" class="form-control-label">أسم الاشعار</label>
+@php($current = $admin_notification ?? null)
+<div class="alert alert-info">
+    اكتب كأنك تكلم طالبًا واحدًا. المتغيرات المتاحة: <code>{coins}</code> لعدد العملات،
+    <code>{course}</code> للكورس، و<code>{task}</code> للمهمة.
+</div>
+<div class="row">
+    <div class="col-md-6 form-group">
+        <label for="surface">مكان الاستخدام</label>
+        <select class="form-control" id="surface" name="surface" required>
+            @foreach(\App\Models\AdminNotification::SURFACES as $value => $label)
+                <option value="{{ $value }}" {{ old('surface', $current?->surface ?? 'announcement') === $value ? 'selected' : '' }}>{{ $label }}</option>
+            @endforeach
+        </select>
     </div>
-    <div class="col-md-10">
-        {!! Form::text('title_ar', null, ['class' => 'form-control' , 'required', 'id'=>"title_ar"] )!!}
+    <div class="col-md-6 form-group">
+        <label for="system_key">مفتاح الحدث</label>
+        <input class="form-control" dir="ltr" id="system_key" name="system_key" type="text" value="{{ old('system_key', $current?->system_key) }}" placeholder="مثال: new_course">
+        <small class="form-text text-muted">اتركه فارغًا للإعلانات اليدوية. لا تغيّره للقوالب الحالية حتى يظل الربط شغالًا.</small>
     </div>
 </div>
-<div class="row form-group">
-    <div class="col-md-2">
-        <label for="title_en'" class="form-control-label">أسم الاشعار باللإنجليزية</label>
-    </div>
-    <div class="col-md-10">
-        {!! Form::text('title_en', null, ['class' => 'form-control' , 'required', 'id'=>"title_en"] )!!}
-    </div>
+<div class="row">
+    <div class="col-md-6 form-group"><label for="title_ar">العنوان العربي</label><input class="form-control" id="title_ar" maxlength="255" name="title_ar" required type="text" value="{{ old('title_ar', $current?->title_ar) }}"></div>
+    <div class="col-md-6 form-group"><label for="title_en">English title</label><input class="form-control" dir="ltr" id="title_en" maxlength="255" name="title_en" required type="text" value="{{ old('title_en', $current?->title_en) }}"></div>
 </div>
-<div class="row form-group">
-    <div class="col-md-2">
-        <label for="description_ar'" class="form-control-label">وصف الاشعار باللغة العربية</label>
-    </div>
-    <div class="col-md-10">
-        {!! Form::text('description_ar', null, ['class' => 'form-control' , 'required', 'id'=>"description_ar"] )!!}
-    </div>
+<div class="row">
+    <div class="col-md-6 form-group"><label for="description_ar">النص العربي</label><textarea class="form-control" id="description_ar" maxlength="255" name="description_ar" required rows="4">{{ old('description_ar', $current?->description_ar) }}</textarea></div>
+    <div class="col-md-6 form-group"><label for="description_en">English copy</label><textarea class="form-control" dir="ltr" id="description_en" maxlength="255" name="description_en" required rows="4">{{ old('description_en', $current?->description_en) }}</textarea></div>
 </div>
-
-<div class="row form-group">
-    <div class="col-md-2">
-        <label for="description_en'" class="form-control-label">وصف الاشعار باللغة الانجليزية</label>
-    </div>
-    <div class="col-md-10">
-        {!! Form::text('description_en', null, ['class' => 'form-control' , 'required', 'id'=>"description_en"] )!!}
-    </div>
+<div class="row">
+    <div class="col-md-6 form-group"><label for="action_label_ar">نص الزر الأساسي</label><input class="form-control" id="action_label_ar" maxlength="80" name="action_label_ar" type="text" value="{{ old('action_label_ar', $current?->action_label_ar) }}"></div>
+    <div class="col-md-6 form-group"><label for="secondary_action_label_ar">نص الإغلاق أو التأجيل</label><input class="form-control" id="secondary_action_label_ar" maxlength="80" name="secondary_action_label_ar" type="text" value="{{ old('secondary_action_label_ar', $current?->secondary_action_label_ar) }}"></div>
 </div>
-<div class="row form-group">
-    <div class="col-md-2">
-        <label for="description_ar'" class="form-control-label">رابط الاشعار</label>
-    </div>
-    <div class="col-md-10">
-        {!! Form::text('link', null, ['class' => 'form-control' , 'required', 'id'=>"link"] )!!}
-    </div>
+<div class="row">
+    <div class="col-md-6 form-group"><label for="action_label_en">Primary action (English)</label><input class="form-control" dir="ltr" id="action_label_en" maxlength="80" name="action_label_en" type="text" value="{{ old('action_label_en', $current?->action_label_en) }}"></div>
+    <div class="col-md-6 form-group"><label for="secondary_action_label_en">Secondary action (English)</label><input class="form-control" dir="ltr" id="secondary_action_label_en" maxlength="80" name="secondary_action_label_en" type="text" value="{{ old('secondary_action_label_en', $current?->secondary_action_label_en) }}"></div>
 </div>
-<div class="row form-group">
-    <div class="col-md-2">
-        <label for="image" class="form-control-label">الصورة</label>
-    </div>
-    <div class="col-md-10">
-        <input id="image" name="image" class="form-control-file" type="file" required>
-    </div>
+<div class="form-group"><label for="link">الوجهة داخل التطبيق</label><input class="form-control" dir="ltr" id="link" name="link" type="text" value="{{ old('link', $current?->link) }}" placeholder="/wallet أو /courses/52"></div>
+<div class="row">
+    <div class="col-md-4 form-group"><label for="priority">الأولوية</label><input class="form-control" id="priority" min="0" max="1000" name="priority" required type="number" value="{{ old('priority', $current?->priority ?? 100) }}"><small class="text-muted">الرقم الأقل يظهر أولًا.</small></div>
+    <div class="col-md-4 form-group"><label for="cooldown_hours">مدة التهدئة بالساعات</label><input class="form-control" id="cooldown_hours" min="0" max="8760" name="cooldown_hours" required type="number" value="{{ old('cooldown_hours', $current?->cooldown_hours ?? 72) }}"></div>
+    <div class="col-md-4 form-group"><label for="image">الصورة (اختيارية)</label><input accept="image/*" class="form-control-file" id="image" name="image" type="file">@if($current?->image)<img alt="معاينة الصورة الحالية" class="notification-template-preview" src="{{ $current->image }}">@endif</div>
+</div>
+<div class="row">
+    <div class="col-md-6 form-group"><label for="starts_at">يبدأ في (اختياري)</label><input class="form-control" id="starts_at" name="starts_at" type="datetime-local" value="{{ old('starts_at', $current?->starts_at?->format('Y-m-d\\TH:i')) }}"></div>
+    <div class="col-md-6 form-group"><label for="ends_at">ينتهي في (اختياري)</label><input class="form-control" id="ends_at" name="ends_at" type="datetime-local" value="{{ old('ends_at', $current?->ends_at?->format('Y-m-d\\TH:i')) }}"></div>
+</div>
+<div class="d-flex flex-wrap align-items-center mb-4 admin-gap">
+    <label class="mb-0"><input name="is_active" type="hidden" value="0"><input name="is_active" type="checkbox" value="1" {{ old('is_active', $current?->is_active ?? true) ? 'checked' : '' }}> مفعّل</label>
+    <label class="mb-0"><input name="is_dismissible" type="hidden" value="0"><input name="is_dismissible" type="checkbox" value="1" {{ old('is_dismissible', $current?->is_dismissible ?? true) ? 'checked' : '' }}> يمكن للطالب إغلاقه</label>
 </div>
 <div class="form-actions form-group">
-    <button type="submit" class="btn btn-success btn-sm">حفظ</button>
-    <a href="{{ route('admin.admin_notifications.index') }}" class="btn btn-danger btn-sm">إلغاء</a>
+    <button type="submit" class="btn btn-success"><i class="fa fa-check ml-1"></i> حفظ القالب</button>
+    <a href="{{ route('admin.admin_notifications.index') }}" class="btn btn-light">إلغاء</a>
 </div>

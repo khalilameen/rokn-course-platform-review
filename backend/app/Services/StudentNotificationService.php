@@ -103,6 +103,14 @@ class StudentNotificationService
                 (int) (Setting::query()->value('welcome_bonus_coins')
                     ?? config('social_auth.welcome_bonus_coins', 20))
             );
+            $settings = Setting::query()->first();
+            if (
+                $settings
+                && $settings->recommended_social_provider
+                && $user->social_provider === $settings->recommended_social_provider
+            ) {
+                $coinsAmount += max(0, (int) $settings->recommended_provider_bonus_coins);
+            }
             $methodId = $method ? $method->id : null;
 
             if ($coinsAmount <= 0) {
@@ -166,6 +174,9 @@ class StudentNotificationService
                 return $alreadyCredited ? 0 : $coinsAmount;
             }, 3);
         } catch (\Throwable $e) {
+            if (app()->environment('testing')) {
+                throw $e;
+            }
             \Illuminate\Support\Facades\Log::error('Failed to grant registration bonus', [
                 'user_id' => $user->id,
                 'exception' => $e::class,
@@ -180,14 +191,18 @@ class StudentNotificationService
         ?int $methodId
     ): void
     {
-        $titleAr = 'هدية البداية وصلت';
-        $titleEn = 'Your welcome gift is here';
-        $messageAr = 'أضفنا ' . self::arabicDigits($coinsAmount)
-            . ' إلى رصيدك. جرّب المحتوى المجاني، ولو احتجت رصيدًا أكثر '
-            . 'ستجد مهامًا بسيطة في المحفظة.';
-        $messageEn = 'We added ' . $coinsAmount
-            . ' coins to your balance. Explore the free content, and find simple reward tasks '
-            . 'in your wallet whenever you need more.';
+        $copy = app(EngagementMessageService::class)->copy(
+            'welcome_bonus_received',
+            ['coins' => $coinsAmount],
+            [
+                'title_ar' => 'رصيدك بدأ',
+                'title_en' => 'Your balance is ready',
+                'message_ar' => 'نزلنا لك ' . self::arabicDigits($coinsAmount)
+                    . ' عملة ركن في المحفظة. دي عملات داخل التطبيق، مش جنيهات.',
+                'message_en' => 'We added ' . $coinsAmount
+                    . ' Rokn coins to your wallet. They are in-app credits, not cash.',
+            ]
+        );
 
         // title_en is a stable identity for this one-time notification. The
         // surrounding user lock prevents concurrent first-login duplicates.
@@ -200,10 +215,10 @@ class StudentNotificationService
                 'notification_type' => self::TYPE_COINS_CLAIMED,
                 'notifiable_type' => $methodId ? CoinEarningMethod::class : null,
                 'notifiable_id' => $methodId,
-                'title_ar' => $titleAr,
-                'title_en' => $titleEn,
-                'message_ar' => $messageAr,
-                'message_en' => $messageEn,
+                'title_ar' => $copy['title_ar'],
+                'title_en' => $copy['title_en'],
+                'message_ar' => $copy['message_ar'],
+                'message_en' => $copy['message_en'],
                 'link' => null,
                 'is_read' => false,
             ]

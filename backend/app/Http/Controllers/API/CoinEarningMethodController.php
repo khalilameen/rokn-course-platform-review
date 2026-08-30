@@ -13,6 +13,7 @@ use App\Models\WalletTransaction;
 use App\Services\AcquisitionRewardTombstoneService;
 use App\Services\StudentNotificationService;
 use App\Services\WalletService;
+use App\Services\WhatsAppLinkService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -95,14 +96,13 @@ final class CoinEarningMethodController extends Controller
      * Record the external visit before the learner leaves the app. Returning to
      * claim is a separate action, matching the intended two-tap UX.
      */
-    public function start(CoinEarningMethod $method): JsonResponse
+    public function start(CoinEarningMethod $method, WhatsAppLinkService $whatsAppLinks): JsonResponse
     {
         $user = auth('api')->user();
         $actionUrl = $method->resolvedActionUrl();
         if (
             !$method->is_active
             || $method->action_key === 'register'
-            || ($method->requires_external_visit && $actionUrl === null)
         ) {
             return $this->error('Task is not available', 404, 'task_unavailable');
         }
@@ -113,6 +113,31 @@ final class CoinEarningMethodController extends Controller
                 'message' => 'تم استلام مكافأة هذه المهمة سابقًا.',
                 'data' => ['task_state' => 'claimed', 'action_url' => $actionUrl],
             ]);
+        }
+        if ($method->action_key === 'link_whatsapp') {
+            try {
+                $data = $whatsAppLinks->createLink($user, $method);
+            } catch (\DomainException $exception) {
+                return $this->error(
+                    $exception->getMessage() === 'whatsapp_bot_unavailable'
+                        ? 'ربط واتساب غير متاح مؤقتًا. جرّب بعد قليل.'
+                        : 'Task is not available',
+                    $exception->getMessage() === 'whatsapp_bot_unavailable' ? 503 : 404,
+                    $exception->getMessage()
+                );
+            }
+
+            return response()->json([
+                'status' => 200,
+                'success' => true,
+                'message' => $data['task_state'] === 'claimed'
+                    ? 'تم استلام مكافأة هذه المهمة سابقًا.'
+                    : 'ابعت الرسالة الجاهزة في واتساب، والعملات هتوصلك تلقائيًا.',
+                'data' => $data,
+            ]);
+        }
+        if ($method->requires_external_visit && $actionUrl === null) {
+            return $this->error('Task is not available', 404, 'task_unavailable');
         }
 
         [$attempt, $alreadyClaimed] = DB::transaction(function () use ($user, $method): array {
@@ -185,6 +210,19 @@ final class CoinEarningMethodController extends Controller
                     'task_state' => 'claimed',
                 ],
             ]);
+        }
+        if (
+            $method->action_key === 'link_whatsapp'
+            && !$user->whatsappConnection()
+                ->where('ownership_verified', true)
+                ->whereNotNull('verified_at')
+                ->exists()
+        ) {
+            return $this->error(
+                'افتح واتساب من المهمة وابعت الرسالة الجاهزة. العملات بتضاف تلقائيًا عند وصولها.',
+                409,
+                'whatsapp_not_verified'
+            );
         }
 
         try {

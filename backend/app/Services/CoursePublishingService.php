@@ -91,7 +91,7 @@ final class CoursePublishingService
         }
 
         foreach ($course->modules->sortBy('order')->values() as $index => $module) {
-            $moduleLabel = trim((string) $module->title) ?: 'الوحدة ' . ($index + 1);
+            $moduleLabel = trim((string) ($module->title_ar ?: $module->title_en)) ?: 'الوحدة ' . ($index + 1);
             $sections = $module->sections->sortBy('order')->values();
             $reels = $sections->filter(fn ($section) => $section->getSectionType() === 'lesson');
             $projects = $sections->filter(fn ($section) => $section->getSectionType() === 'project');
@@ -110,15 +110,18 @@ final class CoursePublishingService
             foreach ($reels as $reel) {
                 $lesson = $reel->sectionable;
                 if ($lesson instanceof Lesson && (int) $lesson->duration_minutes < 1) {
-                    $issues[] = "{$moduleLabel}: حدّد مدة الخطوة «{$reel->title}» من مصدر موثوق قبل النشر.";
+                    $reelTitle = trim((string) ($reel->title_ar ?: $reel->title_en)) ?: 'بلا عنوان';
+                    $issues[] = "{$moduleLabel}: حدّد مدة الخطوة «{$reelTitle}» من مصدر موثوق قبل النشر.";
                 }
                 if (!$lesson instanceof Lesson || !$this->lessonHasPlayableVideo($lesson)) {
-                    $issues[] = "{$moduleLabel}: الخطوة «{$reel->title}» لا تحتوي على فيديو صالح.";
+                    $reelTitle = trim((string) ($reel->title_ar ?: $reel->title_en)) ?: 'بلا عنوان';
+                    $issues[] = "{$moduleLabel}: الخطوة «{$reelTitle}» لا تحتوي على فيديو صالح.";
                 }
                 if ($lesson instanceof Lesson) {
                     $mediaState = $lesson->mediaState()->first();
                     if ($mediaState && $mediaState->status !== 'ready') {
-                        $issues[] = "{$moduleLabel}: الفيديو «{$reel->title}» لم يكتمل تجهيزه بعد ({$mediaState->status}).";
+                        $reelTitle = trim((string) ($reel->title_ar ?: $reel->title_en)) ?: 'بلا عنوان';
+                        $issues[] = "{$moduleLabel}: الفيديو «{$reelTitle}» لم يكتمل تجهيزه بعد ({$mediaState->status}).";
                     }
                 }
             }

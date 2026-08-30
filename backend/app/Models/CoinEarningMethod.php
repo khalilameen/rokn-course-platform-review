@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Model;
 class CoinEarningMethod extends Model
 {
     private const TRUSTED_ACTION_HOSTS = [
+        'wa.me',
+        'whatsapp.com',
         'instagram.com',
         'tiktok.com',
         'facebook.com',
@@ -66,7 +68,9 @@ class CoinEarningMethod extends Model
 
     public function hasUsableDestination(): bool
     {
-        return !$this->requires_external_visit || $this->resolvedActionUrl() !== null;
+        return $this->action_key === 'link_whatsapp'
+            || !$this->requires_external_visit
+            || $this->resolvedActionUrl() !== null;
     }
 
     public static function isTrustedActionUrl(?string $value): bool

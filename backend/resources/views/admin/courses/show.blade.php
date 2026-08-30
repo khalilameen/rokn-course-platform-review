@@ -11,6 +11,10 @@
 @section('content')
 @php
     $teacher = $course->teachers->first();
+    $courseTitle = trim((string) ($course->name_ar ?: $course->name_en)) ?: 'كورس بلا عنوان';
+    $courseDescription = trim((string) ($course->description_ar ?: $course->description_en)) ?: 'أضف وصفًا مختصرًا يشرح للطالب ما الذي سيتعلمه ولماذا يبدأ هذا الكورس.';
+    $teacherName = trim((string) ($teacher?->name_ar ?: $teacher?->name_en ?: $teacher?->getRawOriginal('name'))) ?: 'اختر محاضر الكورس';
+    $teacherBio = trim((string) ($teacher?->bio_ar ?: $teacher?->bio_en ?: $teacher?->getRawOriginal('bio'))) ?: 'ستظهر نبذة المحاضر للطالب هنا.';
     $sectionTypes = [
         'lesson' => ['درس فيديو', 'fa-play-circle', 'lesson'],
         'project' => ['مشروع', 'fa-briefcase', 'project'],
@@ -25,7 +29,7 @@
     <header class="course-studio__topbar">
         <div class="course-studio__heading">
             <a href="{{ route('admin.dashboard') }}" class="course-studio__back" aria-label="العودة إلى مساحة المحتوى"><i class="fa fa-arrow-right" aria-hidden="true"></i></a>
-            <div><span class="course-studio__eyebrow">استوديو الكورس</span><h1>{{ $course->title ?: 'كورس بلا عنوان' }}</h1></div>
+            <div><span class="course-studio__eyebrow">استوديو الكورس</span><h1>{{ $courseTitle }}</h1></div>
         </div>
         <div class="course-studio__top-actions">
             <button type="button" class="course-studio__preview-toggle" id="studentPreviewToggle" aria-pressed="false"><i class="fa fa-eye" aria-hidden="true"></i><span>معاينة الطالب</span></button>
@@ -44,7 +48,7 @@
             <div class="course-studio__canvas" aria-label="معاينة وتحرير صفحة الكورس">
                 <article class="student-course-card">
                     <div class="student-course-card__cover">
-                        @if($course->image)<img src="{{ $course->image }}" alt="غلاف {{ $course->title }}">
+                        @if($course->image)<img src="{{ $course->image }}" alt="غلاف {{ $courseTitle }}">
                         @else<div class="student-course-card__placeholder"><i class="fa fa-picture-o" aria-hidden="true"></i><span>أضف صورة غلاف للكورس</span></div>@endif
                         <a href="{{ route('admin.courses.edit', [$course, 'return_to' => 'studio']) }}" class="studio-edit-chip studio-authoring-control"><i class="fa fa-pencil" aria-hidden="true"></i> تعديل الغلاف</a>
                         <span class="student-course-card__state">{{ $course->is_coming_soon ? 'قريبًا' : 'متاح الآن' }}</span>
@@ -52,8 +56,8 @@
                     <div class="student-course-card__content">
                         <a href="{{ route('admin.courses.edit', [$course, 'return_to' => 'studio']) }}" class="studio-block-edit studio-authoring-control" aria-label="تعديل بيانات الكورس"><i class="fa fa-pencil" aria-hidden="true"></i></a>
                         <div class="student-course-card__badges">@foreach($course->classifications as $classification)<span>{{ $classification->name_ar }}</span>@endforeach @if($course->level)<span>{{ $course->level->name_ar }}</span>@endif</div>
-                        <h2>{{ $course->title ?: 'أضف عنوان الكورس' }}</h2>
-                        <p>{{ $course->description ?: 'أضف وصفًا مختصرًا يشرح للطالب ما الذي سيتعلمه ولماذا يبدأ هذا الكورس.' }}</p>
+                        <h2>{{ $courseTitle }}</h2>
+                        <p>{{ $courseDescription }}</p>
                         <div class="student-course-card__facts">
                             <span><i class="fa fa-play-circle" aria-hidden="true"></i> {{ number_format($sections->where('sectionable_type', 'App\Models\Lesson')->count()) }} درس</span>
                             <span><i class="fa fa-clock-o" aria-hidden="true"></i> {{ number_format((float) ($course->hours_count ?? 0), 1) }} ساعة</span>
@@ -64,8 +68,8 @@
 
                 <section class="student-instructor-card">
                     <a href="{{ route('admin.courses.edit', [$course, 'return_to' => 'studio']) }}" class="studio-block-edit studio-authoring-control" aria-label="تعديل المحاضر"><i class="fa fa-pencil" aria-hidden="true"></i></a>
-                    <div class="student-instructor-card__avatar">@if($teacher?->profile_image_url)<img src="{{ $teacher->profile_image_url }}" alt="{{ $teacher->name }}">@else<i class="fa fa-user" aria-hidden="true"></i>@endif</div>
-                    <div><span>المحاضر</span><h3>{{ $teacher?->name ?: 'اختر محاضر الكورس' }}</h3><p>{{ $teacher?->bio ?: 'ستظهر نبذة المحاضر للطالب هنا.' }}</p></div>
+                    <div class="student-instructor-card__avatar">@if($teacher?->profile_image_url)<img src="{{ $teacher->profile_image_url }}" alt="{{ $teacherName }}">@else<i class="fa fa-user" aria-hidden="true"></i>@endif</div>
+                    <div><span>المحاضر</span><h3>{{ $teacherName }}</h3><p>{{ $teacherBio }}</p></div>
                 </section>
 
                 <section class="course-outline" aria-labelledby="courseOutlineTitle">
@@ -82,7 +86,7 @@
                                 <article class="outline-module" data-module-id="{{ $module->id }}">
                                     <header class="outline-module__header">
                                         <button type="button" class="outline-module__drag studio-authoring-control" aria-label="اسحب لترتيب الوحدة"><i class="fa fa-bars" aria-hidden="true"></i></button>
-                                        <button type="button" class="outline-module__toggle" aria-expanded="true" aria-controls="module-{{ $module->id }}-content"><span class="outline-module__number">{{ $loop->iteration }}</span><span class="outline-module__name"><small>الوحدة {{ $loop->iteration }}</small><strong>{{ $module->title ?: 'وحدة بلا عنوان' }}</strong></span><span class="outline-module__count">{{ $module->sections->count() }} عناصر</span><i class="fa fa-chevron-up" aria-hidden="true"></i></button>
+                                        <button type="button" class="outline-module__toggle" aria-expanded="true" aria-controls="module-{{ $module->id }}-content"><span class="outline-module__number">{{ $loop->iteration }}</span><span class="outline-module__name"><small>الوحدة {{ $loop->iteration }}</small><strong>{{ $module->title_ar ?: $module->title_en ?: 'وحدة بلا عنوان' }}</strong></span><span class="outline-module__count">{{ $module->sections->count() }} عناصر</span><i class="fa fa-chevron-up" aria-hidden="true"></i></button>
                                         <a href="{{ route('admin.courses.modules.edit', [$course, $module, 'return_to' => 'studio']) }}" class="outline-module__edit studio-authoring-control" aria-label="تعديل الوحدة"><i class="fa fa-pencil" aria-hidden="true"></i></a>
                                     </header>
                                     <div class="outline-module__content studio-sortable-sections" id="module-{{ $module->id }}-content" data-module-id="{{ $module->id }}">
@@ -91,7 +95,7 @@
                                             <div class="outline-item" data-section-id="{{ $section->id }}" data-section-type="{{ $section->getSectionType() }}">
                                                 <button type="button" class="outline-item__drag studio-authoring-control" aria-label="اسحب لترتيب العنصر"><i class="fa fa-ellipsis-v" aria-hidden="true"></i></button>
                                                 <span class="outline-item__icon outline-item__icon--{{ $type[2] }}"><i class="fa {{ $type[1] }}" aria-hidden="true"></i></span>
-                                                <span class="outline-item__copy"><strong>{{ $section->title ?: 'عنصر بلا عنوان' }}</strong><small>{{ $type[0] }}@if($section->isLesson() && $section->sectionable?->duration_minutes) · {{ $section->sectionable->duration_minutes }} دقيقة@endif</small></span>
+                                                <span class="outline-item__copy"><strong>{{ $section->title_ar ?: $section->title_en ?: 'عنصر بلا عنوان' }}</strong><small>{{ $type[0] }}@if($section->isLesson() && $section->sectionable?->duration_minutes) · {{ $section->sectionable->duration_minutes }} دقيقة@endif</small></span>
                                                 <a href="{{ route('admin.courses.sections.edit', [$course, $section, 'return_to' => 'studio']) }}" class="outline-item__edit studio-authoring-control"><i class="fa fa-pencil" aria-hidden="true"></i><span>تعديل</span></a>
                                             </div>
                                         @endforeach
@@ -113,7 +117,7 @@
                                 <div class="outline-module__content studio-sortable-sections" data-module-id="">
                                     @foreach($ungroupedSections as $section)
                                         @php($type = $sectionTypes[$section->getSectionType()] ?? ['محتوى', 'fa-file-o', 'other'])
-                                        <div class="outline-item" data-section-id="{{ $section->id }}" data-section-type="{{ $section->getSectionType() }}"><button type="button" class="outline-item__drag studio-authoring-control" aria-label="اسحب لترتيب العنصر"><i class="fa fa-ellipsis-v" aria-hidden="true"></i></button><span class="outline-item__icon outline-item__icon--{{ $type[2] }}"><i class="fa {{ $type[1] }}" aria-hidden="true"></i></span><span class="outline-item__copy"><strong>{{ $section->title ?: 'عنصر بلا عنوان' }}</strong><small>{{ $type[0] }}</small></span><a href="{{ route('admin.courses.sections.edit', [$course, $section, 'return_to' => 'studio']) }}" class="outline-item__edit studio-authoring-control"><i class="fa fa-pencil" aria-hidden="true"></i><span>تعديل</span></a></div>
+                                        <div class="outline-item" data-section-id="{{ $section->id }}" data-section-type="{{ $section->getSectionType() }}"><button type="button" class="outline-item__drag studio-authoring-control" aria-label="اسحب لترتيب العنصر"><i class="fa fa-ellipsis-v" aria-hidden="true"></i></button><span class="outline-item__icon outline-item__icon--{{ $type[2] }}"><i class="fa {{ $type[1] }}" aria-hidden="true"></i></span><span class="outline-item__copy"><strong>{{ $section->title_ar ?: $section->title_en ?: 'عنصر بلا عنوان' }}</strong><small>{{ $type[0] }}</small></span><a href="{{ route('admin.courses.sections.edit', [$course, $section, 'return_to' => 'studio']) }}" class="outline-item__edit studio-authoring-control"><i class="fa fa-pencil" aria-hidden="true"></i><span>تعديل</span></a></div>
                                     @endforeach
                                 </div>
                             </article>

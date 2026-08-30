@@ -23,6 +23,8 @@ type CourseAuthorizationDto = {
   current_coins?: unknown;
   deficit?: unknown;
   recommended_packages?: CoinPackageDto[];
+  purchased_balance?: unknown;
+  reward_balance?: unknown;
 };
 
 type CourseRedemptionDto = {
@@ -60,11 +62,19 @@ const errorBody = (error: unknown): ApiRecord => {
 };
 
 export type CoursePurchaseResult =
-  | {kind: 'success'; balance: number; spendableBalance: number}
+  | {
+      kind: 'success';
+      balance: number;
+      spendableBalance: number;
+      paidBalance: number;
+      rewardBalance: number;
+    }
   | {
       kind: 'insufficient';
       balance: number;
       spendableBalance: number;
+      paidBalance: number;
+      rewardBalance: number;
       deficit: number;
       packages: DemoCoinPackage[];
     };
@@ -89,6 +99,8 @@ export const purchaseCourse = async (
           data.remaining_balance ??
           0,
       ),
+      paidBalance: Math.max(0, Number(data.purchased_balance || 0)),
+      rewardBalance: Math.max(0, Number(data.reward_balance || 0)),
     };
   } catch (error: unknown) {
     const body = errorBody(error);
@@ -102,6 +114,8 @@ export const purchaseCourse = async (
         spendableBalance: Number(
           data.spendable_balance ?? data.current_coins ?? 0,
         ),
+        paidBalance: Math.max(0, Number(data.purchased_balance || 0)),
+        rewardBalance: Math.max(0, Number(data.reward_balance || 0)),
         deficit: Number(data.deficit || 0),
         packages: (data.recommended_packages || []).map(item => ({
           id: String(item.id),

@@ -6,6 +6,8 @@ type ParsedUrl = URL & {
 };
 
 const allowedRoots = [
+  'wa.me',
+  'whatsapp.com',
   'instagram.com',
   'tiktok.com',
   'facebook.com',

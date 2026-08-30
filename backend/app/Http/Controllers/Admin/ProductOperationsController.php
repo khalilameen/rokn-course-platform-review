@@ -11,6 +11,7 @@ use App\Models\CoinEarningMethod;
 use App\Models\Course;
 use App\Models\CourseCode;
 use App\Models\CourseGrantClaim;
+use App\Models\FinancialAnomaly;
 use App\Models\CourseModule;
 use App\Models\Order;
 use App\Models\Package;
@@ -127,7 +128,23 @@ class ProductOperationsController extends Controller
                     $query->where('video_source_type', '<>', 'bunny')->orWhereNull('bunny_video_id')->orWhere('bunny_video_id', '');
                 })->count(),
             'playback_sessions_today' => PlaybackSession::query()->where('started_at', '>=', now()->startOfDay())->count(),
+            'financial_anomalies' => Schema::hasTable('financial_anomalies')
+                ? FinancialAnomaly::query()->where('status', FinancialAnomaly::STATUS_OPEN)->count()
+                : 0,
         ];
+
+        $financialAnomalies = Schema::hasTable('financial_anomalies')
+            ? FinancialAnomaly::query()
+                ->with([
+                    'user:id,name,email',
+                    'course:id,name_ar,name_en',
+                    'order:id,order_ref',
+                ])
+                ->where('status', FinancialAnomaly::STATUS_OPEN)
+                ->latest('detected_at')
+                ->limit(20)
+                ->get()
+            : collect();
 
         $mediaAttention = Lesson::query()
             ->with(['course:id,name_ar,name_en', 'mediaState'])
@@ -171,7 +188,8 @@ class ProductOperationsController extends Controller
 
         return view('admin.product_operations', compact(
             'courses', 'settings', 'readiness', 'counts', 'finance', 'capabilityReport', 'mediaAttention',
-            'playbackOperations', 'mediaReconcileStatus', 'backupReadiness', 'featureFlags'
+            'playbackOperations', 'mediaReconcileStatus', 'backupReadiness', 'featureFlags',
+            'financialAnomalies'
         ));
     }
 

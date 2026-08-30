@@ -35,6 +35,8 @@ export const useCourseDetailsData = ({
   const [remoteSpendableBalance, setRemoteSpendableBalance] = useState<
     number | null
   >(null);
+  const [remotePaidBalance, setRemotePaidBalance] = useState<number | null>(null);
+  const [remoteRewardBalance, setRemoteRewardBalance] = useState<number | null>(null);
   const [remoteOwned, setRemoteOwned] = useState(false);
   const [remotePackages, setRemotePackages] = useState<DemoCoinPackage[]>([]);
   const [remoteSession, setRemoteSession] = useState<boolean | null>(null);
@@ -70,6 +72,8 @@ export const useCourseDetailsData = ({
       setRemoteCourse(null);
       setRemoteBalance(null);
       setRemoteSpendableBalance(null);
+      setRemotePaidBalance(null);
+      setRemoteRewardBalance(null);
       setRemotePackages([]);
       setRemoteOwned(false);
       const sessionAvailable = await hasSession();
@@ -99,6 +103,8 @@ export const useCourseDetailsData = ({
         if (active && walletResult.status === 'fulfilled') {
           setRemoteBalance(walletResult.value.balance);
           setRemoteSpendableBalance(walletResult.value.spendableBalance);
+          setRemotePaidBalance(walletResult.value.paidBalance);
+          setRemoteRewardBalance(walletResult.value.rewardBalance);
         }
         if (active && packagesResult.status === 'fulfilled') {
           setRemotePackages(packagesResult.value);
@@ -128,13 +134,17 @@ export const useCourseDetailsData = ({
     remoteError,
     remoteLoading,
     remoteOwned,
+    remotePaidBalance,
     remotePackages,
     remoteSession,
+    remoteRewardBalance,
     remoteSpendableBalance,
     setExperience,
     setRemoteBalance,
     setRemoteOwned,
+    setRemotePaidBalance,
     setRemotePackages,
     setRemoteSpendableBalance,
+    setRemoteRewardBalance,
   };
 };

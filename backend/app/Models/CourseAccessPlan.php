@@ -23,7 +23,7 @@ final class CourseAccessPlan extends Model
     ];
 
     protected $fillable = [
-        'course_id', 'code', 'name_ar', 'name_en', 'price_coins',
+        'course_id', 'code', 'name_ar', 'name_en', 'price_coins', 'minimum_paid_coins',
         'chat_enabled', 'chat_message_limit', 'chat_token_budget',
         'ai_budget_usd', 'request_reserve_usd', 'max_output_tokens',
         'project_feedback_token_budget', 'project_feedback_budget_usd',
@@ -34,6 +34,7 @@ final class CourseAccessPlan extends Model
 
     protected $casts = [
         'price_coins' => 'integer',
+        'minimum_paid_coins' => 'integer',
         'chat_enabled' => 'boolean',
         'chat_message_limit' => 'integer',
         'chat_token_budget' => 'integer',

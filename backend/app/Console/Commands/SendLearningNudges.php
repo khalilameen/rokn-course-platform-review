@@ -7,6 +7,7 @@ namespace App\Console\Commands;
 use App\Models\CourseEnrollment;
 use App\Models\User;
 use App\Services\StudentNotificationService;
+use App\Services\EngagementMessageService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
@@ -66,13 +67,23 @@ final class SendLearningNudges extends Command
 
             $courseName = (string) ($course->name_ar ?: $course->name_en ?: 'كورس ركن');
             try {
+                $copy = app(EngagementMessageService::class)->copy(
+                    'learning_nudge',
+                    ['course' => $courseName],
+                    [
+                        'title_ar' => 'خطوتك الجاية مستنياك',
+                        'title_en' => 'Your next step is ready',
+                        'message_ar' => "ارجع لـ {$courseName}. مقطع واحد كفاية ترجع للمود.",
+                        'message_en' => "Continue {$courseName}. One short clip is enough to get back into it.",
+                    ]
+                );
                 StudentNotificationService::notifyUser(
                     $student,
                     'learning_nudge',
-                    'خطوتك التالية جاهزة',
-                    'Your next step is ready',
-                    "{$courseName}\nدقيقة واحدة وتكمل من مكانك",
-                    "{$courseName}\nOne short step is enough to continue where you stopped.",
+                    $copy['title_ar'],
+                    $copy['title_en'],
+                    $copy['message_ar'],
+                    $copy['message_en'],
                     '/courses/' . $course->id,
                     $course::class,
                     (int) $course->id,

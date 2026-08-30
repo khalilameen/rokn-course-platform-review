@@ -252,45 +252,57 @@ final class LearningRewardService
             return null;
         }
 
-        $existing = WalletTransaction::query()
-            ->where('user_id', $user->id)
-            ->where('idempotency_key', $idempotencyKey)
-            ->first();
-        if ($existing) {
-            return null;
-        }
-
-        $settings = $this->settings();
-        $rollingTotal = (int) WalletTransaction::query()
-            ->where('user_id', $user->id)
-            ->where('category', $category)
-            ->where('direction', WalletTransaction::DIRECTION_CREDIT)
-            ->where('occurred_at', '>=', now()->subDays(30))
-            ->sum('amount');
-        $rollingRoom = max(0, $rollingCap - $rollingTotal);
-        $freshUser = $user->fresh();
-        $balanceRoom = max(
-            0,
-            (int) $settings->reward_balance_cap - (int) $freshUser->wallet_reward_coins
-        );
-        $amount = min($requested, $rollingRoom, $balanceRoom);
-        if ($amount <= 0) {
-            return null;
-        }
-
-        return $this->wallet->credit(
-            $user->id,
-            $amount,
+        return DB::transaction(function () use (
+            $user,
+            $requested,
             $category,
             $idempotencyKey,
+            $rollingCap,
             $source,
-            $metadata + [
-                'requested_amount' => $requested,
-                'reward_balance_cap' => (int) $settings->reward_balance_cap,
-                'rolling_30_day_cap' => $rollingCap,
-            ],
-            WalletTransaction::BUCKET_REWARD
-        );
+            $metadata
+        ): ?WalletTransaction {
+            // All reward sources share the same user aggregate lock. This keeps
+            // two different simultaneous rewards from each seeing stale room
+            // under the balance or rolling cap.
+            $lockedUser = User::query()->lockForUpdate()->findOrFail($user->id);
+            if (WalletTransaction::query()
+                ->where('user_id', $lockedUser->id)
+                ->where('idempotency_key', $idempotencyKey)
+                ->exists()) {
+                return null;
+            }
+
+            $settings = $this->settings();
+            $rollingTotal = (int) WalletTransaction::query()
+                ->where('user_id', $lockedUser->id)
+                ->where('category', $category)
+                ->where('direction', WalletTransaction::DIRECTION_CREDIT)
+                ->where('occurred_at', '>=', now()->subDays(30))
+                ->sum('amount');
+            $rollingRoom = max(0, $rollingCap - $rollingTotal);
+            $balanceRoom = max(
+                0,
+                (int) $settings->reward_balance_cap - (int) $lockedUser->wallet_reward_coins
+            );
+            $amount = min($requested, $rollingRoom, $balanceRoom);
+            if ($amount <= 0) {
+                return null;
+            }
+
+            return $this->wallet->credit(
+                $lockedUser->id,
+                $amount,
+                $category,
+                $idempotencyKey,
+                $source,
+                $metadata + [
+                    'requested_amount' => $requested,
+                    'reward_balance_cap' => (int) $settings->reward_balance_cap,
+                    'rolling_30_day_cap' => $rollingCap,
+                ],
+                WalletTransaction::BUCKET_REWARD
+            );
+        }, 3);
     }
 
     private function result(User $user, ?WalletTransaction $transaction, array $extra = []): array

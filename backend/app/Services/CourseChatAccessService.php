@@ -15,7 +15,8 @@ final class CourseChatAccessService
 {
     public function __construct(
         private FinancialProvenanceService $provenance,
-        private CourseAccessPlanService $plans
+        private CourseAccessPlanService $plans,
+        private FinancialAnomalyService $financialRisk
     )
     {
     }
@@ -123,7 +124,8 @@ final class CourseChatAccessService
                     && !$this->provenance->enrollmentHasActiveHold(
                         $enrollment,
                         ['course', 'chat', 'plan']
-                    );
+                    )
+                    && $this->financialRisk->allowsVariableCostFeatures($enrollment);
             });
     }
 

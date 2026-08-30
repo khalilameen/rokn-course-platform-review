@@ -3,6 +3,7 @@ import {useNavigation} from '@react-navigation/native';
 import type {RootNavigation} from '../navigation/types';
 import {errorPayload} from '../utils/errorPayload';
 import {
+  AppState,
   Alert,
   Linking,
   Modal,
@@ -97,9 +98,9 @@ export default function Wallet() {
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [remoteError, setRemoteError] = useState('');
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
-  const [walletModal, setWalletModal] = useState<'breakdown' | 'rules' | null>(
-    null,
-  );
+  const [walletModal, setWalletModal] = useState<
+    'breakdown' | 'rules' | null
+  >(null);
   const checkoutFlightRef = useRef(false);
   const taskFlightsRef = useRef(new Set<string>());
   const walletRefreshRequestRef = useRef(0);
@@ -155,6 +156,14 @@ export default function Wallet() {
       walletRefreshRequestRef.current += 1;
       unsubscribe();
     };
+  }, [refreshWallet]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') void refreshWallet();
+    });
+
+    return () => subscription.remove();
   }, [refreshWallet]);
 
   const usingRemoteWallet = serverSession === true;
@@ -236,7 +245,48 @@ export default function Wallet() {
     task.id === 'coin-guide' ||
     (isRemoteTask(task) && task.actionKey.toLowerCase().includes('coin_guide'));
 
+  const isWhatsAppTask = (
+    task: DemoCoinTask | CoinTask,
+  ): task is CoinTask =>
+    isRemoteTask(task) && task.actionKey === 'link_whatsapp';
+
   const runTaskAction = async (task: DemoCoinTask | CoinTask) => {
+    if (isWhatsAppTask(task)) {
+      try {
+        const started = await startCoinTask(task);
+        setRemoteTasks(current =>
+          current.map(item =>
+            item.id === task.id
+              ? {
+                  ...item,
+                  status:
+                    started.status === 'claimed' ? 'claimed' : 'started',
+                }
+              : item,
+          ),
+        );
+        if (started.status === 'claimed') {
+          await refreshWallet();
+          return;
+        }
+        const safeActionUrl = trustedExternalTaskUrl(started.url);
+        if (!safeActionUrl) {
+          Alert.alert(
+            'ربط واتساب غير متاح',
+            'تعذّر تجهيز رسالة الربط الآن. جرّب بعد قليل.',
+          );
+          return;
+        }
+        await Linking.openURL(safeActionUrl);
+      } catch (error: unknown) {
+        const details = errorPayload(error);
+        Alert.alert(
+          'تعذّر فتح واتساب',
+          String(details.message || 'حاول مرة أخرى بعد التأكد من الاتصال.'),
+        );
+      }
+      return;
+    }
     if (task.status === 'available') {
       try {
         let actionUrl = task.url;

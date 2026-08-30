@@ -10,7 +10,7 @@
 <div class="admin-page notifications-page" dir="rtl">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div><h1 class="h3 mb-1">إشعارات الطلاب</h1><p class="text-muted mb-0">سجل الإرسال والوصول والقراءة لكل حملة</p></div>
-        <a href="{{ route('admin.notifications.create') }}" class="btn btn-primary"><i class="fa fa-plus ml-1"></i> إشعار جديد</a>
+        <div><a href="{{ route('admin.admin_notifications.index') }}" class="btn btn-light">قوالب ونبرة الإشعارات</a> <a href="{{ route('admin.notifications.create') }}" class="btn btn-primary"><i class="fa fa-plus ml-1"></i> إشعار جديد</a></div>
     </div>
 
     <div class="card border-0 shadow-sm notifications-page__card">

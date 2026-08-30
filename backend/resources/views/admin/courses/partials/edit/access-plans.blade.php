@@ -17,7 +17,10 @@
                 </div>
                 <div class="course-editor__plan-grid">
                     @foreach($planLabels as $code => [$label, $description])
-                        @php $plan = $accessPlansByCode->get($code); @endphp
+                        @php
+                            $plan = $accessPlansByCode->get($code);
+                            $recommendedAiCoins = 0;
+                        @endphp
                         <div class="course-editor__plan-card">
                             <div class="course-editor__plan-title">{{ $label }}</div>
                             <div class="course-editor__plan-description">{{ $description }}</div>
@@ -63,6 +66,11 @@
                             </label>
                             <label class="form-label-modern">السعر بعملات ركن</label>
                             <input class="form-control-modern" type="number" min="0" name="access_plans[{{ $code }}][price_coins]" value="{{ old("access_plans.$code.price_coins", $plan?->price_coins ?? 0) }}" required>
+                            <label class="form-label-modern">الحد الأدنى من العملات المدفوعة</label>
+                            <input class="form-control-modern" type="number" min="0" name="access_plans[{{ $code }}][minimum_paid_coins]" value="{{ old("access_plans.$code.minimum_paid_coins", $plan?->minimum_paid_coins ?? ($code === 'basic' ? 0 : ($recommendedAiCoins ?? 0))) }}" required>
+                            <div class="form-help">
+                                لا يمكن تغطية هذا الجزء بعملات الهدايا أو المهام. اجعله صفرًا فقط للفئة التي لا تستهلك خدمة مدفوعة.
+                            </div>
 
                                 <input type="hidden" name="access_plans[{{ $code }}][chat_enabled]" value="0">
                                 <label class="course-editor__inline-check course-editor__inline-check--spaced">

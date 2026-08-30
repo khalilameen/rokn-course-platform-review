@@ -22,7 +22,16 @@ class AdminNotificationsResource extends JsonResource
             'description_ar' => (string)$this->description_ar,
             'description_en' => (string)$this->description_en,
             'link' => (string)$this->link,
-            'image' => $this->image ? $this->image : url('/images/service.jpg'),
+            'image' => $this->image,
+            'system_key' => $this->system_key,
+            'surface' => (string) $this->surface,
+            'action_label_ar' => (string) $this->action_label_ar,
+            'action_label_en' => (string) $this->action_label_en,
+            'secondary_action_label_ar' => (string) $this->secondary_action_label_ar,
+            'secondary_action_label_en' => (string) $this->secondary_action_label_en,
+            'is_dismissible' => (bool) $this->is_dismissible,
+            'priority' => (int) $this->priority,
+            'cooldown_hours' => (int) $this->cooldown_hours,
             'created_at' => (string)$this->created_at,
             'updated_at' => (string)$this->updated_at
             

@@ -49,8 +49,6 @@ import {
   type LoginReturnTo,
   type LoginReturnToParamlessRoute,
 } from '../../navigation/types';
-import {ECONOMY_CONFIG} from '../../config/economy';
-import {formatArabicNumber} from '../../constants/arabicFormatting';
 import {migrateGuestLearningState} from '../VideoPlayer/courseLearningApi';
 import type {RootState} from '../../store/store';
 
@@ -239,18 +237,10 @@ export default function SocialAuthShell() {
     navigation.reset({index: 0, routes: [{name: 'Home'}]});
   };
 
-  const facebookAvailable =
-    !authMethods || authMethods.providers.includes('facebook');
-  const recommendedProvider = facebookAvailable
-    ? 'facebook'
-    : authMethods?.recommendedProvider;
-  const recommendationText = facebookAvailable
-    ? `احصل على ${formatArabicNumber(
-        ECONOMY_CONFIG.welcomeReward,
-      )} عملات مجانية عند التسجيل لأول مرة!`
-    : authMethods?.recommendationText || null;
+  const recommendedProvider = authMethods?.recommendedProvider;
+  const recommendationText = authMethods?.recommendationText || null;
   const providerOrder = [
-    'facebook' as SocialProvider,
+    ...(recommendedProvider ? [recommendedProvider] : []),
     ...(authMethods?.providers ?? []),
   ].filter((value, index, list) => value && list.indexOf(value) === index);
   const orderedProviders = authMethods

@@ -16,7 +16,8 @@ use Illuminate\Support\Str;
 final readonly class AiEntitlementBudgetService
 {
     public function __construct(
-        private CourseAccessPlanService $accessPlans
+        private CourseAccessPlanService $accessPlans,
+        private FinancialAnomalyService $financialRisk
     ) {
     }
 
@@ -41,6 +42,9 @@ final readonly class AiEntitlementBudgetService
                 ->findOrFail($enrollment->id);
             if (!$lockedEnrollment->isActive()) {
                 throw new AiPlanLimitReachedException('The course entitlement is not active.');
+            }
+            if (!$this->financialRisk->allowsVariableCostFeatures($lockedEnrollment)) {
+                throw new AiPlanLimitReachedException('This enrollment is under financial review.');
             }
 
             $terms = $this->accessPlans->termsForEnrollment($lockedEnrollment);

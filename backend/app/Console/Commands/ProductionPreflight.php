@@ -455,6 +455,9 @@ class ProductionPreflight extends Command
                 break;
             }
         }
+        if (!Schema::hasTable('financial_anomalies')) {
+            $releaseFailures[] = 'Financial anomaly isolation is missing. Run the current forward migrations before release.';
+        }
 
         $required = [
             'wallet_credit_lots',

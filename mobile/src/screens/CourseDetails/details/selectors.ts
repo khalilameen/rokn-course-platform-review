@@ -53,6 +53,13 @@ export const planBenefits = (plan: CourseAccessPlan): string[] => {
     items.push('العبور بعد المحاولة الجادة');
   }
   if (plan.certificateEnabled) items.push('إصدار الشهادة عند استيفاء شروطها');
+  if ((plan.minimumPaidCoins ?? 0) > 0) {
+    items.push(
+      `يمكن استخدام الهدايا حتى ${formatArabicNumber(
+        Math.max(0, plan.priceCoins - (plan.minimumPaidCoins ?? 0)),
+      )} عملة من السعر`,
+    );
+  }
   return items;
 };
 
@@ -72,8 +79,10 @@ type CourseDetailsPresentationInput = {
   remoteError: string;
   remoteLoading: boolean;
   remoteOwned: boolean;
+  remotePaidBalance?: number | null;
   remotePackages: DemoCoinPackage[];
   remoteSession: boolean | null;
+  remoteRewardBalance?: number | null;
   remoteSpendableBalance: number | null;
   routeParams?: CourseRouteParams;
   selectedPlanCode: string;
@@ -88,8 +97,10 @@ export const selectCourseDetailsPresentation = ({
   remoteError,
   remoteLoading,
   remoteOwned,
+  remotePaidBalance = null,
   remotePackages,
   remoteSession,
+  remoteRewardBalance = null,
   remoteSpendableBalance,
   routeParams = {},
   selectedPlanCode,
@@ -114,6 +125,7 @@ export const selectCourseDetailsPresentation = ({
           code: 'basic',
           name: 'التعلّم',
           priceCoins: DEMO_COURSE_PRICE,
+          minimumPaidCoins: 0,
           chatEnabled: false,
           chatMessageLimit: 0,
           projectFeedbackLevel: 'pass_only',
@@ -125,6 +137,7 @@ export const selectCourseDetailsPresentation = ({
           code: 'guided',
           name: 'التعلّم بإرشاد',
           priceCoins: DEMO_COURSE_PRICE + 1300,
+          minimumPaidCoins: 1300,
           chatEnabled: true,
           chatMessageLimit: 25,
           projectFeedbackLevel: 'report',
@@ -136,6 +149,7 @@ export const selectCourseDetailsPresentation = ({
           code: 'mentor',
           name: 'التعلّم بمتابعة',
           priceCoins: DEMO_COURSE_PRICE + 4200,
+          minimumPaidCoins: 4200,
           chatEnabled: true,
           chatMessageLimit: 80,
           projectFeedbackLevel: 'enhanced',
@@ -170,13 +184,29 @@ export const selectCourseDetailsPresentation = ({
     ? Boolean(experience?.purchasedCourseIds.includes(courseId))
     : remoteOwned;
   const balance = isDemoCourse ? experience?.balance ?? 0 : remoteBalance ?? 0;
-  const spendableBalance = isDemoCourse
-    ? (experience?.paidBalance ?? 0) +
-      Math.min(
-        experience?.rewardBalance ?? 0,
-        ECONOMY_CONFIG.maxRewardContributionPerCourse,
-      )
-    : remoteSpendableBalance ?? 0;
+  const paidBalance = isDemoCourse
+    ? experience?.paidBalance ?? 0
+    : remotePaidBalance ?? 0;
+  const rewardBalance = isDemoCourse
+    ? experience?.rewardBalance ?? 0
+    : remoteRewardBalance ?? Math.max(0, balance - paidBalance);
+  const genericRewardAllowance = isDemoCourse
+    ? ECONOMY_CONFIG.maxRewardContributionPerCourse
+    : Math.max(0, (remoteSpendableBalance ?? paidBalance) - paidBalance);
+  const planSpendableBalances = Object.fromEntries(
+    accessPlans.map(plan => [
+      plan.code,
+      paidBalance +
+        Math.min(
+          rewardBalance,
+          genericRewardAllowance,
+          Math.max(0, plan.priceCoins - (plan.minimumPaidCoins ?? 0)),
+        ),
+    ]),
+  ) as Record<string, number>;
+  const spendableBalance = selectedPlan
+    ? planSpendableBalances[selectedPlan.code] ?? 0
+    : paidBalance + Math.min(rewardBalance, genericRewardAllowance);
   const purchasePrice = selectedPlan?.priceCoins ?? coursePrice ?? 0;
   const shortfall = Math.max(0, purchasePrice - spendableBalance);
   const packages = (isDemoCourse ? DEMO_COIN_PACKAGES : remotePackages)
@@ -226,6 +256,7 @@ export const selectCourseDetailsPresentation = ({
     hasPreview,
     owned,
     packages,
+    planSpendableBalances,
     pageReady,
     previewReelCount,
     primaryActionLabel,

@@ -478,16 +478,18 @@
                         <span>
                             القيم هنا تستطيع خفض حدود الخادم فقط ولا تستطيع تجاوزها
                             الكورسات المجانية والمنح المؤسسية لا تحصل على Rokn AI حتى لا تتحول المبادرة المجانية إلى تكلفة مفتوحة
+                            كل اشتراك له حد رسائل وتوكنز ودولار مستقل حسب فئته وهو أول حاجز يُفحص
+                            قواطع المنصة أدناه للطوارئ الكارثية فقط ويجب ضبطها أعلى من الذروة الطبيعية حتى لا تعطل الطلاب الدافعين
                             ولا تُحفظ محادثات الطلاب كسجل طويل
                         </span>
                     </div>
 
                     <div class="form-row">
                         @foreach([
-                            'ai_daily_user_limit' => ['أسئلة الطالب يوميًا', config('openrouter.daily_user_limit', 100), 1],
-                            'ai_global_daily_request_limit' => ['إجمالي الطلبات يوميًا', config('openrouter.global_daily_request_limit', 5000), 1],
-                            'ai_global_daily_token_budget' => ['ميزانية التوكنز اليومية', config('openrouter.global_daily_token_budget', 2100000), 1000],
-                            'ai_global_monthly_token_budget' => ['ميزانية التوكنز الشهرية', config('openrouter.global_monthly_token_budget', 50000000), 1000],
+                            'ai_daily_user_limit' => ['حد أمان يومي لكل اشتراك', config('openrouter.daily_user_limit', 100), 1],
+                            'ai_global_daily_request_limit' => ['قاطع طوارئ المنصة: طلبات يومية', config('openrouter.global_daily_request_limit', 5000), 1],
+                            'ai_global_daily_token_budget' => ['قاطع طوارئ المنصة: توكنز يومية', config('openrouter.global_daily_token_budget', 2100000), 1000],
+                            'ai_global_monthly_token_budget' => ['قاطع طوارئ المنصة: توكنز شهرية', config('openrouter.global_monthly_token_budget', 50000000), 1000],
                             'ai_answer_cache_minutes' => ['مدة إعادة استخدام الإجابة المتطابقة بالدقائق', config('openrouter.answer_cache_minutes', 360), 5],
                         ] as $field => [$label, $fallback, $minimum])
                             <div class="form-group-modern">

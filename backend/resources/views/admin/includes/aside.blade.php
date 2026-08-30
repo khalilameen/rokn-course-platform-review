@@ -275,7 +275,7 @@
                     </a>
                 </li>
                 @if($isAdministrator)
-                <li class="nav-item{{ isRouteActive('admin.notifications.*') ? ' active' : '' }}">
+                <li class="nav-item{{ isRouteActive('admin.notifications.*') || isRouteActive('admin.admin_notifications.*') ? ' active' : '' }}">
                     <a href="{{ route('admin.notifications.index') }}" class="nav-link">
                         <i class="menu-icon fa fa-bell"></i>
                         <span class="menu-text">إشعارات الطلاب</span>

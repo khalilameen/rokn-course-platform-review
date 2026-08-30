@@ -451,10 +451,17 @@ class SignController extends Controller
         );
 
         $publicApiUrl = rtrim(trim((string) config('social_auth.public_api_url')), '/');
-        $preferredProvider = (string) config('social_auth.recommended_provider', 'facebook');
+        $settings = Setting::query()->first();
+        $preferredProvider = (string) ($settings?->recommended_social_provider
+            ?: config('social_auth.recommended_provider', 'facebook'));
         $recommendedProvider = $providers->contains($preferredProvider)
             ? $preferredProvider
             : $providers->first();
+        $providerBonus = $recommendedProvider === $preferredProvider
+            ? max(0, (int) ($settings?->recommended_provider_bonus_coins ?? 0))
+            : 0;
+        $badgeAr = trim((string) ($settings?->recommended_provider_badge_ar ?? ''));
+        $badgeEn = trim((string) ($settings?->recommended_provider_badge_en ?? ''));
 
         return response()->json([
             'status' => 200,
@@ -474,9 +481,18 @@ class SignController extends Controller
                 'otp_enabled' => false,
                 'password_login_visible' => false,
                 'welcome_bonus_coins' => max(0, $welcomeBonus),
+                'recommended_provider_bonus_coins' => $providerBonus,
+                'recommended_provider_total_coins' => max(0, $welcomeBonus + $providerBonus),
                 'recommended_provider' => $recommendedProvider,
                 'recommendation_badge' => $recommendedProvider
-                    ? config('social_auth.recommendation_badge')
+                    ? ($badgeAr !== ''
+                        ? str_replace('{coins}', (string) ($welcomeBonus + $providerBonus), $badgeAr)
+                        : 'اختيار أسرع + ' . ($welcomeBonus + $providerBonus) . ' عملة ركن')
+                    : null,
+                'recommendation_badge_en' => $recommendedProvider
+                    ? ($badgeEn !== ''
+                        ? str_replace('{coins}', (string) ($welcomeBonus + $providerBonus), $badgeEn)
+                        : 'Faster choice + ' . ($welcomeBonus + $providerBonus) . ' Rokn coins')
                     : null,
             ],
         ]);

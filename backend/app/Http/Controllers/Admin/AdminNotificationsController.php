@@ -13,7 +13,10 @@ class AdminNotificationsController extends Controller
      */
     public function index()
     {
-        $admin_notifications  = AdminNotification::get();
+        $admin_notifications = AdminNotification::query()
+            ->orderBy('priority')
+            ->orderByDesc('updated_at')
+            ->get();
 
         return view('admin.admin_notifications.index', compact('admin_notifications'));
     }
@@ -34,7 +37,7 @@ class AdminNotificationsController extends Controller
      */
     public function store(AdminNotificationRequest $request)
     {
-        $admin_notification = AdminNotification::create($request->input());
+        $admin_notification = AdminNotification::create($this->payload($request));
         if ($request->hasFile('image')) {
             $file = $request->file('image');
             $admin_notification->storeImage($file, 'admin_notifications', 'featured');
@@ -60,7 +63,7 @@ class AdminNotificationsController extends Controller
      */
     public function update(AdminNotificationRequest $request, AdminNotification $admin_notification)
     {
-        $admin_notification->update($request->input());
+        $admin_notification->update($this->payload($request));
         if ($request->hasFile('image')) {
             $file = $request->file('image');
             $admin_notification->replaceImage($file, 'admin_notifications', 'featured');
@@ -80,5 +83,13 @@ class AdminNotificationsController extends Controller
         $admin_notification->delete();
 
         return redirect()->route('admin.admin_notifications.index')->with('success', 'تم الحذف بنجاح ');
+    }
+
+    private function payload(AdminNotificationRequest $request): array
+    {
+        return $request->safe()->except('image') + [
+            'is_active' => $request->boolean('is_active'),
+            'is_dismissible' => $request->boolean('is_dismissible'),
+        ];
     }
 }

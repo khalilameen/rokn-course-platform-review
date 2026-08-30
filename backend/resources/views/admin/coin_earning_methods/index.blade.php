@@ -59,6 +59,30 @@
                         </div>
                     @endforeach
                 </div>
+                <hr>
+                <h6 class="font-weight-bold mb-3">عرض التسجيل الموصى به</h6>
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label class="font-weight-bold" for="recommended_social_provider">المنصة المميزة أعلى خيارات الدخول</label>
+                        <select class="form-control" id="recommended_social_provider" name="recommended_social_provider" required>
+                            @foreach(['facebook' => 'Facebook', 'google' => 'Google', 'tiktok' => 'TikTok', 'apple' => 'Apple'] as $provider => $label)
+                                <option value="{{ $provider }}" {{ old('recommended_social_provider', $setting?->recommended_social_provider ?? 'facebook') === $provider ? 'selected' : '' }}>{{ $label }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="font-weight-bold" for="recommended_provider_bonus_coins">عملات إضافية فوق هدية التسجيل</label>
+                        <input class="form-control" id="recommended_provider_bonus_coins" min="0" name="recommended_provider_bonus_coins" required type="number" value="{{ old('recommended_provider_bonus_coins', $setting?->recommended_provider_bonus_coins ?? 0) }}">
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="font-weight-bold" for="recommended_provider_badge_ar">النص الظاهر فوق المنصة</label>
+                        <input class="form-control" id="recommended_provider_badge_ar" maxlength="255" name="recommended_provider_badge_ar" placeholder="الأفضل: بيانات أقل تكتبها ومكافأة أكبر" value="{{ old('recommended_provider_badge_ar', $setting?->recommended_provider_badge_ar) }}">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="font-weight-bold" for="recommended_provider_badge_en">English badge</label>
+                        <input class="form-control" dir="ltr" id="recommended_provider_badge_en" maxlength="255" name="recommended_provider_badge_en" value="{{ old('recommended_provider_badge_en', $setting?->recommended_provider_badge_en) }}">
+                    </div>
+                </div>
                 <button type="submit" class="btn btn-warning px-4 coin-form-action">
                     <i class="fa fa-save ml-1"></i> حفظ قواعد استخدام العملات
                 </button>
