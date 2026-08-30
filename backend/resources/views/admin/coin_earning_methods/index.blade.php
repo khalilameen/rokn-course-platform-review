@@ -38,10 +38,103 @@
                         @enderror
                     </div>
                 </div>
+                <div class="row">
+                    @foreach([
+                        'reward_balance_cap' => ['أقصى رصيد مكافآت', 1200, 0],
+                        'max_reward_contribution_per_course' => ['أقصى مكافآت في كورس واحد', 1200, 0],
+                    ] as $field => [$label, $fallback, $minimum])
+                        <div class="col-md-6 col-lg-4 mb-3">
+                            <label class="form-label font-weight-bold" for="{{ $field }}">{{ $label }}</label>
+                            <input
+                                type="number"
+                                name="{{ $field }}"
+                                id="{{ $field }}"
+                                min="{{ $minimum }}"
+                                step="1"
+                                inputmode="numeric"
+                                value="{{ old($field, $setting?->{$field} ?? $fallback) }}"
+                                class="form-control @error($field) is-invalid @enderror"
+                                required>
+                            @error($field)<div class="invalid-feedback">{{ $message }}</div>@enderror
+                        </div>
+                    @endforeach
+                </div>
                 <button type="submit" class="btn btn-warning px-4 coin-form-action">
-                    <i class="fa fa-save ml-1"></i> حفظ
+                    <i class="fa fa-save ml-1"></i> حفظ قواعد استخدام العملات
                 </button>
             </form>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-4 coin-panel">
+        <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center">
+                <i class="fa fa-bolt text-warning ml-2"></i>
+                <div>
+                    <h6 class="mb-1 font-weight-bold">مكافآت الأحداث داخل التطبيق</h6>
+                    <p class="mb-0 text-muted small">كل قاعدة قابلة للإضافة والتعديل والتعطيل والحذف. حذف القاعدة يوقف الحدث ولا يمس العملات التي استلمها المستخدمون.</p>
+                </div>
+            </div>
+        </div>
+        <div class="card-body p-4">
+            <form action="{{ route('admin.reward-rules.store') }}" method="POST" class="border rounded p-3 mb-4">
+                @csrf
+                <h6 class="font-weight-bold mb-3">إضافة قاعدة</h6>
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label class="font-weight-bold">الحدث</label>
+                        <select name="event_key" class="form-control" required>
+                            <option value="">اختر الحدث</option>
+                            @foreach($rewardEvents as $eventKey => $eventLabel)
+                                @if(!$rewardRules->contains('event_key', $eventKey))
+                                    <option value="{{ $eventKey }}">{{ $eventLabel }}</option>
+                                @endif
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="col-md-4 mb-3"><label class="font-weight-bold">الاسم بالعربية</label><input name="title_ar" class="form-control" required></div>
+                    <div class="col-md-4 mb-3"><label class="font-weight-bold">الاسم بالإنجليزية</label><input name="title_en" class="form-control"></div>
+                    <div class="col-md-4 mb-3"><label class="font-weight-bold">عدد العملات</label><input type="number" min="0" name="coins_amount" class="form-control" required></div>
+                    <div class="col-md-4 mb-3"><label class="font-weight-bold">الفترة/الشرط العددي</label><input type="number" min="1" name="interval_count" value="1" class="form-control" required><small class="text-muted">أيام للاستمرارية، ودقائق للدراسة، و1 لباقي الأحداث.</small></div>
+                    <div class="col-md-4 mb-3"><label class="font-weight-bold">الحد اليومي</label><input type="number" min="0" name="daily_cap" class="form-control"></div>
+                    <div class="col-md-4 mb-3"><label class="font-weight-bold">الحد خلال 30 يومًا</label><input type="number" min="0" name="rolling_30_day_cap" class="form-control"></div>
+                </div>
+                <input type="hidden" name="is_active" value="1">
+                <button class="btn btn-warning px-4"><i class="fa fa-plus ml-1"></i> إضافة القاعدة</button>
+            </form>
+
+            <div class="row">
+                @forelse($rewardRules as $rule)
+                    <div class="col-lg-6 mb-3">
+                        <form action="{{ route('admin.reward-rules.update', $rule) }}" method="POST" class="border rounded p-3 h-100">
+                            @csrf
+                            @method('PUT')
+                            <input type="hidden" name="event_key" value="{{ $rule->event_key }}">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <strong>{{ $rewardEvents[$rule->event_key] ?? $rule->event_key }}</strong>
+                                <label class="mb-0"><input type="checkbox" name="is_active" value="1" {{ $rule->is_active ? 'checked' : '' }}> نشطة</label>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-4 mb-2"><label>الاسم بالعربية</label><input name="title_ar" value="{{ $rule->title_ar }}" class="form-control" required></div>
+                                <div class="col-md-4 mb-2"><label>الاسم بالإنجليزية</label><input name="title_en" value="{{ $rule->title_en }}" class="form-control"></div>
+                                <div class="col-md-4 mb-2"><label>العملات</label><input type="number" min="0" name="coins_amount" value="{{ $rule->coins_amount }}" class="form-control" required></div>
+                                <div class="col-md-4 mb-2"><label>الفترة/الشرط</label><input type="number" min="1" name="interval_count" value="{{ $rule->interval_count }}" class="form-control" required></div>
+                                <div class="col-md-4 mb-2"><label>حد يومي</label><input type="number" min="0" name="daily_cap" value="{{ $rule->daily_cap }}" class="form-control"></div>
+                                <div class="col-md-4 mb-2"><label>حد 30 يومًا</label><input type="number" min="0" name="rolling_30_day_cap" value="{{ $rule->rolling_30_day_cap }}" class="form-control"></div>
+                            </div>
+                            <input type="hidden" name="sort_order" value="{{ $rule->sort_order }}">
+                            <button class="btn btn-sm btn-outline-primary mt-2"><i class="fa fa-save ml-1"></i> حفظ</button>
+                        </form>
+                        <form action="{{ route('admin.reward-rules.destroy', $rule) }}" method="POST" class="mt-2" onsubmit="return confirm('حذف القاعدة سيوقف هذه المكافأة فورًا. هل أنت متأكد؟')">
+                            @csrf
+                            @method('DELETE')
+                            <button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash ml-1"></i> حذف القاعدة</button>
+                        </form>
+                    </div>
+                @empty
+                    <div class="col-12 text-center text-muted py-4">لا توجد مكافآت أحداث نشطة أو محفوظة.</div>
+                @endforelse
+            </div>
         </div>
     </div>
 

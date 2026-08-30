@@ -56,6 +56,8 @@ final class OpenRouterService
             throw new \RuntimeException('AI provider returned an empty response.');
         }
 
+        $providerCost = data_get($body, 'usage.cost');
+
         return [
             'message' => trim($content),
             'provider_request_id' => data_get($body, 'id'),
@@ -66,7 +68,10 @@ final class OpenRouterService
                 'prompt_tokens' => max(0, (int) data_get($body, 'usage.prompt_tokens', 0)),
                 'completion_tokens' => max(0, (int) data_get($body, 'usage.completion_tokens', 0)),
                 'total_tokens' => max(0, (int) data_get($body, 'usage.total_tokens', 0)),
-                'cost' => max(0, (float) data_get($body, 'usage.cost', 0)),
+                'cost' => is_numeric($providerCost) ? max(0, (float) $providerCost) : 0,
+                // Zero is a valid provider-reported cost (for example a free
+                // model). Keep it distinct from an omitted usage cost.
+                'cost_reported' => is_numeric($providerCost),
             ],
         ];
     }

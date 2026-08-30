@@ -142,8 +142,8 @@ final class BunnySecretMigrationCommandTest extends TestCase
         $response = $this->actingAs($admin)->post(route('admin.settings.update'), [
             'bunny_api_key' => 'must-not-enter-session',
             'bunny_storage_password' => 'must-not-enter-session-either',
-            // Required reward fields are intentionally absent.
-        ])->assertRedirect()->assertSessionHasErrors('welcome_bonus_coins');
+            'email' => 'not-an-email',
+        ])->assertRedirect()->assertSessionHasErrors('email');
 
         $oldInput = $response->getSession()->getOldInput();
         self::assertArrayNotHasKey('bunny_api_key', $oldInput);

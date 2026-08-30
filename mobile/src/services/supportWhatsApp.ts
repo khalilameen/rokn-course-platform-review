@@ -1,5 +1,5 @@
 import {Linking} from 'react-native';
-import {publicRequest} from '../constants/api';
+import {getPublicAppSettings} from './publicAppSettings';
 
 let cachedUrl = '';
 
@@ -22,9 +22,7 @@ export const getSupportWhatsAppUrl = async () => {
     return cachedUrl;
   }
 
-  const response = await publicRequest.get('settings');
-  const payload = response?.data?.data ?? response?.data;
-  const settings = Array.isArray(payload) ? payload[0] : payload;
+  const settings = await getPublicAppSettings();
   cachedUrl = safeWhatsAppUrl(
     settings?.support_whatsapp_url ??
       settings?.social_media?.whatsapp ??

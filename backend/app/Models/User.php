@@ -130,6 +130,7 @@ class User extends Authenticatable
         'admin_totp_confirmed_at' => 'datetime',
         'admin_totp_last_used_step' => 'integer',
         'admin_mfa_backup_codes' => 'array',
+        'last_dashboard_login_at' => 'datetime',
     ];
 
     /**

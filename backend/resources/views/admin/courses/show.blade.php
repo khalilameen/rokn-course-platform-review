@@ -87,6 +87,12 @@
                 <i class="fa fa-chart-bar"></i>
                 الإحصائيات
             </button>
+            @if($commercialReport)
+                <button class="tab-button" onclick="switchTab(event, 'commercial-report')">
+                    <i class="fa fa-line-chart"></i>
+                    الطلاب والدخل
+                </button>
+            @endif
         </div>
 
         @include('admin.courses.partials.show.overview')
@@ -94,6 +100,10 @@
         @include('admin.courses.partials.show.sections')
 
         @include('admin.courses.partials.show.statistics')
+
+        @if($commercialReport)
+            @include('admin.courses.partials.show.commercial-report')
+        @endif
     </div>
 </div>
 

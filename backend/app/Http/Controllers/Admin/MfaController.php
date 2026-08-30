@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class MfaController extends Controller
 {
@@ -257,6 +258,9 @@ class MfaController extends Controller
             'admin_mfa_verified_at' => time(),
             'admin_mfa_secret_fingerprint' => $this->totp->secretFingerprint($secret),
         ]);
+        if (Schema::hasColumn('users', 'last_dashboard_login_at')) {
+            User::query()->whereKey($userId)->update(['last_dashboard_login_at' => now()]);
+        }
     }
 
     private function pendingSetupSecret(Request $request): string

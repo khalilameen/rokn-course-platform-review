@@ -8,6 +8,7 @@ use App\Exceptions\AiPlanLimitReachedException;
 use App\Models\AiEntitlementUsage;
 use App\Models\AiUsageEvent;
 use App\Models\CourseEnrollment;
+use App\Models\Setting;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -159,9 +160,16 @@ final readonly class AiEntitlementBudgetService
                 0,
                 $this->toUsdMicros(data_get($providerResult, 'usage.cost', 0))
             );
+            $usageFacts = data_get($providerResult, 'usage', []);
+            $providerCostWasReported = data_get($providerResult, 'usage.cost_reported');
+            if (!is_bool($providerCostWasReported)) {
+                $providerCostWasReported = is_array($usageFacts)
+                    && array_key_exists('cost', $usageFacts)
+                    && is_numeric($usageFacts['cost']);
+            }
             // Missing provider usage settles against the reservation.
             $total = $providerTotal > 0 ? $providerTotal : (int) $lockedEvent->reserved_tokens;
-            $costMicros = $providerCostMicros > 0
+            $costMicros = $providerCostWasReported
                 ? $providerCostMicros
                 : $this->toUsdMicros($lockedEvent->reserved_cost_usd);
 
@@ -180,9 +188,25 @@ final readonly class AiEntitlementBudgetService
                 ),
             ])->save();
             $metadata = is_array($lockedEvent->metadata) ? $lockedEvent->metadata : [];
-            $metadata['usage_source'] = $providerTotal > 0 && $providerCostMicros > 0
+            $metadata['token_usage_source'] = $providerTotal > 0
                 ? 'provider'
                 : 'reservation_fallback';
+            $metadata['cost_usage_source'] = $providerCostWasReported
+                ? 'provider'
+                : 'reservation_fallback';
+            $metadata['usage_source'] = $providerTotal > 0 && $providerCostWasReported
+                ? 'provider'
+                : 'reservation_fallback';
+            $egpFacts = [];
+            if (Schema::hasColumn('ai_usage_events', 'cost_egp')) {
+                $fxRate = max(0, (float) (Setting::query()->value('openrouter_usd_to_egp_rate') ?? 0));
+                if ($fxRate > 0) {
+                    $egpFacts = [
+                        'fx_rate_to_egp' => number_format($fxRate, 4, '.', ''),
+                        'cost_egp' => number_format(($costMicros / 1_000_000) * $fxRate, 6, '.', ''),
+                    ];
+                }
+            }
             $lockedEvent->forceFill([
                 'status' => 'completed',
                 'prompt_tokens' => max(0, (int) data_get($providerResult, 'usage.prompt_tokens', 0)),
@@ -192,7 +216,7 @@ final readonly class AiEntitlementBudgetService
                 'provider_request_id' => data_get($providerResult, 'provider_request_id'),
                 'metadata' => $metadata,
                 'completed_at' => now(),
-            ])->save();
+            ] + $egpFacts)->save();
         }, 3);
     }
 

@@ -16,10 +16,10 @@ final class AdminAuthorizationMatrixTest extends TestCase
         $matrix = app(AdminPermissionMatrix::class);
 
         self::assertTrue($matrix->allows('moderator', 'admin.courses.index', 'GET'));
-        self::assertTrue($matrix->allows('moderator', 'admin.project-submissions.reject', 'POST'));
+        self::assertTrue($matrix->allows('moderator', 'admin.courses.update', 'PATCH'));
         self::assertTrue($matrix->allows('moderator', 'admin.courses.sections.update', 'PATCH'));
 
-        self::assertFalse($matrix->allows('moderator', 'admin.courses.update', 'PATCH'));
+        self::assertFalse($matrix->allows('moderator', 'admin.project-submissions.reject', 'POST'));
         self::assertFalse($matrix->allows('moderator', 'admin.settings', 'GET'));
         self::assertFalse($matrix->allows('moderator', 'admin.payment-reconciliation-findings.index', 'GET'));
         self::assertFalse($matrix->allows('moderator', 'admin.payment-reconciliation-findings.resolve', 'PATCH'));
@@ -38,8 +38,10 @@ final class AdminAuthorizationMatrixTest extends TestCase
         foreach ([
             'admin.settings',
             'admin.orders.index',
-            'admin.courses.update',
             'admin.courses.destroy',
+            'admin.student-progress.index',
+            'admin.project-submissions.index',
+            'admin.exam-results.index',
             'admin.exam-results.export',
             'admin.users.index',
             'admin.product-operations.features.update',
@@ -47,6 +49,10 @@ final class AdminAuthorizationMatrixTest extends TestCase
             'admin.payment-reconciliation-findings.resolve',
             'admin.payment-reconciliation-findings.ignore',
             'admin.payment-reconciliation-findings.reopen',
+            'admin.moderators.index',
+            'admin.operating-costs.index',
+            'admin.operating-costs.store',
+            'admin.courses.commercial-report.export',
         ] as $name) {
             $route = Route::getRoutes()->getByName($name);
             self::assertNotNull($route, "Missing expected route {$name}");
@@ -54,7 +60,7 @@ final class AdminAuthorizationMatrixTest extends TestCase
             self::assertContains('admin.mfa', $route->gatherMiddleware(), "{$name} must require admin MFA");
         }
 
-        $moderatorRoute = Route::getRoutes()->getByName('admin.project-submissions.index');
+        $moderatorRoute = Route::getRoutes()->getByName('admin.courses.update');
         self::assertNotNull($moderatorRoute);
         self::assertNotContains('admin.only', $moderatorRoute->gatherMiddleware());
         self::assertContains('admin.mfa', $moderatorRoute->gatherMiddleware());
@@ -84,10 +90,12 @@ final class AdminAuthorizationMatrixTest extends TestCase
         $html = view('admin.includes.aside')->render();
 
         self::assertStringContainsString(route('admin.courses.index'), $html);
-        self::assertStringContainsString(route('admin.project-submissions.index'), $html);
+        self::assertStringContainsString(route('admin.teachers.index'), $html);
         self::assertStringNotContainsString(route('admin.settings'), $html);
         self::assertStringNotContainsString(route('admin.orders.index'), $html);
         self::assertStringNotContainsString(route('admin.payment-reconciliation-findings.index'), $html);
         self::assertStringNotContainsString(route('admin.users.index'), $html);
+        self::assertStringNotContainsString(route('admin.student-progress.index'), $html);
+        self::assertStringNotContainsString(route('admin.project-submissions.index'), $html);
     }
 }

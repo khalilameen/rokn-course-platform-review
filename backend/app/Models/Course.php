@@ -21,7 +21,10 @@ class Course extends Model
         'is_main_course', 'is_coming_soon', 'is_catalog_visible', 'home_sort_order',
         'catalog_badge_ar', 'catalog_badge_en', 'catalog_badge_tone',
         'search_keywords_ar', 'search_keywords_en', 'search_title_normalized', 'search_terms_normalized',
-        'ai_model_type', 'chat_ai_prompt', 'temperature', 'tokens_number', 'ai_chat_enabled', 'level_id', 'awards_badge', 'badge_track', 'created_at', 'updated_at', 'path_id'
+        'ai_model_type', 'chat_ai_prompt', 'temperature', 'tokens_number', 'ai_chat_enabled',
+        'attachment_prompt_enabled', 'attachment_prompt_at_seconds', 'attachment_prompt_title',
+        'attachment_prompt_body', 'attachment_prompt_button_text',
+        'level_id', 'awards_badge', 'badge_track', 'created_at', 'updated_at', 'path_id'
     ];
     protected $photoModel = 'App\Models\Photo';
     protected $casts = [
@@ -32,6 +35,8 @@ class Course extends Model
         'is_catalog_visible' => 'boolean',
         'home_sort_order' => 'integer',
         'ai_chat_enabled' => 'boolean',
+        'attachment_prompt_enabled' => 'boolean',
+        'attachment_prompt_at_seconds' => 'integer',
         'awards_badge' => 'boolean',
     ];
 

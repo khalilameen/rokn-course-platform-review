@@ -216,13 +216,11 @@ final readonly class CourseAccessPlanService
                         "access_plans.{$code}.model_override" => ['النموذج خارج قائمة الخادم المعتمدة.'],
                     ]);
                 }
-                $feedback = $code === CourseAccessPlan::BASIC
-                    ? 'pass_only'
-                    : (string) ($row['project_feedback_level'] ?? 'pass_only');
+                $feedback = (string) ($row['project_feedback_level'] ?? 'pass_only');
                 if (!in_array($feedback, $allowedFeedback, true)) {
                     $feedback = 'pass_only';
                 }
-                $chatEnabled = $code !== CourseAccessPlan::BASIC && !empty($row['chat_enabled']);
+                $chatEnabled = !empty($row['chat_enabled']);
                 $chatBudget = max(0, (float) ($row['ai_budget_usd'] ?? 0));
                 $chatReserve = max(0, (float) ($row['request_reserve_usd'] ?? 0));
                 $projectBudget = max(0, (float) ($row['project_feedback_budget_usd'] ?? 0));

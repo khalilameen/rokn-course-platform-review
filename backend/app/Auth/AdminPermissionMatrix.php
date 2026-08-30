@@ -22,10 +22,13 @@ final class AdminPermissionMatrix
         'admin.mfa.challenge.verify' => ['POST'],
         'admin.mfa.backup-codes' => ['GET'],
 
-        // Course shells are read-only for moderators. Pricing, publication and
-        // destructive shell changes remain administrator-only at route level.
+        // Full course authoring, including pricing tiers and AI contracts.
         'admin.courses.index' => ['GET'],
         'admin.courses.show' => ['GET'],
+        'admin.courses.create' => ['GET'],
+        'admin.courses.store' => ['POST'],
+        'admin.courses.edit' => ['GET'],
+        'admin.courses.update' => ['PUT', 'PATCH'],
 
         // Educational content authoring and review workflows.
         'admin.courses.sections.index' => ['GET'],
@@ -83,7 +86,14 @@ final class AdminPermissionMatrix
         'admin.lessons.show' => ['GET'],
         'admin.lessons.edit' => ['GET'],
 
-        // Read-only curriculum reference data.
+        // Teachers and curriculum reference data belong to course operations.
+        'admin.teachers.index' => ['GET'],
+        'admin.teachers.create' => ['GET'],
+        'admin.teachers.store' => ['POST'],
+        'admin.teachers.show' => ['GET'],
+        'admin.teachers.edit' => ['GET'],
+        'admin.teachers.update' => ['PUT', 'PATCH'],
+        'admin.teachers.deactive' => ['PATCH'],
         'admin.categories.index' => ['GET'],
         'admin.categories.show' => ['GET'],
         'admin.grades.index' => ['GET'],
@@ -91,25 +101,25 @@ final class AdminPermissionMatrix
         'admin.grades.courses' => ['GET'],
         'admin.classifications.index' => ['GET'],
         'admin.classifications.show' => ['GET'],
+        'admin.classifications.create' => ['GET'],
+        'admin.classifications.store' => ['POST'],
+        'admin.classifications.edit' => ['GET'],
+        'admin.classifications.update' => ['PUT', 'PATCH'],
+        'admin.classifications.destroy' => ['DELETE'],
         'admin.paths.index' => ['GET'],
         'admin.paths.show' => ['GET'],
+        'admin.paths.create' => ['GET'],
+        'admin.paths.store' => ['POST'],
+        'admin.paths.edit' => ['GET'],
+        'admin.paths.update' => ['PUT', 'PATCH'],
+        'admin.paths.destroy' => ['DELETE'],
         'admin.levels.index' => ['GET'],
         'admin.levels.show' => ['GET'],
-
-        // Moderation and learning-quality review.
-        'admin.student-progress.index' => ['GET'],
-        'admin.student-progress.show' => ['GET'],
-        'admin.student-progress.statistics' => ['GET'],
-        'admin.student-progress.compare' => ['POST'],
-        'admin.project-submissions.index' => ['GET'],
-        'admin.project-submissions.show' => ['GET'],
-        'admin.project-submissions.download' => ['GET'],
-        'admin.project-submissions.pass' => ['POST'],
-        'admin.project-submissions.reject' => ['POST'],
-        'admin.exam-results.index' => ['GET'],
-        'admin.exam-results.stats' => ['GET'],
-        'admin.exam-results.show' => ['GET'],
-        'admin.students.exam-results' => ['GET'],
+        'admin.levels.create' => ['GET'],
+        'admin.levels.store' => ['POST'],
+        'admin.levels.edit' => ['GET'],
+        'admin.levels.update' => ['PUT', 'PATCH'],
+        'admin.levels.destroy' => ['DELETE'],
     ];
 
     public function allows(?string $role, ?string $routeName, string $method): bool

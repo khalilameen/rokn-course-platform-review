@@ -4,7 +4,7 @@ import {
   BottomSheetModal,
   BottomSheetScrollView,
 } from '@gorhom/bottom-sheet';
-import React, {useCallback, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -27,6 +27,11 @@ import {
   SavedFolderOption,
 } from './courseLearningApi';
 import {CourseLearningData, CourseLearningModule, CourseReel} from './types';
+import {openCourseAttachment} from './attachmentActions';
+import {
+  hasSeenAttachmentPrompt,
+  markAttachmentPromptSeen,
+} from './attachmentPrompt';
 
 interface FeedSideBarProps {
   course: CourseLearningData;
@@ -38,6 +43,7 @@ interface FeedSideBarProps {
   onBeforeOpenSave: () => boolean;
   onOpenChat: () => void;
   onSelectFeedItem: (key: string) => void;
+  currentTime: number;
 }
 
 const ChatIcon = () => (
@@ -65,6 +71,19 @@ const BookmarkIcon = ({filled}: {filled: boolean}) => (
       fill={filled ? '#4B8EF7' : 'rgba(0,0,0,0)'}
       stroke="#fff"
       strokeWidth={1.8}
+      strokeLinejoin="round"
+    />
+  </Svg>
+);
+
+const AttachmentIcon = () => (
+  <Svg width={27} height={27} viewBox="0 0 28 28">
+    <Path
+      d="m10.1 14.8 7.7-7.7a4 4 0 0 1 5.7 5.7L13.2 23.1a6 6 0 0 1-8.5-8.5L15.3 4"
+      fill="none"
+      stroke="#fff"
+      strokeWidth={1.9}
+      strokeLinecap="round"
       strokeLinejoin="round"
     />
   </Svg>
@@ -251,13 +270,17 @@ const FeedSideBar = ({
   onBeforeOpenSave,
   onOpenChat,
   onSelectFeedItem,
+  currentTime,
 }: FeedSideBarProps) => {
   const {height, fontScale} = useWindowDimensions();
   const compact = height < 620 || fontScale > 1.25;
   const indexSheetRef = useRef<BottomSheetModal>(null);
   const saveSheetRef = useRef<BottomSheetModal>(null);
+  const attachmentSheetRef = useRef<BottomSheetModal>(null);
+  const attachmentPromptCheckRef = useRef('');
   const snapPoints = useMemo(() => ['78%', '94%'], []);
   const saveSnapPoints = useMemo(() => ['52%', '72%'], []);
+  const attachmentSnapPoints = useMemo(() => ['48%', '72%'], []);
   const [folders, setFolders] = useState<SavedFolderOption[]>([]);
   const [foldersLoading, setFoldersLoading] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
@@ -268,6 +291,54 @@ const FeedSideBar = ({
       total + module.reels.filter(reel => reel.isCompleted).length,
     0,
   );
+  const currentModule = course.modules.find(
+    module => module.id === currentReel.moduleId,
+  );
+  const attachments = currentModule?.attachments || [];
+
+  const openAttachments = useCallback(() => {
+    if (!currentModule || !attachments.length) return;
+    void markAttachmentPromptSeen(course.id, currentModule.id).catch(
+      () => undefined,
+    );
+    attachmentSheetRef.current?.present();
+  }, [attachments.length, course.id, currentModule]);
+
+  useEffect(() => {
+    const prompt = course.attachmentPrompt;
+    if (
+      !prompt?.enabled ||
+      !currentModule ||
+      !attachments.length ||
+      currentTime < prompt.atSeconds
+    ) {
+      return;
+    }
+
+    const checkId = `${course.id}:${currentModule.id}`;
+    if (attachmentPromptCheckRef.current === checkId) return;
+    attachmentPromptCheckRef.current = checkId;
+    let cancelled = false;
+    void hasSeenAttachmentPrompt(course.id, currentModule.id)
+      .then(async seen => {
+        if (seen || cancelled) return;
+        await markAttachmentPromptSeen(course.id, currentModule.id);
+        if (!cancelled) attachmentSheetRef.current?.present();
+      })
+      .catch(() => {
+        // Storage unavailability must not interrupt playback.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    attachments.length,
+    course.attachmentPrompt,
+    course.id,
+    currentModule,
+    currentTime,
+  ]);
 
   const renderBackdrop = useCallback(
     (props: BottomSheetBackdropProps) => (
@@ -342,6 +413,14 @@ const FeedSideBar = ({
           onPress={openSaveSheet}>
           <BookmarkIcon filled={isSaved} />
         </ActionButton>
+        {!!attachments.length && (
+          <ActionButton
+            label="ملفات"
+            compact={compact}
+            onPress={openAttachments}>
+            <AttachmentIcon />
+          </ActionButton>
+        )}
         <ActionButton
           label="الفهرس"
           compact={compact}
@@ -398,6 +477,56 @@ const FeedSideBar = ({
               onSelect={handleSelect}
             />
           ))}
+        </BottomSheetScrollView>
+      </BottomSheetModal>
+
+      <BottomSheetModal
+        ref={attachmentSheetRef}
+        snapPoints={attachmentSnapPoints}
+        enableDynamicSizing={false}
+        enablePanDownToClose
+        backdropComponent={renderBackdrop}
+        backgroundStyle={styles.sheetBackground}
+        handleIndicatorStyle={styles.sheetIndicator}>
+        <BottomSheetScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.attachmentSheetContent}>
+          <Text style={styles.sheetEyebrow}>ملفات الوحدة</Text>
+          <Text style={styles.attachmentTitle}>
+            {course.attachmentPrompt?.title || 'مرفقات تساعدك في التطبيق'}
+          </Text>
+          <Text style={styles.attachmentBody}>
+            {course.attachmentPrompt?.body ||
+              'حمّل الملفات واستخدمها مع الخطوات العملية في هذه الوحدة.'}
+          </Text>
+          <View style={styles.attachmentList}>
+            {attachments.map(attachment => (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`تنزيل ${attachment.title}`}
+                key={attachment.id}
+                onPress={() => void openCourseAttachment(attachment)}
+                style={({pressed}) => [
+                  styles.attachmentRow,
+                  pressed && styles.pressed,
+                ]}>
+                <View style={styles.attachmentGlyph}>
+                  <AttachmentIcon />
+                </View>
+                <View style={styles.attachmentCopy}>
+                  <Text style={styles.attachmentName}>{attachment.title}</Text>
+                  <Text style={styles.attachmentMeta}>
+                    {attachment.platform === 'computer'
+                      ? 'يُفتح من الكمبيوتر'
+                      : attachment.fileSize || attachment.fileType || 'ملف مرفق'}
+                  </Text>
+                </View>
+                <Text style={styles.attachmentAction}>
+                  {course.attachmentPrompt?.buttonText || 'تحميل'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
         </BottomSheetScrollView>
       </BottomSheetModal>
 
@@ -746,6 +875,70 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 680,
     alignSelf: 'center',
+  },
+  attachmentSheetContent: {
+    paddingHorizontal: 18,
+    paddingBottom: 38,
+    width: '100%',
+    maxWidth: 680,
+    alignSelf: 'center',
+  },
+  attachmentTitle: {
+    ...textDirection,
+    color: '#FFFFFF',
+    fontFamily: Fonts.bold,
+    fontSize: 22,
+    lineHeight: 32,
+    marginTop: 2,
+  },
+  attachmentBody: {
+    ...textDirection,
+    color: 'rgba(255,255,255,.68)',
+    fontFamily: Fonts.regular,
+    fontSize: 13,
+    lineHeight: 21,
+    marginTop: 5,
+    marginBottom: 16,
+  },
+  attachmentList: {gap: 8},
+  attachmentRow: {
+    minHeight: 64,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    ...rtlRowStyle,
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#121923',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,.08)',
+  },
+  attachmentGlyph: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(75,142,247,.18)',
+  },
+  attachmentCopy: {flex: 1},
+  attachmentName: {
+    ...textDirection,
+    color: '#FFFFFF',
+    fontFamily: Fonts.medium,
+    fontSize: 13,
+  },
+  attachmentMeta: {
+    ...textDirection,
+    color: 'rgba(255,255,255,.46)',
+    fontFamily: Fonts.regular,
+    fontSize: 10,
+    marginTop: 2,
+  },
+  attachmentAction: {
+    color: '#76A9FF',
+    fontFamily: Fonts.semiBold,
+    fontSize: 11,
+    maxWidth: 90,
   },
   saveSheetTitle: {
     ...textDirection,

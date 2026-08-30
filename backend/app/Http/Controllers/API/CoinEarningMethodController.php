@@ -35,7 +35,9 @@ final class CoinEarningMethodController extends Controller
                     ->orWhere('action_key', '!=', 'register');
             })
             ->latest()
-            ->get();
+            ->get()
+            ->filter(fn (CoinEarningMethod $method): bool => $method->hasUsableDestination())
+            ->values();
         $setting = Setting::first() ?? new Setting();
         $user = auth('api')->user();
 
@@ -96,7 +98,12 @@ final class CoinEarningMethodController extends Controller
     public function start(CoinEarningMethod $method): JsonResponse
     {
         $user = auth('api')->user();
-        if (!$method->is_active || $method->action_key === 'register') {
+        $actionUrl = $method->resolvedActionUrl();
+        if (
+            !$method->is_active
+            || $method->action_key === 'register'
+            || ($method->requires_external_visit && $actionUrl === null)
+        ) {
             return $this->error('Task is not available', 404, 'task_unavailable');
         }
         if ($this->tombstones->userHasConsumedMethod($user, $method)) {
@@ -104,7 +111,7 @@ final class CoinEarningMethodController extends Controller
                 'status' => 200,
                 'success' => true,
                 'message' => 'تم استلام مكافأة هذه المهمة سابقًا.',
-                'data' => ['task_state' => 'claimed', 'action_url' => $method->action_url],
+                'data' => ['task_state' => 'claimed', 'action_url' => $actionUrl],
             ]);
         }
 
@@ -137,7 +144,7 @@ final class CoinEarningMethodController extends Controller
                 'message' => 'تم استلام مكافأة هذه المهمة سابقًا.',
                 'data' => [
                     'task_state' => 'claimed',
-                    'action_url' => $method->action_url,
+                    'action_url' => $actionUrl,
                 ],
             ]);
         }
@@ -149,7 +156,7 @@ final class CoinEarningMethodController extends Controller
             'data' => [
                 'attempt_id' => $attempt->public_id,
                 'task_state' => $attempt->claim_available_at?->isFuture() ? 'started' : 'ready_to_claim',
-                'action_url' => $method->action_url,
+                'action_url' => $actionUrl,
                 'claim_available_at' => $attempt->claim_available_at?->toIso8601String(),
             ],
         ]);

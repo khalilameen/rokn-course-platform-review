@@ -29,6 +29,11 @@ import {
 import {signInWithSocialProvider} from '../../services/socialAuth';
 import {toArabicDigits} from '../../constants/arabicFormatting';
 import {revokeCurrentDeviceSession} from '../../services/deviceSessions';
+import {
+  getPublicAppSettings,
+  safeDashboardUrl,
+} from '../../services/publicAppSettings';
+import type {PublicAppSettings} from '../../services/publicAppSettings';
 import {accountDeletionUrl, returnsPolicyUrl} from './settingsData';
 import type {SettingsNavigation} from './types';
 
@@ -49,7 +54,7 @@ export const useAccountSettingsActions = ({
     } catch {
       Alert.alert(
         'تعذّر فتح واتساب',
-        'لم نتمكن من تحميل رقم الدعم. تأكد من الاتصال ثم حاول مرة أخرى.',
+        'رقم الدعم غير متاح حاليًا أو تعذر الاتصال. يمكنك إرسال بلاغ من داخل التطبيق.',
       );
     }
   };
@@ -71,11 +76,19 @@ export const useAccountSettingsActions = ({
 
   const openStoreRating = async () => {
     try {
+      const settings = await getPublicAppSettings().catch(
+        (): PublicAppSettings => ({}),
+      );
       if (Platform.OS === 'android') {
-        await Linking.openURL('market://details?id=com.rokn');
+        const dashboardUrl = safeDashboardUrl(settings.android_app_url);
+        await Linking.openURL(
+          dashboardUrl || 'market://details?id=com.rokn',
+        );
         return;
       }
-      const appStoreUrl = process.env.EXPO_PUBLIC_APP_STORE_URL?.trim();
+      const appStoreUrl =
+        safeDashboardUrl(settings.ios_app_url) ||
+        safeDashboardUrl(process.env.EXPO_PUBLIC_APP_STORE_URL);
       if (appStoreUrl) {
         await Linking.openURL(appStoreUrl);
         return;

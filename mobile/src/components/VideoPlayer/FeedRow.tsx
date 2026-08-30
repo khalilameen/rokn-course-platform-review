@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useCallback, useState} from 'react';
 import {StyleSheet, View} from 'react-native';
 import {
   CourseLearningData,
@@ -83,6 +83,15 @@ const FeedRow = ({
   onSubmitProject,
   onContinueAfterProject,
 }: FeedRowProps) => {
+  const [currentTime, setCurrentTime] = useState(0);
+  const handleProgress = useCallback(
+    (time: number, duration: number) => {
+      setCurrentTime(time);
+      onProgress(time, duration);
+    },
+    [onProgress],
+  );
+
   if (item.type === 'project') {
     const module = course.modules.find(entry => entry.id === item.moduleId);
     return (
@@ -122,7 +131,7 @@ const FeedRow = ({
             fitMode={fitMode}
             initialPosition={initialPosition}
             bottomInset={bottomInset}
-            onProgress={onProgress}
+            onProgress={handleProgress}
             onComplete={onComplete}
             onRefreshSource={onRefreshVideo}
             onPlaybackEvent={onPlaybackEvent}
@@ -153,6 +162,7 @@ const FeedRow = ({
               onBeforeOpenSave={onBeforeOpenSave}
               onOpenChat={onOpenChat}
               onSelectFeedItem={onSelectFeedItem}
+              currentTime={currentTime}
             />
             <FeedFooter data={item.reel} bottomInset={bottomInset} />
           </>

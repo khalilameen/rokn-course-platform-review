@@ -182,18 +182,22 @@
                                     <i class="fa fa-list"></i>
                                     الأقسام
                                 </a>
-                                <button onclick="deleteCourse({{ $course->id }})" class="btn-card btn-card-danger">
-                                    <i class="fa fa-trash"></i>
-                                    حذف
-                                </button>
+                                @if(strtolower((string) auth()->user()?->role) === 'admin')
+                                    <button onclick="deleteCourse({{ $course->id }})" class="btn-card btn-card-danger">
+                                        <i class="fa fa-trash"></i>
+                                        حذف
+                                    </button>
+                                @endif
                             </div>
                         </div>
 
                         <!-- Hidden Delete Form -->
-                        <form class="course-delete-form" id="deleteForm{{ $course->id }}" action="{{ route('admin.courses.destroy', $course->id) }}" method="post">
-                            <input name="_method" type="hidden" value="DELETE">
-                            @csrf
-                        </form>
+                        @if(strtolower((string) auth()->user()?->role) === 'admin')
+                            <form class="course-delete-form" id="deleteForm{{ $course->id }}" action="{{ route('admin.courses.destroy', $course->id) }}" method="post">
+                                <input name="_method" type="hidden" value="DELETE">
+                                @csrf
+                            </form>
+                        @endif
                     </div>
                 @endforeach
             </div>

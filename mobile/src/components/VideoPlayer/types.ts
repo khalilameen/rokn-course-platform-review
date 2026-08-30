@@ -74,6 +74,15 @@ export interface CourseLearningModule {
   project?: CourseProject;
 }
 
+export interface CourseAttachmentPrompt {
+  enabled: boolean;
+  atSeconds: number;
+  title: string;
+  body: string;
+  buttonText: string;
+  frequency: 'once_per_module';
+}
+
 export interface CourseLearningData {
   id: string;
   title: string;
@@ -87,6 +96,8 @@ export interface CourseLearningData {
   chatAvailable?: boolean;
   /** Explicit false keeps certificate generation server- and client-locked. */
   certificateAvailable?: boolean;
+  /** Dashboard-controlled discovery prompt; file URLs remain module scoped. */
+  attachmentPrompt?: CourseAttachmentPrompt;
 }
 
 export type CourseFeedItem =

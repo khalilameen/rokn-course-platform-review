@@ -34,6 +34,12 @@ class Order extends Model
         'amount',
         'discount_amount',
         'final_amount',
+        'gateway_gross_amount',
+        'gateway_fee_amount',
+        'gateway_net_amount',
+        'gateway_currency',
+        'gateway_settlement_status',
+        'gateway_settled_at',
         'total_coins',
         'paid_coins',
         'reward_coins',
@@ -53,6 +59,10 @@ class Order extends Model
         'amount' => 'decimal:2',
         'discount_amount' => 'decimal:2',
         'final_amount' => 'decimal:2',
+        'gateway_gross_amount' => 'decimal:2',
+        'gateway_fee_amount' => 'decimal:2',
+        'gateway_net_amount' => 'decimal:2',
+        'gateway_settled_at' => 'datetime',
         'total_coins' => 'integer',
         'paid_coins' => 'integer',
         'reward_coins' => 'integer',
@@ -236,6 +246,18 @@ class Order extends Model
 
                 if ($order->getOriginal('transaction_id') !== null && $order->isDirty('transaction_id')) {
                     throw new \LogicException('Kashier transaction identity is write-once.');
+                }
+
+                foreach ([
+                    'gateway_gross_amount',
+                    'gateway_fee_amount',
+                    'gateway_net_amount',
+                    'gateway_currency',
+                    'gateway_settled_at',
+                ] as $settlementField) {
+                    if ($order->getOriginal($settlementField) !== null && $order->isDirty($settlementField)) {
+                        throw new \LogicException('Kashier settlement facts are write-once.');
+                    }
                 }
             }
         });

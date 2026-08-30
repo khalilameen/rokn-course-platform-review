@@ -70,7 +70,7 @@
                         </tr>
                         <tr>
                             <td>عدد الطلاب:</td>
-                            <td>{{ $course->students_count ?? 0 }} طالب</td>
+                            <td>{{ $activeStudentsCount }} طالب نشط</td>
                         </tr>
 
                     </table>

@@ -22,8 +22,8 @@
                     <span class="stat-label">الروابط</span>
                 </div>
                 <div class="stat-card">
-                    <span class="stat-counter">{{ $course->students_count ?? 0 }}</span>
-                    <span class="stat-label">الطلاب المسجلين</span>
+                    <span class="stat-counter">{{ $activeStudentsCount }}</span>
+                    <span class="stat-label">الطلاب النشطون فعليًا</span>
                 </div>
             </div>
         </div>

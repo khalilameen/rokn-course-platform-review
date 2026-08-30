@@ -135,7 +135,7 @@ final class DashboardProductParityTest extends TestCase
             self::assertContains('admin.audit', $route->gatherMiddleware(), $name);
         }
 
-        foreach (['admin.teachers.deactive', 'admin.users.deactive', 'admin.contacts.read'] as $name) {
+        foreach (['admin.users.deactive', 'admin.contacts.read'] as $name) {
             self::assertContains(
                 'admin.only',
                 app('router')->getRoutes()->getByName($name)->gatherMiddleware(),

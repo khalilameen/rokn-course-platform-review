@@ -40,6 +40,11 @@ class CourseRequest extends FormRequest
             'tokens_number' => 'nullable|integer|min:1|max:' . max(1, (int) config('openrouter.max_tokens', 420)),
             'chat_ai_prompt' => 'nullable|string|max:1200',
             'ai_chat_enabled' => 'nullable|boolean',
+            'attachment_prompt_enabled' => 'nullable|boolean',
+            'attachment_prompt_at_seconds' => 'required_if:attachment_prompt_enabled,1|nullable|integer|min:0|max:3600',
+            'attachment_prompt_title' => 'nullable|string|max:120',
+            'attachment_prompt_body' => 'nullable|string|max:500',
+            'attachment_prompt_button_text' => 'nullable|string|max:80',
             'path_id' => 'nullable|exists:paths,id',
             'price' => 'nullable|integer|min:0|max:100000000',
             'students_count' => 'nullable|integer|min:0|max:100000000',
@@ -110,7 +115,7 @@ class CourseRequest extends FormRequest
                 );
             }
 
-            foreach (['guided', 'mentor'] as $code) {
+            foreach (['basic', 'guided', 'mentor'] as $code) {
                 $row = is_array($plans[$code] ?? null) ? $plans[$code] : [];
                 $maxOutput = max(80, (int) ($row['max_output_tokens'] ?? 320));
 

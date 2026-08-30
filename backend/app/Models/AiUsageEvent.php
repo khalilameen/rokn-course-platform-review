@@ -13,6 +13,7 @@ final class AiUsageEvent extends Model
         'reserved_tokens' => 'integer', 'prompt_tokens' => 'integer',
         'completion_tokens' => 'integer', 'total_tokens' => 'integer',
         'reserved_cost_usd' => 'decimal:6', 'cost_usd' => 'decimal:6',
+        'fx_rate_to_egp' => 'decimal:4', 'cost_egp' => 'decimal:6',
         'metadata' => 'array', 'reservation_expires_at' => 'datetime',
         'completed_at' => 'datetime',
     ];

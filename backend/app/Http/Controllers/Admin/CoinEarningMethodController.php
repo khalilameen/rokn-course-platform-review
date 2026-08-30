@@ -5,31 +5,39 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\CoinEarningMethod;
 use App\Models\Setting;
+use App\Models\RewardRule;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Validation\ValidationException;
+use Illuminate\Validation\Rule;
 
 class CoinEarningMethodController extends Controller
 {
     public function index()
     {
         $methods  = CoinEarningMethod::latest()->paginate(10);
-        $setting  = Setting::first();
-        return view('admin.coin_earning_methods.index', compact('methods', 'setting'));
+        $setting = Setting::first();
+        $rewardRules = RewardRule::query()->orderBy('sort_order')->orderBy('id')->get();
+        $rewardEvents = RewardRule::EVENTS;
+        return view('admin.coin_earning_methods.index', compact(
+            'methods', 'setting', 'rewardRules', 'rewardEvents'
+        ));
     }
 
     public function updateSettings(Request $request)
     {
-        $request->validate([
+        $validated = $request->validate([
             'how_to_use_coins_ar' => 'nullable|string',
             'how_to_use_coins_en' => 'nullable|string',
+            'reward_balance_cap' => 'required|integer|min:0|max:1000000',
+            'max_reward_contribution_per_course' => 'required|integer|min:0|max:1000000',
         ]);
 
-        $setting = Setting::first();
-        if ($setting) {
-            $setting->update($request->only('how_to_use_coins_ar', 'how_to_use_coins_en'));
-        }
+        Setting::firstOrCreate([])->update($validated);
+        Cache::forget('home:general-settings:v1');
 
         return redirect()->route('admin.coin-earning-methods.index')
-            ->with('success', 'تم تحديث نص كيفية استخدام العملات بنجاح');
+            ->with('success', 'تم تحديث قواعد ومكافآت العملات بنجاح');
     }
 
     public function create()
@@ -44,17 +52,19 @@ class CoinEarningMethodController extends Controller
             'title_en' => 'required|string|max:255',
             'coins_amount' => 'required|integer|min:0',
             'action_key' => 'nullable|string|max:255|unique:coin_earning_methods,action_key',
-            'action_url' => 'nullable|required_if:requires_external_visit,1|url|max:2000',
+            'action_url' => 'nullable|url|max:2000',
             'requires_external_visit' => 'nullable|boolean',
             'verification_delay_seconds' => 'nullable|integer|min:0|max:300',
             'is_active' => 'boolean',
             'is_repeatable' => 'boolean',
         ]);
 
-        CoinEarningMethod::create($request->only([
+        $payload = $request->only([
             'title_ar', 'title_en', 'coins_amount', 'action_key', 'action_url',
             'requires_external_visit', 'verification_delay_seconds', 'is_active',
-        ]) + ['is_repeatable' => false]);
+        ]) + ['is_repeatable' => false];
+        $this->ensureUsableDestination($payload);
+        CoinEarningMethod::create($payload);
 
         return redirect()->route('admin.coin-earning-methods.index')
             ->with('success', 'تم إضافة طريقة ربح العملات بنجاح');
@@ -72,17 +82,19 @@ class CoinEarningMethodController extends Controller
             'title_en' => 'required|string|max:255',
             'coins_amount' => 'required|integer|min:0',
             'action_key' => 'nullable|string|max:255|unique:coin_earning_methods,action_key,' . $coinEarningMethod->id,
-            'action_url' => 'nullable|required_if:requires_external_visit,1|url|max:2000',
+            'action_url' => 'nullable|url|max:2000',
             'requires_external_visit' => 'nullable|boolean',
             'verification_delay_seconds' => 'nullable|integer|min:0|max:300',
             'is_active' => 'boolean',
             'is_repeatable' => 'boolean',
         ]);
 
-        $coinEarningMethod->update($request->only([
+        $payload = $request->only([
             'title_ar', 'title_en', 'coins_amount', 'action_key', 'action_url',
             'requires_external_visit', 'verification_delay_seconds', 'is_active',
-        ]) + ['is_repeatable' => false]);
+        ]) + ['is_repeatable' => false];
+        $this->ensureUsableDestination($payload, $coinEarningMethod);
+        $coinEarningMethod->update($payload);
 
         return redirect()->route('admin.coin-earning-methods.index')
             ->with('success', 'تم تحديث طريقة ربح العملات بنجاح');
@@ -98,7 +110,84 @@ class CoinEarningMethodController extends Controller
 
     public function toggleStatus(CoinEarningMethod $coinEarningMethod)
     {
+        if (!$coinEarningMethod->is_active && !$coinEarningMethod->hasUsableDestination()) {
+            return response()->json([
+                'status' => false,
+                'message' => 'أضف رابط المهمة أو رابط حساب السوشيال من إعدادات التصميم أولًا.',
+            ], 422);
+        }
         $coinEarningMethod->update(['is_active' => !$coinEarningMethod->is_active]);
         return response()->json(['status' => true, 'is_active' => $coinEarningMethod->is_active]);
+    }
+
+    public function storeRewardRule(Request $request)
+    {
+        RewardRule::create($this->rewardRulePayload($request));
+
+        return redirect()->route('admin.coin-earning-methods.index')
+            ->with('success', 'تمت إضافة قاعدة المكافأة وربطها بالحدث.');
+    }
+
+    public function updateRewardRule(Request $request, RewardRule $rewardRule)
+    {
+        $rewardRule->update($this->rewardRulePayload($request, $rewardRule));
+
+        return redirect()->route('admin.coin-earning-methods.index')
+            ->with('success', 'تم تحديث قاعدة المكافأة.');
+    }
+
+    public function destroyRewardRule(RewardRule $rewardRule)
+    {
+        $rewardRule->delete();
+
+        return redirect()->route('admin.coin-earning-methods.index')
+            ->with('success', 'تم حذف القاعدة وإيقاف مكافأتها فورًا.');
+    }
+
+    private function ensureUsableDestination(array $payload, ?CoinEarningMethod $existing = null): void
+    {
+        $method = $existing ? clone $existing : new CoinEarningMethod();
+        $method->forceFill($payload);
+        if (!$method->hasUsableDestination()) {
+            throw ValidationException::withMessages([
+                'action_url' => [
+                    'أضف رابط HTTPS موثوقًا، أو أضف رابط حساب السوشيال المطابق من إعدادات التصميم.',
+                ],
+            ]);
+        }
+    }
+
+    private function rewardRulePayload(Request $request, ?RewardRule $existing = null): array
+    {
+        $eventRule = Rule::in(array_keys(RewardRule::EVENTS));
+        $uniqueRule = Rule::unique('reward_rules', 'event_key');
+        if ($existing) {
+            $uniqueRule->ignore($existing->id);
+        }
+
+        $validated = $request->validate([
+            'event_key' => ['required', 'string', $eventRule, $uniqueRule],
+            'title_ar' => 'required|string|max:255',
+            'title_en' => 'nullable|string|max:255',
+            'coins_amount' => 'required|integer|min:0|max:1000000',
+            'interval_count' => 'required|integer|min:1|max:1440',
+            'daily_cap' => 'nullable|integer|min:0|max:1000000',
+            'rolling_30_day_cap' => 'nullable|integer|min:0|max:1000000',
+            'sort_order' => 'nullable|integer|min:0|max:10000',
+            'is_active' => 'nullable|boolean',
+        ]);
+        $validated['is_active'] = $request->boolean('is_active');
+        $validated['sort_order'] = (int) ($validated['sort_order'] ?? 100);
+
+        if (
+            in_array($validated['event_key'], ['daily_checkin', 'streak_milestone', 'study_session', 'course_completed'], true)
+            && empty($validated['rolling_30_day_cap'])
+        ) {
+            throw ValidationException::withMessages([
+                'rolling_30_day_cap' => ['أدخل حدًا خلال 30 يومًا حتى تظل تكلفة المكافأة منضبطة.'],
+            ]);
+        }
+
+        return $validated;
     }
 }

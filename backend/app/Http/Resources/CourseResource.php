@@ -76,6 +76,16 @@ class CourseResource extends BaseCourseResource
         $moduleAccess = app(CourseModuleAccessService::class);
         $hasCourseAccess = $user ? $moduleAccess->hasCourseAccess($user, $this->resource) : false;
 
+        $baseData['attachment_prompt'] = [
+            'enabled' => $hasCourseAccess && (bool) $this->attachment_prompt_enabled,
+            'at_seconds' => max(0, (int) ($this->attachment_prompt_at_seconds ?? 20)),
+            'title' => trim((string) $this->attachment_prompt_title) ?: 'مرفقات تساعدك في التطبيق',
+            'body' => trim((string) $this->attachment_prompt_body)
+                ?: 'الوحدة دي فيها ملفات جاهزة للتحميل. افتحها الآن أو ارجع لها من زر الملفات أثناء المشاهدة.',
+            'button_text' => trim((string) $this->attachment_prompt_button_text) ?: 'عرض المرفقات',
+            'frequency' => 'once_per_module',
+        ];
+
         // Add enrollment information
         $baseData['enrollment'] = $enrollment ? [
             'id' => $enrollment->id,

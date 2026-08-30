@@ -53,6 +53,9 @@ abstract class ApiTestCase extends TestCase
             $table->unsignedInteger('max_reward_contribution_per_course')->default(1200);
             $table->unsignedInteger('daily_reward_coins')->default(15);
             $table->unsignedInteger('daily_reward_rolling_30_day_cap')->default(150);
+            $table->unsignedSmallInteger('streak_reward_days')->default(7);
+            $table->unsignedInteger('streak_reward_coins')->default(100);
+            $table->unsignedInteger('streak_reward_rolling_30_day_cap')->default(400);
             $table->unsignedInteger('study_reward_coins')->default(10);
             $table->unsignedSmallInteger('study_reward_minutes')->default(5);
             $table->unsignedInteger('study_reward_daily_cap')->default(20);
@@ -628,6 +631,28 @@ abstract class ApiTestCase extends TestCase
             $table->unique(['user_id', 'activity_date']);
         });
 
+        Schema::create('user_reward_checkins', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->date('checkin_date');
+            $table->timestamps();
+            $table->unique(['user_id', 'checkin_date']);
+        });
+
+        Schema::create('reward_rules', function (Blueprint $table) {
+            $table->id();
+            $table->string('event_key')->unique();
+            $table->string('title_ar');
+            $table->string('title_en')->nullable();
+            $table->unsignedInteger('coins_amount');
+            $table->unsignedSmallInteger('interval_count')->default(1);
+            $table->unsignedInteger('daily_cap')->nullable();
+            $table->unsignedInteger('rolling_30_day_cap')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->unsignedSmallInteger('sort_order')->default(100);
+            $table->timestamps();
+        });
+
         Schema::create('wallet_transactions', function (Blueprint $table) {
             $table->id();
             $table->uuid('public_id')->unique();
@@ -742,7 +767,7 @@ abstract class ApiTestCase extends TestCase
     {
         $tables = [
             'course_grant_claims', 'course_code_usages', 'exam_security_logs', 'exam_answers', 'student_section_progress', 'account_file_deletions', 'api_tokens', 'photos', 'verification_codes', 'user_device_tokens', 'deleted_social_reward_tombstones', 'social_accounts', 'user_coin_task_attempts', 'user_coin_earnings', 'coin_earning_methods',
-            'payment_methods', 'categories', 'portfolios', 'portfolio_media', 'portfolio_items', 'saved_folder_lessons', 'saved_sections', 'wallet_transactions', 'user_daily_learning_activities', 'lesson_watch_evidence', 'lessons', 'saved_folders',
+            'payment_methods', 'categories', 'portfolios', 'portfolio_media', 'portfolio_items', 'saved_folder_lessons', 'saved_sections', 'wallet_transactions', 'reward_rules', 'user_reward_checkins', 'user_daily_learning_activities', 'lesson_watch_evidence', 'lessons', 'saved_folders',
             'student_notifications', 'classification_user', 'classifications', 'paths', 'certificates', 'exam_attempts',
             'exams', 'random_quizzes', 'quizzes', 'questions', 'lists', 'course_pdfs', 'course_codes', 'bills', 'orders',
             'course_enrollments', 'course_sections', 'projects', 'course_ratings', 'course_teacher', 'classification_course', 'courses', 'grades', 'users', 'settings'
@@ -761,6 +786,15 @@ abstract class ApiTestCase extends TestCase
             'enforce_course_section_order' => 0,
             'created_at' => now(),
             'updated_at' => now(),
+        ]);
+
+        DB::table('reward_rules')->insert([
+            ['event_key' => 'welcome_bonus', 'title_ar' => 'هدية أول تسجيل', 'coins_amount' => 20, 'interval_count' => 1, 'daily_cap' => null, 'rolling_30_day_cap' => null, 'is_active' => 1, 'sort_order' => 10, 'created_at' => now(), 'updated_at' => now()],
+            ['event_key' => 'daily_checkin', 'title_ar' => 'فتح يومي', 'coins_amount' => 15, 'interval_count' => 1, 'daily_cap' => null, 'rolling_30_day_cap' => 150, 'is_active' => 1, 'sort_order' => 20, 'created_at' => now(), 'updated_at' => now()],
+            ['event_key' => 'streak_milestone', 'title_ar' => 'استمرارية', 'coins_amount' => 100, 'interval_count' => 7, 'daily_cap' => null, 'rolling_30_day_cap' => 400, 'is_active' => 1, 'sort_order' => 30, 'created_at' => now(), 'updated_at' => now()],
+            ['event_key' => 'study_session', 'title_ar' => 'دراسة', 'coins_amount' => 10, 'interval_count' => 5, 'daily_cap' => 20, 'rolling_30_day_cap' => 200, 'is_active' => 1, 'sort_order' => 40, 'created_at' => now(), 'updated_at' => now()],
+            ['event_key' => 'first_project_passed', 'title_ar' => 'أول مشروع', 'coins_amount' => 150, 'interval_count' => 1, 'daily_cap' => null, 'rolling_30_day_cap' => 150, 'is_active' => 1, 'sort_order' => 50, 'created_at' => now(), 'updated_at' => now()],
+            ['event_key' => 'course_completed', 'title_ar' => 'إنهاء كورس', 'coins_amount' => 200, 'interval_count' => 1, 'daily_cap' => null, 'rolling_30_day_cap' => 200, 'is_active' => 1, 'sort_order' => 60, 'created_at' => now(), 'updated_at' => now()],
         ]);
 
         DB::table('coin_earning_methods')->insert([

@@ -386,6 +386,13 @@ export const mapCoursePayload = (
     return null;
   }
 
+  const rawAttachmentPrompt =
+    rawCourse.attachment_prompt &&
+    typeof rawCourse.attachment_prompt === 'object' &&
+    !Array.isArray(rawCourse.attachment_prompt)
+      ? courseRecord(rawCourse.attachment_prompt)
+      : null;
+
   return {
     id: valueAsString(rawCourse.id, 'course'),
     title: valueAsString(rawCourse.title || rawCourse.name, 'الكورس'),
@@ -396,6 +403,29 @@ export const mapCoursePayload = (
     accessType: accessType || undefined,
     chatAvailable,
     certificateAvailable,
+    attachmentPrompt:
+      rawAttachmentPrompt
+        ? {
+            enabled: valueAsBoolean(rawAttachmentPrompt.enabled),
+            atSeconds: Math.max(
+              0,
+              Number(rawAttachmentPrompt.at_seconds) || 0,
+            ),
+            title: valueAsString(
+              rawAttachmentPrompt.title,
+              'مرفقات تساعدك في التطبيق',
+            ),
+            body: valueAsString(
+              rawAttachmentPrompt.body,
+              'الوحدة دي فيها ملفات جاهزة للتحميل تساعدك تطبق مع الشرح.',
+            ),
+            buttonText: valueAsString(
+              rawAttachmentPrompt.button_text,
+              'عرض المرفقات',
+            ),
+            frequency: 'once_per_module',
+          }
+        : undefined,
   };
 };
 

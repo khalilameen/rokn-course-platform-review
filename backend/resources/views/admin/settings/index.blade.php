@@ -429,7 +429,7 @@
                 <div class="tab-pane" id="wallet-support">
                     <h2 class="section-title">
                         <i class="fa fa-whatsapp"></i>
-                        دعم واتساب وقواعد عملات ركن
+                        دعم واتساب
                     </h2>
 
                     <div class="form-row">
@@ -454,53 +454,17 @@
                         </span>
                     </div>
 
-                    <div class="form-row">
-                        <div class="form-group-modern settings-grid-full">
-                            <label for="how_to_use_coins_ar">قواعد العملات وطريقة استخدامها — عربي</label>
-                            {!! Form::textarea('how_to_use_coins_ar', null, ['class' => 'form-control-modern', 'id' => 'how_to_use_coins_ar', 'rows' => 6, 'placeholder' => 'اشرح العملات المشتراة والمكافآت وسياسة الاستخدام والاسترداد...']) !!}
-                            <small class="text-muted">وضّح أنها غير قابلة للتحويل لنقد، وأن المكافآت تُستهلك أولًا ثم العملات المشتراة، وأن الاسترداد يعود للمصدر قدر الإمكان.</small>
-                        </div>
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group-modern settings-grid-full">
-                            <label for="how_to_use_coins_en">Coin rules — English</label>
-                            {!! Form::textarea('how_to_use_coins_en', null, ['class' => 'form-control-modern', 'id' => 'how_to_use_coins_en', 'rows' => 5]) !!}
-                        </div>
-                    </div>
-
                     <h2 class="section-title settings-section-title--spaced">
                         <i class="fa fa-gift"></i>
                         اقتصاد المكافآت
                     </h2>
-                    <p class="text-muted settings-description-spacing">
-                        هذه القيم هي المصدر الموحد للتطبيق والـ API. كل مكافأة مسجلة مرة واحدة ولا تتحول إلى نقد.
-                    </p>
-                    <div class="form-row">
-                        @foreach([
-                            'welcome_bonus_coins' => ['هدية أول تسجيل', 20],
-                            'reward_balance_cap' => ['أقصى رصيد مكافآت', 1200],
-                            'max_reward_contribution_per_course' => ['أقصى مكافآت تُستخدم في كورس واحد', 1200],
-                            'daily_reward_coins' => ['مكافأة فتح التطبيق يوميًا', 15],
-                            'daily_reward_rolling_30_day_cap' => ['حد الفتح خلال 30 يومًا', 150],
-                            'study_reward_coins' => ['مكافأة جلسة الدراسة', 10],
-                            'study_reward_minutes' => ['دقائق الجلسة المؤهلة', 5],
-                            'study_reward_daily_cap' => ['حد مكافآت الدراسة يوميًا', 20],
-                            'study_reward_rolling_30_day_cap' => ['حد الدراسة خلال 30 يومًا', 200],
-                            'first_project_reward_coins' => ['مكافأة أول مشروع ناجح', 150],
-                            'course_completion_reward_coins' => ['مكافأة إنهاء الكورس', 200],
-                            'course_completion_rolling_30_day_cap' => ['حد الإنهاء خلال 30 يومًا', 200],
-                        ] as $field => [$label, $fallback])
-                            <div class="form-group-modern">
-                                <label for="{{ $field }}">{{ $label }}</label>
-                                {!! Form::number($field, old($field, $settings->{$field} ?? $fallback), [
-                                    'class' => 'form-control-modern', 'id' => $field,
-                                    'min' => $field === 'study_reward_minutes' ? 1 : 0,
-                                    'step' => 1, 'inputmode' => 'numeric',
-                                ]) !!}
-                                @error($field)<small class="text-danger">{{ $message }}</small>@enderror
-                            </div>
-                        @endforeach
+                    <div class="helper-text settings-help-panel settings-help-panel--info settings-help-panel--bottom">
+                        <i class="fa fa-coins"></i>
+                        <span>
+                            تجمّعت مكافآت التسجيل والفتح اليومي والاستمرارية والدراسة وأول مشروع وإنهاء الكورس في
+                            <a href="{{ route('admin.coin-earning-methods.index') }}">صفحة ربح العملات</a>
+                            حتى لا يتكرر نفس التحكم في مكانين.
+                        </span>
                     </div>
                 </div>
 

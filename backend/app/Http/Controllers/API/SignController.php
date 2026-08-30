@@ -13,6 +13,7 @@ use App\Models\CoinEarningMethod;
 use App\Models\ApiToken;
 use App\Models\User;
 use App\Models\VerificationCode;
+use App\Models\RewardRule;
 use App\Services\WhatsAppService;
 use App\Services\FacebookService;
 use App\Services\GoogleService;
@@ -440,10 +441,11 @@ class SignController extends Controller
                 default => false,
             })
             ->values();
-        $welcomeBonus = max(0, (int) (
-            Setting::query()->value('welcome_bonus_coins')
-            ?? config('social_auth.welcome_bonus_coins', 20)
-        ));
+        $welcomeBonus = RewardRule::configuredAmount(
+            'welcome_bonus',
+            (int) (Setting::query()->value('welcome_bonus_coins')
+                ?? config('social_auth.welcome_bonus_coins', 20))
+        );
 
         $publicApiUrl = rtrim(trim((string) config('social_auth.public_api_url')), '/');
         $preferredProvider = (string) config('social_auth.recommended_provider', 'facebook');

@@ -69,16 +69,22 @@
                     </a>
                 </li>
 
-                @if(auth()->user()?->role === 'admin')
                 <li class="nav-item{{ isRouteActive('admin.teachers.*') ? ' active' : '' }}">
                     <a href="{{ route('admin.teachers.index') }}" class="nav-link">
                         <i class="menu-icon fa fa-users"></i>
                         <span class="menu-text">المعلمون</span>
                     </a>
                 </li>
-
+                @if(auth()->user()?->role === 'admin')
+                <li class="nav-item{{ isRouteActive('admin.moderators.*') ? ' active' : '' }}">
+                    <a href="{{ route('admin.moderators.index') }}" class="nav-link">
+                        <i class="menu-icon fa fa-user-secret"></i>
+                        <span class="menu-text">فريق المحتوى</span>
+                    </a>
+                </li>
                 @endif
 
+                @if(auth()->user()?->role === 'admin')
                 <!-- Students Section -->
                 <li class="menu-divider"><span>الطلاب والتقييم</span></li>
 
@@ -138,6 +144,7 @@
                         <span class="menu-text">نتائج الامتحانات</span>
                     </a>
                 </li>-->
+                @endif
 
                 @if(auth()->user()?->role === 'admin')
                 <!-- Financial Section -->
@@ -254,6 +261,12 @@
                         @if($unreadCount > 0)
                             <span class="notification-badge">{{ $unreadCount }}</span>
                         @endif
+                    </a>
+                </li>
+                <li class="nav-item{{ isRouteActive('admin.operating-costs.*') ? ' active' : '' }}">
+                    <a href="{{ route('admin.operating-costs.index') }}" class="nav-link">
+                        <i class="menu-icon fa fa-calculator"></i>
+                        <span class="menu-text">مراكز التكلفة</span>
                     </a>
                 </li>
                 @if(auth()->user()?->role === 'admin')

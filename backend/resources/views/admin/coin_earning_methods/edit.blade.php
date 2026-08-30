@@ -62,6 +62,7 @@
                 <div class="col-md-8 mb-3">
                     <label class="form-label">رابط المهمة الخارجية (مطلوب عند اختيار زيارة الرابط)</label>
                     <input type="url" name="action_url" class="form-control @error('action_url') is-invalid @enderror" value="{{ old('action_url', $coinEarningMethod->action_url) }}">
+                    <small class="form-text text-muted">اتركه فارغًا لمهام السوشيال كي تستخدم رابط الحساب المركزي من إعدادات التصميم.</small>
                     @error('action_url')<div class="invalid-feedback">{{ $message }}</div>@enderror
                 </div>
                 <div class="col-md-4 mb-3">

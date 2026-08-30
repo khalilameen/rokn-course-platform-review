@@ -14,6 +14,7 @@ use App\Models\Path;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\CourseAccessPlanService;
+use App\Services\CourseCommercialReportService;
 use App\Services\CoursePublishingService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -172,13 +173,68 @@ class CourseController extends Controller
      * @param  \App\Course  $course
      * @return \Illuminate\Http\Response
      */
-    public function show(Course $course, CoursePublishingService $publishingService)
+    public function show(
+        Course $course,
+        CoursePublishingService $publishingService,
+        CourseCommercialReportService $commercialReports
+    )
     {
         $course->load(['classifications', 'teachers']);
         $sections = $course->sections()->with('sectionable')->orderBy('order')->get();
         $publishingAudit = $publishingService->audit($course);
         $designSettings = $this->getDesignSettings();
-        return view('admin.courses.show', compact('course', 'sections', 'publishingAudit', 'designSettings'));
+        $commercialReport = $this->isAdministrator()
+            ? $commercialReports->forCourse($course)
+            : null;
+        $activeStudentsCount = $commercialReport
+            ? (int) $commercialReport['active_students']
+            : $course->activeEnrollments()->count();
+        return view('admin.courses.show', compact(
+            'course',
+            'sections',
+            'publishingAudit',
+            'designSettings',
+            'commercialReport',
+            'activeStudentsCount'
+        ));
+    }
+
+    /** Download the auditable learner economics ledger without exposing it to moderators. */
+    public function exportCommercialReport(
+        Course $course,
+        CourseCommercialReportService $commercialReports
+    ) {
+        abort_unless($this->isAdministrator(), 403);
+        $report = $commercialReports->forCourse($course);
+
+        return response()->streamDownload(function () use ($report): void {
+            $output = fopen('php://output', 'wb');
+            fwrite($output, "\xEF\xBB\xBF");
+            fputcsv($output, [
+                'الطالب', 'البريد', 'الحالة', 'مصدر الإتاحة', 'الفئة', 'سعر العقد بالعملات',
+                'إجمالي العملات', 'عملات مشتراة', 'عملات مكافآت', 'إجمالي نقدي منسوب',
+                'صافي كاشير', 'حالة التسوية', 'طلبات AI', 'طلبات AI فاشلة', 'توكنات AI',
+                'تكلفة AI بالدولار', 'دقائق المشاهدة', 'GB مشاهدة مقدرة',
+                'تكلفة الخدمات الفعلية بالجنيه', 'التكلفة شاملة التقديرات', 'هامش المساهمة الفعلي',
+                'هامش المساهمة التقديري',
+            ], ',', '"', '');
+            foreach ($report['rows'] as $row) {
+                fputcsv($output, array_map([$this, 'safeCsvValue'], [
+                    $row['user']?->name ?? 'مستخدم محذوف', $row['user']?->email,
+                    $row['is_active'] ? 'نشط' : 'غير نشط', $row['source_label'], $row['plan_name'],
+                    $row['contract_price_coins'], $row['total_coins'], $row['paid_coins'],
+                    $row['reward_coins'], $row['cash_gross_egp'], $row['cash_net_known_egp'],
+                    $row['cash_net_complete'] ? 'مكتملة' : 'غير مكتملة', $row['ai_requests'],
+                    $row['ai_failed_requests'], $row['ai_tokens'], $row['ai_cost_usd'],
+                    $row['playback_minutes'], $row['playback_gb_estimated'],
+                    $row['service_cost_actual_egp'], $row['service_cost_with_estimates_egp'],
+                    $row['contribution_margin_egp'], $row['estimated_contribution_margin_egp'],
+                ]), ',', '"', '');
+            }
+            fclose($output);
+        }, "course-{$course->id}-commercial-report.csv", [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
     }
 
     /**
@@ -238,7 +294,7 @@ class CourseController extends Controller
         DB::transaction(function () use ($course, $courseData, $request, $accessPlanService): void {
             $lockedCourse = Course::query()->lockForUpdate()->findOrFail($course->id);
             $lockedCourse->update($courseData);
-            if ($this->isAdministrator() && $request->has('access_plans')) {
+            if ($this->canManageCourses() && $request->has('access_plans')) {
                 $accessPlanService->syncAdminPlans(
                     $lockedCourse,
                     (array) $request->input('access_plans', [])
@@ -352,7 +408,7 @@ class CourseController extends Controller
     {
         $courseData = $request->input();
 
-        if ($this->isAdministrator()) {
+        if ($this->canManageCourses()) {
             return $courseData;
         }
 
@@ -445,5 +501,21 @@ class CourseController extends Controller
     private function isAdministrator(): bool
     {
         return strtolower((string) optional(auth()->user())->role) === 'admin';
+    }
+
+    private function canManageCourses(): bool
+    {
+        return in_array(
+            strtolower((string) optional(auth()->user())->role),
+            ['admin', 'moderator'],
+            true
+        );
+    }
+
+    private function safeCsvValue(mixed $value): mixed
+    {
+        if (!is_string($value)) return $value;
+
+        return preg_match('/^[=+\-@]/u', $value) === 1 ? "'{$value}" : $value;
     }
 }

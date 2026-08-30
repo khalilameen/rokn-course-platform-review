@@ -6,6 +6,7 @@ use App\Jobs\SendUserPushNotification;
 use App\Models\CoinEarningMethod;
 use App\Models\StudentNotification;
 use App\Models\Setting;
+use App\Models\RewardRule;
 use App\Models\User;
 use App\Models\WalletTransaction;
 use Illuminate\Support\Facades\DB;
@@ -97,10 +98,11 @@ class StudentNotificationService
             // Keep the granted amount identical to the login promise. The
             // earning-method row remains the claim/audit record, not a second
             // source of truth for this acquisition offer.
-            $coinsAmount = max(0, (int) (
-                Setting::query()->value('welcome_bonus_coins')
-                ?? config('social_auth.welcome_bonus_coins', 20)
-            ));
+            $coinsAmount = RewardRule::configuredAmount(
+                'welcome_bonus',
+                (int) (Setting::query()->value('welcome_bonus_coins')
+                    ?? config('social_auth.welcome_bonus_coins', 20))
+            );
             $methodId = $method ? $method->id : null;
 
             if ($coinsAmount <= 0) {

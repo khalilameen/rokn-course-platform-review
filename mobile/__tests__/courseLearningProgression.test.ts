@@ -117,6 +117,60 @@ describe('course progression boundaries', () => {
     expect(course?.modules[0].project?.title).toBe('Crossing project');
   });
 
+  it('maps the dashboard attachment discovery contract without inventing files', () => {
+    const course = mapCoursePayload({
+      data: {
+        course: {
+          id: 'course-attachments',
+          title: 'Course',
+          attachment_prompt: {
+            enabled: true,
+            at_seconds: 17,
+            title: 'ملفات التطبيق',
+            body: 'حمّل القالب قبل تنفيذ الخطوة.',
+            button_text: 'افتح الملفات',
+          },
+          modules: [
+            {
+              id: 'module-1',
+              title: 'Module',
+              order: 1,
+              attachments: [
+                {
+                  id: 'attachment-1',
+                  title: 'قالب العمل',
+                  url: 'https://cdn.example/template.pdf',
+                  platform: 'computer',
+                },
+              ],
+              sections: [
+                {
+                  id: 'section-1',
+                  type: 'lesson',
+                  content: {
+                    id: 'lesson-1',
+                    video_url: 'https://cdn.example/lesson.m3u8',
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(course?.attachmentPrompt).toEqual({
+      enabled: true,
+      atSeconds: 17,
+      title: 'ملفات التطبيق',
+      body: 'حمّل القالب قبل تنفيذ الخطوة.',
+      buttonText: 'افتح الملفات',
+      frequency: 'once_per_module',
+    });
+    expect(course?.modules[0].attachments).toHaveLength(1);
+    expect(course?.modules[0].attachments[0].platform).toBe('computer');
+  });
+
   it('never unlocks the next module for a reviewing project', () => {
     const course = progressionFixture();
     const next = unlockAfterProject(course, 'project-1', 'reviewing');

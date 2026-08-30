@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 final readonly class KashierPaymentService
@@ -558,6 +559,12 @@ final readonly class KashierPaymentService
                         'stored_transaction_id' => $order->transaction_id,
                         'incoming_transaction_id' => $transactionId,
                     ]);
+                } else {
+                    $this->assertGatewayPaymentMatchesOrder($order, $gatewayResponse);
+                    $settlementFacts = $this->gatewaySettlementFacts($order, $gatewayResponse);
+                    if ($settlementFacts !== []) {
+                        $order->update($settlementFacts);
+                    }
                 }
 
                 DB::commit();
@@ -632,13 +639,13 @@ final readonly class KashierPaymentService
                 return $order->fresh(['user', 'package']);
             }
 
-            $order->update([
+            $order->update(array_merge([
                 'status' => Order::STATUS_APPROVED,
                 'financial_status' => Order::FINANCIAL_SETTLED,
                 'transaction_id' => $transactionId,
                 'approved_at' => now(),
                 'payment_gateway_response' => $this->sanitizeGatewayResponse($gatewayResponse),
-            ]);
+            ], $this->gatewaySettlementFacts($order, $gatewayResponse)));
 
             $paidCredit = $this->wallet->credit(
                 $order->user_id,
@@ -759,6 +766,64 @@ final readonly class KashierPaymentService
         }
 
         return $payload;
+    }
+
+    /**
+     * Preserve provider settlement facts separately from the sanitized raw
+     * payload so reports never present captured gross revenue as net payout.
+     * Existing non-settlement values are intentionally write-once.
+     *
+     * @param array<string, mixed> $gatewayResponse
+     * @return array<string, mixed>
+     */
+    private function gatewaySettlementFacts(Order $order, array $gatewayResponse): array
+    {
+        if (!Schema::hasColumn('orders', 'gateway_gross_amount')) {
+            return [];
+        }
+
+        $payload = isset($gatewayResponse['kashier_api_response'])
+            && is_array($gatewayResponse['kashier_api_response'])
+                ? $gatewayResponse['kashier_api_response']
+                : $gatewayResponse;
+        $fee = $this->normalizeGatewayAmount($this->firstGatewayValue($payload, [
+            'fee', 'fees', 'feeAmount', 'fee_amount', 'processingFee',
+            'response.fee', 'response.fees', 'response.feeAmount',
+            'response.settlement.fee', 'data.fee', 'data.feeAmount',
+        ]));
+        $net = $this->normalizeGatewayAmount($this->firstGatewayValue($payload, [
+            'netAmount', 'net_amount', 'settlementAmount', 'settlement_amount',
+            'response.netAmount', 'response.net_amount',
+            'response.settlement.netAmount', 'response.settlement.amount',
+            'data.netAmount', 'data.settlementAmount',
+        ]));
+        $gross = (float) $order->final_amount;
+        if ($net === null && $fee !== null) {
+            $net = max(0, $gross - $fee);
+        }
+        $currency = strtoupper((string) ($this->firstGatewayValue($payload, [
+            'currency', 'response.currency', 'response.settlement.currency', 'data.currency',
+        ]) ?? 'EGP'));
+        $providerStatus = strtolower(trim((string) ($this->firstGatewayValue($payload, [
+            'settlementStatus', 'settlement_status', 'response.settlement.status',
+            'data.settlementStatus', 'paymentStatus', 'status',
+        ]) ?? 'captured')));
+
+        $facts = [];
+        foreach ([
+            'gateway_gross_amount' => number_format($gross, 2, '.', ''),
+            'gateway_currency' => substr($currency, 0, 3),
+            'gateway_settlement_status' => $net !== null ? 'settled' : substr($providerStatus, 0, 32),
+            'gateway_fee_amount' => $fee !== null ? number_format($fee, 2, '.', '') : null,
+            'gateway_net_amount' => $net !== null ? number_format($net, 2, '.', '') : null,
+            'gateway_settled_at' => $net !== null ? now() : null,
+        ] as $field => $value) {
+            if ($order->{$field} === null && $value !== null) {
+                $facts[$field] = $value;
+            }
+        }
+
+        return $facts;
     }
 
     /**

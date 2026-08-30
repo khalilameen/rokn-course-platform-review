@@ -1,4 +1,4 @@
-            @if(strtolower((string) optional(auth()->user())->role) === 'admin')
+            @if(in_array(strtolower((string) optional(auth()->user())->role), ['admin', 'moderator'], true))
             @php
                 $accessPlansByCode = $course->accessPlans->keyBy('code');
                 $planLabels = [
@@ -48,7 +48,14 @@
                                     <span class="course-editor__plan-stats-total">إجمالي تكلفة OpenRouter الفعلية: <strong>${{ number_format($stats['chat_cost_usd'] + $stats['project_cost_usd'], 6) }}</strong></span>
                                 </div>
                             @endif
-                            <input type="hidden" name="access_plans[{{ $code }}][name_ar]" value="{{ $label }}">
+                            <label class="form-label-modern">اسم الفئة الظاهر للطالب</label>
+                            <input class="form-control-modern" type="text" maxlength="120" name="access_plans[{{ $code }}][name_ar]" value="{{ old("access_plans.$code.name_ar", $plan?->name_ar ?? $label) }}" required>
+                            @if($enableEnglish)
+                                <label class="form-label-modern">اسم الفئة بالإنجليزية</label>
+                                <input class="form-control-modern" type="text" maxlength="120" name="access_plans[{{ $code }}][name_en]" value="{{ old("access_plans.$code.name_en", $plan?->name_en) }}">
+                            @else
+                                <input type="hidden" name="access_plans[{{ $code }}][name_en]" value="{{ $plan?->name_en }}">
+                            @endif
                             <input type="hidden" name="access_plans[{{ $code }}][is_active]" value="0">
                             <label class="course-editor__inline-check course-editor__inline-check--spaced">
                                 <input type="checkbox" name="access_plans[{{ $code }}][is_active]" value="1" {{ old("access_plans.$code.is_active", $plan?->is_active) ? 'checked' : '' }}>
@@ -57,7 +64,6 @@
                             <label class="form-label-modern">السعر بعملات ركن</label>
                             <input class="form-control-modern" type="number" min="0" name="access_plans[{{ $code }}][price_coins]" value="{{ old("access_plans.$code.price_coins", $plan?->price_coins ?? 0) }}" required>
 
-                            @if($code !== 'basic')
                                 <input type="hidden" name="access_plans[{{ $code }}][chat_enabled]" value="0">
                                 <label class="course-editor__inline-check course-editor__inline-check--spaced">
                                     <input type="checkbox" name="access_plans[{{ $code }}][chat_enabled]" value="1" {{ old("access_plans.$code.chat_enabled", $plan?->chat_enabled) ? 'checked' : '' }}>
@@ -121,19 +127,11 @@
                                     <input type="checkbox" name="access_plans[{{ $code }}][project_output_enabled]" value="1" {{ old("access_plans.$code.project_output_enabled", $plan?->project_output_enabled) ? 'checked' : '' }}>
                                     السماح بنموذج محسّن إذا كان من مخرجات النموذج الطبيعية
                                 </label>
-                            @else
-                                <input type="hidden" name="access_plans[basic][chat_enabled]" value="0">
-                                <input type="hidden" name="access_plans[basic][chat_message_limit]" value="0">
-                                <input type="hidden" name="access_plans[basic][chat_token_budget]" value="0">
-                                <input type="hidden" name="access_plans[basic][ai_budget_usd]" value="0">
-                                <input type="hidden" name="access_plans[basic][request_reserve_usd]" value="0">
-                                <input type="hidden" name="access_plans[basic][project_feedback_token_budget]" value="0">
-                                <input type="hidden" name="access_plans[basic][project_feedback_budget_usd]" value="0">
-                                <input type="hidden" name="access_plans[basic][project_feedback_reserve_usd]" value="0">
-                                <input type="hidden" name="access_plans[basic][max_output_tokens]" value="260">
-                                <input type="hidden" name="access_plans[basic][project_feedback_level]" value="pass_only">
-                            @endif
-                            <input type="hidden" name="access_plans[{{ $code }}][certificate_enabled]" value="1">
+                            <input type="hidden" name="access_plans[{{ $code }}][certificate_enabled]" value="0">
+                            <label class="course-editor__inline-check course-editor__inline-check--top">
+                                <input type="checkbox" name="access_plans[{{ $code }}][certificate_enabled]" value="1" {{ old("access_plans.$code.certificate_enabled", $plan?->certificate_enabled ?? true) ? 'checked' : '' }}>
+                                إصدار شهادة عند استيفاء شروط الكورس
+                            </label>
                         </div>
                     @endforeach
                 </div>

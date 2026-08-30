@@ -94,10 +94,14 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
     Route::post('urgent-tasks/orders/{order}/reject', 'UrgentTasksController@rejectOrder')->middleware('admin.only')->name('urgent-tasks.reject-order');
     Route::post('urgent-tasks/students/{user}/activate', 'UrgentTasksController@activateStudent')->middleware('admin.only')->name('urgent-tasks.activate-student');
 
-    // Moderators may inspect course shells, while administrator approval is
-    // required for pricing/publication fields and destructive shell changes.
+    // Moderators own course authoring and commercial plan configuration.
+    // Deleting a commercial shell remains administrator-only.
+    Route::get('courses/{course}/commercial-report.csv', 'CourseController@exportCommercialReport')
+        ->middleware('admin.only')->name('courses.commercial-report.export');
     Route::resource('courses', 'CourseController')
-        ->only(['create', 'store', 'edit', 'update', 'destroy'])
+        ->only(['create', 'store', 'edit', 'update']);
+    Route::resource('courses', 'CourseController')
+        ->only(['destroy'])
         ->middleware('admin.only');
     Route::resource('courses', 'CourseController')->only(['index', 'show']);
 
@@ -179,8 +183,12 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
     Route::name('update_admin_data')->post('update_admin_data', 'SettingsController@updateAdminData')->middleware('admin.only');
     
     // Teacher routes
-    Route::resource('teachers', 'TeacherController')->middleware('admin.only');
-    Route::patch('teachers/{teacher}/status', 'TeacherController@deactive')->middleware('admin.only')->name('teachers.deactive');
+    Route::resource('teachers', 'TeacherController')->except(['destroy']);
+    Route::resource('teachers', 'TeacherController')->only(['destroy'])->middleware('admin.only');
+    Route::patch('teachers/{teacher}/status', 'TeacherController@deactive')->name('teachers.deactive');
+    Route::resource('moderators', 'ModeratorController')
+        ->only(['index', 'create', 'store', 'edit', 'update'])
+        ->middleware('admin.only');
 
     // User notes routes
     Route::name('users.notes.store')->post('users/{user}/notes', 'UsersController@storeNote')->middleware('admin.only');
@@ -188,37 +196,31 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
 
     Route::resource('users', 'UsersController')->middleware('admin.only');
     Route::resource('packages', 'PackageController')->middleware('admin.only');
-    Route::resource('classifications', 'ClassificationController')
-        ->only(['create', 'store', 'edit', 'update', 'destroy'])
-        ->middleware('admin.only');
-    Route::resource('classifications', 'ClassificationController')->only(['index', 'show']);
-    Route::resource('paths', 'PathController')
-        ->only(['create', 'store', 'edit', 'update', 'destroy'])
-        ->middleware('admin.only');
-    Route::resource('paths', 'PathController')->only(['index', 'show']);
-    Route::resource('levels', 'LevelController')
-        ->only(['create', 'store', 'edit', 'update', 'destroy'])
-        ->middleware('admin.only');
-    Route::resource('levels', 'LevelController')->only(['index', 'show']);
+    Route::resource('classifications', 'ClassificationController');
+    Route::resource('paths', 'PathController');
+    Route::resource('levels', 'LevelController');
     Route::resource('coin-earning-methods', 'CoinEarningMethodController')->middleware('admin.only');
     Route::post('coin-earning-methods/{coinEarningMethod}/toggle-status', 'CoinEarningMethodController@toggleStatus')->middleware('admin.only')->name('coin-earning-methods.toggle-status');
     Route::post('coin-earning-methods-settings', 'CoinEarningMethodController@updateSettings')->middleware('admin.only')->name('coin-earning-methods.update-settings');
+    Route::post('reward-rules', 'CoinEarningMethodController@storeRewardRule')->middleware('admin.only')->name('reward-rules.store');
+    Route::put('reward-rules/{rewardRule}', 'CoinEarningMethodController@updateRewardRule')->middleware('admin.only')->name('reward-rules.update');
+    Route::delete('reward-rules/{rewardRule}', 'CoinEarningMethodController@destroyRewardRule')->middleware('admin.only')->name('reward-rules.destroy');
     Route::name('users.deactive')->patch('users/{user}/status', 'UsersController@deactive')->middleware('admin.only');
     Route::name('users.send_notification')->post('users/{user}/send_notification', 'UsersController@sendNotification')->middleware('admin.only');
     Route::name('users.reset-device')->post('users/{user}/reset-device', 'UsersController@resetDevice')->middleware('admin.only');
 
     /* ====== Student Progress =======*/
-    Route::name('student-progress.index')->get('student-progress', 'StudentProgressController@index');
-    Route::name('student-progress.show')->get('student-progress/{user}', 'StudentProgressController@show');
-    Route::name('student-progress.statistics')->get('student-progress-statistics', 'StudentProgressController@statistics');
-    Route::name('student-progress.compare')->post('student-progress/compare', 'StudentProgressController@compare');
+    Route::name('student-progress.index')->get('student-progress', 'StudentProgressController@index')->middleware('admin.only');
+    Route::name('student-progress.show')->get('student-progress/{user}', 'StudentProgressController@show')->middleware('admin.only');
+    Route::name('student-progress.statistics')->get('student-progress-statistics', 'StudentProgressController@statistics')->middleware('admin.only');
+    Route::name('student-progress.compare')->post('student-progress/compare', 'StudentProgressController@compare')->middleware('admin.only');
 
     /* ====== Project Submissions =======*/
-    Route::get('project-submissions', 'ProjectSubmissionController@index')->name('project-submissions.index');
-    Route::get('project-submissions/{projectSubmission}', 'ProjectSubmissionController@show')->name('project-submissions.show');
-    Route::get('project-submissions/{projectSubmission}/download', 'ProjectSubmissionController@download')->name('project-submissions.download');
-    Route::post('project-submissions/{projectSubmission}/pass', 'ProjectSubmissionController@pass')->name('project-submissions.pass');
-    Route::post('project-submissions/{projectSubmission}/reject', 'ProjectSubmissionController@reject')->name('project-submissions.reject');
+    Route::get('project-submissions', 'ProjectSubmissionController@index')->middleware('admin.only')->name('project-submissions.index');
+    Route::get('project-submissions/{projectSubmission}', 'ProjectSubmissionController@show')->middleware('admin.only')->name('project-submissions.show');
+    Route::get('project-submissions/{projectSubmission}/download', 'ProjectSubmissionController@download')->middleware('admin.only')->name('project-submissions.download');
+    Route::post('project-submissions/{projectSubmission}/pass', 'ProjectSubmissionController@pass')->middleware('admin.only')->name('project-submissions.pass');
+    Route::post('project-submissions/{projectSubmission}/reject', 'ProjectSubmissionController@reject')->middleware('admin.only')->name('project-submissions.reject');
 
     /* ====== Orders =======*/
     Route::resource('orders', 'OrdersController', ['only' => ['index', 'show']])->middleware('admin.only');
@@ -246,6 +248,12 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
 
     /* ====== Payment Methods =======*/
     Route::resource('payment-methods', 'PaymentMethodController')->middleware('admin.only');
+    Route::resource('operating-costs', 'OperatingCostPoolController')
+        ->only(['index', 'store', 'update', 'destroy'])
+        ->parameters(['operating-costs' => 'operatingCost'])
+        ->middleware('admin.only');
+    Route::post('operating-costs-exchange-rate', 'OperatingCostPoolController@updateExchangeRate')
+        ->middleware('admin.only')->name('operating-costs.exchange-rate');
 
     /* ====== Settings =======*/
     Route::get('/settings', 'SettingsController@index')->middleware('admin.only')->name('settings');
@@ -267,12 +275,12 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
 
 
     /* ====== Exam Results Management =======*/
-    Route::get('exam-results', 'ExamResultController@index')->name('exam-results.index');
+    Route::get('exam-results', 'ExamResultController@index')->middleware('admin.only')->name('exam-results.index');
     Route::get('exam-results/export/csv', 'ExamResultController@export')
         ->middleware('admin.only')->name('exam-results.export');
-    Route::get('exam-results/stats/data', 'ExamResultController@getStats')->name('exam-results.stats');
-    Route::get('exam-results/{examAttempt}', 'ExamResultController@show')->name('exam-results.show');
-    Route::get('students/{student}/exam-results', 'ExamResultController@getStudentResults')->name('students.exam-results');
+    Route::get('exam-results/stats/data', 'ExamResultController@getStats')->middleware('admin.only')->name('exam-results.stats');
+    Route::get('exam-results/{examAttempt}', 'ExamResultController@show')->middleware('admin.only')->name('exam-results.show');
+    Route::get('students/{student}/exam-results', 'ExamResultController@getStudentResults')->middleware('admin.only')->name('students.exam-results');
 
 });
 Auth::routes();

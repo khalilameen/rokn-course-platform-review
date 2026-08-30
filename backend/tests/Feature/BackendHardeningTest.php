@@ -280,7 +280,7 @@ final class BackendHardeningTest extends TestCase
     public function test_admin_can_reject_pending_project_but_cannot_overwrite_final_decision(): void
     {
         $student = $this->user();
-        $admin = $this->user(['role' => 'moderator']);
+        $admin = $this->user(['role' => 'admin']);
         $projectId = DB::table('projects')->insertGetId([
             'requirements_text' => 'نفذ المشروع',
             'passing_score' => 50,

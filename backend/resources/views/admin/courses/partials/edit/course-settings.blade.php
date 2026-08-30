@@ -4,6 +4,7 @@
                     <div class="section-icon">
                         <i class="fa fa-cog"></i>
                     </div>
+
                     إعدادات الكورس
                 </h2>
 
@@ -54,6 +55,37 @@
                             @endforeach
                         </select>
                         <div class="form-help">اختر المسار الذي يتبع له هذا الكورس</div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h2 class="section-title">
+                        <div class="section-icon"><i class="fa fa-paperclip"></i></div>
+                        تنبيه اكتشاف المرفقات أثناء المشاهدة
+                    </h2>
+                    <div class="form-help course-editor__section-help">يظهر مرة واحدة لكل وحدة فيها مرفقات، ويستخدم نفس الملفات وزر التنزيل الموجودين بالفعل.</div>
+                    <input type="hidden" name="attachment_prompt_enabled" value="0">
+                    <label class="course-editor__inline-check course-editor__inline-check--spaced">
+                        <input type="checkbox" name="attachment_prompt_enabled" value="1" {{ old('attachment_prompt_enabled', $course->attachment_prompt_enabled ?? true) ? 'checked' : '' }}>
+                        إظهار التنبيه داخل المشاهدة
+                    </label>
+                    <div class="form-row">
+                        <div class="form-group-modern">
+                            <label class="form-label-modern">يظهر بعد كم ثانية؟</label>
+                            <input class="form-control-modern" type="number" min="0" max="3600" name="attachment_prompt_at_seconds" value="{{ old('attachment_prompt_at_seconds', $course->attachment_prompt_at_seconds ?? 20) }}">
+                        </div>
+                        <div class="form-group-modern">
+                            <label class="form-label-modern">عنوان النافذة</label>
+                            <input class="form-control-modern" type="text" maxlength="120" name="attachment_prompt_title" value="{{ old('attachment_prompt_title', $course->attachment_prompt_title) }}" placeholder="مرفقات تساعدك في التطبيق">
+                        </div>
+                    </div>
+                    <div class="form-group-modern">
+                        <label class="form-label-modern">نص النافذة</label>
+                        <textarea class="form-control-modern" rows="3" maxlength="500" name="attachment_prompt_body" placeholder="الوحدة دي فيها ملفات جاهزة للتحميل...">{{ old('attachment_prompt_body', $course->attachment_prompt_body) }}</textarea>
+                    </div>
+                    <div class="form-group-modern">
+                        <label class="form-label-modern">نص زر الفتح</label>
+                        <input class="form-control-modern" type="text" maxlength="80" name="attachment_prompt_button_text" value="{{ old('attachment_prompt_button_text', $course->attachment_prompt_button_text) }}" placeholder="عرض المرفقات">
                     </div>
                 </div>
                     <div class="form-group-modern">
