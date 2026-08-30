@@ -194,7 +194,10 @@ final class CourseCommercialReportService
     /** @param Collection<int, array<string, mixed>> $rows @return array<string, mixed> */
     public function groupSummary(Collection $rows): array
     {
-        $students = $rows->count();
+        $enrollments = $rows->count();
+        $students = $rows->map(function (array $row): int {
+            return (int) ($row['enrollment']?->user_id ?? $row['user']?->id ?? 0);
+        })->filter()->unique()->count();
         $netComplete = $rows->every(fn (array $row): bool => (bool) $row['cash_net_complete']);
         $costComplete = $rows->every(fn (array $row): bool => (bool) $row['service_cost_complete']);
         $estimatedComplete = $rows->every(
@@ -206,6 +209,7 @@ final class CourseCommercialReportService
 
         return [
             'students' => $students,
+            'enrollments' => $enrollments,
             'coins' => (int) $rows->sum('total_coins'),
             'gross_egp' => round((float) $rows->sum('cash_gross_egp'), 2),
             'net_egp' => $net,
@@ -227,6 +231,12 @@ final class CourseCommercialReportService
                 : null,
             'average_cost_per_student_egp' => $students > 0 && $cost !== null
                 ? round($cost / $students, 2)
+                : null,
+            'average_net_per_enrollment_egp' => $enrollments > 0 && $net !== null
+                ? round($net / $enrollments, 2)
+                : null,
+            'average_cost_per_enrollment_egp' => $enrollments > 0 && $cost !== null
+                ? round($cost / $enrollments, 2)
                 : null,
         ] + $this->unitEconomics($net, $cost, $margin);
     }

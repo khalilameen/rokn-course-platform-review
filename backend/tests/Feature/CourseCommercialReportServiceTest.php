@@ -180,6 +180,14 @@ final class CourseCommercialReportServiceTest extends TestCase
         self::assertSame(2, $report['enrollments']);
         self::assertSame(100.0, $report['service_cost_egp']);
         self::assertSame(100.0, $report['average_cost_per_student_egp']);
+        $legacyPlan = $report['plan_breakdown']->get('إتاحة قديمة');
+        self::assertSame(1, $legacyPlan['students']);
+        self::assertSame(2, $legacyPlan['enrollments']);
+        self::assertSame(100.0, $legacyPlan['average_cost_per_student_egp']);
+        self::assertSame(50.0, $legacyPlan['average_cost_per_enrollment_egp']);
+        $purchaseSource = $report['source_breakdown']->get('شراء');
+        self::assertSame(1, $purchaseSource['students']);
+        self::assertSame(2, $purchaseSource['enrollments']);
         self::assertSame(
             100.0,
             $report['service_breakdown']->firstWhere('key', 'infrastructure')['actual_egp']
