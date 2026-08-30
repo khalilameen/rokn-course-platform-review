@@ -155,6 +155,16 @@ final class ProductParityContractsTest extends TestCase
         $this->getJson("/api/v1/courses/{$course->id}/details")
             ->assertOk()
             ->assertJsonPath('data.metadata.duration_minutes', 15);
+
+        $this->getJson('/api/v1/courses?per_page=50')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $course->id)
+            ->assertJsonPath('data.0.metadata.duration_minutes', 15);
+
+        $this->getJson('/api/v1/courses/list?per_page=50')
+            ->assertOk()
+            ->assertJsonPath('data.courses.0.id', $course->id)
+            ->assertJsonPath('data.courses.0.metadata.duration_minutes', 15);
     }
 
     public function test_learning_dashboard_returns_only_a_valid_resume_projection(): void

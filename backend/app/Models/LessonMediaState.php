@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Traits\InvalidatesCourseCatalogue;
 use Illuminate\Database\Eloquent\Model;
 
 final class LessonMediaState extends Model
 {
+    use InvalidatesCourseCatalogue;
+
     protected $fillable = [
         'lesson_id', 'provider', 'provider_media_id', 'status', 'protocol',
         'duration_seconds', 'available_qualities', 'manifest', 'last_probe_at',
@@ -26,4 +29,9 @@ final class LessonMediaState extends Model
         'quarantined_at' => 'datetime',
         'retry_count' => 'integer',
     ];
+
+    public function shouldInvalidateCourseCatalogue(): bool
+    {
+        return $this->wasRecentlyCreated || $this->wasChanged('duration_seconds');
+    }
 }

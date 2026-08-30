@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Traits\InvalidatesCourseCatalogue;
 use App\Traits\ResolvesLocalizedAttributes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Lesson extends Model
 {
-    use HasFactory, ResolvesLocalizedAttributes;
+    use HasFactory, ResolvesLocalizedAttributes, InvalidatesCourseCatalogue;
     //	id	list_id	title	description	video_link	file_link1	file_link2	created_at	updated_at
     protected $fillable = [
         'list_id',

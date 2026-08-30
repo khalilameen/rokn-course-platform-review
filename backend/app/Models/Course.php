@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Traits\HasPhoto;
+use App\Traits\InvalidatesCourseCatalogue;
 use App\Traits\ResolvesLocalizedAttributes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -12,7 +13,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Course extends Model
 {
     //
-    use HasPhoto, HasFactory, ResolvesLocalizedAttributes;
+    use HasPhoto, HasFactory, ResolvesLocalizedAttributes, InvalidatesCourseCatalogue;
     protected $fillable = [
         'name_ar', 'name_en', 'description_ar', 'description_en', 'image', 'grade_id', 'teacher_id', 'store_id',
         'price', 'price_before_discount', 'currency', 'video_count', 'hours_count', 'questions_count',

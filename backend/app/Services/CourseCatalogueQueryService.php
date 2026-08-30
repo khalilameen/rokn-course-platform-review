@@ -14,6 +14,10 @@ final readonly class CourseCatalogueQueryService
 {
     private const CACHE_TTL_SECONDS = 300;
 
+    public function __construct(private CourseDurationService $duration)
+    {
+    }
+
     /**
      * @param array<string, mixed> $filters
      */
@@ -23,7 +27,7 @@ final readonly class CourseCatalogueQueryService
         $perPage = $filters['per_page'] ?? 20;
         $revision = max(1, (int) Cache::get('courses:catalog-revision', 1));
         $key = 'courses:' . md5((string) json_encode([
-            'catalog_contract' => 2,
+            'catalog_contract' => 3,
             'catalog_revision' => $revision,
             'page' => $page,
             'per_page' => $perPage,
@@ -45,11 +49,15 @@ final readonly class CourseCatalogueQueryService
                     return $cached;
                 }
 
-                return $this->applyFilters($this->catalogueQuery(), $filters)
+                $courses = $this->applyFilters($this->catalogueQuery(), $filters)
                     ->orderByDesc('is_main_course')
                     ->orderBy('home_sort_order')
                     ->orderByDesc('created_at')
                     ->paginate((int) $perPage, ['*'], 'page', (int) $page);
+
+                $this->duration->attachMany($courses->getCollection());
+
+                return $courses;
             }
         );
 
@@ -67,7 +75,7 @@ final readonly class CourseCatalogueQueryService
         $perPage = (int) ($filters['per_page'] ?? 15);
         $revision = max(1, (int) Cache::get('courses:catalog-revision', 1));
         $key = 'courses:mobile:' . md5((string) json_encode([
-            'catalog_contract' => 3,
+            'catalog_contract' => 4,
             'catalog_revision' => $revision,
             'page' => $page,
             'per_page' => $perPage,
@@ -98,10 +106,14 @@ final readonly class CourseCatalogueQueryService
                     },
                 ]);
 
-                return $this->applyFilters($query, $filters)
+                $courses = $this->applyFilters($query, $filters)
                     ->orderByDesc('is_main_course')
                     ->orderByDesc('created_at')
                     ->paginate($perPage, ['*'], 'page', $page);
+
+                $this->duration->attachMany($courses->getCollection());
+
+                return $courses;
             }
         );
 
