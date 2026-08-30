@@ -228,6 +228,12 @@ assert(
   'The iOS AppDelegate bootstraps a native social/Firebase SDK that is not part of the locked dependency graph.',
 );
 assert(
+  /override\s+func\s+application\(\s*_\s+application:\s*UIApplication,\s*didFinishLaunchingWithOptions/.test(
+    iosAppDelegate,
+  ),
+  'The iOS AppDelegate launch callback must explicitly override ExpoAppDelegate.',
+);
+assert(
   [...iosAppDelegate.matchAll(/\bopen url:\s*URL\b/g)].length === 1,
   'The iOS AppDelegate must expose exactly one application URL callback.',
 );
