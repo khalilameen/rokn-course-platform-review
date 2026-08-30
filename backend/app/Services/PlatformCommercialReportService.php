@@ -6,6 +6,8 @@ namespace App\Services;
 
 use App\Models\Course;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /** Platform-wide unit economics assembled from the same auditable course ledger. */
 final readonly class PlatformCommercialReportService
@@ -53,11 +55,15 @@ final readonly class PlatformCommercialReportService
         ];
 
         $rows = $this->filterRows($rawRows, $filters);
+        $notificationUsage = $this->notificationUsage(
+            $rows->pluck('enrollment.user_id')->map(fn ($id): int => (int) $id)
+        );
         $summary = $this->courses->groupSummary($rows);
         $studentRows = $rows
             ->groupBy(fn (array $row): int => (int) $row['enrollment']->user_id)
-            ->map(function (Collection $userRows): array {
+            ->map(function (Collection $userRows, int $userId) use ($notificationUsage): array {
                 $first = $userRows->first();
+                $push = $notificationUsage->get($userId, $this->emptyNotificationUsage());
 
                 return $this->courses->groupSummary($userRows) + [
                     'user' => $first['user'],
@@ -73,6 +79,13 @@ final readonly class PlatformCommercialReportService
                         $userRows,
                         'cost_with_estimates_by_service_egp'
                     ),
+                    'in_app_notifications' => (int) $push['in_app_notifications'],
+                    'read_notifications' => (int) $push['read_notifications'],
+                    'push_attempts' => (int) $push['push_attempts'],
+                    'push_delivered' => (int) $push['push_delivered'],
+                    'push_delivery_rate_percentage' => (int) $push['push_attempts'] > 0
+                        ? round(((int) $push['push_delivered'] / (int) $push['push_attempts']) * 100, 2)
+                        : null,
                 ];
             })
             ->sortByDesc(fn (array $row): float => (float) ($row['service_cost_egp'] ?? -1))
@@ -89,7 +102,19 @@ final readonly class PlatformCommercialReportService
         $summary['ai_cost_per_1000_tokens_usd'] = (int) $summary['ai_tokens'] > 0
             ? round(((float) $summary['ai_cost_usd'] / (int) $summary['ai_tokens']) * 1000, 6)
             : null;
-        $serviceBreakdown = $this->serviceBreakdown($rows)->map(function (array $service) use (
+        $notificationTotals = [
+            'in_app_notifications' => (int) $studentRows->sum('in_app_notifications'),
+            'read_notifications' => (int) $studentRows->sum('read_notifications'),
+            'push_attempts' => (int) $studentRows->sum('push_attempts'),
+            'push_delivered' => (int) $studentRows->sum('push_delivered'),
+        ];
+        $summary += $notificationTotals;
+        $summary['push_delivery_rate_percentage'] = $notificationTotals['push_attempts'] > 0
+            ? round(($notificationTotals['push_delivered'] / $notificationTotals['push_attempts']) * 100, 2)
+            : null;
+        $notificationTotals['push_delivery_rate_percentage']
+            = $summary['push_delivery_rate_percentage'];
+        $serviceBreakdown = $this->serviceBreakdown($rows, $notificationTotals)->map(function (array $service) use (
             $summary
         ): array {
             $service['share_of_actual_cost_percentage'] = $summary['service_cost_egp'] !== null
@@ -175,7 +200,7 @@ final readonly class PlatformCommercialReportService
     }
 
     /** @param Collection<int, array<string, mixed>> $rows @return Collection<int, array<string, mixed>> */
-    private function serviceBreakdown(Collection $rows): Collection
+    private function serviceBreakdown(Collection $rows, array $notificationTotals): Collection
     {
         $actual = $this->sumServiceMaps($rows, 'actual_cost_by_service_egp');
         $estimated = $this->sumServiceMaps($rows, 'cost_with_estimates_by_service_egp');
@@ -183,7 +208,7 @@ final readonly class PlatformCommercialReportService
         return collect(CourseCostReportService::serviceLabels())->map(function (
             string $label,
             string $serviceKey
-        ) use ($actual, $estimated, $rows): array {
+        ) use ($actual, $estimated, $rows, $notificationTotals): array {
             $result = [
                 'key' => $serviceKey,
                 'label' => $label,
@@ -204,9 +229,54 @@ final readonly class PlatformCommercialReportService
                     'unit_label' => 'GB مشاهدة مقدرة',
                     'minutes' => round((float) $rows->sum('playback_minutes'), 2),
                 ];
+            } elseif ($serviceKey === 'notifications') {
+                $result += $notificationTotals;
             }
 
             return $result;
         })->values();
+    }
+
+    /** @param Collection<int,int> $userIds @return Collection<int,array<string,int>> */
+    private function notificationUsage(Collection $userIds): Collection
+    {
+        $userIds = $userIds->filter()->unique()->values();
+        if ($userIds->isEmpty() || !Schema::hasTable('student_notifications')) {
+            return collect();
+        }
+
+        $hasRead = Schema::hasColumn('student_notifications', 'is_read');
+        $hasAttempted = Schema::hasColumn('student_notifications', 'push_attempted_at');
+        $hasDelivered = Schema::hasColumn('student_notifications', 'push_sent_at');
+        $readSql = $hasRead ? 'SUM(CASE WHEN is_read = 1 THEN 1 ELSE 0 END)' : '0';
+        $attemptedSql = $hasAttempted
+            ? 'SUM(CASE WHEN push_attempted_at IS NOT NULL THEN 1 ELSE 0 END)'
+            : '0';
+        $deliveredSql = $hasDelivered
+            ? 'SUM(CASE WHEN push_sent_at IS NOT NULL THEN 1 ELSE 0 END)'
+            : '0';
+
+        return DB::table('student_notifications')
+            ->whereIn('user_id', $userIds)
+            ->selectRaw("user_id, COUNT(*) as in_app_notifications, {$readSql} as read_notifications, {$attemptedSql} as push_attempts, {$deliveredSql} as push_delivered")
+            ->groupBy('user_id')
+            ->get()
+            ->mapWithKeys(fn ($row): array => [(int) $row->user_id => [
+                'in_app_notifications' => (int) $row->in_app_notifications,
+                'read_notifications' => (int) $row->read_notifications,
+                'push_attempts' => (int) $row->push_attempts,
+                'push_delivered' => (int) $row->push_delivered,
+            ]]);
+    }
+
+    /** @return array<string,int> */
+    private function emptyNotificationUsage(): array
+    {
+        return [
+            'in_app_notifications' => 0,
+            'read_notifications' => 0,
+            'push_attempts' => 0,
+            'push_delivered' => 0,
+        ];
     }
 }

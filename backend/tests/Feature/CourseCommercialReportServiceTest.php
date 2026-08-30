@@ -24,6 +24,7 @@ final class CourseCommercialReportServiceTest extends TestCase
     protected function tearDown(): void
     {
         foreach ([
+            'student_notifications',
             'wallet_debit_allocations', 'wallet_credit_lots', 'ai_usage_events',
             'operating_cost_pools', 'course_enrollments',
             'orders', 'course_codes', 'courses', 'users', 'settings',
@@ -100,6 +101,23 @@ final class CourseCommercialReportServiceTest extends TestCase
                 'created_at' => $now, 'updated_at' => $now,
             ],
         ]);
+        DB::table('student_notifications')->insert([
+            [
+                'user_id' => 1, 'is_read' => 1,
+                'push_attempted_at' => $now, 'push_sent_at' => $now,
+                'created_at' => $now, 'updated_at' => $now,
+            ],
+            [
+                'user_id' => 1, 'is_read' => 0,
+                'push_attempted_at' => null, 'push_sent_at' => null,
+                'created_at' => $now, 'updated_at' => $now,
+            ],
+            [
+                'user_id' => 2, 'is_read' => 0,
+                'push_attempted_at' => $now, 'push_sent_at' => null,
+                'created_at' => $now, 'updated_at' => $now,
+            ],
+        ]);
         DB::table('operating_cost_pools')->insert([
             [
                 'name' => 'سيرفر أغسطس', 'service_key' => 'infrastructure',
@@ -157,6 +175,12 @@ final class CourseCommercialReportServiceTest extends TestCase
         self::assertSame(15.0, $platform['average_cost_per_student_egp']);
         self::assertSame(1, $platform['ai_failed_requests']);
         self::assertSame(50.0, $platform['ai_failure_rate_percentage']);
+        self::assertSame(3, $platform['in_app_notifications']);
+        self::assertSame(1, $platform['read_notifications']);
+        self::assertSame(2, $platform['push_attempts']);
+        self::assertSame(1, $platform['push_delivered']);
+        self::assertSame(50.0, $platform['push_delivery_rate_percentage']);
+        self::assertSame(2, $platform['student_rows']->firstWhere('user.id', 1)['in_app_notifications']);
         self::assertCount(2, $platform['student_rows']);
     }
 
@@ -176,6 +200,10 @@ final class CourseCommercialReportServiceTest extends TestCase
             ['id' => 1, 'user_id' => 1, 'course_id' => 10, 'is_active' => 1, 'enrolled_at' => $now, 'access_granted_at' => $now, 'created_at' => $now, 'updated_at' => $now],
             ['id' => 2, 'user_id' => 1, 'course_id' => 11, 'is_active' => 1, 'enrolled_at' => $now, 'access_granted_at' => $now, 'created_at' => $now, 'updated_at' => $now],
         ]);
+        DB::table('student_notifications')->insert([
+            'user_id' => 1, 'is_read' => 0, 'push_attempted_at' => $now,
+            'push_sent_at' => $now, 'created_at' => $now, 'updated_at' => $now,
+        ]);
         DB::table('operating_cost_pools')->insert([
             'name' => 'سيرفر مشترك', 'service_key' => 'infrastructure', 'course_id' => null,
             'period_start' => $now->copy()->subDay()->toDateString(),
@@ -191,6 +219,8 @@ final class CourseCommercialReportServiceTest extends TestCase
         self::assertSame(2, $report['enrollments']);
         self::assertSame(100.0, $report['service_cost_egp']);
         self::assertSame(100.0, $report['average_cost_per_student_egp']);
+        self::assertSame(1, $report['push_attempts']);
+        self::assertSame(1, $report['push_delivered']);
         $legacyPlan = $report['plan_breakdown']->get('إتاحة قديمة');
         self::assertSame(1, $legacyPlan['students']);
         self::assertSame(2, $legacyPlan['enrollments']);
@@ -257,6 +287,13 @@ final class CourseCommercialReportServiceTest extends TestCase
             $table->unsignedBigInteger('course_id'); $table->string('status');
             $table->unsignedInteger('total_tokens')->default(0); $table->decimal('cost_usd', 12, 6)->default(0);
             $table->decimal('fx_rate_to_egp', 12, 4)->nullable(); $table->decimal('cost_egp', 14, 6)->nullable();
+            $table->timestamps();
+        });
+        Schema::create('student_notifications', function (Blueprint $table): void {
+            $table->id(); $table->unsignedBigInteger('user_id');
+            $table->boolean('is_read')->default(false);
+            $table->timestamp('push_attempted_at')->nullable();
+            $table->timestamp('push_sent_at')->nullable();
             $table->timestamps();
         });
         Schema::create('operating_cost_pools', function (Blueprint $table): void {
