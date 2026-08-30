@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Models\User;
+use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
@@ -29,10 +32,16 @@ final class AdminLoginSecurityTest extends TestCase
             $table->timestamps();
             $table->softDeletes();
         });
+        Schema::create('password_resets', function (Blueprint $table): void {
+            $table->string('email')->primary();
+            $table->string('token');
+            $table->timestamp('created_at')->nullable();
+        });
     }
 
     protected function tearDown(): void
     {
+        Schema::dropIfExists('password_resets');
         Schema::dropIfExists('users');
         parent::tearDown();
     }
@@ -106,6 +115,105 @@ final class AdminLoginSecurityTest extends TestCase
         self::assertNotSame($oldSessionId, $this->app['session.store']->getId());
     }
 
+    public function test_dashboard_login_accepts_only_administrator_and_moderator_roles(): void
+    {
+        foreach (['client', 'teacher'] as $role) {
+            $user = $this->createUser("{$role}@rokn.test", 'correct-password', $role);
+
+            $response = $this->post('/login', [
+                'email' => $user->email,
+                'password' => 'correct-password',
+            ])->assertRedirect()->assertSessionHasErrors('email');
+
+            self::assertSame(
+                'بيانات الدخول غير صحيحة.',
+                $response->getSession()->get('errors')->first('email')
+            );
+            $this->assertGuest('web');
+        }
+
+        $moderator = $this->createUser('moderator@rokn.test', 'correct-password', 'Moderator');
+        $this->post('/login', [
+            'email' => $moderator->email,
+            'password' => 'correct-password',
+        ])->assertRedirect(route('admin.dashboard'));
+        $this->assertAuthenticatedAs($moderator, 'web');
+    }
+
+    public function test_public_web_registration_is_not_routable(): void
+    {
+        $this->get('/register')->assertNotFound();
+        $this->post('/register', [
+            'name' => 'Unexpected Account',
+            'email' => 'unexpected@rokn.test',
+            'password' => 'correct-password',
+            'password_confirmation' => 'correct-password',
+        ])->assertNotFound();
+
+        self::assertFalse(User::query()->where('email', 'unexpected@rokn.test')->exists());
+    }
+
+    public function test_password_reset_mail_is_limited_to_dashboard_roles_without_enumeration(): void
+    {
+        Notification::fake();
+        $admin = $this->createAdmin('reset-admin@rokn.test', 'correct-password');
+        $client = $this->createUser('reset-client@rokn.test', 'correct-password', 'client');
+
+        $clientResponse = $this->post('/password/email', ['email' => $client->email])
+            ->assertRedirect()
+            ->assertSessionHas('status');
+        $missingResponse = $this->post('/password/email', ['email' => 'missing-reset@rokn.test'])
+            ->assertRedirect()
+            ->assertSessionHas('status');
+        $adminResponse = $this->post('/password/email', ['email' => strtoupper($admin->email)])
+            ->assertRedirect()
+            ->assertSessionHas('status');
+
+        self::assertSame(
+            $clientResponse->getSession()->get('status'),
+            $missingResponse->getSession()->get('status')
+        );
+        self::assertSame(
+            $clientResponse->getSession()->get('status'),
+            $adminResponse->getSession()->get('status')
+        );
+        Notification::assertNotSentTo($client, ResetPassword::class);
+        Notification::assertSentTo($admin, ResetPassword::class);
+    }
+
+    public function test_legacy_learner_reset_token_cannot_create_a_web_password_session(): void
+    {
+        $client = $this->createUser('legacy-client@rokn.test', 'correct-password', 'client');
+        $oldHash = $client->password;
+        $token = Password::broker()->createToken($client);
+
+        $this->post('/password/reset', [
+            'token' => $token,
+            'email' => $client->email,
+            'password' => 'new-correct-password',
+            'password_confirmation' => 'new-correct-password',
+        ])->assertRedirect()->assertSessionHasErrors('email');
+
+        self::assertSame($oldHash, $client->fresh()->password);
+        $this->assertGuest('web');
+    }
+
+    public function test_dashboard_role_can_complete_password_reset_and_returns_to_mfa_gate(): void
+    {
+        $moderator = $this->createUser('recover-moderator@rokn.test', 'correct-password', 'moderator');
+        $token = Password::broker()->createToken($moderator);
+
+        $this->post('/password/reset', [
+            'token' => $token,
+            'email' => strtoupper($moderator->email),
+            'password' => 'new-correct-password',
+            'password_confirmation' => 'new-correct-password',
+        ])->assertRedirect('/dashboard');
+
+        self::assertTrue(Hash::check('new-correct-password', $moderator->fresh()->password));
+        $this->assertAuthenticatedAs($moderator, 'web');
+    }
+
     public function test_inactive_administrator_cannot_login_or_keep_an_existing_session(): void
     {
         $admin = $this->createAdmin('inactive@rokn.test', 'correct-password');
@@ -125,11 +233,16 @@ final class AdminLoginSecurityTest extends TestCase
 
     private function createAdmin(string $email, string $password): User
     {
+        return $this->createUser($email, $password, 'admin');
+    }
+
+    private function createUser(string $email, string $password, string $role): User
+    {
         return User::query()->forceCreate([
             'name' => 'Rokn Admin',
             'email' => $email,
             'password' => Hash::make($password),
-            'role' => 'admin',
+            'role' => $role,
             'active' => true,
         ]);
     }

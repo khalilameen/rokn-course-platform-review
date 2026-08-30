@@ -287,7 +287,10 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
     Route::get('students/{student}/exam-results', 'ExamResultController@getStudentResults')->middleware('admin.only')->name('students.exam-results');
 
 });
-Auth::routes();
+// Learners authenticate through the mobile social-auth contract. The web
+// guard exists only for administrator and moderator accounts provisioned by
+// an administrator, so public password registration must never be routable.
+Auth::routes(['register' => false, 'verify' => false]);
 
 Route::get('/home', 'HomeController@index')->name('home');
 

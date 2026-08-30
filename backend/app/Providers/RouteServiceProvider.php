@@ -76,6 +76,13 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(12)->by('admin-login-route:' . $identity);
         });
 
+        RateLimiter::for('admin-password-reset', function (Request $request) {
+            $email = strtolower(trim((string) $request->input('email')));
+            $identity = hash('sha256', $email . '|' . ($request->ip() ?: 'unknown'));
+
+            return Limit::perMinute(5)->by('admin-password-reset:' . $identity);
+        });
+
         RateLimiter::for('admin-mfa', function (Request $request) {
             $userId = optional($request->user())->getAuthIdentifier() ?: 'guest';
             $ip = $request->ip() ?: 'unknown';

@@ -1,10 +1,15 @@
 <!-- Left Panel -->
 
+@php
+    $isAdministrator = strtolower(trim((string) auth()->user()?->role)) === 'admin';
+    $dashboardHome = $isAdministrator ? route('admin.dashboard') : route('admin.courses.index');
+@endphp
+
 <aside id="left-panel" class="left-panel modern-sidebar" aria-label="القائمة الرئيسية">
     <nav class="sidebar-nav">
 
         <div class="modern-brand">
-            <a class="brand-logo" href="{{ route('admin.dashboard') }}">
+            <a class="brand-logo" href="{{ $dashboardHome }}">
                 <i class="fa fa-graduation-cap brand-icon" aria-hidden="true"></i>
                 <span class="brand-text">Rokn</span>
             </a>
@@ -22,10 +27,10 @@
         <div id="main-menu" class="main-menu">
             <ul class="modern-nav">
                 <!-- Dashboard Section -->
-                <li class="nav-item{{ isRouteActive('admin.dashboard') ? ' active' : '' }}">
-                    <a href="{{ route('admin.dashboard') }}" class="nav-link">
+                <li class="nav-item{{ isRouteActive($isAdministrator ? 'admin.dashboard' : 'admin.courses.*') ? ' active' : '' }}">
+                    <a href="{{ $dashboardHome }}" class="nav-link">
                         <i class="menu-icon fa fa-dashboard"></i>
-                        <span class="menu-text">الرئيسية</span>
+                        <span class="menu-text">{{ $isAdministrator ? 'الرئيسية' : 'مساحة المحتوى' }}</span>
                     </a>
                 </li>
                 <!--
@@ -75,7 +80,7 @@
                         <span class="menu-text">المعلمون</span>
                     </a>
                 </li>
-                @if(auth()->user()?->role === 'admin')
+                @if($isAdministrator)
                 <li class="nav-item{{ isRouteActive('admin.moderators.*') ? ' active' : '' }}">
                     <a href="{{ route('admin.moderators.index') }}" class="nav-link">
                         <i class="menu-icon fa fa-user-secret"></i>
@@ -84,11 +89,11 @@
                 </li>
                 @endif
 
-                @if(auth()->user()?->role === 'admin')
+                @if($isAdministrator)
                 <!-- Students Section -->
                 <li class="menu-divider"><span>الطلاب والتقييم</span></li>
 
-                @if(auth()->user()?->role === 'admin')
+                @if($isAdministrator)
                 <li class="nav-item{{ isRouteActive('admin.users.*') ? ' active' : '' }}">
                     <a href="{{ route('admin.users.index') }}" class="nav-link">
                         <i class="menu-icon fa fa-user-circle"></i>
@@ -104,7 +109,7 @@
                         <span class="menu-text">تقدم الطلاب</span>
                     </a>
                 </li>
-                @if(auth()->user()?->role === 'admin')
+                @if($isAdministrator)
                 <li class="nav-item{{ isRouteActive('admin.product-operations.*') ? ' active' : '' }}">
                     <a href="{{ route('admin.product-operations.index') }}" class="nav-link">
                         <i class="menu-icon fa fa-check-square-o"></i>
@@ -146,7 +151,7 @@
                 </li>-->
                 @endif
 
-                @if(auth()->user()?->role === 'admin')
+                @if($isAdministrator)
                 <!-- Financial Section -->
                 <li class="menu-divider"><span>المالية والمبيعات</span></li>
 
@@ -186,7 +191,7 @@
                     </a>
                 </li>
                 
-                @if(auth()->user()?->role === 'admin')
+                @if($isAdministrator)
                 <li class="nav-item{{ isRouteActive('admin.coin-earning-methods.*') ? ' active' : '' }}">
                     <a href="{{ route('admin.coin-earning-methods.index') }}" class="nav-link">
                         <i class="menu-icon fa fa-money"></i>
@@ -247,7 +252,7 @@
                     </a>
                 </li>
 -->
-                @if(auth()->user()?->role === 'admin')
+                @if($isAdministrator)
                 <!-- Communication Section -->
                 <li class="menu-divider"><span>التواصل</span></li>
 
@@ -269,7 +274,7 @@
                         <span class="menu-text">مراكز التكلفة</span>
                     </a>
                 </li>
-                @if(auth()->user()?->role === 'admin')
+                @if($isAdministrator)
                 <li class="nav-item{{ isRouteActive('admin.notifications.*') ? ' active' : '' }}">
                     <a href="{{ route('admin.notifications.index') }}" class="nav-link">
                         <i class="menu-icon fa fa-bell"></i>

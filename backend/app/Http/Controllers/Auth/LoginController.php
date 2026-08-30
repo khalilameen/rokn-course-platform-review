@@ -38,7 +38,7 @@ class LoginController extends Controller
      */
     public function username()
     {
-        return 'phone';
+        return 'email';
     }
 
     /**
@@ -61,7 +61,7 @@ class LoginController extends Controller
     {
         if (!$request->user()) {
             return redirect()->route('login');
-        } elseif ($request->user()->role == 'admin' || $request->user()->role == 'moderator' ) {
+        } elseif (in_array(strtolower(trim((string) $request->user()->role)), ['admin', 'moderator'], true)) {
             return redirect()->route('admin.dashboard');
         } else {
             return redirect()->route('home');
@@ -99,23 +99,33 @@ class LoginController extends Controller
                 ->onlyInput('email');
         }
 
+        $role = strtolower(trim((string) auth()->user()?->role));
+        if (!in_array($role, ['admin', 'moderator'], true)) {
+            auth()->logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+            RateLimiter::hit($key, 60);
+
+            return redirect()->back()
+                ->withErrors(['email' => 'بيانات الدخول غير صحيحة.'])
+                ->onlyInput('email');
+        }
+
         RateLimiter::clear($key);
         $request->session()->regenerate();
 
         // Password authentication is only the first factor for dashboard
         // roles. Never inherit a prior user's MFA state through a reused
         // browser session.
-        if (in_array(strtolower((string) auth()->user()?->role), ['admin', 'moderator'], true)) {
-            $request->session()->forget([
-                'admin_mfa_verified_user_id',
-                'admin_mfa_verified_at',
-                'admin_mfa_secret_fingerprint',
-                'admin_mfa_setup_secret_ciphertext',
-                'admin_mfa_setup_user_id',
-                'admin_mfa_setup_started_at',
-                'admin_mfa_new_recovery_codes_ciphertext',
-            ]);
-        }
+        $request->session()->forget([
+            'admin_mfa_verified_user_id',
+            'admin_mfa_verified_at',
+            'admin_mfa_secret_fingerprint',
+            'admin_mfa_setup_secret_ciphertext',
+            'admin_mfa_setup_user_id',
+            'admin_mfa_setup_started_at',
+            'admin_mfa_new_recovery_codes_ciphertext',
+        ]);
 
         return $this->authenticated($request, auth()->user());
     }

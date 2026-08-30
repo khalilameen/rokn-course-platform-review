@@ -25,8 +25,8 @@ class HomeController extends Controller
 
     public function index()
     {
-        // Content moderators can work on courses and project reviews, but the
-        // executive dashboard contains cash, allocation and acquisition data.
+        // Content moderators work in course authoring. The executive dashboard
+        // and student-submission review contain financial or learner data.
         if (strtolower((string) optional(auth()->user())->role) !== 'admin') {
             return redirect()->route('admin.courses.index');
         }

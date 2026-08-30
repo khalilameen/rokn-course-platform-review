@@ -6,7 +6,9 @@ namespace Tests\Feature;
 
 use App\Auth\AdminPermissionMatrix;
 use App\Models\User;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 final class AdminAuthorizationMatrixTest extends TestCase
@@ -80,6 +82,43 @@ final class AdminAuthorizationMatrixTest extends TestCase
             foreach ($allowedMethods as $method) {
                 self::assertContains($method, $routeMethods, "{$name} does not support {$method}");
             }
+            self::assertNotContains(
+                'admin.only',
+                $route->gatherMiddleware(),
+                "Contradictory moderator permission: {$name} is also administrator-only"
+            );
+        }
+    }
+
+    public function test_every_dashboard_route_is_either_explicitly_moderated_or_administrator_only(): void
+    {
+        $matrix = app(AdminPermissionMatrix::class);
+        $mfaBootstrapRoutes = [
+            'admin.mfa.setup',
+            'admin.mfa.setup.confirm',
+            'admin.mfa.challenge',
+            'admin.mfa.challenge.verify',
+        ];
+
+        foreach (Route::getRoutes()->getRoutes() as $route) {
+            $name = $route->getName();
+            if (!is_string($name) || !str_starts_with($name, 'admin.')) {
+                continue;
+            }
+
+            $middleware = $route->gatherMiddleware();
+            self::assertContains('admin', $middleware, "{$name} must require dashboard authentication");
+            if (!in_array($name, $mfaBootstrapRoutes, true)) {
+                self::assertContains('admin.mfa', $middleware, "{$name} must require dashboard MFA");
+            }
+
+            foreach (array_diff($route->methods(), ['HEAD']) as $method) {
+                self::assertTrue(
+                    in_array('admin.only', $middleware, true)
+                        || $matrix->allows('moderator', $name, $method),
+                    "{$method} {$name} is neither administrator-only nor in the moderator allow-list"
+                );
+            }
         }
     }
 
@@ -92,6 +131,7 @@ final class AdminAuthorizationMatrixTest extends TestCase
         $html = view('admin.includes.aside')->render();
 
         self::assertStringContainsString(route('admin.courses.index'), $html);
+        self::assertStringContainsString('مساحة المحتوى', $html);
         self::assertStringContainsString(route('admin.teachers.index'), $html);
         self::assertStringNotContainsString(route('admin.settings'), $html);
         self::assertStringNotContainsString(route('admin.orders.index'), $html);
@@ -99,5 +139,28 @@ final class AdminAuthorizationMatrixTest extends TestCase
         self::assertStringNotContainsString(route('admin.users.index'), $html);
         self::assertStringNotContainsString(route('admin.student-progress.index'), $html);
         self::assertStringNotContainsString(route('admin.project-submissions.index'), $html);
+    }
+
+    public function test_administrator_navigation_normalizes_legacy_role_case(): void
+    {
+        Schema::create('contacts', function (Blueprint $table): void {
+            $table->id();
+            $table->boolean('read')->default(false);
+        });
+        $administrator = new User(['name' => 'Rokn Owner']);
+        $administrator->role = 'Admin';
+        $this->app['auth']->guard()->setUser($administrator);
+
+        try {
+            $html = view('admin.includes.aside')->render();
+
+            self::assertStringContainsString(route('admin.dashboard'), $html);
+            self::assertStringContainsString(route('admin.settings'), $html);
+            self::assertStringContainsString(route('admin.orders.index'), $html);
+            self::assertStringContainsString(route('admin.users.index'), $html);
+            self::assertStringNotContainsString('مساحة المحتوى', $html);
+        } finally {
+            Schema::dropIfExists('contacts');
+        }
     }
 }

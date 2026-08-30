@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>تسجيل الدخول - {{ config('settings.site_name_ar', 'أستاذ') }}</title>
+    <title>دخول لوحة ركن</title>
 
     <link rel="stylesheet" href="{{ asset('admin/assets/css/font-awesome.min.css') }}">
     <link
@@ -23,8 +23,8 @@
                 <div class="logo-icon">
                     <i class="fa fa-graduation-cap" aria-hidden="true"></i>
                 </div>
-                <h1 class="login-title">مرحباً بك</h1>
-                <p class="login-subtitle">قم بتسجيل الدخول للوصول إلى حسابك</p>
+                <h1 class="login-title">لوحة إدارة ركن</h1>
+                <p class="login-subtitle">دخول الأدمن أو فريق المحتوى</p>
             </div>
 
             <div class="login-body">
@@ -111,6 +111,7 @@
                             >
                             <label for="remember">تذكرني</label>
                         </div>
+                        <a href="{{ route('password.request') }}">نسيت كلمة المرور؟</a>
                     </div>
 
                     <button type="submit" class="btn-login" aria-live="polite">
