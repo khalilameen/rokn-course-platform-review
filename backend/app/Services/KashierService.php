@@ -17,7 +17,7 @@ final class KashierService
 {
     private string $mode;
 
-    /** @var array{base_url?: string, api_key?: string, mid?: string} */
+    /** @var array{base_url?: string, api_key?: string, secret_key?: string, mid?: string} */
     private array $config;
 
     public function __construct()
@@ -106,7 +106,7 @@ final class KashierService
         return rtrim($this->getBaseUrl(), '?&') . '?' . $query;
     }
 
-    /** @return array{base_url?: string, api_key?: string, mid?: string} */
+    /** @return array{base_url?: string, api_key?: string, secret_key?: string, mid?: string} */
     public function getConfig(): array
     {
         return $this->config;

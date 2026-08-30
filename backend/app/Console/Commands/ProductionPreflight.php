@@ -184,6 +184,7 @@ class ProductionPreflight extends Command
 
         $require(config('kashier.mode') === 'live', 'KASHIER_MODE must be live.');
         $require($this->configured('kashier.live.api_key'), 'KASHIER_LIVE_API_KEY is required.');
+        $require($this->configured('kashier.live.secret_key'), 'KASHIER_LIVE_SECRET_KEY is required.');
         $require($this->configured('kashier.live.mid'), 'KASHIER_LIVE_MID is required.');
 
         $require($this->configured('services.facebook.client_id'), 'FACEBOOK_CLIENT_ID is required.');

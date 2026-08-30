@@ -51,6 +51,7 @@ final class ProductionCapabilityTest extends TestCase
             'bunny.upload_timeout_seconds' => 3600,
             'kashier.mode' => 'live',
             'kashier.live.api_key' => 'payment-secret',
+            'kashier.live.secret_key' => 'dashboard-secret',
             'kashier.live.mid' => 'MID-1',
             'kashier.live.base_url' => 'https://checkout.kashier.io',
             'openrouter.api_key' => 'ai-secret',
@@ -130,6 +131,7 @@ final class ProductionCapabilityTest extends TestCase
             ->assertJsonMissing(['reason'])
             ->assertDontSee('stream-secret')
             ->assertDontSee('payment-secret')
+            ->assertDontSee('dashboard-secret')
             ->assertDontSee('ai-secret')
             ->assertDontSee('mail-secret');
     }

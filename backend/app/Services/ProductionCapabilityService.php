@@ -119,6 +119,7 @@ final class ProductionCapabilityService
         $selected = is_array(config("kashier.{$mode}")) ? config("kashier.{$mode}") : [];
         $configured = in_array($mode, ['live', 'test'], true)
             && trim((string) ($selected['api_key'] ?? '')) !== ''
+            && trim((string) ($selected['secret_key'] ?? '')) !== ''
             && trim((string) ($selected['mid'] ?? '')) !== ''
             && filter_var($selected['base_url'] ?? null, FILTER_VALIDATE_URL) !== false;
         $productionModeReady = config('app.env') !== 'production' || $mode === 'live';

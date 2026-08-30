@@ -64,6 +64,11 @@ reconciliation. The scheduler runs `payments:reconcile-kashier` in bounded,
 locked batches; mismatches and reversals are quarantined in the administrator
 review queue and never grant funds from unverified evidence.
 
+Kashier uses two server-only credentials with different purposes. The Payment
+API key (`KASHIER_*_API_KEY`) signs checkout and webhook payloads; the Secret
+API key (`KASHIER_*_SECRET_KEY`) authenticates order-status and reconciliation
+requests to Kashier's API. Neither credential belongs in the mobile app.
+
 ## Verification
 
 ```bash

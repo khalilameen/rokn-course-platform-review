@@ -34,6 +34,7 @@ final class KashierReconciliationTest extends TestCase
         config([
             'kashier.mode' => 'test',
             'kashier.test.api_key' => 'test-api-key-not-a-secret',
+            'kashier.test.secret_key' => 'test-dashboard-key-not-a-secret',
             'kashier.test.mid' => 'MID-TEST-000',
         ]);
         $this->user = User::query()->forceCreate([
@@ -71,6 +72,9 @@ final class KashierReconciliationTest extends TestCase
 
         self::assertSame(1, $first['fulfilled']);
         self::assertSame(1, $second['consistent']);
+        Http::assertSent(static fn ($request): bool =>
+            $request->hasHeader('Authorization', 'test-dashboard-key-not-a-secret')
+        );
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
             'status' => Order::STATUS_APPROVED,

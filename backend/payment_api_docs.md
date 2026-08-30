@@ -349,7 +349,9 @@ func userContentController(_ userContentController: WKUserContentController,
 ## 8. Test Cards
 
 > [!WARNING]
-> The API is currently in **test mode** (`KASHIER_MODE=test`). All payments are simulated — no real money is charged.
+> These cards work only when the deployed environment explicitly uses
+> `KASHIER_MODE=test`. Production uses `KASHIER_MODE=live`; never enter a test
+> card or assume a live checkout is simulated.
 
 | Card Number | Expiry | CVV | Result |
 |---|---|---|---|
@@ -357,7 +359,7 @@ func userContentController(_ userContentController: WKUserContentController,
 | `5123 4500 0000 0008` | `06/27` | `100` | ✅ Success (3D Secure) |
 | `5111 1111 1111 1118` | `05/20` | `102` | ❌ Failure |
 
-> Use any name and billing address — they are not validated in test mode.
+> Use any name and billing address only in test mode — they are not validated there.
 
 ---
 

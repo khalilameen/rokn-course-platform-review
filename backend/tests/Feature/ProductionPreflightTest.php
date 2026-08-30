@@ -161,6 +161,7 @@ class ProductionPreflightTest extends TestCase
                 'bunny.storage_token_auth_key' => 'configured',
                 'kashier.mode' => 'live',
                 'kashier.live.api_key' => 'configured',
+                'kashier.live.secret_key' => 'configured',
                 'kashier.live.mid' => 'configured',
                 'services.facebook.client_id' => 'configured',
                 'services.facebook.client_secret' => 'configured',

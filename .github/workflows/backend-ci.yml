@@ -68,6 +68,7 @@ jobs:
       MAIL_MAILER: array
       KASHIER_MODE: test
       KASHIER_TEST_API_KEY: ci-only-not-a-secret
+      KASHIER_TEST_SECRET_KEY: ci-dashboard-only-not-a-secret
       KASHIER_TEST_MID: MID-CI
 
     steps:

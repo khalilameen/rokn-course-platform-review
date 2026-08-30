@@ -138,6 +138,7 @@ final class RepositorySecretScannerTest extends TestCase
             'FIREBASE_'.'CREDENTIALS=/run/secrets/firebase-service-account.json',
             'MAIL_'.'PASSWORD=...',
             'KASHIER_LIVE_'.'API_KEY=<PLACEHOLDER>',
+            'KASHIER_LIVE_'.'SECRET_KEY=${KASHIER_LIVE_SECRET_KEY}',
         ]);
 
         self::assertSame([], $scanner->scanContents($accepted));
