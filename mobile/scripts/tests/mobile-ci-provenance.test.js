@@ -355,6 +355,10 @@ test('native lock refresh captures the production Android metadata closure', () 
   assert.equal([...workflow.matchAll(/NODE_ENV: production/g)].length, 2);
   assert.equal([...workflow.matchAll(/git rebase origin\/main/g)].length, 3);
   assert.equal([...workflow.matchAll(/git push origin HEAD:main/g)].length, 3);
+  assert.match(workflow, /skip_linux_android:/);
+  assert.match(workflow, /needs\.refresh-android\.result == 'skipped'/);
+  assert.match(workflow, /git stash push --include-untracked/);
+  assert.match(workflow, /git stash pop/);
 });
 
 test('workflow is discoverable from the monorepo root and preserves native checks', () => {
