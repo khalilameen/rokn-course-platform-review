@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "Podfile.lock exact roots, CocoaPods SPEC CHECKSUMS, Pods/Manifest.lock, and installed source bytes",
-  "podfileChecksum": "29bdd8e99f6b7791b64e8aeef36750a6108e0881",
+  "podfileChecksum": "bc486f7163589e6fd01f35b3c3bd18386b55b0b9",
   "cocoapodsVersion": "1.16.2",
-  "manifestSha256": "71df79798db25b18507c10ce80d61072477edfaf75d145ab87ed4cf68111a04d",
+  "manifestSha256": "9bc358820107727e51c2608f6aba5a24320060a3a8456391af5e5d51dcb5d69e",
   "installedSourceCount": 109,
   "dependencyCount": 111,
   "dependencies": [
