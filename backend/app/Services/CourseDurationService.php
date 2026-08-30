@@ -7,13 +7,19 @@ namespace App\Services;
 use App\Models\Course;
 use App\Models\CourseSection;
 use App\Models\Lesson;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
 
 final readonly class CourseDurationService
 {
     /** Lesson durations take precedence over the legacy course-hours fallback. */
     public function minutes(Course $course): int
     {
+        if (!$this->hasLessonDurationSchema()) {
+            return $this->legacyMinutes($course);
+        }
+
         $lessonIds = $course->relationLoaded('sections')
             ? $course->sections
                 ->where('sectionable_type', Lesson::class)
@@ -23,8 +29,7 @@ final readonly class CourseDurationService
                 ->where('sectionable_type', Lesson::class)
                 ->pluck('sectionable_id');
 
-        $lessons = Lesson::query()
-            ->with('mediaState:id,lesson_id,duration_seconds')
+        $lessons = $this->lessonDurationQuery()
             ->whereIn('id', $lessonIds->filter()->unique()->values())
             ->get(['id', 'duration_minutes']);
 
@@ -34,7 +39,7 @@ final readonly class CourseDurationService
             return $lessonMinutes;
         }
 
-        return max(0, (int) $course->hours_count) * 60;
+        return $this->legacyMinutes($course);
     }
 
     public function attach(Course $course): Course
@@ -60,6 +65,15 @@ final readonly class CourseDurationService
             return $courses;
         }
 
+        if (!$this->hasLessonDurationSchema()) {
+            $coursesById->each(fn (Course $course) => $course->setAttribute(
+                'duration_minutes_computed',
+                $this->legacyMinutes($course)
+            ));
+
+            return $courses;
+        }
+
         $lessonIdsByCourse = CourseSection::query()
             ->whereIn('course_id', $coursesById->keys())
             ->where('sectionable_type', Lesson::class)
@@ -73,8 +87,7 @@ final readonly class CourseDurationService
                     ->values()
             );
 
-        $lessonMinutes = Lesson::query()
-            ->with('mediaState:id,lesson_id,duration_seconds')
+        $lessonMinutes = $this->lessonDurationQuery()
             ->whereIn('id', $lessonIdsByCourse->flatten()->unique()->values())
             ->get(['id', 'duration_minutes'])
             ->mapWithKeys(fn (Lesson $lesson): array => [
@@ -88,7 +101,7 @@ final readonly class CourseDurationService
 
             $course->setAttribute(
                 'duration_minutes_computed',
-                $minutes > 0 ? $minutes : max(0, (int) $course->hours_count) * 60
+                $minutes > 0 ? $minutes : $this->legacyMinutes($course)
             );
         }
 
@@ -102,8 +115,38 @@ final readonly class CourseDurationService
             return $declaredMinutes;
         }
 
-        $providerSeconds = max(0, (int) ($lesson->mediaState?->duration_seconds ?? 0));
+        $providerSeconds = $lesson->relationLoaded('mediaState')
+            ? max(0, (int) ($lesson->mediaState?->duration_seconds ?? 0))
+            : 0;
 
         return $providerSeconds > 0 ? (int) ceil($providerSeconds / 60) : 0;
+    }
+
+    private function hasLessonDurationSchema(): bool
+    {
+        return Schema::hasTable('course_sections')
+            && Schema::hasColumn('course_sections', 'sectionable_type')
+            && Schema::hasColumn('course_sections', 'sectionable_id')
+            && Schema::hasTable('lessons')
+            && Schema::hasColumn('lessons', 'duration_minutes');
+    }
+
+    private function lessonDurationQuery(): Builder
+    {
+        $query = Lesson::query();
+
+        if (
+            Schema::hasTable('lesson_media_states')
+            && Schema::hasColumn('lesson_media_states', 'duration_seconds')
+        ) {
+            $query->with('mediaState:id,lesson_id,duration_seconds');
+        }
+
+        return $query;
+    }
+
+    private function legacyMinutes(Course $course): int
+    {
+        return max(0, (int) $course->hours_count) * 60;
     }
 }
