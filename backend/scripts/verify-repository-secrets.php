@@ -64,6 +64,8 @@ $reviewedHistoryFixtures = [
     'private_key_material' => [
         'tests/Feature/ProductionPreflightTest.php' =>
             '-----BEGIN'.' PRIVATE KEY-----\nfixture\n-----END'.' PRIVATE KEY-----',
+        'tests/Feature/ProductionCapabilityTest.php' =>
+            '-----BEGIN'.' PRIVATE KEY-----\nfixture\n-----END'.' PRIVATE KEY-----',
     ],
 ];
 

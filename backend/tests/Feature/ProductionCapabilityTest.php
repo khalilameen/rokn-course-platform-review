@@ -60,10 +60,10 @@ final class ProductionCapabilityTest extends TestCase
 
         $googleStoreCredentials = base64_encode(json_encode([
             'client_email' => 'play-verifier@rokn-production.iam.gserviceaccount.com',
-            'private_key' => "-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----\n",
+            'private_key' => "-----BEGIN"." PRIVATE KEY-----\nfixture\n-----END"." PRIVATE KEY-----\n",
         ], JSON_THROW_ON_ERROR));
         $appleStoreKey = base64_encode(
-            "-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----\n"
+            "-----BEGIN"." PRIVATE KEY-----\nfixture\n-----END"." PRIVATE KEY-----\n"
         );
 
         config([
