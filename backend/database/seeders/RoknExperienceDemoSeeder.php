@@ -328,8 +328,8 @@ class RoknExperienceDemoSeeder extends Seeder
                 'welcome_bonus_coins' => 20,
                 'max_reward_contribution_per_course' => 20,
                 'enforce_course_section_order' => true,
-                'how_to_use_coins_ar' => "استخدم عملات ركن لفتح الكورسات والخطط التعليمية المدفوعة داخل التطبيق.\nعند الشراء تُستخدم عملات المكافآت المؤهلة أولًا، ثم العملات المشتراة.\nلا يمكن تحويل العملات إلى نقد أو نقلها إلى حساب آخر.\nعند استرداد شراء مؤهل، تعود العملات إلى نوع الرصيد الأصلي قدر الإمكان.",
-                'how_to_use_coins_en' => "Use Rokn coins to unlock paid courses and learning plans in the app.\nEligible reward coins are spent first, followed by purchased coins.\nCoins cannot be withdrawn as cash or transferred to another account.\nEligible refunds return coins to their original balance type where possible.",
+                'how_to_use_coins_ar' => "استخدم عملات ركن لفتح الكورسات والخطط التعليمية المدفوعة داخل التطبيق.\nعند الشراء تُستخدم عملات المكافآت المؤهلة أولًا، ثم العملات المشتراة.\nلا يمكن بيع العملات أو تحويلها إلى نقد أو نقلها إلى حساب آخر.\nشراء العملات نهائي بعد تأكيد الدفع، وتبدأ مراجعة أي عطل يمنع الانتفاع عبر دعم ركن.",
+                'how_to_use_coins_en' => "Use Rokn Coins to unlock paid courses and learning plans in the app.\nEligible reward coins are spent first, followed by paid coins.\nCoins cannot be sold, withdrawn as cash, or transferred to another account.\nCoin purchases are final once payment is confirmed, and any service-failure review starts with Rokn Support.",
             ]);
         });
     }

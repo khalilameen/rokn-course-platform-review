@@ -6,8 +6,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Config;
 class Setting extends Model
 {
-    private const DEFAULT_COIN_RULES_AR = 'عملات ركن رصيد افتراضي غير قابل للتحويل إلى نقد. لديك عملات مكافآت وعملات مشتراة؛ عند فتح كورس تُستخدم المكافآت أولًا ثم العملات المشتراة، وعند الاسترداد تعود العملات إلى مصدرها الأصلي قدر الإمكان.';
-    private const DEFAULT_COIN_RULES_EN = 'Rokn coins are a non-withdrawable virtual balance. Reward coins are spent before purchased coins, and refunds return coins to their original source where possible.';
+    private const DEFAULT_COIN_RULES_AR = 'عملات ركن رصيد استخدام داخلي غير قابل للبيع أو التحويل أو السحب نقدًا. لديك عملات مكافآت وعملات مشتراة؛ عند فتح كورس تُستخدم المكافآت المؤهلة أولًا ثم العملات المشتراة. شراء العملات نهائي بعد تأكيد الدفع، وتبدأ مراجعة أي عطل يمنع الانتفاع عبر دعم ركن.';
+    private const DEFAULT_COIN_RULES_EN = 'Rokn Coins are internal credit that cannot be sold, transferred, or withdrawn as cash. Eligible reward coins are spent before paid coins. Coin purchases are final once payment is confirmed, and any service-failure review starts with Rokn Support.';
 
     protected $fillable = [
         'site_name_ar',

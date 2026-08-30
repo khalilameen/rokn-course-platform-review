@@ -59,8 +59,8 @@ return [
             'title' => '6. Coins and payments',
             'points' => [
                 'We record paid coins and reward coins separately even when the wallet shows a combined total.',
-                'Kashier processes payment. Rokn receives the transaction reference, amount, and status needed to credit the balance and resolve issues.',
-                'Rokn does not store the full card number or security code. Payment details are entered in Kashier environment and are subject to its policy.',
+                'Kashier, Google Play, or the App Store processes payment depending on the app build. Rokn receives the transaction reference, product, amount, and status needed to credit the balance, prevent duplicates, and resolve issues.',
+                'Rokn does not store the full card number or security code. Payment details are entered in the payment provider environment and are subject to its policy.',
             ],
         ],
         [
@@ -76,7 +76,7 @@ return [
             'title' => '8. Sharing, hosting, and international processing',
             'body' => 'We do not sell or rent personal data. We share only what is necessary with:',
             'points' => [
-                'Sign-in providers; Kashier for payments; Bunny for storage and delivery of video, images, and files; and OpenRouter and model providers for Rokn AI.',
+                'Sign-in providers; Kashier, Google Play, and the App Store for payments; Bunny for storage and delivery of video, images, and files; and OpenRouter and model providers for Rokn AI.',
                 'Operational, notification, and support providers, and the trainer or reviewer where necessary to review your project.',
                 'A competent authority where required by law or a valid court order.',
                 'Some providers may process data outside Egypt. Transfers are made to the extent necessary and subject to applicable legal requirements and safeguards.',
@@ -118,7 +118,7 @@ return [
             ],
         ],
     ],
-    'last_updated' => 'Last updated: August 30, 2026',
+    'last_updated' => 'Last updated: August 31, 2026',
     'copyright' => '© 2026 Rokn for Digital Production and Content – One Person Limited Liability Company — All rights reserved',
     'fallback' => 'The privacy policy could not be loaded. Please try again or contact support.',
 ];

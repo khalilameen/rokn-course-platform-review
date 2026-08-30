@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+
 jest.mock('../src/constants/api', () => ({
   publicRequest: {get: jest.fn(), post: jest.fn()},
 }));
@@ -13,6 +16,28 @@ const mockPost = publicRequest.post as jest.Mock;
 describe('commerce API contracts', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it('keeps final-sale language in policy surfaces, not checkout decisions', () => {
+    const wallet = fs.readFileSync(
+      path.resolve(__dirname, '../src/screens/Wallet.tsx'),
+      'utf8',
+    );
+    const courseCheckout = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        '../src/screens/CourseDetails/details/PurchaseDialogs.tsx',
+      ),
+      'utf8',
+    );
+    const terms = fs.readFileSync(
+      path.resolve(__dirname, '../src/screens/Informations/TermsOfUse.tsx'),
+      'utf8',
+    );
+
+    expect(wallet).not.toContain('شراء العملات نهائي');
+    expect(courseCheckout).not.toContain('شراء العملات نهائي');
+    expect(terms).toContain('شراء العملات نهائي بعد تأكيد الدفع');
   });
 
   it('keeps paid, reward, and course-spendable balances separate', async () => {

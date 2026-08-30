@@ -66,6 +66,7 @@ return [
             'points' => [
                 'Rokn Coins are closed-loop digital credit for use only within the platform. They are not cash, cryptocurrency, an investment, or interest-bearing value, and cannot be transferred between accounts or cashed out.',
                 'There are paid coins and reward coins. We record them separately even when the wallet shows a combined total.',
+                'A coin purchase is final once payment is confirmed. Coins do not create a right to cash and may not be sold, exchanged, or redeemed for money.',
                 'When a course is unlocked, reward coins are used first and paid coins second, and the system records the amount used from each balance.',
                 'A reward may be subject to conditions or an expiry shown before it is earned. We may cancel a reward proven to have been obtained through duplication or abuse without affecting correctly purchased credit.',
                 'Package, course, and reward values may change prospectively, but an existing balance is not reduced retroactively.',
@@ -74,10 +75,10 @@ return [
         [
             'title' => '7. Payment and refunds',
             'points' => [
-                'Kashier processes coin purchases through the official payment page, where the amount and transaction details are shown before confirmation.',
-                'We review duplicate charges, successful payments without credited coins, a Rokn-side fault that prevents use and cannot be fixed, or withdrawal of a course without a suitable alternative.',
-                'Where a course paid with coins qualifies for reversal, each portion returns to the balance type from which it was deducted. A qualifying cash refund is returned through the original payment method.',
-                'A change of mind after starting digital content does not automatically qualify for a refund, without limiting any right that cannot be waived by law.',
+                'Coin purchases are processed by Kashier, Google Play, or the App Store depending on the app build, and the package amount is shown before confirmation.',
+                'We do not accept refunds for change of mind, non-use, or an unused balance. A confirmed purchase is final and coins are non-transferable, non-withdrawable internal credit.',
+                'If a duplicate charge occurs, a successful payment does not credit the coins, or an ongoing Rokn-side fault prevents use of the paid service and cannot be fixed or suitably replaced, the request must start with Rokn Support for correction or exceptional compensation.',
+                'Any exceptional cash refund approved by us or required by mandatory rules is settled to the original payment method. It never converts a coin balance into cash and does not limit any right that cannot legally be waived.',
             ],
         ],
         [
@@ -118,7 +119,7 @@ return [
             'title' => '12. Privacy and external services',
             'points' => [
                 'The Privacy Policy explains how we handle data and forms part of these terms.',
-                'We use Bunny to store and deliver video, images, and files; Kashier for payments; and OpenRouter and model providers for Rokn AI.',
+                'We use Bunny to store and deliver video, images, and files; Kashier, Google Play, and the App Store for payments; and OpenRouter and model providers for Rokn AI.',
                 'External links and services are also subject to their respective terms and policies.',
             ],
         ],
@@ -132,7 +133,7 @@ return [
         ],
     ],
     'final_acknowledgement' => 'By using Rokn, creating an account, or completing a transaction, you confirm that you have read, understood, and accepted these terms.',
-    'last_updated' => 'Last updated: August 30, 2026',
+    'last_updated' => 'Last updated: August 31, 2026',
     'copyright' => '© 2026 Rokn for Digital Production and Content – One Person Limited Liability Company — All rights reserved',
 
     // Backward compatibility for older view structure.
