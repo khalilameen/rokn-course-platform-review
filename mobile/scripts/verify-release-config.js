@@ -67,6 +67,7 @@ const debugNetworkConfig = read(
   'android/app/src/debug/res/xml/network_security_config.xml',
 );
 const iosProject = read('ios/Rokn.xcodeproj/project.pbxproj');
+const iosAppDelegate = read('ios/Rokn/AppDelegate.swift');
 const iosEntitlements = read('ios/Rokn/Rokn.entitlements');
 const iosInfoPlist = read('ios/Rokn/Info.plist');
 const metroConfig = read('metro.config.js');
@@ -219,6 +220,16 @@ assert(
       `${iosFirebaseBuildFile[1]} /* GoogleService-Info.plist in Resources */`,
     ),
   'The iOS Firebase config is not bundled in the Rokn application target.',
+);
+assert(
+  !/(?:import\s+(?:Firebase|FBSDKCoreKit)|FirebaseApp\.configure\(|ApplicationDelegate\.shared)/.test(
+    iosAppDelegate,
+  ),
+  'The iOS AppDelegate bootstraps a native social/Firebase SDK that is not part of the locked dependency graph.',
+);
+assert(
+  [...iosAppDelegate.matchAll(/\bopen url:\s*URL\b/g)].length === 1,
+  'The iOS AppDelegate must expose exactly one application URL callback.',
 );
 const firebaseIgnoreRules = gitignore
   .split(/\r?\n/)

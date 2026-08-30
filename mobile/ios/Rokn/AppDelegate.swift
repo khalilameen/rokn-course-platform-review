@@ -1,8 +1,6 @@
 internal import Expo
 import React
 import ReactAppDependencyProvider
-import Firebase
-import FBSDKCoreKit
 @main
 class AppDelegate: ExpoAppDelegate {
   var window: UIWindow?
@@ -14,11 +12,6 @@ class AppDelegate: ExpoAppDelegate {
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
-    FirebaseApp.configure()
-    ApplicationDelegate.shared.application(
-      application,
-      didFinishLaunchingWithOptions: launchOptions
-    )
     let delegate = ReactNativeDelegate()
     let factory = ExpoReactNativeFactory(delegate: delegate)
     delegate.dependencyProvider = RCTAppDependencyProvider()
@@ -61,18 +54,6 @@ class AppDelegate: ExpoAppDelegate {
       continue: userActivity,
       restorationHandler: restorationHandler
     ) || result
-  }
-
-  func application(
-    _ app: UIApplication,
-    open url: URL,
-    options: [UIApplication.OpenURLOptionsKey : Any] = [:]
-  ) -> Bool {
-    return ApplicationDelegate.shared.application(
-      app,
-      open: url,
-      options: options
-    )
   }
 }
 
