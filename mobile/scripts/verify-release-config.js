@@ -249,6 +249,15 @@ assert(
   'The iOS bundle phase does not contain the executable Expo entry and CLI resolvers.',
 );
 assert(
+  iosProject.includes(
+    `/bin/bash ${pbxShellQuote}$REACT_NATIVE_PATH/scripts/react-native-xcode.sh${pbxShellQuote}`,
+  ) &&
+    !iosProject.includes(
+      `${pbxShellQuote}$NODE_BINARY${pbxShellQuote} ${pbxShellQuote}$REACT_NATIVE_PATH/scripts/react-native-xcode.sh${pbxShellQuote}`,
+    ),
+  'The iOS bundle phase must execute react-native-xcode.sh with Bash, not Node.',
+);
+assert(
   !iosProject.includes(
     `${overEscapedPbxShellQuote}require('expo/scripts/resolveAppEntry')${overEscapedPbxShellQuote}`,
   ) &&
