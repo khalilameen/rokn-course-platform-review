@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedFrom": "Gradle releaseRuntimeClasspath artifact resolution",
   "configuration": "releaseRuntimeClasspath",
-  "dependencyCount": 197,
+  "dependencyCount": 201,
   "dependencies": [
     {
       "coordinate": "androidx.activity:activity-ktx:1.9.3",
@@ -1635,36 +1635,6 @@
       "reviewedAbsence": null
     },
     {
-      "coordinate": "androidx.lifecycle:lifecycle-livedata:2.9.3",
-      "pomSha256": "34be26ba5a541244d32ff6aba0a6100fdda8abcf10b694a113b8abb76d6dff0f",
-      "pomLicenses": [
-        {
-          "name": "The Apache Software License, Version 2.0",
-          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt",
-          "distribution": "repo",
-          "selectedLicense": "Apache-2.0"
-        }
-      ],
-      "selectedLicenses": [
-        "Apache-2.0"
-      ],
-      "artifacts": [
-        {
-          "fileName": "lifecycle-livedata-2.9.3.aar",
-          "type": "aar",
-          "sha256": "7081d22a1417fa349d536c228ac393faf17cbec762ee90188408bacf6cdda90c",
-          "size": 54996
-        }
-      ],
-      "owningNpmPackage": null,
-      "exactLicenseSelection": null,
-      "legalDocumentSha256s": [
-        "283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b",
-        "4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe"
-      ],
-      "reviewedAbsence": null
-    },
-    {
       "coordinate": "androidx.lifecycle:lifecycle-process:2.9.3",
       "pomSha256": "1602e5774336629d25d9fd87b883e3fe395e966fca2afae3f8a7ff06d0cf48c6",
       "pomLicenses": [
@@ -1941,8 +1911,8 @@
       "reviewedAbsence": null
     },
     {
-      "coordinate": "androidx.loader:loader:1.0.0",
-      "pomSha256": "c978d550808b47434aa49a63164110a50b55b0bcc6160a93a2e37d5110df8c5e",
+      "coordinate": "androidx.loader:loader:1.1.0",
+      "pomSha256": "2c74ecc13bd93b8c2a48340057f3fd083b88ff51e9169ae70d63f998d686a2dc",
       "pomLicenses": [
         {
           "name": "The Apache Software License, Version 2.0",
@@ -1956,10 +1926,10 @@
       ],
       "artifacts": [
         {
-          "fileName": "loader-1.0.0.aar",
+          "fileName": "loader-1.1.0.aar",
           "type": "aar",
-          "sha256": "11f735cb3b55c458d470bed9e25254375b518b4b1bad6926783a7026db0f5025",
-          "size": 33445
+          "sha256": "a83b597cd2409dc177f7f932f7c4082ef7b5508b69b6c4ba71607e75dbd99971",
+          "size": 30268
         }
       ],
       "owningNpmPackage": null,
@@ -3820,8 +3790,8 @@
       "reviewedAbsence": null
     },
     {
-      "coordinate": "com.google.android.gms:play-services-base:18.1.0",
-      "pomSha256": "30df78ba3ead133c2b36784b425a9eeee7f02531907e8aaee4e8922354f732a7",
+      "coordinate": "com.google.android.gms:play-services-auth-api-phone:18.0.2",
+      "pomSha256": "9e0b47a568a8deb9cb0b82f3c176d69c14d603bca78bb367bb37010b4a64b184",
       "pomLicenses": [
         {
           "name": "Android Software Development Kit License",
@@ -3835,10 +3805,10 @@
       ],
       "artifacts": [
         {
-          "fileName": "play-services-base-18.1.0.aar",
+          "fileName": "play-services-auth-api-phone-18.0.2.aar",
           "type": "aar",
-          "sha256": "4eca56ceecd4325a376cd843af56377e2376ce284d0c6f05a5d0a82f4c1bf8cd",
-          "size": 582829
+          "sha256": "bfdf380e7400a9d950cba4dedc152b1bce614a87353009e851087428927cc240",
+          "size": 85259
         }
       ],
       "owningNpmPackage": null,
@@ -3847,8 +3817,8 @@
       "reviewedAbsence": "Google Play services artifact reviewed under the Google APIs/Android SDK terms; its resolved artifact and POM publish no standalone legal file."
     },
     {
-      "coordinate": "com.google.android.gms:play-services-basement:18.3.0",
-      "pomSha256": "9cef5dc9a6950ff09a85ff522b476f855eb7ef2373aa4c17339cb114ac5397e2",
+      "coordinate": "com.google.android.gms:play-services-auth-base:18.0.10",
+      "pomSha256": "853ea5c46999d5435c923f7021b033bd5ec0a2f37f995b9b7a13a565518d700a",
       "pomLicenses": [
         {
           "name": "Android Software Development Kit License",
@@ -3862,10 +3832,10 @@
       ],
       "artifacts": [
         {
-          "fileName": "play-services-basement-18.3.0.aar",
+          "fileName": "play-services-auth-base-18.0.10.aar",
           "type": "aar",
-          "sha256": "6c11ae3eb2dd7f17373f919c4c557a70e4cf891bc0c9b66926a0a6445d654352",
-          "size": 403997
+          "sha256": "d8bff2c98d239633fb550229e527779425bfb51ff04b96ac0f12d3acba0b1f42",
+          "size": 328447
         }
       ],
       "owningNpmPackage": null,
@@ -3874,8 +3844,8 @@
       "reviewedAbsence": "Google Play services artifact reviewed under the Google APIs/Android SDK terms; its resolved artifact and POM publish no standalone legal file."
     },
     {
-      "coordinate": "com.google.android.gms:play-services-cloud-messaging:17.2.0",
-      "pomSha256": "65f5833e621368dfb0eb203dcafcf070c5cece5a60ca18842ce7081d440e0419",
+      "coordinate": "com.google.android.gms:play-services-auth:21.5.0",
+      "pomSha256": "b84f30bc76b3be93f823afda7b94f6986ffc8af955a8afdd4f5dd7fe9d1ebad0",
       "pomLicenses": [
         {
           "name": "Android Software Development Kit License",
@@ -3889,10 +3859,118 @@
       ],
       "artifacts": [
         {
-          "fileName": "play-services-cloud-messaging-17.2.0.aar",
+          "fileName": "play-services-auth-21.5.0.aar",
           "type": "aar",
-          "sha256": "27255e7fe9706483816b158db25cf319f6a26a0566feff41597ce8807a350e37",
-          "size": 103747
+          "sha256": "56eb2981e841f7cc9c19bd29b9708906ecadf3876c2267079c9b024dc1049ad0",
+          "size": 224159
+        }
+      ],
+      "owningNpmPackage": null,
+      "exactLicenseSelection": null,
+      "legalDocumentSha256s": [],
+      "reviewedAbsence": "Google Play services artifact reviewed under the Google APIs/Android SDK terms; its resolved artifact and POM publish no standalone legal file."
+    },
+    {
+      "coordinate": "com.google.android.gms:play-services-base:18.9.0",
+      "pomSha256": "90deac635270f027af44aa3bcc640b2f8935159f686acbcffc76d2217534d82f",
+      "pomLicenses": [
+        {
+          "name": "Android Software Development Kit License",
+          "url": "https://developer.android.com/studio/terms.html",
+          "distribution": "repo",
+          "selectedLicense": "LicenseRef-Android-SDK"
+        }
+      ],
+      "selectedLicenses": [
+        "LicenseRef-Android-SDK"
+      ],
+      "artifacts": [
+        {
+          "fileName": "play-services-base-18.9.0.aar",
+          "type": "aar",
+          "sha256": "a071d2f2b09a81182db7b10fe62f5ce24ec8646529400ff1423f9be1178c2cb5",
+          "size": 614902
+        }
+      ],
+      "owningNpmPackage": null,
+      "exactLicenseSelection": null,
+      "legalDocumentSha256s": [],
+      "reviewedAbsence": "Google Play services artifact reviewed under the Google APIs/Android SDK terms; its resolved artifact and POM publish no standalone legal file."
+    },
+    {
+      "coordinate": "com.google.android.gms:play-services-basement:18.9.0",
+      "pomSha256": "601ef047167c6c280b8b190942d9e94a0463e891acd9c6ccf532eb298a5efe5b",
+      "pomLicenses": [
+        {
+          "name": "Android Software Development Kit License",
+          "url": "https://developer.android.com/studio/terms.html",
+          "distribution": "repo",
+          "selectedLicense": "LicenseRef-Android-SDK"
+        }
+      ],
+      "selectedLicenses": [
+        "LicenseRef-Android-SDK"
+      ],
+      "artifacts": [
+        {
+          "fileName": "play-services-basement-18.9.0.aar",
+          "type": "aar",
+          "sha256": "c6ed7236b1b3ce0296b508a5c0a09108fd52d83559d35cad2639505cd04ab255",
+          "size": 439122
+        }
+      ],
+      "owningNpmPackage": null,
+      "exactLicenseSelection": null,
+      "legalDocumentSha256s": [],
+      "reviewedAbsence": "Google Play services artifact reviewed under the Google APIs/Android SDK terms; its resolved artifact and POM publish no standalone legal file."
+    },
+    {
+      "coordinate": "com.google.android.gms:play-services-cloud-messaging:17.4.0",
+      "pomSha256": "eadc1e8daa4c2fbe4af80105a87e6352a4707babb1563cc686a363013660aef3",
+      "pomLicenses": [
+        {
+          "name": "Android Software Development Kit License",
+          "url": "https://developer.android.com/studio/terms.html",
+          "distribution": "repo",
+          "selectedLicense": "LicenseRef-Android-SDK"
+        }
+      ],
+      "selectedLicenses": [
+        "LicenseRef-Android-SDK"
+      ],
+      "artifacts": [
+        {
+          "fileName": "play-services-cloud-messaging-17.4.0.aar",
+          "type": "aar",
+          "sha256": "c525314ab50fb6bb915da1dab99ea71b45fdb2aeb5ea6b857e7b9562ebbb8c85",
+          "size": 93057
+        }
+      ],
+      "owningNpmPackage": null,
+      "exactLicenseSelection": null,
+      "legalDocumentSha256s": [],
+      "reviewedAbsence": "Google Play services artifact reviewed under the Google APIs/Android SDK terms; its resolved artifact and POM publish no standalone legal file."
+    },
+    {
+      "coordinate": "com.google.android.gms:play-services-fido:20.0.1",
+      "pomSha256": "f2e38c39d300961c9ab771a4e3c781aab18e7cf547450846682a0a81eb30ce88",
+      "pomLicenses": [
+        {
+          "name": "Android Software Development Kit License",
+          "url": "https://developer.android.com/studio/terms.html",
+          "distribution": "repo",
+          "selectedLicense": "LicenseRef-Android-SDK"
+        }
+      ],
+      "selectedLicenses": [
+        "LicenseRef-Android-SDK"
+      ],
+      "artifacts": [
+        {
+          "fileName": "play-services-fido-20.0.1.aar",
+          "type": "aar",
+          "sha256": "b3526f0caedaa96c526cc4c9ba94b229dad5afe31f32f46f6cd668a03624fd42",
+          "size": 298039
         }
       ],
       "owningNpmPackage": null,
@@ -3928,8 +4006,8 @@
       "reviewedAbsence": "Google Play services artifact reviewed under the Google APIs/Android SDK terms; its resolved artifact and POM publish no standalone legal file."
     },
     {
-      "coordinate": "com.google.android.gms:play-services-tasks:18.1.0",
-      "pomSha256": "cf29ed846108d7a8f2c17d8ef5b63399735757c5a09bb663d7e784e02ad84bcd",
+      "coordinate": "com.google.android.gms:play-services-tasks:18.4.0",
+      "pomSha256": "5e2631340ca2a8b85fe4a928fd7f272aa13527c75654b21232c14763c14f0eb3",
       "pomLicenses": [
         {
           "name": "Android Software Development Kit License",
@@ -3943,10 +4021,10 @@
       ],
       "artifacts": [
         {
-          "fileName": "play-services-tasks-18.1.0.aar",
+          "fileName": "play-services-tasks-18.4.0.aar",
           "type": "aar",
-          "sha256": "d60575eae39350e6234858bc9d7d775375707ae82a684e6caf7f3e41a12e25a2",
-          "size": 96788
+          "sha256": "e3f7666ca0532142ab7c0c3f4e2dbf34113d590c3542845ce03ce79ea6b83d29",
+          "size": 99861
         }
       ],
       "owningNpmPackage": null,
@@ -4096,8 +4174,30 @@
       "reviewedAbsence": null
     },
     {
-      "coordinate": "com.google.firebase:firebase-common:22.0.1",
-      "pomSha256": "e09a84c53ab95d6c729a0d21486cf39bdbcf080a54cabb19c8a3fca9833a27b0",
+      "coordinate": "com.google.firebase:firebase-bom:34.18.0",
+      "pomSha256": "f33532f2972353eab6ebd7ef62345c7fcc2c3465491602af2a5beb77ae99696c",
+      "pomLicenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt",
+          "distribution": "repo",
+          "selectedLicense": "Apache-2.0"
+        }
+      ],
+      "selectedLicenses": [
+        "Apache-2.0"
+      ],
+      "artifacts": [],
+      "owningNpmPackage": null,
+      "exactLicenseSelection": null,
+      "legalDocumentSha256s": [
+        "283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b"
+      ],
+      "reviewedAbsence": null
+    },
+    {
+      "coordinate": "com.google.firebase:firebase-common:22.2.0",
+      "pomSha256": "363db534e3e409c660391a5d6895f8642868069bee867722e151b02802106954",
       "pomLicenses": [
         {
           "name": "The Apache Software License, Version 2.0",
@@ -4111,10 +4211,10 @@
       ],
       "artifacts": [
         {
-          "fileName": "firebase-common-22.0.1.aar",
+          "fileName": "firebase-common-22.2.0.aar",
           "type": "aar",
-          "sha256": "33c4cbac4692f61c49ec5dde9111ae0a295e6c0e7f0c3d722498edd67947995c",
-          "size": 121072
+          "sha256": "a36ff095755a6aad2e118fc983a6e92ef0159498be716539f8ef9bd07277891c",
+          "size": 121202
         }
       ],
       "owningNpmPackage": null,
@@ -4297,8 +4397,8 @@
       "reviewedAbsence": "The exact Firebase Maven POM declares the Android SDK License and links Google terms; the resolved AAR publishes no standalone legal file."
     },
     {
-      "coordinate": "com.google.firebase:firebase-installations-interop:17.1.1",
-      "pomSha256": "9e11fa12d1e36351fab18527d18f8a771cb3b5e6e793f20ccfaca157260ecaa8",
+      "coordinate": "com.google.firebase:firebase-installations-interop:17.3.0",
+      "pomSha256": "ac99cedb507981ea21cc35dc24c70142a14d03369da0fb63ce7c44eda9fc009e",
       "pomLicenses": [
         {
           "name": "The Apache Software License, Version 2.0",
@@ -4312,10 +4412,10 @@
       ],
       "artifacts": [
         {
-          "fileName": "firebase-installations-interop-17.1.1.aar",
+          "fileName": "firebase-installations-interop-17.3.0.aar",
           "type": "aar",
-          "sha256": "fac650680f7921f4ab92f0bb21a09234b12cdaefab2cf70188281d7ea52b8dad",
-          "size": 8166
+          "sha256": "8d8f643fdee27700c4cc865b38c6fe834a9e3f569e4eaa219ba3567dae794276",
+          "size": 6646
         }
       ],
       "owningNpmPackage": null,
@@ -4326,8 +4426,8 @@
       "reviewedAbsence": null
     },
     {
-      "coordinate": "com.google.firebase:firebase-installations:18.0.0",
-      "pomSha256": "13c64c03cc3c6c435b3d8521e3c85fcbcfeff22f3b7f0178a9ca626981ecda66",
+      "coordinate": "com.google.firebase:firebase-installations:19.1.2",
+      "pomSha256": "49beea7fe31e142be5b4c1c7f3ab4e6e7487137c74fb43f17c815bff1ac1f4e2",
       "pomLicenses": [
         {
           "name": "The Apache Software License, Version 2.0",
@@ -4341,10 +4441,10 @@
       ],
       "artifacts": [
         {
-          "fileName": "firebase-installations-18.0.0.aar",
+          "fileName": "firebase-installations-19.1.2.aar",
           "type": "aar",
-          "sha256": "95063adfb17ffe492b12f68e73020873814d8177aa553069cad64e11d8c79292",
-          "size": 57739
+          "sha256": "3a561cba4bce00fa6ff515857ccc9d5550bc1ee239549799a091486137c2f3da",
+          "size": 56450
         }
       ],
       "owningNpmPackage": null,
@@ -4382,8 +4482,8 @@
       "reviewedAbsence": "The exact Firebase Maven POM declares the Android SDK License and links Google terms; the resolved AAR publishes no standalone legal file."
     },
     {
-      "coordinate": "com.google.firebase:firebase-messaging:25.0.1",
-      "pomSha256": "013c6c2da219b69991a34554244aeb0ac89e97c7132d32595cbcbd205ded3d78",
+      "coordinate": "com.google.firebase:firebase-messaging:25.1.2",
+      "pomSha256": "7dc54bf2a35fb15e6e08ad02f75df8194fc545f3411d76a0b6cb4cc8514e83dd",
       "pomLicenses": [
         {
           "name": "The Apache Software License, Version 2.0",
@@ -4397,10 +4497,10 @@
       ],
       "artifacts": [
         {
-          "fileName": "firebase-messaging-25.0.1.aar",
+          "fileName": "firebase-messaging-25.1.2.aar",
           "type": "aar",
-          "sha256": "86bab0a8b27da7ff4542deba3f97017680f7964f62aca2d22b1f0b80d7e69f53",
-          "size": 146656
+          "sha256": "3966fd25ead2790b9d0bcbbf2a9a9be7a76a28c4847700f7071cedaecf5f18f6",
+          "size": 155352
         }
       ],
       "owningNpmPackage": null,
@@ -5594,7 +5694,7 @@
       "reviewedAbsence": null
     }
   ],
-  "projectComponentCount": 18,
+  "projectComponentCount": 20,
   "projectComponents": [
     {
       "coordinate": "gradle-project:::expo",
@@ -5686,6 +5786,39 @@
       "legalDocumentSha256s": [
         "212dbf14b113759356207347826f21ac3c81151943fdb89ce25da5dc6214831c",
         "8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2"
+      ]
+    },
+    {
+      "coordinate": "gradle-project:::react-native-firebase_app",
+      "buildPath": ":",
+      "displayName": "project :react-native-firebase_app",
+      "projectPath": ":react-native-firebase_app",
+      "classification": "npm-production-source-project",
+      "npmCoordinate": "@react-native-firebase/app@26.3.2",
+      "npmIntegrity": "sha512-AtPF1PhUI7AjYCKp7XS9+IMP+T1IpPk9rx0ZhjhS2hcxKjNFThpH1ntSlolvwGXORov7e51PZ2XfYOnkmuJuEQ==",
+      "selectedLicenses": [
+        "Apache-2.0"
+      ],
+      "legalDocumentSha256s": [
+        "283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b",
+        "2e285234d6443925d0881654c748f331d9919ac5748b06bf4a6101fe5604f60a",
+        "5b06c05c66fe9d520eab80b2b212d9c14932ec63a7e51d36f6214f72695a07bb"
+      ]
+    },
+    {
+      "coordinate": "gradle-project:::react-native-firebase_messaging",
+      "buildPath": ":",
+      "displayName": "project :react-native-firebase_messaging",
+      "projectPath": ":react-native-firebase_messaging",
+      "classification": "npm-production-source-project",
+      "npmCoordinate": "@react-native-firebase/messaging@26.3.2",
+      "npmIntegrity": "sha512-iLFBQW8EJerqVyh2TrhZMoQbA5Se1LnLZVBhbNrcWzrrHl/H212J0XcAxITmGmJxvHZMw8uZEve+31oGl5hiGg==",
+      "selectedLicenses": [
+        "Apache-2.0"
+      ],
+      "legalDocumentSha256s": [
+        "283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b",
+        "d1d91013bad44a8e9205add3f028f1a3343d1e4856bbbdb38802b02787ad147d"
       ]
     },
     {
@@ -5884,9 +6017,9 @@
   "unresolvedDependencyCount": 0,
   "unclassifiedLocalFileCount": 0,
   "unclassifiedResolvedArtifactCount": 0,
-  "resolvedArtifactCount": 195,
-  "moduleArtifactCount": 177,
-  "projectArtifactCount": 18,
+  "resolvedArtifactCount": 200,
+  "moduleArtifactCount": 180,
+  "projectArtifactCount": 20,
   "documents": [
     {
       "sha256": "212dbf14b113759356207347826f21ac3c81151943fdb89ce25da5dc6214831c",
@@ -5931,6 +6064,16 @@
         {
           "source": "commons-io:commons-io:1.4/commons-io-1.4.jar",
           "path": "META-INF/LICENSE.txt"
+        }
+      ]
+    },
+    {
+      "sha256": "2e285234d6443925d0881654c748f331d9919ac5748b06bf4a6101fe5604f60a",
+      "text": "Apache-2.0 License\n------------------\n\nCopyright (c) 2016-present Invertase Limited <oss@invertase.io>\n\nLicensed under the Apache License, Version 2.0 (the \"License\");\nyou may not use this library except in compliance with the License.\n\nYou may obtain a copy of the Apache-2.0 License at\n\n    http://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an \"AS IS\" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the License.\n\n\nCreative Commons Attribution 3.0 License\n----------------------------------------\n\nCopyright (c) 2016-present Invertase Limited <oss@invertase.io>\n\nDocumentation and other instructional materials provided for this project\n(including on a separate documentation repository or it's documentation website) are\nlicensed under the Creative Commons Attribution 3.0 License. Code samples/blocks\ncontained therein are licensed under the Apache License, Version 2.0 (the \"License\"), as above.\n\nYou may obtain a copy of the Creative Commons Attribution 3.0 License at\n\n    https://creativecommons.org/licenses/by/3.0/",
+      "sources": [
+        {
+          "source": "npm:@react-native-firebase/app@26.3.2",
+          "path": "LICENSE"
         }
       ]
     },
@@ -6013,10 +6156,6 @@
           "path": "META-INF/androidx/lifecycle/lifecycle-livedata-core/LICENSE.txt"
         },
         {
-          "source": "androidx.lifecycle:lifecycle-livedata:2.9.3/lifecycle-livedata-2.9.3.aar",
-          "path": "META-INF/androidx/lifecycle/lifecycle-livedata/LICENSE.txt"
-        },
-        {
           "source": "androidx.lifecycle:lifecycle-process:2.9.3/lifecycle-process-2.9.3.aar",
           "path": "META-INF/androidx/lifecycle/lifecycle-process/LICENSE.txt"
         },
@@ -6055,6 +6194,20 @@
         {
           "source": "androidx.savedstate:savedstate-ktx:1.3.1/savedstate-ktx-1.3.1.aar",
           "path": "META-INF/androidx/savedstate/savedstate-ktx/LICENSE.txt"
+        }
+      ]
+    },
+    {
+      "sha256": "5b06c05c66fe9d520eab80b2b212d9c14932ec63a7e51d36f6214f72695a07bb",
+      "text": "Apache License\nVersion 2.0, January 2004\nhttp://www.apache.org/licenses/\n\nTERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION\n\n1. Definitions.\n\n    \"License\" shall mean the terms and conditions for use, reproduction, and\n    distribution as defined by Sections 1 through 9 of this document.\n\n    \"Licensor\" shall mean the copyright owner or entity authorized by the\n    copyright owner that is granting the License.\n\n    \"Legal Entity\" shall mean the union of the acting entity and all other\n    entities that control, are controlled by, or are under common control with\n    that entity. For the purposes of this definition, \"control\" means (i) the\n    power, direct or indirect, to cause the direction or management of such\n    entity, whether by contract or otherwise, or (ii) ownership of\n    fifty percent (50%) or more of the outstanding shares, or (iii) beneficial\n    ownership of such entity.\n\n    \"You\" (or \"Your\") shall mean an individual or Legal Entity exercising\n    permissions granted by this License.\n\n    \"Source\" form shall mean the preferred form for making modifications,\n    including but not limited to software source code, documentation source,\n    and configuration files.\n\n    \"Object\" form shall mean any form resulting from mechanical transformation\n    or translation of a Source form, including but not limited to compiled\n    object code, generated documentation, and conversions to\n    other media types.\n\n    \"Work\" shall mean the work of authorship, whether in Source or Object\n    form, made available under the License, as indicated by a copyright notice\n    that is included in or attached to the work (an example is provided in the\n    Appendix below).\n\n    \"Derivative Works\" shall mean any work, whether in Source or Object form,\n    that is based on (or derived from) the Work and for which the editorial\n    revisions, annotations, elaborations, or other modifications represent,\n    as a whole, an original work of authorship. For the purposes of this\n    License, Derivative Works shall not include works that remain separable\n    from, or merely link (or bind by name) to the interfaces of, the Work and\n    Derivative Works thereof.\n\n    \"Contribution\" shall mean any work of authorship, including the original\n    version of the Work and any modifications or additions to that Work or\n    Derivative Works thereof, that is intentionally submitted to Licensor for\n    inclusion in the Work by the copyright owner or by an individual or\n    Legal Entity authorized to submit on behalf of the copyright owner.\n    For the purposes of this definition, \"submitted\" means any form of\n    electronic, verbal, or written communication sent to the Licensor or its\n    representatives, including but not limited to communication on electronic\n    mailing lists, source code control systems, and issue tracking systems\n    that are managed by, or on behalf of, the Licensor for the purpose of\n    discussing and improving the Work, but excluding communication that is\n    conspicuously marked or otherwise designated in writing by the copyright\n    owner as \"Not a Contribution.\"\n\n    \"Contributor\" shall mean Licensor and any individual or Legal Entity on\n    behalf of whom a Contribution has been received by Licensor and\n    subsequently incorporated within the Work.\n\n2. Grant of Copyright License.\n\n    Subject to the terms and conditions of this License, each Contributor\n    hereby grants to You a perpetual, worldwide, non-exclusive, no-charge,\n    royalty-free, irrevocable copyright license to reproduce, prepare\n    Derivative Works of, publicly display, publicly perform, sublicense,\n    and distribute the Work and such Derivative Works in\n    Source or Object form.\n\n3. Grant of Patent License.\n\n    Subject to the terms and conditions of this License, each Contributor\n    hereby grants to You a perpetual, worldwide, non-exclusive, no-charge,\n    royalty-free, irrevocable (except as stated in this section) patent\n    license to make, have made, use, offer to sell, sell, import, and\n    otherwise transfer the Work, where such license applies only to those\n    patent claims licensable by such Contributor that are necessarily\n    infringed by their Contribution(s) alone or by combination of their\n    Contribution(s) with the Work to which such Contribution(s) was submitted.\n    If You institute patent litigation against any entity (including a\n    cross-claim or counterclaim in a lawsuit) alleging that the Work or a\n    Contribution incorporated within the Work constitutes direct or\n    contributory patent infringement, then any patent licenses granted to\n    You under this License for that Work shall terminate as of the date such\n    litigation is filed.\n\n4. Redistribution.\n\n    You may reproduce and distribute copies of the Work or Derivative Works\n    thereof in any medium, with or without modifications, and in Source or\n    Object form, provided that You meet the following conditions:\n\n    1. You must give any other recipients of the Work or Derivative Works a\n    copy of this License; and\n\n    2. You must cause any modified files to carry prominent notices stating\n    that You changed the files; and\n\n    3. You must retain, in the Source form of any Derivative Works that You\n    distribute, all copyright, patent, trademark, and attribution notices from\n    the Source form of the Work, excluding those notices that do not pertain\n    to any part of the Derivative Works; and\n\n    4. If the Work includes a \"NOTICE\" text file as part of its distribution,\n    then any Derivative Works that You distribute must include a readable copy\n    of the attribution notices contained within such NOTICE file, excluding\n    those notices that do not pertain to any part of the Derivative Works,\n    in at least one of the following places: within a NOTICE text file\n    distributed as part of the Derivative Works; within the Source form or\n    documentation, if provided along with the Derivative Works; or, within a\n    display generated by the Derivative Works, if and wherever such\n    third-party notices normally appear. The contents of the NOTICE file are\n    for informational purposes only and do not modify the License.\n    You may add Your own attribution notices within Derivative Works that You\n    distribute, alongside or as an addendum to the NOTICE text from the Work,\n    provided that such additional attribution notices cannot be construed\n    as modifying the License.\n\n    You may add Your own copyright statement to Your modifications and may\n    provide additional or different license terms and conditions for use,\n    reproduction, or distribution of Your modifications, or for any such\n    Derivative Works as a whole, provided Your use, reproduction, and\n    distribution of the Work otherwise complies with the conditions\n    stated in this License.\n\n5. Submission of Contributions.\n\n    Unless You explicitly state otherwise, any Contribution intentionally\n    submitted for inclusion in the Work by You to the Licensor shall be under\n    the terms and conditions of this License, without any additional\n    terms or conditions. Notwithstanding the above, nothing herein shall\n    supersede or modify the terms of any separate license agreement you may\n    have executed with Licensor regarding such Contributions.\n\n6. Trademarks.\n\n    This License does not grant permission to use the trade names, trademarks,\n    service marks, or product names of the Licensor, except as required for\n    reasonable and customary use in describing the origin of the Work and\n    reproducing the content of the NOTICE file.\n\n7. Disclaimer of Warranty.\n\n    Unless required by applicable law or agreed to in writing, Licensor\n    provides the Work (and each Contributor provides its Contributions)\n    on an \"AS IS\" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,\n    either express or implied, including, without limitation, any warranties\n    or conditions of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS\n    FOR A PARTICULAR PURPOSE. You are solely responsible for determining the\n    appropriateness of using or redistributing the Work and assume any risks\n    associated with Your exercise of permissions under this License.\n\n8. Limitation of Liability.\n\n    In no event and under no legal theory, whether in tort\n    (including negligence), contract, or otherwise, unless required by\n    applicable law (such as deliberate and grossly negligent acts) or agreed\n    to in writing, shall any Contributor be liable to You for damages,\n    including any direct, indirect, special, incidental, or consequential\n    damages of any character arising as a result of this License or out of\n    the use or inability to use the Work (including but not limited to damages\n    for loss of goodwill, work stoppage, computer failure or malfunction,\n    or any and all other commercial damages or losses), even if such\n    Contributor has been advised of the possibility of such damages.\n\n9. Accepting Warranty or Additional Liability.\n\n    While redistributing the Work or Derivative Works thereof, You may choose\n    to offer, and charge a fee for, acceptance of support, warranty,\n    indemnity, or other liability obligations and/or rights consistent with\n    this License. However, in accepting such obligations, You may act only\n    on Your own behalf and on Your sole responsibility, not on behalf of any\n    other Contributor, and only if You agree to indemnify, defend, and hold\n    each Contributor harmless for any liability incurred by, or claims\n    asserted against, such Contributor by reason of your accepting any such\n    warranty or additional liability.\n\nEND OF TERMS AND CONDITIONS\n\nAPPENDIX: How to apply the Apache License to your work\n\n    To apply the Apache License to your work, attach the following boilerplate\n    notice, with the fields enclosed by brackets \"[]\" replaced with your own\n    identifying information. (Don't include the brackets!) The text should be\n    enclosed in the appropriate comment syntax for the file format. We also\n    recommend that a file or class name and description of purpose be included\n    on the same \"printed page\" as the copyright notice for easier\n    identification within third-party archives.\n\n        Copyright 2017 Jeremy Scheff\n\n\n        Licensed under the Apache License, Version 2.0 (the \"License\");\n        you may not use this file except in compliance with the License.\n        You may obtain a copy of the License at\n\n        http://www.apache.org/licenses/LICENSE-2.0\n\n        Unless required by applicable law or agreed to in writing, software\n        distributed under the License is distributed on an \"AS IS\" BASIS,\n        WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express\n        or implied. See the License for the specific language governing\n        permissions and limitations under the License.",
+      "sources": [
+        {
+          "source": "npm:@react-native-firebase/app@26.3.2",
+          "path": "dist/module/internal/web/memidb/LICENSE"
+        },
+        {
+          "source": "npm:@react-native-firebase/app@26.3.2",
+          "path": "lib/internal/web/memidb/LICENSE"
         }
       ]
     },
@@ -6138,6 +6291,16 @@
         },
         {
           "source": "npm:react-native-reanimated@4.2.1",
+          "path": "LICENSE"
+        }
+      ]
+    },
+    {
+      "sha256": "d1d91013bad44a8e9205add3f028f1a3343d1e4856bbbdb38802b02787ad147d",
+      "text": "Apache-2.0 License\n------------------\n\nCopyright (c) 2016-present Invertase Limited <oss@invertase.io> & Contributors\n\nLicensed under the Apache License, Version 2.0 (the \"License\");\nyou may not use this library except in compliance with the License.\n\nYou may obtain a copy of the Apache-2.0 License at\n\n    http://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an \"AS IS\" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the License.\n\n\nCreative Commons Attribution 3.0 License\n----------------------------------------\n\nCopyright (c) 2016-present Invertase Limited <oss@invertase.io> & Contributors\n\nDocumentation and other instructional materials provided for this project\n(including on a separate documentation repository or it's documentation website) are\nlicensed under the Creative Commons Attribution 3.0 License. Code samples/blocks\ncontained therein are licensed under the Apache License, Version 2.0 (the \"License\"), as above.\n\nYou may obtain a copy of the Creative Commons Attribution 3.0 License at\n\n    https://creativecommons.org/licenses/by/3.0/",
+      "sources": [
+        {
+          "source": "npm:@react-native-firebase/messaging@26.3.2",
           "path": "LICENSE"
         }
       ]

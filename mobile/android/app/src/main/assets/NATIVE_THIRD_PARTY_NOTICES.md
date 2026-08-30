@@ -6,9 +6,9 @@
 
 This file is bound to the resolved Gradle releaseRuntimeClasspath and retains package-specific LICENSE and NOTICE documents from the distributed artifacts.
 
-- Dependencies: 197
-- npm source-project components: 18
-- Retained unique legal texts: 18
+- Dependencies: 201
+- npm source-project components: 20
+- Retained unique legal texts: 21
 
 ### androidx.activity:activity-ktx:1.9.3
 
@@ -416,13 +416,6 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - POM SHA-256: `2259dd3add30855f33c1da0cbcda189a9ef62ce38067b71155705fc2118a646c`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
 
-### androidx.lifecycle:lifecycle-livedata:2.9.3
-
-- Platform: Android
-- Selected license(s): Apache-2.0
-- POM SHA-256: `34be26ba5a541244d32ff6aba0a6100fdda8abcf10b694a113b8abb76d6dff0f`
-- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
-
 ### androidx.lifecycle:lifecycle-process:2.9.3
 
 - Platform: Android
@@ -493,11 +486,11 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - POM SHA-256: `6b438208c1ee0024196a8e2e5621e92a01d72cada11df21ed179d79667f9b220`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe`
 
-### androidx.loader:loader:1.0.0
+### androidx.loader:loader:1.1.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `c978d550808b47434aa49a63164110a50b55b0bcc6160a93a2e37d5110df8c5e`
+- POM SHA-256: `2c74ecc13bd93b8c2a48340057f3fd083b88ff51e9169ae70d63f998d686a2dc`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
 ### androidx.localbroadcastmanager:localbroadcastmanager:1.0.0
@@ -949,27 +942,59 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - POM SHA-256: `86f452b74551062623fad0b0bb6bc4dc2a6ba9f44a99834d0e50fb047051357b`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### com.google.android.gms:play-services-base:18.1.0
+### com.google.android.gms:play-services-auth-api-phone:18.0.2
 
 - Platform: Android
 - Selected license(s): LicenseRef-Android-SDK
-- POM SHA-256: `30df78ba3ead133c2b36784b425a9eeee7f02531907e8aaee4e8922354f732a7`
+- POM SHA-256: `9e0b47a568a8deb9cb0b82f3c176d69c14d603bca78bb367bb37010b4a64b184`
 - Exact reviewed absence: Google Play services artifact reviewed under the Google APIs/Android SDK terms; its resolved artifact and POM publish no standalone legal file.
 - Retained legal document(s): none (exact reviewed absence above)
 
-### com.google.android.gms:play-services-basement:18.3.0
+### com.google.android.gms:play-services-auth-base:18.0.10
 
 - Platform: Android
 - Selected license(s): LicenseRef-Android-SDK
-- POM SHA-256: `9cef5dc9a6950ff09a85ff522b476f855eb7ef2373aa4c17339cb114ac5397e2`
+- POM SHA-256: `853ea5c46999d5435c923f7021b033bd5ec0a2f37f995b9b7a13a565518d700a`
 - Exact reviewed absence: Google Play services artifact reviewed under the Google APIs/Android SDK terms; its resolved artifact and POM publish no standalone legal file.
 - Retained legal document(s): none (exact reviewed absence above)
 
-### com.google.android.gms:play-services-cloud-messaging:17.2.0
+### com.google.android.gms:play-services-auth:21.5.0
 
 - Platform: Android
 - Selected license(s): LicenseRef-Android-SDK
-- POM SHA-256: `65f5833e621368dfb0eb203dcafcf070c5cece5a60ca18842ce7081d440e0419`
+- POM SHA-256: `b84f30bc76b3be93f823afda7b94f6986ffc8af955a8afdd4f5dd7fe9d1ebad0`
+- Exact reviewed absence: Google Play services artifact reviewed under the Google APIs/Android SDK terms; its resolved artifact and POM publish no standalone legal file.
+- Retained legal document(s): none (exact reviewed absence above)
+
+### com.google.android.gms:play-services-base:18.9.0
+
+- Platform: Android
+- Selected license(s): LicenseRef-Android-SDK
+- POM SHA-256: `90deac635270f027af44aa3bcc640b2f8935159f686acbcffc76d2217534d82f`
+- Exact reviewed absence: Google Play services artifact reviewed under the Google APIs/Android SDK terms; its resolved artifact and POM publish no standalone legal file.
+- Retained legal document(s): none (exact reviewed absence above)
+
+### com.google.android.gms:play-services-basement:18.9.0
+
+- Platform: Android
+- Selected license(s): LicenseRef-Android-SDK
+- POM SHA-256: `601ef047167c6c280b8b190942d9e94a0463e891acd9c6ccf532eb298a5efe5b`
+- Exact reviewed absence: Google Play services artifact reviewed under the Google APIs/Android SDK terms; its resolved artifact and POM publish no standalone legal file.
+- Retained legal document(s): none (exact reviewed absence above)
+
+### com.google.android.gms:play-services-cloud-messaging:17.4.0
+
+- Platform: Android
+- Selected license(s): LicenseRef-Android-SDK
+- POM SHA-256: `eadc1e8daa4c2fbe4af80105a87e6352a4707babb1563cc686a363013660aef3`
+- Exact reviewed absence: Google Play services artifact reviewed under the Google APIs/Android SDK terms; its resolved artifact and POM publish no standalone legal file.
+- Retained legal document(s): none (exact reviewed absence above)
+
+### com.google.android.gms:play-services-fido:20.0.1
+
+- Platform: Android
+- Selected license(s): LicenseRef-Android-SDK
+- POM SHA-256: `f2e38c39d300961c9ab771a4e3c781aab18e7cf547450846682a0a81eb30ce88`
 - Exact reviewed absence: Google Play services artifact reviewed under the Google APIs/Android SDK terms; its resolved artifact and POM publish no standalone legal file.
 - Retained legal document(s): none (exact reviewed absence above)
 
@@ -981,11 +1006,11 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - Exact reviewed absence: Google Play services artifact reviewed under the Google APIs/Android SDK terms; its resolved artifact and POM publish no standalone legal file.
 - Retained legal document(s): none (exact reviewed absence above)
 
-### com.google.android.gms:play-services-tasks:18.1.0
+### com.google.android.gms:play-services-tasks:18.4.0
 
 - Platform: Android
 - Selected license(s): LicenseRef-Android-SDK
-- POM SHA-256: `cf29ed846108d7a8f2c17d8ef5b63399735757c5a09bb663d7e784e02ad84bcd`
+- POM SHA-256: `5e2631340ca2a8b85fe4a928fd7f272aa13527c75654b21232c14763c14f0eb3`
 - Exact reviewed absence: Google Play services artifact reviewed under the Google APIs/Android SDK terms; its resolved artifact and POM publish no standalone legal file.
 - Retained legal document(s): none (exact reviewed absence above)
 
@@ -1025,11 +1050,18 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - POM SHA-256: `7ac92dfc3fbbdf6d68c8068edfc47505e8c737fee58946788cf14148c17f76d2`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### com.google.firebase:firebase-common:22.0.1
+### com.google.firebase:firebase-bom:34.18.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `e09a84c53ab95d6c729a0d21486cf39bdbcf080a54cabb19c8a3fca9833a27b0`
+- POM SHA-256: `f33532f2972353eab6ebd7ef62345c7fcc2c3465491602af2a5beb77ae99696c`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
+
+### com.google.firebase:firebase-common:22.2.0
+
+- Platform: Android
+- Selected license(s): Apache-2.0
+- POM SHA-256: `363db534e3e409c660391a5d6895f8642868069bee867722e151b02802106954`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
 ### com.google.firebase:firebase-components:19.0.0
@@ -1075,18 +1107,18 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - Exact reviewed absence: The exact Firebase Maven POM declares the Android SDK License and links Google terms; the resolved AAR publishes no standalone legal file.
 - Retained legal document(s): none (exact reviewed absence above)
 
-### com.google.firebase:firebase-installations-interop:17.1.1
+### com.google.firebase:firebase-installations-interop:17.3.0
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `9e11fa12d1e36351fab18527d18f8a771cb3b5e6e793f20ccfaca157260ecaa8`
+- POM SHA-256: `ac99cedb507981ea21cc35dc24c70142a14d03369da0fb63ce7c44eda9fc009e`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### com.google.firebase:firebase-installations:18.0.0
+### com.google.firebase:firebase-installations:19.1.2
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `13c64c03cc3c6c435b3d8521e3c85fcbcfeff22f3b7f0178a9ca626981ecda66`
+- POM SHA-256: `49beea7fe31e142be5b4c1c7f3ab4e6e7487137c74fb43f17c815bff1ac1f4e2`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
 ### com.google.firebase:firebase-measurement-connector:19.0.0
@@ -1097,11 +1129,11 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - Exact reviewed absence: The exact Firebase Maven POM declares the Android SDK License and links Google terms; the resolved AAR publishes no standalone legal file.
 - Retained legal document(s): none (exact reviewed absence above)
 
-### com.google.firebase:firebase-messaging:25.0.1
+### com.google.firebase:firebase-messaging:25.1.2
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `013c6c2da219b69991a34554244aeb0ac89e97c7132d32595cbcbd205ded3d78`
+- POM SHA-256: `7dc54bf2a35fb15e6e08ad02f75df8194fc545f3411d76a0b6cb4cc8514e83dd`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
 ### com.google.guava:failureaccess:1.0.2
@@ -1455,6 +1487,20 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - Classified npm production source: `@react-native-clipboard/clipboard@1.16.3`
 - Retained legal document(s): `212dbf14b113759356207347826f21ac3c81151943fdb89ce25da5dc6214831c`, `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
+### gradle-project:::react-native-firebase_app
+
+- Platform: Android project
+- Selected license(s): Apache-2.0
+- Classified npm production source: `@react-native-firebase/app@26.3.2`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `2e285234d6443925d0881654c748f331d9919ac5748b06bf4a6101fe5604f60a`, `5b06c05c66fe9d520eab80b2b212d9c14932ec63a7e51d36f6214f72695a07bb`
+
+### gradle-project:::react-native-firebase_messaging
+
+- Platform: Android project
+- Selected license(s): Apache-2.0
+- Classified npm production source: `@react-native-firebase/messaging@26.3.2`
+- Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `d1d91013bad44a8e9205add3f028f1a3343d1e4856bbbdb38802b02787ad147d`
+
 ### gradle-project:::react-native-fs
 
 - Platform: Android project
@@ -1789,6 +1835,45 @@ Apache License
    limitations under the License.
 ```
 
+### 2e285234d6443925d0881654c748f331d9919ac5748b06bf4a6101fe5604f60a
+
+Source(s): `npm:@react-native-firebase/app@26.3.2/LICENSE`
+
+```text
+Apache-2.0 License
+------------------
+
+Copyright (c) 2016-present Invertase Limited <oss@invertase.io>
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this library except in compliance with the License.
+
+You may obtain a copy of the Apache-2.0 License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+
+Creative Commons Attribution 3.0 License
+----------------------------------------
+
+Copyright (c) 2016-present Invertase Limited <oss@invertase.io>
+
+Documentation and other instructional materials provided for this project
+(including on a separate documentation repository or it's documentation website) are
+licensed under the Creative Commons Attribution 3.0 License. Code samples/blocks
+contained therein are licensed under the Apache License, Version 2.0 (the "License"), as above.
+
+You may obtain a copy of the Creative Commons Attribution 3.0 License at
+
+    https://creativecommons.org/licenses/by/3.0/
+```
+
 ### 3812f3bd3ee9fde0a8e27fc55fd01bc6d1a2ba12041e40bd26e62725f63f4359
 
 Source(s): `npm:react-native-linear-gradient@2.8.3/LICENSE`
@@ -1875,7 +1960,7 @@ SOFTWARE.
 
 ### 4bf96504d6e83ce5c6fc7167f1795d9ceaa68e70ab86bc5d08ab93184262bbbe
 
-Source(s): `androidx.annotation:annotation-jvm:1.9.1/annotation-jvm-1.9.1.jar/META-INF/androidx/annotation/annotation/LICENSE.txt`, `androidx.core:core-ktx:1.17.0/core-ktx-1.17.0.aar/META-INF/androidx/core/core-ktx/LICENSE.txt`, `androidx.core:core-viewtree:1.0.0/core-viewtree-1.0.0.aar/META-INF/androidx/core/core-viewtree/LICENSE.txt`, `androidx.core:core:1.17.0/core-1.17.0.aar/META-INF/androidx/core/core/LICENSE.txt`, `androidx.documentfile:documentfile:1.1.0/documentfile-1.1.0.aar/META-INF/androidx/documentfile/documentfile/LICENSE.txt`, `androidx.dynamicanimation:dynamicanimation:1.1.0/dynamicanimation-1.1.0.aar/META-INF/androidx/dynamicanimation/dynamicanimation/LICENSE.txt`, `androidx.graphics:graphics-shapes-android:1.0.1/graphics-shapes-release.aar/META-INF/androidx/graphics/graphics-shapes/LICENSE.txt`, `androidx.lifecycle:lifecycle-common-java8:2.9.3/lifecycle-common-java8-2.9.3.jar/META-INF/androidx/lifecycle/lifecycle-common-java8/LICENSE.txt`, `androidx.lifecycle:lifecycle-common-jvm:2.9.3/lifecycle-common-jvm-2.9.3.jar/META-INF/androidx/lifecycle/lifecycle-common/LICENSE.txt`, `androidx.lifecycle:lifecycle-livedata-core-ktx:2.9.3/lifecycle-livedata-core-ktx-2.9.3.aar/META-INF/androidx/lifecycle/lifecycle-livedata-core-ktx/LICENSE.txt`, `androidx.lifecycle:lifecycle-livedata-core:2.9.3/lifecycle-livedata-core-2.9.3.aar/META-INF/androidx/lifecycle/lifecycle-livedata-core/LICENSE.txt`, `androidx.lifecycle:lifecycle-livedata:2.9.3/lifecycle-livedata-2.9.3.aar/META-INF/androidx/lifecycle/lifecycle-livedata/LICENSE.txt`, `androidx.lifecycle:lifecycle-process:2.9.3/lifecycle-process-2.9.3.aar/META-INF/androidx/lifecycle/lifecycle-process/LICENSE.txt`, `androidx.lifecycle:lifecycle-runtime-android:2.9.3/lifecycle-runtime-release.aar/META-INF/androidx/lifecycle/lifecycle-runtime/LICENSE.txt`, `androidx.lifecycle:lifecycle-runtime-ktx-android:2.9.3/lifecycle-runtime-ktx.aar/META-INF/androidx/lifecycle/lifecycle-runtime-ktx/LICENSE.txt`, `androidx.lifecycle:lifecycle-viewmodel-android:2.9.3/lifecycle-viewmodel-release.aar/META-INF/androidx/lifecycle/lifecycle-viewmodel/LICENSE.txt`, `androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.3/lifecycle-viewmodel-ktx-2.9.3.aar/META-INF/androidx/lifecycle/lifecycle-viewmodel-ktx/LICENSE.txt`, `androidx.lifecycle:lifecycle-viewmodel-savedstate-android:2.9.3/lifecycle-viewmodel-savedstate-release.aar/META-INF/androidx/lifecycle/lifecycle-viewmodel-savedstate/LICENSE.txt`, `androidx.lifecycle:lifecycle-viewmodel:2.9.3/lifecycle-viewmodel-2.9.3.aar/META-INF/androidx/lifecycle/lifecycle-viewmodel/LICENSE.txt`, `androidx.profileinstaller:profileinstaller:1.4.0/profileinstaller-1.4.0.aar/META-INF/androidx/profileinstaller/profileinstaller/LICENSE.txt`, `androidx.savedstate:savedstate-android:1.3.1/savedstate-release.aar/META-INF/androidx/savedstate/savedstate/LICENSE.txt`, `androidx.savedstate:savedstate-ktx:1.3.1/savedstate-ktx-1.3.1.aar/META-INF/androidx/savedstate/savedstate-ktx/LICENSE.txt`
+Source(s): `androidx.annotation:annotation-jvm:1.9.1/annotation-jvm-1.9.1.jar/META-INF/androidx/annotation/annotation/LICENSE.txt`, `androidx.core:core-ktx:1.17.0/core-ktx-1.17.0.aar/META-INF/androidx/core/core-ktx/LICENSE.txt`, `androidx.core:core-viewtree:1.0.0/core-viewtree-1.0.0.aar/META-INF/androidx/core/core-viewtree/LICENSE.txt`, `androidx.core:core:1.17.0/core-1.17.0.aar/META-INF/androidx/core/core/LICENSE.txt`, `androidx.documentfile:documentfile:1.1.0/documentfile-1.1.0.aar/META-INF/androidx/documentfile/documentfile/LICENSE.txt`, `androidx.dynamicanimation:dynamicanimation:1.1.0/dynamicanimation-1.1.0.aar/META-INF/androidx/dynamicanimation/dynamicanimation/LICENSE.txt`, `androidx.graphics:graphics-shapes-android:1.0.1/graphics-shapes-release.aar/META-INF/androidx/graphics/graphics-shapes/LICENSE.txt`, `androidx.lifecycle:lifecycle-common-java8:2.9.3/lifecycle-common-java8-2.9.3.jar/META-INF/androidx/lifecycle/lifecycle-common-java8/LICENSE.txt`, `androidx.lifecycle:lifecycle-common-jvm:2.9.3/lifecycle-common-jvm-2.9.3.jar/META-INF/androidx/lifecycle/lifecycle-common/LICENSE.txt`, `androidx.lifecycle:lifecycle-livedata-core-ktx:2.9.3/lifecycle-livedata-core-ktx-2.9.3.aar/META-INF/androidx/lifecycle/lifecycle-livedata-core-ktx/LICENSE.txt`, `androidx.lifecycle:lifecycle-livedata-core:2.9.3/lifecycle-livedata-core-2.9.3.aar/META-INF/androidx/lifecycle/lifecycle-livedata-core/LICENSE.txt`, `androidx.lifecycle:lifecycle-process:2.9.3/lifecycle-process-2.9.3.aar/META-INF/androidx/lifecycle/lifecycle-process/LICENSE.txt`, `androidx.lifecycle:lifecycle-runtime-android:2.9.3/lifecycle-runtime-release.aar/META-INF/androidx/lifecycle/lifecycle-runtime/LICENSE.txt`, `androidx.lifecycle:lifecycle-runtime-ktx-android:2.9.3/lifecycle-runtime-ktx.aar/META-INF/androidx/lifecycle/lifecycle-runtime-ktx/LICENSE.txt`, `androidx.lifecycle:lifecycle-viewmodel-android:2.9.3/lifecycle-viewmodel-release.aar/META-INF/androidx/lifecycle/lifecycle-viewmodel/LICENSE.txt`, `androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.3/lifecycle-viewmodel-ktx-2.9.3.aar/META-INF/androidx/lifecycle/lifecycle-viewmodel-ktx/LICENSE.txt`, `androidx.lifecycle:lifecycle-viewmodel-savedstate-android:2.9.3/lifecycle-viewmodel-savedstate-release.aar/META-INF/androidx/lifecycle/lifecycle-viewmodel-savedstate/LICENSE.txt`, `androidx.lifecycle:lifecycle-viewmodel:2.9.3/lifecycle-viewmodel-2.9.3.aar/META-INF/androidx/lifecycle/lifecycle-viewmodel/LICENSE.txt`, `androidx.profileinstaller:profileinstaller:1.4.0/profileinstaller-1.4.0.aar/META-INF/androidx/profileinstaller/profileinstaller/LICENSE.txt`, `androidx.savedstate:savedstate-android:1.3.1/savedstate-release.aar/META-INF/androidx/savedstate/savedstate/LICENSE.txt`, `androidx.savedstate:savedstate-ktx:1.3.1/savedstate-ktx-1.3.1.aar/META-INF/androidx/savedstate/savedstate-ktx/LICENSE.txt`
 
 ```text
 Apache License
@@ -2054,6 +2139,221 @@ Apache License
       of your accepting any such warranty or additional liability.
 
    END OF TERMS AND CONDITIONS
+```
+
+### 5b06c05c66fe9d520eab80b2b212d9c14932ec63a7e51d36f6214f72695a07bb
+
+Source(s): `npm:@react-native-firebase/app@26.3.2/dist/module/internal/web/memidb/LICENSE`, `npm:@react-native-firebase/app@26.3.2/lib/internal/web/memidb/LICENSE`
+
+```text
+Apache License
+Version 2.0, January 2004
+http://www.apache.org/licenses/
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+1. Definitions.
+
+    "License" shall mean the terms and conditions for use, reproduction, and
+    distribution as defined by Sections 1 through 9 of this document.
+
+    "Licensor" shall mean the copyright owner or entity authorized by the
+    copyright owner that is granting the License.
+
+    "Legal Entity" shall mean the union of the acting entity and all other
+    entities that control, are controlled by, or are under common control with
+    that entity. For the purposes of this definition, "control" means (i) the
+    power, direct or indirect, to cause the direction or management of such
+    entity, whether by contract or otherwise, or (ii) ownership of
+    fifty percent (50%) or more of the outstanding shares, or (iii) beneficial
+    ownership of such entity.
+
+    "You" (or "Your") shall mean an individual or Legal Entity exercising
+    permissions granted by this License.
+
+    "Source" form shall mean the preferred form for making modifications,
+    including but not limited to software source code, documentation source,
+    and configuration files.
+
+    "Object" form shall mean any form resulting from mechanical transformation
+    or translation of a Source form, including but not limited to compiled
+    object code, generated documentation, and conversions to
+    other media types.
+
+    "Work" shall mean the work of authorship, whether in Source or Object
+    form, made available under the License, as indicated by a copyright notice
+    that is included in or attached to the work (an example is provided in the
+    Appendix below).
+
+    "Derivative Works" shall mean any work, whether in Source or Object form,
+    that is based on (or derived from) the Work and for which the editorial
+    revisions, annotations, elaborations, or other modifications represent,
+    as a whole, an original work of authorship. For the purposes of this
+    License, Derivative Works shall not include works that remain separable
+    from, or merely link (or bind by name) to the interfaces of, the Work and
+    Derivative Works thereof.
+
+    "Contribution" shall mean any work of authorship, including the original
+    version of the Work and any modifications or additions to that Work or
+    Derivative Works thereof, that is intentionally submitted to Licensor for
+    inclusion in the Work by the copyright owner or by an individual or
+    Legal Entity authorized to submit on behalf of the copyright owner.
+    For the purposes of this definition, "submitted" means any form of
+    electronic, verbal, or written communication sent to the Licensor or its
+    representatives, including but not limited to communication on electronic
+    mailing lists, source code control systems, and issue tracking systems
+    that are managed by, or on behalf of, the Licensor for the purpose of
+    discussing and improving the Work, but excluding communication that is
+    conspicuously marked or otherwise designated in writing by the copyright
+    owner as "Not a Contribution."
+
+    "Contributor" shall mean Licensor and any individual or Legal Entity on
+    behalf of whom a Contribution has been received by Licensor and
+    subsequently incorporated within the Work.
+
+2. Grant of Copyright License.
+
+    Subject to the terms and conditions of this License, each Contributor
+    hereby grants to You a perpetual, worldwide, non-exclusive, no-charge,
+    royalty-free, irrevocable copyright license to reproduce, prepare
+    Derivative Works of, publicly display, publicly perform, sublicense,
+    and distribute the Work and such Derivative Works in
+    Source or Object form.
+
+3. Grant of Patent License.
+
+    Subject to the terms and conditions of this License, each Contributor
+    hereby grants to You a perpetual, worldwide, non-exclusive, no-charge,
+    royalty-free, irrevocable (except as stated in this section) patent
+    license to make, have made, use, offer to sell, sell, import, and
+    otherwise transfer the Work, where such license applies only to those
+    patent claims licensable by such Contributor that are necessarily
+    infringed by their Contribution(s) alone or by combination of their
+    Contribution(s) with the Work to which such Contribution(s) was submitted.
+    If You institute patent litigation against any entity (including a
+    cross-claim or counterclaim in a lawsuit) alleging that the Work or a
+    Contribution incorporated within the Work constitutes direct or
+    contributory patent infringement, then any patent licenses granted to
+    You under this License for that Work shall terminate as of the date such
+    litigation is filed.
+
+4. Redistribution.
+
+    You may reproduce and distribute copies of the Work or Derivative Works
+    thereof in any medium, with or without modifications, and in Source or
+    Object form, provided that You meet the following conditions:
+
+    1. You must give any other recipients of the Work or Derivative Works a
+    copy of this License; and
+
+    2. You must cause any modified files to carry prominent notices stating
+    that You changed the files; and
+
+    3. You must retain, in the Source form of any Derivative Works that You
+    distribute, all copyright, patent, trademark, and attribution notices from
+    the Source form of the Work, excluding those notices that do not pertain
+    to any part of the Derivative Works; and
+
+    4. If the Work includes a "NOTICE" text file as part of its distribution,
+    then any Derivative Works that You distribute must include a readable copy
+    of the attribution notices contained within such NOTICE file, excluding
+    those notices that do not pertain to any part of the Derivative Works,
+    in at least one of the following places: within a NOTICE text file
+    distributed as part of the Derivative Works; within the Source form or
+    documentation, if provided along with the Derivative Works; or, within a
+    display generated by the Derivative Works, if and wherever such
+    third-party notices normally appear. The contents of the NOTICE file are
+    for informational purposes only and do not modify the License.
+    You may add Your own attribution notices within Derivative Works that You
+    distribute, alongside or as an addendum to the NOTICE text from the Work,
+    provided that such additional attribution notices cannot be construed
+    as modifying the License.
+
+    You may add Your own copyright statement to Your modifications and may
+    provide additional or different license terms and conditions for use,
+    reproduction, or distribution of Your modifications, or for any such
+    Derivative Works as a whole, provided Your use, reproduction, and
+    distribution of the Work otherwise complies with the conditions
+    stated in this License.
+
+5. Submission of Contributions.
+
+    Unless You explicitly state otherwise, any Contribution intentionally
+    submitted for inclusion in the Work by You to the Licensor shall be under
+    the terms and conditions of this License, without any additional
+    terms or conditions. Notwithstanding the above, nothing herein shall
+    supersede or modify the terms of any separate license agreement you may
+    have executed with Licensor regarding such Contributions.
+
+6. Trademarks.
+
+    This License does not grant permission to use the trade names, trademarks,
+    service marks, or product names of the Licensor, except as required for
+    reasonable and customary use in describing the origin of the Work and
+    reproducing the content of the NOTICE file.
+
+7. Disclaimer of Warranty.
+
+    Unless required by applicable law or agreed to in writing, Licensor
+    provides the Work (and each Contributor provides its Contributions)
+    on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+    either express or implied, including, without limitation, any warranties
+    or conditions of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS
+    FOR A PARTICULAR PURPOSE. You are solely responsible for determining the
+    appropriateness of using or redistributing the Work and assume any risks
+    associated with Your exercise of permissions under this License.
+
+8. Limitation of Liability.
+
+    In no event and under no legal theory, whether in tort
+    (including negligence), contract, or otherwise, unless required by
+    applicable law (such as deliberate and grossly negligent acts) or agreed
+    to in writing, shall any Contributor be liable to You for damages,
+    including any direct, indirect, special, incidental, or consequential
+    damages of any character arising as a result of this License or out of
+    the use or inability to use the Work (including but not limited to damages
+    for loss of goodwill, work stoppage, computer failure or malfunction,
+    or any and all other commercial damages or losses), even if such
+    Contributor has been advised of the possibility of such damages.
+
+9. Accepting Warranty or Additional Liability.
+
+    While redistributing the Work or Derivative Works thereof, You may choose
+    to offer, and charge a fee for, acceptance of support, warranty,
+    indemnity, or other liability obligations and/or rights consistent with
+    this License. However, in accepting such obligations, You may act only
+    on Your own behalf and on Your sole responsibility, not on behalf of any
+    other Contributor, and only if You agree to indemnify, defend, and hold
+    each Contributor harmless for any liability incurred by, or claims
+    asserted against, such Contributor by reason of your accepting any such
+    warranty or additional liability.
+
+END OF TERMS AND CONDITIONS
+
+APPENDIX: How to apply the Apache License to your work
+
+    To apply the Apache License to your work, attach the following boilerplate
+    notice, with the fields enclosed by brackets "[]" replaced with your own
+    identifying information. (Don't include the brackets!) The text should be
+    enclosed in the appropriate comment syntax for the file format. We also
+    recommend that a file or class name and description of purpose be included
+    on the same "printed page" as the copyright notice for easier
+    identification within third-party archives.
+
+        Copyright 2017 Jeremy Scheff
+
+
+        Licensed under the Apache License, Version 2.0 (the "License");
+        you may not use this file except in compliance with the License.
+        You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+        Unless required by applicable law or agreed to in writing, software
+        distributed under the License is distributed on an "AS IS" BASIS,
+        WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
+        or implied. See the License for the specific language governing
+        permissions and limitations under the License.
 ```
 
 ### 5fe5599c080ef8e9ddcf73795b8facb3852bef1ba7dd14c7e8f66a221ac93505
@@ -2267,6 +2567,45 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+### d1d91013bad44a8e9205add3f028f1a3343d1e4856bbbdb38802b02787ad147d
+
+Source(s): `npm:@react-native-firebase/messaging@26.3.2/LICENSE`
+
+```text
+Apache-2.0 License
+------------------
+
+Copyright (c) 2016-present Invertase Limited <oss@invertase.io> & Contributors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this library except in compliance with the License.
+
+You may obtain a copy of the Apache-2.0 License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+
+Creative Commons Attribution 3.0 License
+----------------------------------------
+
+Copyright (c) 2016-present Invertase Limited <oss@invertase.io> & Contributors
+
+Documentation and other instructional materials provided for this project
+(including on a separate documentation repository or it's documentation website) are
+licensed under the Creative Commons Attribution 3.0 License. Code samples/blocks
+contained therein are licensed under the Apache License, Version 2.0 (the "License"), as above.
+
+You may obtain a copy of the Creative Commons Attribution 3.0 License at
+
+    https://creativecommons.org/licenses/by/3.0/
 ```
 
 ### d4572f3e030ff840c4759de9d905a2a7c4d09ed5587e4335cfb004e988533429
