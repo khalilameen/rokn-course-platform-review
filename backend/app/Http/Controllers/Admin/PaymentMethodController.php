@@ -55,17 +55,6 @@ class PaymentMethodController extends Controller
     }
 
     /**
-     * Display the specified resource.
-     *
-     * @param  \App\Models\PaymentMethod  $paymentMethod
-     * @return \Illuminate\Http\Response
-     */
-    public function show(PaymentMethod $paymentMethod)
-    {
-        //
-    }
-
-    /**
      * Show the form for editing the specified resource.
      *
      * @param  \App\Models\PaymentMethod  $paymentMethod

@@ -1,29 +1,11 @@
 import {useWindowDimensions} from 'react-native';
 import {Colors, Fonts, PixelPerfect} from './styleConstants';
+import {BrandColors} from './brandTokens';
 
 export const Palette = {
-  canvas: '#070A10',
-  canvasSoft: '#0B1018',
-  surface: '#111620',
-  surfaceRaised: '#171D29',
-  surfacePressed: '#1D2533',
-  line: '#252C38',
-  lineSoft: 'rgba(255,255,255,0.07)',
-  // White text on the former #3478F6 missed WCAG AA for normal copy.
-  // This remains unmistakably Rokn blue while clearing the contrast floor.
-  primary: '#2C69DB',
-  primaryPressed: '#245CC7',
-  primarySoft: 'rgba(52,120,246,0.14)',
-  action: '#2C69DB',
-  actionPressed: '#245CC7',
-  coin: '#D8A63C',
-  coinSoft: 'rgba(216,166,60,0.13)',
-  success: '#48B98A',
-  danger: '#F06469',
-  text: '#F7F9FC',
-  textMuted: '#9BA6B8',
-  textFaint: '#768297',
-  overlay: 'rgba(3,5,9,0.76)',
+  ...BrandColors,
+  action: BrandColors.primary,
+  actionPressed: BrandColors.primaryPressed,
 } as const;
 
 export const Spacing = {

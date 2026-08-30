@@ -67,7 +67,6 @@ describe('roknApi compatibility facade', () => {
     ['clearProductionWatchHistory', 'clearWatchHistory'],
     ['getProductionWatchHistory', 'getWatchHistory'],
     ['updateProductionPortfolioProfile', 'updatePortfolioProfile'],
-    ['updateProductionPortfolioVisibility', 'updatePortfolioVisibility'],
     ['getProductionPortfolio', 'getPortfolio'],
     ['createProductionPortfolioItem', 'createPortfolioItem'],
     ['getProductionEligibleProjects', 'getEligibleProjects'],

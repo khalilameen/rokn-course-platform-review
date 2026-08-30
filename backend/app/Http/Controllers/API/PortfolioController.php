@@ -42,7 +42,7 @@ final class PortfolioController extends Controller
             ->get();
 
         return response()->json([
-            'status' => true,
+            'status' => 200,
             'success' => true,
             'message' => 'Portfolio items retrieved successfully',
             'data' => PortfolioItemResource::collection($items),
@@ -76,7 +76,7 @@ final class PortfolioController extends Controller
             ->paginate($validated['per_page'] ?? 20);
 
         return response()->json([
-            'status' => true,
+            'status' => 200,
             'success' => true,
             'message' => 'Eligible portfolio projects retrieved successfully',
             'data' => [
@@ -133,7 +133,6 @@ final class PortfolioController extends Controller
             'tools.*' => 'string|max:80',
             'external_url' => ['nullable', 'string', 'max:2000', SafeExternalUrl::validationRule()],
             'completed_at' => 'nullable|date',
-            'is_public' => 'nullable|boolean',
             'is_featured' => 'nullable|boolean',
             'sort_order' => 'nullable|integer|min:0|max:10000',
             'files' => 'nullable|array|max:12',
@@ -258,10 +257,7 @@ final class PortfolioController extends Controller
                     'tools' => $request->input('tools'),
                     'external_url' => $request->input('external_url'),
                     'completed_at' => $request->input('completed_at'),
-                    'is_public' => $request->boolean(
-                        'is_public',
-                        (bool) $user->portfolio_is_public
-                    ),
+                    'is_public' => true,
                     'is_featured' => $request->boolean('is_featured'),
                     'sort_order' => $request->integer('sort_order', 0),
                 ]);
@@ -291,7 +287,7 @@ final class PortfolioController extends Controller
         $item->load(['mediaFiles', 'course']);
 
         return response()->json([
-            'status' => true,
+            'status' => 200,
             'success' => true,
             'message' => 'Portfolio item created successfully',
             'data' => new PortfolioItemResource($item),
@@ -311,7 +307,7 @@ final class PortfolioController extends Controller
         }
 
         return response()->json([
-            'status' => true,
+            'status' => 200,
             'success' => true,
             'message' => 'Portfolio item retrieved successfully',
             'data' => new PortfolioItemResource($item),
@@ -338,20 +334,19 @@ final class PortfolioController extends Controller
             'tools.*' => 'string|max:80',
             'external_url' => ['nullable', 'string', 'max:2000', SafeExternalUrl::validationRule()],
             'completed_at' => 'nullable|date',
-            'is_public' => 'nullable|boolean',
             'is_featured' => 'nullable|boolean',
             'sort_order' => 'nullable|integer|min:0|max:10000',
         ]);
 
         $item->update($request->only([
             'title', 'description', 'role', 'tools', 'external_url', 'completed_at',
-            'is_public', 'is_featured', 'sort_order',
+            'is_featured', 'sort_order',
         ]) + ($request->filled('title') ? ['slug' => Str::slug($request->input('title'))] : []));
 
         $item->load(['mediaFiles', 'course']);
 
         return response()->json([
-            'status' => true,
+            'status' => 200,
             'success' => true,
             'message' => 'Portfolio item updated successfully',
             'data' => new PortfolioItemResource($item),
@@ -387,7 +382,7 @@ final class PortfolioController extends Controller
         $item->delete();
 
         return response()->json([
-            'status' => true,
+            'status' => 200,
             'success' => true,
             'message' => 'Portfolio item deleted successfully',
             'data' => null,
@@ -467,7 +462,7 @@ final class PortfolioController extends Controller
         }
 
         return response()->json([
-            'status' => true,
+            'status' => 200,
             'success' => true,
             'message' => 'Media file added successfully',
             'data' => new PortfolioMediaResource($media),
@@ -507,7 +502,7 @@ final class PortfolioController extends Controller
         $media->delete();
 
         return response()->json([
-            'status' => true,
+            'status' => 200,
             'success' => true,
             'message' => 'Media file deleted successfully',
             'data' => null,
@@ -534,8 +529,6 @@ final class PortfolioController extends Controller
                 'sometimes', 'required', 'string', 'min:3', 'max:60', 'regex:/^[a-z0-9-]+$/',
                 Rule::unique('users', 'portfolio_slug')->ignore($user->id),
             ],
-            'portfolio_is_public' => 'nullable|boolean',
-            'publish_existing_items' => 'nullable|boolean',
             'portfolio_headline' => 'nullable|string|max:160',
             'portfolio_location' => 'nullable|string|max:120',
             'portfolio_skills' => 'nullable|array|max:30',
@@ -553,20 +546,7 @@ final class PortfolioController extends Controller
         if (array_key_exists('portfolio_slug', $validated)) {
             $validated['portfolio_slug'] = Str::slug((string) $validated['portfolio_slug']);
         }
-        $publishExisting = (bool) ($validated['publish_existing_items'] ?? false);
-        unset($validated['publish_existing_items']);
         $user->update($validated);
-
-        if (array_key_exists('portfolio_is_public', $validated)) {
-            if (!(bool) $validated['portfolio_is_public']) {
-                // Closing the profile must close every project immediately.
-                $user->portfolioItems()->update(['is_public' => false]);
-            } elseif ($publishExisting) {
-                // This is only reached after the learner confirms the explicit
-                // publish prompt in the app.
-                $user->portfolioItems()->update(['is_public' => true]);
-            }
-        }
 
         return response()->json([
             'status' => 200,
@@ -581,7 +561,10 @@ final class PortfolioController extends Controller
         $slug = $user->portfolio_slug ?: ('student-' . $user->id);
         return [
             'slug' => $slug,
-            'is_public' => (bool) $user->portfolio_is_public,
+            'share_mode' => 'unlisted',
+            // Backward-compatible alias for app builds that used this value to
+            // decide whether the share button should be visible.
+            'is_public' => true,
             'headline' => $user->portfolio_headline,
             'location' => $user->portfolio_location,
             'skills' => $user->portfolio_skills ?? [],
@@ -637,7 +620,7 @@ final class PortfolioController extends Controller
     private function error(string $message, int $httpStatus): JsonResponse
     {
         return response()->json([
-            'status' => false,
+            'status' => $httpStatus,
             'success' => false,
             'message' => $message,
             'data' => null,

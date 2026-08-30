@@ -4,6 +4,8 @@ import {includesCourseAssistant} from '../courseEntitlements';
 import type {CourseLearningData, CourseReel} from '../types';
 import {asRecord, valueAsString} from './shared';
 
+const COURSE_CHAT_REQUEST_TIMEOUT_MS = 60_000;
+
 const demoAssistantReply = (message: string, reel?: CourseReel) => {
   const question = message.trim();
   const normalized = question.toLocaleLowerCase('ar');
@@ -40,10 +42,12 @@ export const askCourseAssistant = async ({
   course,
   reel,
   message,
+  onRequestStart,
 }: {
   course: CourseLearningData;
   reel?: CourseReel;
   message: string;
+  onRequestStart?: () => void;
 }): Promise<{text: string; offline: boolean; blocked?: boolean}> => {
   if (!courseIncludesAssistant(course)) {
     return {
@@ -54,6 +58,7 @@ export const askCourseAssistant = async ({
   }
   const courseId = course.id;
   if (courseId.startsWith('demo')) {
+    onRequestStart?.();
     return {text: demoAssistantReply(message, reel), offline: true};
   }
   if (!courseId.startsWith('demo')) {
@@ -65,6 +70,7 @@ export const askCourseAssistant = async ({
       };
     }
     try {
+      onRequestStart?.();
       const response = await publicRequest.post(
         `courses/${courseId}/chat`,
         {
@@ -72,7 +78,7 @@ export const askCourseAssistant = async ({
           lesson_id: reel?.lessonId,
           reel_title: reel?.title,
         },
-        {timeout: 30000},
+        {timeout: COURSE_CHAT_REQUEST_TIMEOUT_MS},
       );
       const text =
         response?.data?.data?.message ||

@@ -510,8 +510,8 @@ a.group-name:hover {
     color: var(--color-primary) !important;
 }
 
-/* Fix hardcoded row numbers - override #667eea */
-span[style*="color: #667eea"] {
+/* Fix hardcoded row numbers - override #2563eb */
+span[style*="color: #2563eb"] {
     color: var(--color-primary) !important;
 }
 

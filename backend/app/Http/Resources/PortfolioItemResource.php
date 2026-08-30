@@ -24,7 +24,9 @@ class PortfolioItemResource extends JsonResource
             'tools' => $this->tools ?? [],
             'external_url' => SafeExternalUrl::sanitize($this->external_url),
             'completed_at' => $this->completed_at?->format('Y-m-d'),
-            'is_public' => (bool) $this->is_public,
+            // Compatibility field for older clients. Portfolio entries live on
+            // an unlisted share page and no longer have per-item publication.
+            'is_public' => true,
             'is_featured' => (bool) $this->is_featured,
             'sort_order' => (int) $this->sort_order,
             'course' => $this->whenLoaded('course', fn () => $this->course ? [

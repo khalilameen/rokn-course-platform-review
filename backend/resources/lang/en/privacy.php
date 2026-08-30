@@ -85,9 +85,9 @@ return [
         [
             'title' => '9. Portfolios and certificates',
             'points' => [
-                'You retain ownership of your work and give Rokn the limited operational permission needed to store, review, and display what you choose to publish.',
-                'Content you publish in a portfolio becomes available through its public link. A certificate QR code may open a verification page or public portfolio.',
-                'We do not display your email or phone number publicly unless you clearly choose to add it.',
+                'You retain ownership of your work and give Rokn the limited operational permission needed to store and review portfolio work and display it to people who reach its share link or QR code.',
+                'A portfolio link is unlisted: Rokn does not place it in a public gallery or search results, but anyone with the link or certificate QR code can view its content.',
+                'We do not display your email or phone number on the share page unless you add it yourself to content or a link.',
             ],
         ],
         [
@@ -118,7 +118,7 @@ return [
             ],
         ],
     ],
-    'last_updated' => 'Last updated: August 6, 2026',
+    'last_updated' => 'Last updated: August 30, 2026',
     'copyright' => '© 2026 Rokn for Digital Production and Content – One Person Limited Liability Company — All rights reserved',
     'fallback' => 'The privacy policy could not be loaded. Please try again or contact support.',
 ];

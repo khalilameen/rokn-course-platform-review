@@ -83,6 +83,7 @@ final class ProductionCapabilityTest extends TestCase
             'services.tiktok.client_key' => 'tiktok-client',
             'services.tiktok.client_secret' => 'tiktok-secret',
             'services.apple.client_id' => 'com.rokn',
+            'social_auth.providers' => ['google', 'facebook', 'tiktok', 'apple'],
             'social_auth.public_api_url' => 'https://api.rokn.test/api/v1',
             'social_auth.return_urls' => ['rokn://auth'],
             'social_auth.allow_legacy_pkce' => false,
@@ -282,6 +283,33 @@ final class ProductionCapabilityTest extends TestCase
             ->assertJsonPath('checks.social_tiktok', false)
             ->assertJsonPath('checks.social_apple', false)
             ->assertJsonPath('checks.social_callbacks', false);
+    }
+
+    public function test_undeclared_social_providers_are_visible_without_blocking_launch(): void
+    {
+        $this->recordAllQueueHeartbeats();
+        config([
+            'social_auth.providers' => ['google'],
+            'services.facebook.client_id' => null,
+            'services.facebook.client_secret' => null,
+            'services.tiktok.client_key' => null,
+            'services.tiktok.client_secret' => null,
+            'services.apple.client_id' => null,
+        ]);
+
+        $report = app(ProductionCapabilityService::class)->report();
+
+        self::assertTrue($report['capabilities']['social']['ready']);
+        self::assertSame(['google'], $report['capabilities']['social']['declared_providers']);
+        self::assertFalse($report['capabilities']['social']['facebook']['required']);
+
+        $this->getJson('/api/health/launch-ready')
+            ->assertOk()
+            ->assertJsonPath('checks.social_google', true)
+            ->assertJsonMissingPath('checks.social_facebook')
+            ->assertJsonPath('optional_checks.social_facebook', false)
+            ->assertJsonPath('optional_checks.social_tiktok', false)
+            ->assertJsonPath('optional_checks.social_apple', false);
     }
 
     public function test_android_and_apple_domain_associations_block_launch_independently(): void

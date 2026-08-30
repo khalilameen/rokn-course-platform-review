@@ -14,7 +14,7 @@
     },
     {
       "path": "public/admin/assets/css/admin-shell.css",
-      "sha256": "4ddd378d656995f88aa6dd63c515701f8bb95426d3c27127a6ec4b06f334299e",
+      "sha256": "a71569c7bb66c7a9521f5f657357f787ffaa1047957dfd08832fe1ada6127840",
       "classification": "first_party"
     },
     {
@@ -30,12 +30,12 @@
     },
     {
       "path": "public/admin/assets/css/bills-index.css",
-      "sha256": "e6dfd0328111d2fd3d442852e7f6801894a209cb3985555d898f24ddf6c115a9",
+      "sha256": "aaf52042c6a569987c4421185c034e8b30e3be6e029026f1c32baa2748d69f0b",
       "classification": "first_party"
     },
     {
       "path": "public/admin/assets/css/bills-show.css",
-      "sha256": "6cd0bae3a388b5f750d3f5e39c8c9c480ccb9bcf4b15c99fd1ab17b4f5118abb",
+      "sha256": "8e27b6bd76c625759e1cf61a81a35d8d513c7abe668802cd093211e25eee8b2d",
       "classification": "first_party"
     },
     {
@@ -46,7 +46,7 @@
     },
     {
       "path": "public/admin/assets/css/course-codes-create.css",
-      "sha256": "f66eb8b2e8bdc136adb196babbb935f293625dbcf411e6ba412b5e04e63b5ef2",
+      "sha256": "d97b3547fa378e7adf7f7f1fc045639e54af2df5ef8ba3f853e2bbffe4d35c92",
       "classification": "first_party"
     },
     {
@@ -56,17 +56,17 @@
     },
     {
       "path": "public/admin/assets/css/course-codes-index.css",
-      "sha256": "fe89a50f83dd93e4c35a479ad4a9cb73944879ddb1a5fe05c23e957f5ee0d24c",
+      "sha256": "4f25d973ca06eb2856696167501dbabe9ef58c72261eef3df69d3d1fba2b2f87",
       "classification": "first_party"
     },
     {
       "path": "public/admin/assets/css/course-codes-show.css",
-      "sha256": "b9e40f1af4066bbd5d39055fb743b5183e2064b8237b763015c92d72e7b9cf43",
+      "sha256": "ce9f7e4e775650023a1f892fd4b3829a1f6a1c65f16063c57453e3e46878e291",
       "classification": "first_party"
     },
     {
       "path": "public/admin/assets/css/course-create.css",
-      "sha256": "d8ed30f75dd6759d5ed5df5d8a0063895a88a74d4194d0b369c5392eb822cfe8",
+      "sha256": "27f3cbe9077c34916a8e6b5521fec6c88026c17f2d5b32321b41766a7f4e17e9",
       "classification": "first_party"
     },
     {
@@ -131,17 +131,17 @@
     },
     {
       "path": "public/admin/assets/css/courses-index.css",
-      "sha256": "119d4fb78c9a21e811fa5701e15f4bce696a55ea1260ab87174f2c786f181437",
+      "sha256": "349b255332c80fb9c47641147eabdeabca5df55f438ab3c9458bfd2b7569f115",
       "classification": "first_party"
     },
     {
       "path": "public/admin/assets/css/courses-show.css",
-      "sha256": "c41f8e55a9154cdd0da4fe7f19105f6688537d53bbc4ce19bc4031e3ef1d9a3e",
+      "sha256": "32c0663e7c45cced438a5a9a312390c3ffb33f71d4b8f021de51eac59d6a9b3c",
       "classification": "first_party"
     },
     {
       "path": "public/admin/assets/css/custom-global.css",
-      "sha256": "7bee615d16ebe8070890c849a179ebcd68dad6f2c547c97106aed5ca8efd3fd3",
+      "sha256": "8f615e727138631b37ba4628b394aef16123886769a6d48a21f6d0ac5774f322",
       "classification": "first_party"
     },
     {
@@ -202,7 +202,7 @@
     },
     {
       "path": "public/admin/assets/css/home-dashboard.css",
-      "sha256": "88942a4bc7b737334e8cdafa6c28ad1d8d89a1a65e7e903791132f316a247bc0",
+      "sha256": "597960f086d636f10859182154d467cda8f8d85f0b794bf24ca943e03b8fc4a2",
       "classification": "first_party"
     },
     {
@@ -233,47 +233,47 @@
     },
     {
       "path": "public/admin/assets/css/orders-index.css",
-      "sha256": "25d9bc9235c476e2b6924348f72b00aa95757a059e43ac27c90aabbc04405a08",
+      "sha256": "392b3202b974bc4728db95d0ed1bce85cc55f08909e01d6bc9877d670c17efb0",
       "classification": "first_party"
     },
     {
       "path": "public/admin/assets/css/orders-show.css",
-      "sha256": "ae8c6656aefff083e0ab17c9a5955f401617df32cc9df5359f0067f30e86970f",
+      "sha256": "902e21ed4315a98883615e07ef5546d725663f75b239b638286b64d1e270251b",
       "classification": "first_party"
     },
     {
       "path": "public/admin/assets/css/payment-methods-form.css",
-      "sha256": "7203ac3d99f5c8ca56e46c8e44d57fd2f3e0333706bf46c54884becc6c272715",
+      "sha256": "0b2e1a8c35b93b75662ba22828438cd460e14363fba992e52e7bcc0e1138091c",
       "classification": "first_party"
     },
     {
       "path": "public/admin/assets/css/payment-methods-index.css",
-      "sha256": "301a902bbcfdfbef6918f86db7cd363c16b788ccf327894d70df27e490fe4ba1",
+      "sha256": "ba7c33bd1a10956a7063ca54386dbc9c32fe07a5967621d86bc2b1063f99c9b3",
       "classification": "first_party"
     },
     {
       "path": "public/admin/assets/css/settings-admin-data.css",
-      "sha256": "dcb6bfee102662c0f62f93a0bc4a5de9ea3e6beafdf4ccffb2ee9d2b9ddddfa1",
+      "sha256": "3d333c439bf557c8d2eeb674e965764ccb1ac16e6098d27c5247e8f811580b3f",
       "classification": "first_party"
     },
     {
       "path": "public/admin/assets/css/settings-dashboard.css",
-      "sha256": "33284fdd4f1a98b616417fa7304e62eb164d3defaec25514f0dd4eab6e9e7a3e",
+      "sha256": "a101f48641a44a9e59279d734501d4f7520c963f13e4fb50d586082e5c6cd443",
       "classification": "first_party"
     },
     {
       "path": "public/admin/assets/css/settings-student-platform.css",
-      "sha256": "1d19149f2f5dc234c4dba0debb52d8ea5b740d412d884df96b3da9c7a0787cf7",
+      "sha256": "a18b222d200d9616f70126ba506abeb0afef0805688f6fdda7ca98cdb1cbf79a",
       "classification": "first_party"
     },
     {
       "path": "public/admin/assets/css/student-progress-index.css",
-      "sha256": "6bdeac9ab57e0bdec8743722aba8b6af7f0e12f3dc5661cac380b2313daf6edb",
+      "sha256": "d379b1f1d97ab22fb3b28027321d5693b32a596fda3f1f05a7f52e7d5fef363a",
       "classification": "first_party"
     },
     {
       "path": "public/admin/assets/css/student-progress-show.css",
-      "sha256": "dac2e7f3885cc96ef95db26cb6cdbe31a1124dd214bb9b115524d9d635aa4f22",
+      "sha256": "99f0d589d3d7cac28919fd986f20c1ce6f7d1b9cd7f8ec79b8ee30062c45bc5c",
       "classification": "first_party"
     },
     {
@@ -284,27 +284,27 @@
     },
     {
       "path": "public/admin/assets/css/urgent-tasks-courses-without-quiz.css",
-      "sha256": "bd6eca5b61907bb792447f4ad73e72a6fec404473f2c70cf0e6f3d780f28937d",
+      "sha256": "6762ba20683d3a89ab3fe643a34e3ce5900e75023b4175278406894efa7bc355",
       "classification": "first_party"
     },
     {
       "path": "public/admin/assets/css/urgent-tasks-inactive-students.css",
-      "sha256": "507293fe36baaae3eaeb6e9370c2b6fab654f51cabfd8e99e5bc20eb2105de9f",
+      "sha256": "f7e27e3104f93ab459323caeac726e5aeec42d4059712e7c961d2c5aabcbac5c",
       "classification": "first_party"
     },
     {
       "path": "public/admin/assets/css/urgent-tasks-index.css",
-      "sha256": "afc98c2fa8ed5813550b0e264cb067e6986348ed0f14469eae367066d19636c2",
+      "sha256": "6c40737080edebafbca830063807c788d5c1c9db257ec386af1d9acf9e3a5d92",
       "classification": "first_party"
     },
     {
       "path": "public/admin/assets/css/urgent-tasks-pending-orders.css",
-      "sha256": "2c8d8d5c63fb80cda74439755248bc6f968737eb395f7e0a50b05704548d9ed7",
+      "sha256": "ad8d885947c420abf9aac310cddb1f45166a637522eaf799b41f9d7753b0ea73",
       "classification": "first_party"
     },
     {
       "path": "public/admin/assets/css/urgent-tasks-shared.css",
-      "sha256": "b15d59af646caacf013a3d87ab7c3eaba0779f25f4e3657d16c3e5f28b3c5f46",
+      "sha256": "3325523292da263bc2bea41aab0b2358ee68c5adc3a363a6da70ee3bc790a239",
       "classification": "first_party"
     },
     {
@@ -385,6 +385,11 @@
       "sha256": "0db5c5a1475eb7a3e5028983ea1e642d1b2c00faff6a250a37502b0f3832a4a7",
       "classification": "third_party",
       "family": "themify"
+    },
+    {
+      "path": "public/admin/assets/js/admin-identity-theme.js",
+      "sha256": "5d0f95da2112429d08fb6a7ec70260f409a3309a1c5272c21626e93211985194",
+      "classification": "first_party"
     },
     {
       "path": "public/admin/assets/js/main.js",

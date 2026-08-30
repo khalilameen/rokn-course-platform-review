@@ -54,7 +54,7 @@ body.dark-mode {
     min-width: 50px;
     min-height: 50px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -74,7 +74,7 @@ body.dark-mode {
 .progress-bar-fill {
     height: 100%;
     border-radius: 10px;
-    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(90deg, #2563eb 0%, #172554 100%);
     transition: width 0.6s ease;
     position: relative;
     overflow: hidden;
@@ -147,7 +147,7 @@ body.dark-mode {
 }
 
 .search-box:focus {
-    border-color: #667eea;
+    border-color: #2563eb;
     box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
 }
 
@@ -161,7 +161,7 @@ body.dark-mode {
 }
 
 .btn-primary-modern {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
     border: none;
     color: white;
 }
@@ -191,7 +191,7 @@ body.dark-mode {
 }
 
 .icon-students {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
     color: white;
 }
 
@@ -233,17 +233,17 @@ body.dark-mode {
     border-radius: 8px;
     margin: 0 4px;
     border: none;
-    color: #667eea;
+    color: #2563eb;
     transition: all 0.3s ease;
 }
 
 .pagination-modern .page-link:hover {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
     color: white;
 }
 
 .pagination-modern .page-item.active .page-link {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
     border: none;
 }
 

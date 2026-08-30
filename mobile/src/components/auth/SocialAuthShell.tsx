@@ -243,8 +243,13 @@ export default function SocialAuthShell() {
     ...(recommendedProvider ? [recommendedProvider] : []),
     ...(authMethods?.providers ?? []),
   ].filter((value, index, list) => value && list.indexOf(value) === index);
+  const visibleProviders = authMethods
+    ? providers.filter(provider =>
+        authMethods.providers.includes(provider.id),
+      )
+    : providers;
   const orderedProviders = authMethods
-    ? [...providers].sort((first, second) => {
+    ? [...visibleProviders].sort((first, second) => {
         const firstIndex = providerOrder.indexOf(first.id);
         const secondIndex = providerOrder.indexOf(second.id);
         if (firstIndex < 0 && secondIndex < 0) return 0;
@@ -275,11 +280,7 @@ export default function SocialAuthShell() {
           <View style={styles.providers}>
             {orderedProviders.map(provider => {
               const methodsAreLoading = authMethods === undefined;
-              const providerUnavailable = Boolean(
-                authMethods && !authMethods.providers.includes(provider.id),
-              );
-              const disabled =
-                Boolean(loading) || methodsAreLoading || providerUnavailable;
+              const disabled = Boolean(loading) || methodsAreLoading;
 
               if (provider.id === 'apple') {
                 return (
@@ -340,8 +341,7 @@ export default function SocialAuthShell() {
                       provider.id === 'tiktok' && styles.tiktokProvider,
                       provider.id === 'facebook' && styles.facebookProvider,
                       ((loading && loading !== provider.id) ||
-                        methodsAreLoading ||
-                        providerUnavailable) &&
+                        methodsAreLoading) &&
                         styles.providerDisabled,
                       pressed && styles.pressed,
                     ]}>

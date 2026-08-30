@@ -32,12 +32,12 @@
 
 .table-responsive::-webkit-scrollbar-thumb {
     min-height: 40px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
     border-radius: 10px;
 }
 
 .table-responsive::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+    background: linear-gradient(135deg, #172554 0%, #2563eb 100%);
 }
 
 .table-responsive table {

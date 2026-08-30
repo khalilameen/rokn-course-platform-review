@@ -3,6 +3,7 @@ import {useNavigation} from '@react-navigation/native';
 import type {RootNavigation} from '../navigation/types';
 import {errorPayload} from '../utils/errorPayload';
 import {
+  ActivityIndicator,
   AppState,
   Alert,
   Linking,
@@ -98,6 +99,7 @@ export default function Wallet() {
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [remoteError, setRemoteError] = useState('');
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  const [taskLoadingIds, setTaskLoadingIds] = useState<string[]>([]);
   const [walletModal, setWalletModal] = useState<
     'breakdown' | 'rules' | null
   >(null);
@@ -360,10 +362,12 @@ export default function Wallet() {
     if (task.status === 'claimed' || taskFlightsRef.current.has(task.id))
       return;
     taskFlightsRef.current.add(task.id);
+    setTaskLoadingIds(current => [...current, task.id]);
     try {
       await runTaskAction(task);
     } finally {
       taskFlightsRef.current.delete(task.id);
+      setTaskLoadingIds(current => current.filter(id => id !== task.id));
     }
   };
 
@@ -532,7 +536,9 @@ export default function Wallet() {
           />
           <PremiumCard style={styles.tasksCard}>
             {displayedTasks.length ? (
-              displayedTasks.map((task, index, allTasks) => (
+              displayedTasks.map((task, index, allTasks) => {
+                const taskLoading = taskLoadingIds.includes(task.id);
+                return (
                 <View key={task.id}>
                   <View
                     style={[
@@ -562,8 +568,11 @@ export default function Wallet() {
                     </View>
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityState={{disabled: task.status === 'claimed'}}
-                      disabled={task.status === 'claimed'}
+                      accessibilityState={{
+                        busy: taskLoading,
+                        disabled: task.status === 'claimed' || taskLoading,
+                      }}
+                      disabled={task.status === 'claimed' || taskLoading}
                       onPress={() => handleTask(task)}
                       style={({pressed}) => [
                         styles.taskAction,
@@ -571,27 +580,32 @@ export default function Wallet() {
                         task.status === 'claimed' && styles.taskActionDone,
                         pressed && styles.pressed,
                       ]}>
-                      <Text
-                        style={[
-                          styles.taskActionLabel,
-                          task.status === 'claimed' &&
-                            styles.taskActionLabelDone,
-                        ]}>
-                        {task.status === 'available'
-                          ? isCoinGuideTask(task)
-                            ? 'اعرف أكثر'
-                            : 'اذهب'
-                          : task.status === 'started'
-                          ? 'استلام'
-                          : 'تم الاستلام'}
-                      </Text>
+                      {taskLoading ? (
+                        <ActivityIndicator color={Palette.text} size="small" />
+                      ) : (
+                        <Text
+                          style={[
+                            styles.taskActionLabel,
+                            task.status === 'claimed' &&
+                              styles.taskActionLabelDone,
+                          ]}>
+                          {task.status === 'available'
+                            ? isCoinGuideTask(task)
+                              ? 'اعرف أكثر'
+                              : 'اذهب'
+                            : task.status === 'started'
+                            ? 'استلام'
+                            : 'تم الاستلام'}
+                        </Text>
+                      )}
                     </Pressable>
                   </View>
                   {index < allTasks.length - 1 && (
                     <View style={styles.divider} />
                   )}
                 </View>
-              ))
+                );
+              })
             ) : (
               <Text style={styles.remoteNote}>
                 {usingRemoteWallet && remoteLoading

@@ -127,11 +127,11 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
 
     Route::post('quizzes/{quiz}/copy', 'QuizController@copy')->name('quizzes.copy');
 
-    Route::resource('quizzes', 'QuizController');
+    Route::resource('quizzes', 'QuizController')->except(['show']);
 
     Route::post('random-quizzes', 'RandomQuizController@store');
 
-    Route::resource('random-quizzes', 'RandomQuizController');
+    Route::resource('random-quizzes', 'RandomQuizController')->except(['show']);
 
     // Legacy standalone lessons are read-only redirects. All lesson mutations
     // must go through the course-section workflow, which owns ordering,
@@ -163,13 +163,13 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
     Route::resource('categories', 'CategoryController')
         ->only(['create', 'store', 'edit', 'update', 'destroy'])
         ->middleware('admin.only');
-    Route::resource('categories', 'CategoryController')->only(['index', 'show']);
+    Route::resource('categories', 'CategoryController')->only(['index']);
     Route::resource('grades', 'GradeController')
         ->only(['create', 'store', 'edit', 'update', 'destroy'])
         ->middleware('admin.only');
     Route::resource('grades', 'GradeController')->only(['index', 'show']);
     Route::get('grades/{grade}/courses', 'GradeController@courses')->name('grades.courses');
-    Route::resource('coupons', 'CouponController')->middleware('admin.only');
+    Route::resource('coupons', 'CouponController')->except(['show'])->middleware('admin.only');
 
     // Course Codes Management
     Route::get('course-codes/get-lessons', 'CourseCodeController@getLessons')->middleware('admin.only')->name('course-codes.get-lessons');
@@ -247,7 +247,7 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
     Route::post('bills/bulk-payment-status', 'BillsController@bulkUpdatePaymentStatus')->middleware('admin.only')->name('bills.bulk-update-payment-status');
 
     /* ====== Payment Methods =======*/
-    Route::resource('payment-methods', 'PaymentMethodController')->middleware('admin.only');
+    Route::resource('payment-methods', 'PaymentMethodController')->except(['show'])->middleware('admin.only');
     Route::get('operating-costs-report', 'OperatingCostPoolController@report')
         ->middleware('admin.only')->name('operating-costs.report');
     Route::get('operating-costs-report.csv', 'OperatingCostPoolController@exportReport')

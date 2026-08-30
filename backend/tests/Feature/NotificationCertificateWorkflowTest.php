@@ -35,6 +35,7 @@ final class NotificationCertificateWorkflowTest extends TestCase
     private array $tables = [
         'photos',
         'user_device_tokens', 'student_notifications', 'user_project_evaluations',
+        'portfolio_media', 'portfolio_items', 'user_level', 'levels',
         'projects', 'student_section_progress', 'course_sections', 'certificates', 'course_enrollments',
         'courses', 'users',
     ];
@@ -394,7 +395,7 @@ final class NotificationCertificateWorkflowTest extends TestCase
             (string) $certificate->public_id
         );
         self::assertNotNull($verification);
-        self::assertTrue($verification['is_limited_certificate_view']);
+        self::assertFalse($verification['is_limited_certificate_view']);
         self::assertSame(
             $certificate->public_id,
             $verification['highlighted_certificate']['public_id']
@@ -460,6 +461,8 @@ final class NotificationCertificateWorkflowTest extends TestCase
             $table->id();
             $table->string('name_ar')->nullable();
             $table->string('name_en')->nullable();
+            $table->boolean('awards_badge')->default(false);
+            $table->string('badge_track')->nullable();
             $table->timestamps();
             $table->softDeletes();
         });
@@ -492,6 +495,47 @@ final class NotificationCertificateWorkflowTest extends TestCase
             $table->timestamp('revoked_at')->nullable();
             $table->timestamps();
             $table->unique(['user_id', 'course_id']);
+        });
+        Schema::create('portfolio_items', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('course_id')->nullable();
+            $table->unsignedBigInteger('source_project_id')->nullable();
+            $table->string('title')->nullable();
+            $table->text('description')->nullable();
+            $table->string('slug')->nullable();
+            $table->string('role')->nullable();
+            $table->json('tools')->nullable();
+            $table->string('external_url')->nullable();
+            $table->date('completed_at')->nullable();
+            $table->boolean('is_public')->default(true);
+            $table->boolean('is_featured')->default(false);
+            $table->unsignedInteger('sort_order')->default(0);
+            $table->timestamps();
+        });
+        Schema::create('portfolio_media', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('portfolio_item_id');
+            $table->string('file_path');
+            $table->string('file_type');
+            $table->unsignedInteger('sort_order')->default(0);
+            $table->timestamps();
+        });
+        Schema::create('levels', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name_ar')->nullable();
+            $table->string('name_en')->nullable();
+            $table->string('badge_image')->nullable();
+            $table->unsignedInteger('order')->default(1);
+            $table->timestamps();
+        });
+        Schema::create('user_level', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('level_id');
+            $table->unsignedBigInteger('course_id');
+            $table->timestamp('earned_at')->nullable();
+            $table->timestamps();
         });
         Schema::create('course_sections', function (Blueprint $table): void {
             $table->id();

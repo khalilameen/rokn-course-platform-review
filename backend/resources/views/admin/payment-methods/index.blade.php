@@ -130,7 +130,7 @@ function confirmDelete(id, name) {
         icon: 'warning',
         showCancelButton: true,
         confirmButtonColor: '#e53e3e',
-        cancelButtonColor: '#667eea',
+        cancelButtonColor: '#2563eb',
         confirmButtonText: 'نعم، احذف',
         cancelButtonText: 'إلغاء',
         reverseButtons: true

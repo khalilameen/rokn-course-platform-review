@@ -37,6 +37,7 @@ final class MobileBackendRouteParityTest extends TestCase
         yield 'authentication methods' => ['GET', 'auth-methods'];
         yield 'social login' => ['POST', 'social-login'];
         yield 'social auth completion' => ['POST', 'social-auth/complete'];
+        yield 'logout' => ['POST', 'logout'];
         yield 'account deletion' => ['POST', 'delete-account'];
         yield 'device token registration' => ['POST', 'user/device-token'];
         yield 'device sessions' => ['GET', 'user/sessions'];
@@ -66,11 +67,13 @@ final class MobileBackendRouteParityTest extends TestCase
         yield 'notification read' => ['POST', 'notifications/1/mark-read'];
         yield 'notifications read all' => ['POST', 'notifications/mark-all-read'];
         yield 'saved folders read' => ['GET', 'saved-folders'];
+        yield 'saved lessons read' => ['GET', 'saved-lessons'];
         yield 'saved folder create' => ['POST', 'saved-folders'];
         yield 'saved folder delete' => ['DELETE', 'saved-folders/1'];
         yield 'saved lesson folders' => ['GET', 'saved-lessons/1/folders'];
         yield 'saved lesson create' => ['POST', 'saved-folders/1/lessons'];
         yield 'saved lesson delete' => ['DELETE', 'saved-lessons/1'];
+        yield 'saved folder lesson delete' => ['DELETE', 'saved-folders/1/lessons/1'];
         yield 'project submission' => ['POST', 'projects/1/submissions'];
         yield 'project submission status' => ['GET', 'project-submissions/submission-id'];
         yield 'legacy project evaluation' => ['POST', 'projects/1/evaluate'];
@@ -80,6 +83,8 @@ final class MobileBackendRouteParityTest extends TestCase
         yield 'coin earning methods' => ['GET', 'coin-earning-methods'];
         yield 'coin task start' => ['POST', 'coin-earning-methods/1/start'];
         yield 'coin task claim' => ['POST', 'claim-coins'];
+        yield 'engagement message' => ['GET', 'engagement/messages/guest_registration_prompt'];
+        yield 'next engagement message' => ['GET', 'engagement/next'];
         yield 'payment initiate' => ['POST', 'payment/initiate'];
         yield 'payment status' => ['GET', 'payment/status/order-reference'];
         yield 'portfolio profile read' => ['GET', 'portfolio-profile'];

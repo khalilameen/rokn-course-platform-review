@@ -1,7 +1,7 @@
     /* Page Header - Scoped to course-codes page to avoid header.blade.php conflicts */
     .course-codes-page .page-header,
     .course-codes-page .modern-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         border-radius: 15px;
         padding: 30px;
         margin-bottom: 30px;
@@ -25,7 +25,7 @@
     .modern-card-header {
         background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
         padding: 25px;
-        border-bottom: 3px solid #667eea;
+        border-bottom: 3px solid #2563eb;
     }
     .modern-card-header h4 {
         margin: 0;
@@ -46,7 +46,7 @@
         transition: all 0.3s ease;
     }
     .form-control:focus, .form-select:focus {
-        border-color: #667eea;
+        border-color: #2563eb;
         box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
     }
     .required-star {
@@ -61,7 +61,7 @@
         border: none;
     }
     .btn-primary-modern {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         color: white;
     }
     .btn-primary-modern:hover {
@@ -78,7 +78,7 @@
         border-radius: 12px;
         padding: 20px;
         margin: 20px 0;
-        border: 2px dashed #667eea;
+        border: 2px dashed #2563eb;
     }
     .checkbox-grid {
         display: grid;
@@ -94,7 +94,7 @@
         transition: all 0.3s ease;
     }
     .checkbox-item:hover {
-        border-color: #667eea;
+        border-color: #2563eb;
         background: #f8f9fa;
     }
     .checkbox-item label {

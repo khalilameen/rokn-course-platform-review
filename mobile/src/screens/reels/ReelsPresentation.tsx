@@ -11,7 +11,7 @@ import {
   formatArabicDisplayText,
   formatArabicNumber,
 } from '../../constants/arabicFormatting';
-import {rtlRowStyle} from '../../constants/designSystem';
+import {Palette, rtlRowStyle} from '../../constants/designSystem';
 import {Fonts} from '../../constants/styleConstants';
 
 export const ReelsLoadingState = () => (
@@ -268,11 +268,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
-    backgroundColor: '#2C69DB',
+    backgroundColor: Palette.primary,
     marginTop: 22,
   },
   previewGatePrimaryPressed: {
-    backgroundColor: '#245CC7',
+    backgroundColor: Palette.primaryPressed,
     transform: [{scale: 0.985}],
   },
   previewGatePrimaryText: {

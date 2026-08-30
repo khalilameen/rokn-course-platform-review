@@ -20,7 +20,7 @@ final class PackageController extends Controller
             ->get();
 
         return response()->json([
-            'status' => true,
+            'status' => 200,
             'success' => true,
             'message' => 'Packages retrieved successfully',
             'data' => $packages,
@@ -36,7 +36,7 @@ final class PackageController extends Controller
 
         if (!$package) {
             return response()->json([
-                'status' => false,
+                'status' => 404,
                 'success' => false,
                 'message' => 'Package not found',
                 'data' => null,
@@ -44,7 +44,7 @@ final class PackageController extends Controller
         }
 
         return response()->json([
-            'status' => true,
+            'status' => 200,
             'success' => true,
             'message' => 'Package retrieved successfully',
             'data' => $package,

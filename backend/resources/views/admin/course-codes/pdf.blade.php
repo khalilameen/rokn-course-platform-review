@@ -14,7 +14,7 @@
         }
 
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
             color: white;
             padding: 25px;
             text-align: center;
@@ -48,7 +48,7 @@
 
         .code-card {
             width: 42%;
-            border: 2px solid #667eea;
+            border: 2px solid #2563eb;
             padding: 15px;
             background: white;
             height: 20%;
@@ -77,13 +77,13 @@
         .code-display {
             font-size: 18px;
             font-weight: bold;
-            border: 2px dashed #667eea;
+            border: 2px dashed #2563eb;
             padding: 10px;
             margin: 10px 0;
             text-align: center;
             background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
             border-radius: 8px;
-            color: #667eea;
+            color: #2563eb;
         }
 
         .target-content {
@@ -96,7 +96,7 @@
         .platform-name {
             font-weight: bold;
             font-size: 16px;
-            color: #667eea;
+            color: #2563eb;
             text-align: center;
             margin: 8px 0;
         }
@@ -149,7 +149,7 @@
                 margin: 10px;
             }
             .header {
-                background: #667eea;
+                background: #2563eb;
             }
         }
     </style>

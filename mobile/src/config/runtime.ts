@@ -1,8 +1,7 @@
 /**
- * The direct test APK is allowed to carry the local, clearly synthetic course
- * so stakeholders can inspect the complete learning journey before the API is
- * deployed. Release and Play builds can never enable it, even if a stale
- * machine environment accidentally exports the opt-in flag.
+ * Synthetic content is a local-development aid only. Distributed test and
+ * store artifacts set the flag to zero so every reviewer exercises the same
+ * Laravel, payment, media and AI contracts that production uses.
  */
 const buildProfile = process.env.EXPO_PUBLIC_BUILD_PROFILE?.trim();
 

@@ -193,7 +193,6 @@ export const publicRequest = axios.create({
   headers: headers,
   baseURL: mainUrl,
 });
-// publicRequest.defaults.timeout = 600000;
 publicRequest.defaults.timeout = 15000;
 publicRequest.defaults.timeoutErrorMessage = 'timeout';
 publicRequest.defaults.maxRedirects = 0;

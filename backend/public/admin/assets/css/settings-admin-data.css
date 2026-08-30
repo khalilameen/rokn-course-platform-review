@@ -3,7 +3,7 @@
     }
 
     .admin-data-wrapper {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         min-height: 100vh;
         padding: 60px 20px 150px;
         margin: -20px -15px;
@@ -21,7 +21,7 @@
         left: 0;
         right: 0;
         bottom: 0;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         z-index: -1;
     }
 
@@ -104,7 +104,7 @@
     }
 
     .card-header-modern {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         padding: 40px 35px;
         text-align: center;
         position: relative;
@@ -175,7 +175,7 @@
     .label-icon {
         width: 35px;
         height: 35px;
-        background: linear-gradient(135deg, #667eea, #764ba2);
+        background: linear-gradient(135deg, #2563eb, #172554);
         border-radius: 10px;
         display: flex;
         align-items: center;
@@ -200,7 +200,7 @@
 
     .form-control-styled:focus {
         outline: none;
-        border-color: #667eea;
+        border-color: #2563eb;
         background: white;
         box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
         transform: translateY(-2px);
@@ -219,7 +219,7 @@
         right: 20px;
         top: 50%;
         transform: translateY(-50%);
-        color: #667eea;
+        color: #2563eb;
         font-size: 1.2rem;
         pointer-events: none;
     }
@@ -236,7 +236,7 @@
     }
 
     .password-toggle:hover {
-        color: #667eea;
+        color: #2563eb;
     }
 
     .submit-btn-wrapper {
@@ -246,7 +246,7 @@
     .btn-submit-modern {
         width: 100%;
         padding: 18px;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         color: white;
         border: none;
         border-radius: 15px;
@@ -284,7 +284,7 @@
     }
 
     .helper-text i {
-        color: #667eea;
+        color: #2563eb;
     }
 
     .security-badge {
@@ -295,7 +295,7 @@
         background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
         border-radius: 50px;
         font-size: 0.875rem;
-        color: #667eea;
+        color: #2563eb;
         font-weight: 600;
         margin-bottom: 25px;
     }

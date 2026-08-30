@@ -1,10 +1,6 @@
 <?php
 namespace App\Http\Requests\API;
 
-use Illuminate\Http\JsonResponse;
-use Illuminate\Validation\ValidationException;
-use Illuminate\Contracts\Validation\Validator;
-use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Foundation\Http\FormRequest as LaravelFormRequest;
 
 abstract class FormRequest extends LaravelFormRequest
@@ -21,26 +17,4 @@ abstract class FormRequest extends LaravelFormRequest
      * @return bool
      */
     abstract public function authorize();
-    /**
-     * Handle a failed validation attempt.
-     *
-     * @param  \Illuminate\Contracts\Validation\Validator  $validator
-     * @return void
-     *
-     * @throws \Illuminate\Validation\ValidationException
-     */
-    protected function failedValidation(Validator $validator)
-    {
-        $errors = (new ValidationException($validator))->errors();
-        $transformed = [];
-
-        foreach ($errors as $field => $message) {
-            $transformed[] = [
-                'field' => $field,
-                'message' => $message[0]
-            ];
-        }
-        throw new HttpResponseException(response()->json(['errors' => $transformed
-        ], JsonResponse::HTTP_UNPROCESSABLE_ENTITY));
-    }
 }

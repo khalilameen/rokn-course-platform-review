@@ -97,7 +97,7 @@ class User extends Authenticatable
      */
     public function getProfileDeeplinkAttribute(): ?string
     {
-        if (!(bool) $this->portfolio_is_public || blank($this->portfolio_slug)) {
+        if (blank($this->portfolio_slug)) {
             return null;
         }
 

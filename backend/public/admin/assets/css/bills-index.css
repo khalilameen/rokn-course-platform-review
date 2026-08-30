@@ -197,7 +197,7 @@ body.dark-mode {
     }
 
     .stat-card:hover .stat-value {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
@@ -229,7 +229,7 @@ body.dark-mode {
     }
 
     .card-header-modern {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         color: white;
         padding: 20px 25px;
         border: none;
@@ -302,7 +302,7 @@ body.dark-mode {
 
     .filter-section-header .toggle-icon {
         font-size: 20px;
-        color: #667eea;
+        color: #2563eb;
         transition: transform 0.3s ease;
     }
 
@@ -336,12 +336,12 @@ body.dark-mode {
     }
 
     .filter-control:focus {
-        border-color: #667eea;
+        border-color: #2563eb;
         box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
     }
 
     .btn-apply-filter {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         color: white;
         border: none;
         border-radius: 8px;
@@ -424,13 +424,13 @@ body.dark-mode {
 
     .bill-number {
         font-weight: 700;
-        color: #667eea;
+        color: #2563eb;
         text-decoration: none;
         font-size: 0.95rem;
     }
 
     .bill-number:hover {
-        color: #764ba2;
+        color: #172554;
         text-decoration: underline;
     }
 
@@ -495,8 +495,8 @@ body.dark-mode {
 
     .action-dropdown .btn.dropdown-toggle:hover,
     .action-dropdown .btn.dropdown-toggle:focus {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-color: #667eea;
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
+        border-color: #2563eb;
         color: white;
         transform: translateY(-2px);
         box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
@@ -508,8 +508,8 @@ body.dark-mode {
     }
 
     .action-dropdown.show .btn.dropdown-toggle {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-color: #667eea;
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
+        border-color: #2563eb;
         color: white;
         box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
     }
@@ -591,7 +591,7 @@ body.dark-mode {
 
     .action-dropdown .dropdown-menu .dropdown-item:hover {
         background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-        color: #667eea;
+        color: #2563eb;
         transform: translateX(5px);
     }
 
@@ -604,7 +604,7 @@ body.dark-mode {
     }
 
     .action-dropdown .dropdown-menu .dropdown-item:active {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         color: white;
         transform: scale(0.98);
     }
@@ -635,21 +635,21 @@ body.dark-mode {
         border-radius: 8px;
         margin: 0 3px;
         border: 2px solid #e0e0e0;
-        color: #667eea;
+        color: #2563eb;
         font-weight: 600;
         transition: all 0.2s;
     }
 
     .page-link:hover {
-        background: #667eea;
-        border-color: #667eea;
+        background: #2563eb;
+        border-color: #2563eb;
         color: white;
         transform: translateY(-2px);
     }
 
     .page-item.active .page-link {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-color: #667eea;
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
+        border-color: #2563eb;
     }
 
 .stat-value-amount { font-size: 1.3rem; }

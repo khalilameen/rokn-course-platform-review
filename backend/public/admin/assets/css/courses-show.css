@@ -37,10 +37,10 @@
 .btn-action--add-section {
     display: inline-flex;
     border: 0;
-    background: #667eea;
+    background: #2563eb;
 }
 .course-show-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
     color: white;
     border-radius: 20px 20px 0 0;
     padding: 2rem 2.5rem;
@@ -222,8 +222,8 @@
 }
 
 .tab-button.active {
-    color: #667eea;
-    border-bottom-color: #667eea;
+    color: #2563eb;
+    border-bottom-color: #2563eb;
     background: white;
 }
 
@@ -267,7 +267,7 @@
 .section-icon {
     width: 35px;
     height: 35px;
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: linear-gradient(135deg, #2563eb, #172554);
     border-radius: 10px;
     display: flex;
     align-items: center;
@@ -316,7 +316,7 @@
 }
 
 .section-item:hover {
-    border-color: #667eea;
+    border-color: #2563eb;
     box-shadow: 0 5px 15px rgba(102, 126, 234, 0.1);
 }
 
@@ -383,7 +383,7 @@
 }
 
 .btn-section-primary {
-    background: #667eea;
+    background: #2563eb;
     color: white;
 }
 

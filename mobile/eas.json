@@ -46,6 +46,7 @@
         "EXPO_PUBLIC_API_URL": "https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/",
         "EXPO_PUBLIC_DISTRIBUTION_CHANNEL": "direct",
         "EXPO_PUBLIC_BUILD_PROFILE": "test",
+        "EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS": "1",
         "EXPO_PUBLIC_ENABLE_LOCAL_DEMO": "0",
         "ORG_GRADLE_PROJECT_roknDistributionChannel": "direct",
         "ORG_GRADLE_PROJECT_roknBuildProfile": "test"

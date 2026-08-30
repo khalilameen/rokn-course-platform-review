@@ -24,6 +24,8 @@ final class PublicPortfolioController extends Controller
             return $responses->error('Portfolio not found', 404);
         }
 
-        return $responses->success($portfolio, 'Portfolio retrieved successfully');
+        return $responses
+            ->success($portfolio, 'Portfolio retrieved successfully')
+            ->header('X-Robots-Tag', 'noindex, nofollow, noarchive');
     }
 }

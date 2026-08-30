@@ -88,7 +88,7 @@
 .section-icon {
     width: 40px;
     height: 40px;
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: linear-gradient(135deg, #2563eb, #172554);
     border-radius: 12px;
     display: flex;
     align-items: center;
@@ -124,7 +124,7 @@
 }
 
 .label-icon {
-    color: #667eea;
+    color: #2563eb;
     width: 16px;
 }
 
@@ -145,7 +145,7 @@
 
 .form-control-modern:focus {
     outline: none;
-    border-color: #667eea;
+    border-color: #2563eb;
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
@@ -181,12 +181,12 @@
 }
 
 .file-upload-area:hover {
-    border-color: #667eea;
+    border-color: #2563eb;
     background: #f0f4ff;
 }
 
 .file-upload-area.dragover {
-    border-color: #667eea;
+    border-color: #2563eb;
     background: #e0e7ff;
 }
 
@@ -257,7 +257,7 @@
 }
 
 .checkbox-item.selected {
-    border-color: #667eea;
+    border-color: #2563eb;
     background: #f0f4ff;
 }
 
@@ -274,8 +274,8 @@
 }
 
 .checkbox-item.selected .custom-checkbox {
-    background: #667eea;
-    border-color: #667eea;
+    background: #2563eb;
+    border-color: #2563eb;
 }
 
 .custom-checkbox .fa-check {
@@ -340,7 +340,7 @@
 }
 
 .btn-primary-modern {
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: linear-gradient(135deg, #2563eb, #172554);
     color: white;
 }
 
@@ -375,7 +375,7 @@
 
 .progress-bar {
     height: 100%;
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: linear-gradient(135deg, #2563eb, #172554);
     width: 0%;
     transition: width 0.5s ease;
 }

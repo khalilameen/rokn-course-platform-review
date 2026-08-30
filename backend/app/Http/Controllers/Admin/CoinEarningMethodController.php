@@ -10,17 +10,19 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Rule;
+use App\Services\SocialAuthProviderRegistry;
 
 class CoinEarningMethodController extends Controller
 {
-    public function index()
+    public function index(SocialAuthProviderRegistry $socialProviders)
     {
         $methods  = CoinEarningMethod::latest()->paginate(10);
         $setting = Setting::first();
         $rewardRules = RewardRule::query()->orderBy('sort_order')->orderBy('id')->get();
         $rewardEvents = RewardRule::EVENTS;
+        $socialProviderLabels = $socialProviders->labels();
         return view('admin.coin_earning_methods.index', compact(
-            'methods', 'setting', 'rewardRules', 'rewardEvents'
+            'methods', 'setting', 'rewardRules', 'rewardEvents', 'socialProviderLabels'
         ));
     }
 
@@ -31,7 +33,11 @@ class CoinEarningMethodController extends Controller
             'how_to_use_coins_en' => 'nullable|string',
             'reward_balance_cap' => 'required|integer|min:0|max:1000000',
             'max_reward_contribution_per_course' => 'required|integer|min:0|max:1000000',
-            'recommended_social_provider' => 'required|string|in:facebook,google,tiktok,apple',
+            'recommended_social_provider' => [
+                'required',
+                'string',
+                Rule::in(app(SocialAuthProviderRegistry::class)->declared()->all()),
+            ],
             'recommended_provider_bonus_coins' => 'required|integer|min:0|max:1000000',
             'recommended_provider_badge_ar' => 'nullable|string|max:255',
             'recommended_provider_badge_en' => 'nullable|string|max:255',

@@ -159,7 +159,7 @@
 
 /* Header Section */
 .urgent-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
     border-radius: var(--border-radius-modern);
     padding: 2rem;
     margin-bottom: 2rem;

@@ -43,7 +43,7 @@ body.dark-mode {
         margin-bottom: 1.5rem;
     }
     .bill-detail-card .card-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         color: white;
         border-radius: 12px 12px 0 0;
         padding: 1.25rem;
@@ -73,7 +73,7 @@ body.dark-mode {
     }
     .info-label i {
         margin-left: 8px;
-        color: #667eea;
+        color: #2563eb;
     }
     .info-value {
         flex: 1;
@@ -101,19 +101,19 @@ body.dark-mode {
         font-size: 1rem;
     }
     .amount-row.total {
-        border-top: 2px solid #667eea;
+        border-top: 2px solid #2563eb;
         margin-top: 0.5rem;
         padding-top: 1rem;
     }
     .amount-row.total .amount-label {
         font-size: 1.2rem;
         font-weight: 700;
-        color: #667eea;
+        color: #2563eb;
     }
     .amount-row.total .amount-value {
         font-size: 1.5rem;
         font-weight: 700;
-        color: #667eea;
+        color: #2563eb;
     }
     .actions-card {
         border-radius: 12px;
@@ -140,16 +140,16 @@ body.dark-mode {
         box-shadow: 0 4px 8px rgba(0,0,0,0.15);
     }
     .user-link, .course-link, .order-link {
-        color: #667eea;
+        color: #2563eb;
         text-decoration: none;
         font-weight: 600;
     }
     .user-link:hover, .course-link:hover, .order-link:hover {
-        color: #764ba2;
+        color: #172554;
         text-decoration: underline;
     }
     .bill-number-display {
-        background: #667eea;
+        background: #2563eb;
         color: white;
         padding: 0.35rem 0.75rem;
         border-radius: 6px;

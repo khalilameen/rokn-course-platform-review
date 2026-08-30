@@ -380,7 +380,7 @@ document.addEventListener('DOMContentLoaded', function() {
             selectedCountSpan.style.color = '#6c757d';
         } else {
             selectedCountSpan.textContent = 'تم تحديد ' + checkedCount + ' من ' + totalCount + ' عنصر';
-            selectedCountSpan.style.color = '#667eea';
+            selectedCountSpan.style.color = '#2563eb';
         }
 
         // Update select-all checkbox state

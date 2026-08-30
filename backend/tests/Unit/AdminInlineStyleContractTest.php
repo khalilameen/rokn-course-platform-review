@@ -86,6 +86,29 @@ final class AdminInlineStyleContractTest extends TestCase
         self::assertStringContainsString("classList.add('is-closing')", $alert);
     }
 
+    public function test_retired_dashboard_palette_cannot_return(): void
+    {
+        foreach ([
+            dirname(__DIR__, 2).'/public/admin',
+            dirname(__DIR__, 2).'/resources/views/admin',
+        ] as $root) {
+            $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root));
+            /** @var SplFileInfo $file */
+            foreach ($iterator as $file) {
+                if (!$file->isFile() || !in_array($file->getExtension(), ['css', 'js', 'php'], true)) {
+                    continue;
+                }
+                $source = file_get_contents($file->getPathname());
+                self::assertNotFalse($source);
+                self::assertDoesNotMatchRegularExpression(
+                    '/#(?:667eea|764ba2|092783)\b/i',
+                    $source,
+                    $file->getPathname().' still uses the retired dashboard palette.'
+                );
+            }
+        }
+    }
+
     /** @return array<string, array{string, string, array<int, string>}> */
     public static function extractedScreens(): array
     {

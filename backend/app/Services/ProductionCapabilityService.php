@@ -12,6 +12,10 @@ use Throwable;
 
 final class ProductionCapabilityService
 {
+    public function __construct(private readonly SocialAuthProviderRegistry $socialProviders)
+    {
+    }
+
     /**
      * Configuration readiness is deliberately separate from live provider
      * connectivity. A public readiness probe must not call third parties or
@@ -215,21 +219,7 @@ final class ProductionCapabilityService
 
     private function socialCapability(): array
     {
-        $googleReady = $this->configured('services.google.client_id')
-            && $this->configured('services.google.client_secret');
-        $facebookVersion = trim((string) config('services.facebook.graph_version'));
-        $facebookReady = $this->configured('services.facebook.client_id')
-            && $this->configured('services.facebook.client_secret')
-            && preg_match('/\Av\d+\.\d+\z/', $facebookVersion) === 1
-            && $facebookVersion !== 'v19.0';
-        $tiktokReady = $this->configured('services.tiktok.client_key')
-            && $this->configured('services.tiktok.client_secret');
-        $appleClientIds = array_values(array_filter(array_map(
-            'trim',
-            explode(',', (string) config('services.apple.client_id'))
-        )));
-        $appleReady = $appleClientIds !== []
-            && collect($appleClientIds)->every(fn (string $id): bool => $this->validPackageName($id));
+        $declaredProviders = $this->socialProviders->declared();
         $publicApiUrl = trim((string) config('social_auth.public_api_url'));
         $returnUrls = array_values(array_unique(array_filter(array_map(
             static fn ($value): string => trim((string) $value),
@@ -240,24 +230,26 @@ final class ProductionCapabilityService
             && $returnUrls === ['rokn://auth'];
 
         $social = [
-            'google' => $this->item($googleReady, $googleReady ? 'Google OAuth مضبوط' : 'Google client ID أو secret ناقص'),
-            'facebook' => $this->item(
-                $facebookReady,
-                $facebookReady ? "Facebook OAuth مضبوط على {$facebookVersion}" : 'بيانات Facebook أو إصدار Graph المدعوم ناقص'
-            ),
-            'tiktok' => $this->item($tiktokReady, $tiktokReady ? 'TikTok OAuth مضبوط' : 'TikTok client key أو secret ناقص'),
-            'apple' => $this->item($appleReady, $appleReady ? 'Apple Sign in audiences مضبوطة' : 'Apple client ID ناقص أو غير صالح'),
             'callbacks' => $this->item(
                 $callbacksReady,
                 $callbacksReady ? 'روابط العودة وPKCE مضبوطة للإنتاج' : 'Public API URL أو return URL أو سياسة PKCE غير صالحة'
             ),
         ];
-        $social['ready'] = collect($social)->every(
-            static fn (array $capability): bool => $capability['ready']
-        );
+        foreach (['google', 'tiktok', 'apple', 'facebook'] as $provider) {
+            $social[$provider] = $this->item(
+                $this->socialProviders->isReady($provider),
+                $this->socialProviders->reason($provider)
+            ) + ['required' => $declaredProviders->contains($provider)];
+        }
+        $social['declared_providers'] = $declaredProviders->all();
+        $social['ready'] = $declaredProviders->isNotEmpty()
+            && $callbacksReady
+            && $declaredProviders->every(
+                fn (string $provider): bool => (bool) data_get($social, "{$provider}.ready")
+            );
         $social['reason'] = $social['ready']
             ? 'كل طرق تسجيل الدخول المعلنة وروابط العودة مكتملة'
-            : 'طريقة تسجيل دخول أو عقد العودة ما زال ناقصًا';
+            : 'إحدى طرق الدخول المعلنة أو عقد العودة ما زال ناقصًا';
 
         return $social;
     }

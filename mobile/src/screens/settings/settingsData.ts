@@ -24,7 +24,6 @@ import {
   SettingsRefundIcon,
   SettingsReminderIcon,
   SettingsTermsIcon,
-  SettingsVisibilityIcon,
   SupportWhatsAppIcon,
 } from '../../assets/SVG';
 import {toArabicDigits} from '../../constants/arabicFormatting';
@@ -83,7 +82,6 @@ export type SettingsSectionsProps = {
   deletingAccount: boolean;
   marketingNotifications: boolean;
   notifications: boolean;
-  portfolioPublic: boolean;
   quality: string;
   reminderHour: number;
   videoFit: string;
@@ -110,7 +108,6 @@ export type SettingsSectionsProps = {
   onToggleAutoplay: (value: boolean) => void;
   onToggleMarketing: (value: boolean) => void;
   onToggleNotifications: (value: boolean) => void;
-  onTogglePortfolio: (value: boolean) => void;
   onToggleWatchHistory: (value: boolean) => void;
 };
 
@@ -137,16 +134,6 @@ export const buildSettingsSections = (
           onPress: props.onDevices,
           subtitle: 'راجع الأجهزة وأنهِ أي جلسة لا تعرفها',
           title: 'الأجهزة المسجّل عليها',
-        },
-        {
-          id: 'account.visibility',
-          icon: SettingsVisibilityIcon,
-          subtitle: 'لن يظهر للناس إلا باختيارك',
-          title: 'إظهار البورتفوليو للعامة',
-          toggle: {
-            value: props.portfolioPublic,
-            onChange: props.onTogglePortfolio,
-          },
         },
         {
           id: 'account.logout',

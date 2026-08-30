@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {useCallback, useEffect, useRef, useState} from 'react';
 import type {ScrollView} from 'react-native';
 import {
@@ -14,7 +13,7 @@ import {isGrantCourseAccess} from '../courseEntitlements';
 import type {ChatMessage, CourseLearningData, CourseReel} from '../types';
 import {courseChatErrorCode} from './policy';
 
-const AI_DISCLOSURE_KEY = '@rokn/ai-disclosure/v1';
+export type AssistantPresence = 'online' | 'connecting' | 'typing';
 
 const welcomeMessage = (courseId: string): ChatMessage => ({
   id: `welcome-${courseId}`,
@@ -50,9 +49,8 @@ export const useCourseChat = ({
   ]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [disclosureAccepted, setDisclosureAccepted] = useState<boolean | null>(
-    null,
-  );
+  const [assistantPresence, setAssistantPresence] =
+    useState<AssistantPresence>('online');
   const scrollRef = useRef<ScrollView>(null);
   const scrollTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
   const conversationGenerationRef = useRef(0);
@@ -78,6 +76,7 @@ export const useCourseChat = ({
     setMessages([welcomeMessage(courseId)]);
     setInput('');
     setSending(false);
+    setAssistantPresence('online');
     return () => {
       conversationGenerationRef.current += 1;
       sendFlightRef.current = null;
@@ -95,17 +94,6 @@ export const useCourseChat = ({
       upgradeFlightRef.current = null;
     };
   }, [courseId]);
-
-  useEffect(() => {
-    void AsyncStorage.getItem(AI_DISCLOSURE_KEY)
-      .then(value => setDisclosureAccepted(value === 'true'))
-      .catch(() => setDisclosureAccepted(false));
-  }, []);
-
-  const acceptDisclosure = async () => {
-    await AsyncStorage.setItem(AI_DISCLOSURE_KEY, 'true');
-    setDisclosureAccepted(true);
-  };
 
   useEffect(() => {
     const scrollTimers = scrollTimersRef.current;
@@ -149,6 +137,7 @@ export const useCourseChat = ({
     ]);
     setInput('');
     setSending(true);
+    setAssistantPresence('connecting');
     scheduleScrollToEnd(true, 80);
 
     try {
@@ -158,6 +147,11 @@ export const useCourseChat = ({
           : course,
         reel,
         message: cleanMessage,
+        onRequestStart: () => {
+          if (conversationGeneration === conversationGenerationRef.current) {
+            setAssistantPresence('typing');
+          }
+        },
       });
       if (conversationGeneration !== conversationGenerationRef.current) return;
       if (response.blocked) setServerBlocked(true);
@@ -186,6 +180,7 @@ export const useCourseChat = ({
         sendFlightRef.current = null;
         if (conversationGeneration === conversationGenerationRef.current) {
           setSending(false);
+          setAssistantPresence('online');
           scheduleScrollToEnd(true, 80);
         }
       }
@@ -274,10 +269,9 @@ export const useCourseChat = ({
   };
 
   return {
-    acceptDisclosure,
+    assistantPresence,
     assistantIncluded,
     confirmUpgrade,
-    disclosureAccepted,
     input,
     loadUpgradeQuote,
     messages,

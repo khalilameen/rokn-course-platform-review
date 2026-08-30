@@ -3,7 +3,7 @@
     }
 
     .settings-wrapper {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         min-height: 100vh;
         padding: 40px 20px 150px;
         margin: -20px -15px;
@@ -17,7 +17,7 @@
         left: 0;
         right: 0;
         bottom: 0;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         z-index: -1;
     }
 
@@ -77,7 +77,7 @@
 
     .settings-tabs {
         display: flex;
-        background: linear-gradient(to right, #667eea, #764ba2);
+        background: linear-gradient(to right, #2563eb, #172554);
         padding: 0;
         margin: 0;
         overflow-x: auto;
@@ -155,14 +155,14 @@
         color: #2d3748;
         margin-bottom: 25px;
         padding-bottom: 15px;
-        border-bottom: 3px solid #667eea;
+        border-bottom: 3px solid #2563eb;
         display: flex;
         align-items: center;
         gap: 12px;
     }
 
     .section-title i {
-        color: #667eea;
+        color: #2563eb;
         font-size: 1.8rem;
     }
 
@@ -189,7 +189,7 @@
     }
 
     .form-group-modern label i {
-        color: #667eea;
+        color: #2563eb;
         width: 20px;
     }
 
@@ -205,7 +205,7 @@
 
     .form-control-modern:focus {
         outline: none;
-        border-color: #667eea;
+        border-color: #2563eb;
         background: white;
         box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         transform: translateY(-2px);
@@ -241,7 +241,7 @@
     }
 
     .radio-option:hover {
-        border-color: #667eea;
+        border-color: #2563eb;
         background: #f7fafc;
         transform: translateX(5px);
     }
@@ -254,11 +254,11 @@
     }
 
     .radio-option input[type="radio"]:checked + .radio-label {
-        color: #667eea;
+        color: #2563eb;
     }
 
     .radio-option.selected {
-        border-color: #667eea;
+        border-color: #2563eb;
         background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
     }
 
@@ -293,7 +293,7 @@
     }
 
     .checkbox-modern:hover {
-        border-color: #667eea;
+        border-color: #2563eb;
         background: white;
     }
 
@@ -320,7 +320,7 @@
     }
 
     .helper-text i {
-        color: #667eea;
+        color: #2563eb;
         margin-top: 2px;
         font-size: 1rem;
     }
@@ -349,7 +349,7 @@
     }
 
     .btn-primary-modern {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         color: white;
     }
 
@@ -434,7 +434,7 @@
 
 .settings-subheading {
     margin-bottom: 20px;
-    color: #667eea;
+    color: #2563eb;
     font-size: 1.2rem;
 }
 
@@ -465,7 +465,7 @@
 
 .settings-help-panel--info {
     background: #f7fafc;
-    border-right: 4px solid #667eea;
+    border-right: 4px solid #2563eb;
 }
 
 .settings-help-panel--warning {

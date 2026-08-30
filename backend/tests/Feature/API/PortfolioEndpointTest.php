@@ -26,9 +26,17 @@ class PortfolioEndpointTest extends ApiTestCase
         $response = $this->actingAs($this->user, 'api')->postJson('/api/v1/portfolio', [
             'title' => 'My Portfolio Item',
             'description' => 'Description here',
-            'file_type' => 'text'
+            'file_type' => 'text',
+            // Legacy clients may still send this field. The share-page model
+            // no longer asks for a separate publication decision.
+            'is_public' => false,
         ]);
-        $this->assertNotEquals(404, $response->status());
+        $response->assertOk()->assertJsonPath('data.is_public', true);
+        $this->assertDatabaseHas('portfolio_items', [
+            'user_id' => $this->user->id,
+            'title' => 'My Portfolio Item',
+            'is_public' => true,
+        ]);
     }
 
     public function test_can_view_portfolio_item(): void
@@ -67,7 +75,7 @@ class PortfolioEndpointTest extends ApiTestCase
             'file_types' => ['image', 'image'],
         ]);
 
-        $response->assertStatus(503)->assertJson(['status' => false]);
+        $response->assertStatus(503)->assertJson(['status' => 503]);
         self::assertSame($itemCountBefore, DB::table('portfolio_items')->count());
         self::assertSame($mediaCountBefore, DB::table('portfolio_media')->count());
     }

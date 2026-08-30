@@ -74,15 +74,20 @@ final class OperationalHealthController extends Controller
             'ai' => (bool) data_get($report, 'capabilities.ai.ready'),
             'mail' => (bool) data_get($report, 'capabilities.mail.ready'),
             'push' => (bool) data_get($report, 'capabilities.push.ready'),
-            'social_google' => (bool) data_get($report, 'capabilities.social.google.ready'),
-            'social_facebook' => (bool) data_get($report, 'capabilities.social.facebook.ready'),
-            'social_tiktok' => (bool) data_get($report, 'capabilities.social.tiktok.ready'),
-            'social_apple' => (bool) data_get($report, 'capabilities.social.apple.ready'),
             'social_callbacks' => (bool) data_get($report, 'capabilities.social.callbacks.ready'),
             'app_links_android' => (bool) data_get($report, 'capabilities.app_links.android.ready'),
             'app_links_apple' => (bool) data_get($report, 'capabilities.app_links.apple.ready'),
             'queue' => (bool) data_get($report, 'capabilities.queue.ready'),
         ];
+        foreach ((array) data_get($report, 'capabilities.social.declared_providers', []) as $provider) {
+            $checks['social_'.$provider] = (bool) data_get($report, "capabilities.social.{$provider}.ready");
+        }
+        $optionalChecks = collect(['google', 'tiktok', 'apple', 'facebook'])
+            ->reject(fn (string $provider): bool => array_key_exists('social_'.$provider, $checks))
+            ->mapWithKeys(fn (string $provider): array => [
+                'social_'.$provider => (bool) data_get($report, "capabilities.social.{$provider}.ready"),
+            ])
+            ->all();
         $ready = !in_array(false, $checks, true);
 
         $status = $ready ? 'launch_ready' : 'launch_blocked';
@@ -95,9 +100,11 @@ final class OperationalHealthController extends Controller
             'data' => [
                 'health_status' => $status,
                 'checks' => $checks,
+                'optional_checks' => $optionalChecks,
                 'time' => $time,
             ],
             'checks' => $checks,
+            'optional_checks' => $optionalChecks,
             'time' => $time,
         ], $ready ? 200 : 503);
     }

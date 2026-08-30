@@ -5,33 +5,32 @@ import {
   StatusBar,
   StyleSheet,
 } from 'react-native';
+import {BrandColors} from './brandTokens';
 const {width, height} = Dimensions.get('window');
 export const phoneHeight = height;
 export const phoneWidth = width;
-export enum Colors {
-  white = '#ffffff',
-
-  // Rokn uses one calm blue for actions and reserves gold for coins only.
-  mainColor = '#3478F6',
-  mainColorShad = '#245CC7',
-  secondColor = '#E9F0FF',
-  bodyBackground = '#070A10',
-
-  black = '#000000',
-  red = '#FA404F',
-  gray = '#ADAAAB',
-  grayLight = '#888888',
-  grayLighter = '#C2C2C2',
-  medGary = '#9B9B9B',
-  grayDark = '#171C26',
-  iconGray = '#8C96A8',
-  warning = '#FF5656',
-  border = '#252C38',
-  surface = '#111620',
-  surfaceRaised = '#171D29',
-  textSecondary = '#9BA6B8',
-  coin = '#D8A63C',
-}
+export const Colors = {
+  white: '#ffffff',
+  mainColor: BrandColors.primary,
+  mainColorShad: BrandColors.primaryPressed,
+  secondColor: '#E9F0FF',
+  bodyBackground: BrandColors.canvas,
+  black: '#000000',
+  red: '#FA404F',
+  gray: '#ADAAAB',
+  grayLight: '#888888',
+  grayLighter: '#C2C2C2',
+  medGary: '#9B9B9B',
+  grayDark: '#171C26',
+  iconGray: '#8C96A8',
+  warning: '#FF5656',
+  border: BrandColors.line,
+  surface: BrandColors.surface,
+  surfaceRaised: BrandColors.surfaceRaised,
+  textSecondary: BrandColors.textMuted,
+  coin: BrandColors.coin,
+} as const;
+export type Colors = (typeof Colors)[keyof typeof Colors];
 
 export const Fonts = {
   extraLight: 'Cairo-ExtraLight',

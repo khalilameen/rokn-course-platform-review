@@ -29,7 +29,9 @@ final class PublicPortfolioService
             return null;
         }
 
-        $isPublic = (bool) $user->portfolio_is_public;
+        // Portfolios are unlisted share pages: they are never placed in a
+        // directory or discovery feed, but the learner's link and certificate
+        // QR work immediately without a redundant publication consent step.
         if ($highlightCertificate) {
             $revoked = $this->revokedVerification(
                 (int) $user->id,
@@ -37,60 +39,25 @@ final class PublicPortfolioService
             );
             if ($revoked) {
                 // A revoked QR is a status-verification endpoint, not a
-                // shortcut into the learner's otherwise public portfolio.
+                // shortcut into the learner's share page.
                 return $this->limitedVerificationPayload($user, $slug, $revoked);
             }
         }
-        $certificateAccess = null;
-        $revokedVerification = null;
-        if (!$isPublic) {
-            // A certificate QR must remain verifiable even when its owner has
-            // not published the full portfolio. The unguessable certificate
-            // public ID grants a deliberately limited view; it never exposes
-            // private projects, profile details, links or unrelated awards.
-            if (!$highlightCertificate) {
-                return null;
-            }
 
-            $certificateAccess = Certificate::query()
-                ->where('user_id', $user->id)
-                ->where('public_id', $highlightCertificate)
-                ->where('status', 'active')
-                ->whereNull('revoked_at')
-                ->where('image_path', '!=', 'pending')
-                ->with(['course', 'user'])
-                ->first();
-            if (!$certificateAccess) {
-                $revokedVerification = $this->revokedVerification(
-                    (int) $user->id,
-                    (string) $highlightCertificate
-                );
-                if (!$revokedVerification) {
-                    return null;
-                }
-            }
-        }
-
-        $items = $isPublic
-            ? $user->portfolioItems()
-                ->where('is_public', true)
-                ->with(['mediaFiles', 'course'])
-                ->orderByDesc('is_featured')
-                ->orderBy('sort_order')
-                ->latest('id')
-                ->get()
-            : collect();
-        $certificates = $revokedVerification && !$isPublic
-            ? collect()
-            : Certificate::query()
-                ->where('user_id', $user->id)
-                ->where('status', 'active')
-                ->whereNull('revoked_at')
-                ->where('image_path', '!=', 'pending')
-                ->when(!$isPublic, fn ($query) => $query->whereKey($certificateAccess->id))
-                ->with(['course', 'user'])
-                ->latest('generated_at')
-                ->get();
+        $items = $user->portfolioItems()
+            ->with(['mediaFiles', 'course'])
+            ->orderByDesc('is_featured')
+            ->orderBy('sort_order')
+            ->latest('id')
+            ->get();
+        $certificates = Certificate::query()
+            ->where('user_id', $user->id)
+            ->where('status', 'active')
+            ->whereNull('revoked_at')
+            ->where('image_path', '!=', 'pending')
+            ->with(['course', 'user'])
+            ->latest('generated_at')
+            ->get();
         $highlighted = $highlightCertificate
             ? $certificates->first(fn ($certificate) =>
                 $certificate->public_id !== null
@@ -98,16 +65,12 @@ final class PublicPortfolioService
             )
             : null;
         if (!$highlighted && $highlightCertificate) {
-            $revokedVerification ??= $this->revokedVerification(
-                (int) $user->id,
-                (string) $highlightCertificate
-            );
+            return null;
         }
 
         // A badge is public only when the originating course explicitly opts in
         // and belongs to the professional/freelance tracks.
-        $badges = $isPublic
-            ? DB::table('user_level')
+        $badges = DB::table('user_level')
                 ->join('levels', 'levels.id', '=', 'user_level.level_id')
                 ->join('courses', 'courses.id', '=', 'user_level.course_id')
                 ->where('user_level.user_id', $user->id)
@@ -138,21 +101,19 @@ final class PublicPortfolioService
 
                 unset($badge->order);
                 return $badge;
-                })
-            : collect();
+                });
 
         return [
             'profile' => [
                 'name' => $user->name,
-                'headline' => $isPublic ? ($user->portfolio_headline ?: $user->job_title) : null,
-                'bio' => $isPublic ? $user->bio : null,
-                'location' => $isPublic ? $user->portfolio_location : null,
-                'image_url' => $isPublic ? $user->profile_image_url : null,
-                'skills' => $isPublic ? ($user->portfolio_skills ?? []) : [],
+                'headline' => $user->portfolio_headline ?: $user->job_title,
+                'bio' => $user->bio,
+                'location' => $user->portfolio_location,
+                'image_url' => $user->profile_image_url,
+                'skills' => $user->portfolio_skills ?? [],
                 // Sanitize again at the public read boundary so legacy rows
                 // written before HTTPS-only validation can never reach href.
-                'links' => $isPublic
-                    ? collect($user->portfolio_links ?? [])
+                'links' => collect($user->portfolio_links ?? [])
                         ->map(function ($link): ?array {
                             if (!is_array($link)) {
                                 return null;
@@ -170,19 +131,21 @@ final class PublicPortfolioService
                         })
                         ->filter()
                         ->values()
-                        ->all()
-                    : [],
+                        ->all(),
                 'slug' => $slug,
                 'public_url' => route('portfolio.public', ['slug' => $slug]),
-                'is_public' => $isPublic,
+                'share_mode' => 'unlisted',
+                // Kept for older app builds; "true" means the share link is
+                // usable, not that Rokn lists this profile publicly.
+                'is_public' => true,
             ],
             'projects' => PortfolioItemResource::collection($items)->resolve(),
             'certificates' => CertificateResource::collection($certificates)->resolve(),
             'highlighted_certificate' => $highlighted
                 ? (new CertificateResource($highlighted))->resolve()
-                : $revokedVerification,
+                : null,
             'badges' => $badges,
-            'is_limited_certificate_view' => !$isPublic,
+            'is_limited_certificate_view' => false,
         ];
     }
 
@@ -247,6 +210,7 @@ final class PublicPortfolioService
                 'links' => [],
                 'slug' => $slug,
                 'public_url' => route('portfolio.public', ['slug' => $slug]),
+                'share_mode' => 'verification_only',
                 'is_public' => false,
             ],
             'projects' => [],

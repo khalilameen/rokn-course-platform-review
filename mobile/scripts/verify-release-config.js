@@ -547,6 +547,19 @@ for (const profileName of ['production-play', 'production-ios']) {
     `${profileName} does not fail closed when remote feature flags are unavailable.`,
   );
 }
+const previewProfile = eas.build?.['preview-direct'];
+assert(
+  previewProfile?.env?.EXPO_PUBLIC_API_URL === productionApiBase &&
+    previewProfile?.env?.EXPO_PUBLIC_BUILD_PROFILE === 'test' &&
+    previewProfile?.env?.EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS === '1' &&
+    previewProfile?.env?.EXPO_PUBLIC_ENABLE_LOCAL_DEMO === '0',
+  'The distributed preview must exercise the live API and remote feature flags without synthetic content.',
+);
+assert(
+  androidReleaseScript.includes("$env:EXPO_PUBLIC_ENABLE_LOCAL_DEMO = '0'") &&
+    androidReleaseScript.includes("$env:EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS = '1'"),
+  'The local APK builder must preserve the same live-test contract as EAS preview.',
+);
 assert(
   apiConfig.includes(`const defaultRoknApiUrl = '${productionApiBase}'`) &&
     environmentExample.includes(`EXPO_PUBLIC_API_URL=${productionApiBase}`) &&

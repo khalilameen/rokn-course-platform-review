@@ -74,9 +74,7 @@ export default function Profile() {
   const publicPortfolioUrl =
     portfolioProfile?.publicUrl ||
     `${portfolioBase.replace(/\/$/, '')}/@${encodeURIComponent(username)}`;
-  const canSharePortfolio =
-    Boolean(username) &&
-    (!authenticatedIdentity || portfolioProfile?.isPublic === true);
+  const canSharePortfolio = Boolean(username);
 
   useFocusEffect(
     useCallback(() => {
@@ -187,13 +185,6 @@ export default function Profile() {
                     style={styles.availability}
                   />
                 )}
-                {portfolioProfile?.isPublic && (
-                  <MetaPill
-                    label="عام"
-                    tone="success"
-                    style={styles.availability}
-                  />
-                )}
               </View>
               {canSharePortfolio && (
                 <Pressable
@@ -210,7 +201,7 @@ export default function Profile() {
             </View>
             {canSharePortfolio && (
               <Pressable
-                accessibilityLabel="افتح البورتفوليو العام"
+                accessibilityLabel="فتح رابط مشاركة البورتفوليو"
                 accessibilityRole="link"
                 onPress={() => Linking.openURL(publicPortfolioUrl)}
                 style={({pressed}) => [

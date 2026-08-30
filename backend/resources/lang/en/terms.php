@@ -56,8 +56,8 @@ return [
             'title' => '5. Projects, portfolios, and certificates',
             'points' => [
                 'You retain ownership of your work and are responsible for having the right to use it and for not including confidential data or third-party rights.',
-                'You give Rokn a limited permission to store and review work, operate your portfolio, and display what you choose to publish. We do not use your project in a standalone advertisement without clear permission.',
-                'A certificate QR code may open a verification page or public portfolio, so review what you publish.',
+                'You give Rokn limited permission to store and review work, operate your portfolio, and display it to people who reach its unlisted share link or QR code. We do not use your project in a standalone advertisement without clear permission.',
+                'Rokn does not list the portfolio in a public gallery or search results, but anyone with its share link or certificate QR code can view its content.',
                 'A Rokn certificate records completion of course requirements. It is not an academic degree or professional license unless the course page clearly identifies a separate accreditation and its scope.',
             ],
         ],
@@ -132,7 +132,7 @@ return [
         ],
     ],
     'final_acknowledgement' => 'By using Rokn, creating an account, or completing a transaction, you confirm that you have read, understood, and accepted these terms.',
-    'last_updated' => 'Last updated: August 6, 2026',
+    'last_updated' => 'Last updated: August 30, 2026',
     'copyright' => '© 2026 Rokn for Digital Production and Content – One Person Limited Liability Company — All rights reserved',
 
     // Backward compatibility for older view structure.

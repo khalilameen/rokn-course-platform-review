@@ -230,7 +230,7 @@ class StudentElearningFlowTest extends ApiTestCase
             'description' => 'وصف تفصيلي للمشروع وما تم إنجازه',
         ]);
         $portfolioResponse->assertStatus(200)
-            ->assertJsonPath('status', true);
+            ->assertJsonPath('status', 200);
 
         $portfolioId = (int) $portfolioResponse->json('data.id');
         $this->assertDatabaseHas('portfolio_items', [

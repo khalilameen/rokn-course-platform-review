@@ -12,7 +12,7 @@
         left: 0;
         right: 0;
         bottom: 0;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         z-index: -1;
     }
 
@@ -27,7 +27,7 @@
     }
 
     .payment-form-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         color: white;
         padding: 30px 40px;
         display: flex;
@@ -156,7 +156,7 @@
     }
 
     .form-label-modern i {
-        color: #667eea;
+        color: #2563eb;
         font-size: 0.9rem;
     }
 
@@ -173,7 +173,7 @@
 
     .form-control-modern:focus {
         outline: none;
-        border-color: #667eea;
+        border-color: #2563eb;
         box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
         transform: translateY(-2px);
     }
@@ -211,7 +211,7 @@
     }
 
     .helper-text-modern i {
-        color: #667eea;
+        color: #2563eb;
         margin-top: 2px;
         font-size: 0.9rem;
     }
@@ -237,7 +237,7 @@
     }
 
     .switch-container-modern:hover {
-        border-color: #667eea;
+        border-color: #2563eb;
         background: linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.08) 100%);
     }
 
@@ -280,7 +280,7 @@
     }
 
     input:checked + .switch-slider-modern {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
     }
 
     input:checked + .switch-slider-modern:before {
@@ -302,7 +302,7 @@
     }
 
     .switch-label-modern strong i {
-        color: #667eea;
+        color: #2563eb;
     }
 
     .switch-label-modern p {
@@ -338,7 +338,7 @@
     }
 
     .btn-primary-modern {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         color: white;
     }
 
@@ -349,12 +349,12 @@
 
     .btn-secondary-modern {
         background: white;
-        color: #667eea;
-        border: 2px solid #667eea;
+        color: #2563eb;
+        border: 2px solid #2563eb;
     }
 
     .btn-secondary-modern:hover {
-        background: #667eea;
+        background: #2563eb;
         color: white;
         transform: translateY(-3px);
         box-shadow: 0 12px 30px rgba(102, 126, 234, 0.3);
@@ -373,7 +373,7 @@
 
     .btn-secondary-modern .icon-badge-modern {
         background: rgba(102, 126, 234, 0.1);
-        color: #667eea;
+        color: #2563eb;
     }
 
     .btn-secondary-modern:hover .icon-badge-modern {

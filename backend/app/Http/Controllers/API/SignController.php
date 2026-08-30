@@ -19,6 +19,7 @@ use App\Services\FacebookService;
 use App\Services\GoogleService;
 use App\Services\TikTokService;
 use App\Services\AppleService;
+use App\Services\SocialAuthProviderRegistry;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -26,6 +27,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Hashing\BcryptHasher;
+use Illuminate\Validation\Rule;
 
 class SignController extends Controller
 {
@@ -34,19 +36,22 @@ class SignController extends Controller
     private $googleService;
     private $tikTokService;
     private $appleService;
+    private SocialAuthProviderRegistry $socialProviders;
 
     public function __construct(
         WhatsAppService $whatsAppService,
         FacebookService $facebookService,
         GoogleService $googleService,
         TikTokService $tikTokService,
-        AppleService $appleService
+        AppleService $appleService,
+        SocialAuthProviderRegistry $socialProviders
     ) {
         $this->whatsAppService = $whatsAppService;
         $this->facebookService = $facebookService;
         $this->googleService = $googleService;
         $this->tikTokService = $tikTokService;
         $this->appleService = $appleService;
+        $this->socialProviders = $socialProviders;
     }
 
     /**
@@ -178,7 +183,11 @@ class SignController extends Controller
             : ['nullable', 'string', 'max:255'];
 
         $validated = $request->validate([
-            'provider' => 'required|string|in:facebook,google,tiktok,apple',
+            'provider' => [
+                'required',
+                'string',
+                Rule::in($this->socialProviders->declared()->all()),
+            ],
             'token' => 'required|string|max:10000',
             'provider_name' => 'nullable|string|max:255',
             'nonce' => $nonceRules,
@@ -216,6 +225,7 @@ class SignController extends Controller
                 'success' => false,
                 'code' => 'social_identity_verification_failed',
                 'message' => 'تعذر التحقق من حسابك الآن. أعد المحاولة من شاشة تسجيل الدخول.',
+                'data' => null,
             ], 422);
         }
 
@@ -226,6 +236,7 @@ class SignController extends Controller
                 'success' => false,
                 'code' => 'social_identity_verification_failed',
                 'message' => 'تعذر التحقق من هوية الحساب.',
+                'data' => null,
             ], 422);
         }
 
@@ -382,6 +393,7 @@ class SignController extends Controller
                 'success' => false,
                 'code' => 'social_account_conflict',
                 'message' => 'هذا الحساب مرتبط بهوية أخرى. تواصل مع الدعم إذا استمرت المشكلة.',
+                'data' => null,
             ], 409);
         }
 
@@ -395,6 +407,7 @@ class SignController extends Controller
                 'status' => 403,
                 'success' => false,
                 'message' => 'حسابك غير مفعل. يرجى التواصل مع الدعم الفني.',
+                'data' => null,
             ], 403);
         }
 
@@ -432,18 +445,7 @@ class SignController extends Controller
 
     public function authMethods()
     {
-        $providers = collect(config('social_auth.providers', ['facebook', 'google', 'tiktok', 'apple']))
-            ->filter(fn (string $provider) => match ($provider) {
-                'google' => filled(config('services.google.client_id')) && filled(config('services.google.client_secret')),
-                'facebook' => filled(config('services.facebook.client_id'))
-                    && filled(config('services.facebook.client_secret'))
-                    && preg_match('/\Av\d+\.\d+\z/', trim((string) config('services.facebook.graph_version'))) === 1
-                    && trim((string) config('services.facebook.graph_version')) !== 'v19.0',
-                'tiktok' => filled(config('services.tiktok.client_key')) && filled(config('services.tiktok.client_secret')),
-                'apple' => filled(config('services.apple.client_id')),
-                default => false,
-            })
-            ->values();
+        $providers = $this->socialProviders->available();
         $welcomeBonus = RewardRule::configuredAmount(
             'welcome_bonus',
             (int) (Setting::query()->value('welcome_bonus_coins')
@@ -453,7 +455,7 @@ class SignController extends Controller
         $publicApiUrl = rtrim(trim((string) config('social_auth.public_api_url')), '/');
         $settings = Setting::query()->first();
         $preferredProvider = (string) ($settings?->recommended_social_provider
-            ?: config('social_auth.recommended_provider', 'facebook'));
+            ?: config('social_auth.recommended_provider', 'google'));
         $recommendedProvider = $providers->contains($preferredProvider)
             ? $preferredProvider
             : $providers->first();
@@ -503,13 +505,16 @@ class SignController extends Controller
      */
     public function otpDisabled()
     {
+        $providers = $this->socialProviders->labels();
+        $providerNames = implode(' أو ', array_values($providers));
+
         return response()->json([
             'status' => 410,
             'success' => false,
             'code' => 'otp_not_supported',
-            'message' => 'تسجيل الدخول متاح عبر Google أو Facebook أو TikTok دون رمز OTP.',
+            'message' => 'تسجيل الدخول متاح عبر '.($providerNames ?: 'الحسابات الاجتماعية').' دون رمز OTP.',
             'data' => [
-                'providers' => config('social_auth.providers', ['google', 'facebook', 'tiktok']),
+                'providers' => array_keys($providers),
             ],
         ], 410);
     }
@@ -726,14 +731,16 @@ class SignController extends Controller
             return response()->json([
                 'status' => 200,
                 'success' => true,
-                'message' => 'تم تسجيل الخروج بنجاح'
+                'message' => 'تم تسجيل الخروج بنجاح',
+                'data' => null,
             ], 200);
         }
 
         return response()->json([
             'status' => 404,
             'success' => false,
-            'message' => 'المستخدم غير موجود'
+            'message' => 'المستخدم غير موجود',
+            'data' => null,
         ], 404);
     }
 
@@ -753,6 +760,7 @@ class SignController extends Controller
                 'success' => false,
                 'code' => 'social_reauthentication_required',
                 'message' => 'أكد هويتك من جديد بنفس حساب تسجيل الدخول قبل حذف الحساب.',
+                'data' => null,
             ], 403);
         }
 
@@ -775,6 +783,7 @@ class SignController extends Controller
                 'message' => $cleanupPending
                     ? 'تم تعطيل الحساب ومسح بياناته من التطبيق. جارٍ استكمال حذف الملفات من التخزين.'
                     : 'تم حذف الحساب وبياناته الشخصية بنجاح',
+                'data' => null,
             ], $cleanupPending ? 202 : 200);
         } catch (\Throwable $exception) {
             report($exception);
@@ -783,7 +792,8 @@ class SignController extends Controller
         return response()->json([
             'status' => 500,
             'success' => false,
-            'message' => 'تعذر حذف الحساب الآن. حاول مرة أخرى أو تواصل مع الدعم'
+            'message' => 'تعذر حذف الحساب الآن. حاول مرة أخرى أو تواصل مع الدعم',
+            'data' => null,
         ], 500);
     }
 
@@ -893,7 +903,8 @@ class SignController extends Controller
             return response()->json([
                 'status' => 401,
                 'success' => false,
-                'message' => 'غير مصرح'
+                'message' => 'غير مصرح',
+                'data' => null,
             ], 401);
         }
 
@@ -927,6 +938,7 @@ class SignController extends Controller
                 'status' => 401,
                 'success' => false,
                 'message' => 'غير مصرح',
+                'data' => null,
             ], 401);
         }
 
@@ -939,6 +951,7 @@ class SignController extends Controller
             'status' => 200,
             'success' => true,
             'message' => 'تم إيقاف تنبيهات هذا الجهاز',
+            'data' => null,
         ]);
     }
 }

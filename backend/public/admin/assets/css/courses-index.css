@@ -61,7 +61,7 @@
     grid-column: 1 / -1;
 }
 .courses-management-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
     color: white;
     border-radius: 20px;
     padding: 2rem;
@@ -295,7 +295,7 @@
 .title-icon {
     width: 50px;
     height: 50px;
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: linear-gradient(135deg, #2563eb, #172554);
     border-radius: 15px;
     display: flex;
     align-items: center;
@@ -326,7 +326,7 @@
 }
 
 .btn-primary-modern {
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: linear-gradient(135deg, #2563eb, #172554);
     color: white;
 }
 
@@ -387,7 +387,7 @@
 
 .filter-input:focus, .filter-select:focus {
     outline: none;
-    border-color: #667eea;
+    border-color: #2563eb;
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
@@ -410,7 +410,7 @@
 }
 
 .course-card:hover {
-    border-color: #667eea;
+    border-color: #2563eb;
     transform: translateY(-5px);
     box-shadow: 0 10px 25px rgba(102, 126, 234, 0.15);
 }
@@ -545,7 +545,7 @@
 }
 
 .btn-card-primary {
-    background: #667eea;
+    background: #2563eb;
     color: white;
 }
 

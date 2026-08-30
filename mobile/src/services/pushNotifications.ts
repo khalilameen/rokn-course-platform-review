@@ -1,5 +1,6 @@
 import {Platform} from 'react-native';
 import * as Notifications from 'expo-notifications';
+import {BrandColors} from '../constants/brandTokens';
 import {publicRequest} from '../constants/api';
 import {parseRoknDestination} from '../navigation/deepLinks';
 import {navigate} from '../navigation/RootNavigationHelper';
@@ -66,21 +67,21 @@ const prepareAndroidChannel = async () => {
       description: 'نتائج المشاريع والشهادات وحركة الرصيد',
       importance: Notifications.AndroidImportance.DEFAULT,
       vibrationPattern: [0, 160],
-      lightColor: '#2C69DB',
+      lightColor: BrandColors.primary,
     }),
     Notifications.setNotificationChannelAsync(PUSH_CHANNELS.learning, {
       name: 'تذكيرات التعلّم',
       description: 'تذكيرات هادئة مرتبطة بمكانك داخل الكورس',
       importance: Notifications.AndroidImportance.DEFAULT,
       vibrationPattern: [0, 160],
-      lightColor: '#2C69DB',
+      lightColor: BrandColors.primary,
     }),
     Notifications.setNotificationChannelAsync(PUSH_CHANNELS.offers, {
       name: 'عروض ركن',
       description: 'الكورسات الجديدة وعروض الرصيد التي اخترت استقبالها',
       importance: Notifications.AndroidImportance.DEFAULT,
       vibrationPattern: [0, 160],
-      lightColor: '#2C69DB',
+      lightColor: BrandColors.primary,
     }),
   ]);
 };

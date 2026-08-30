@@ -15,22 +15,12 @@ class AwardLevelBadge implements ShouldQueue
     public bool $afterCommit = true;
     public int $tries = 3;
     /**
-     * Create the event listener.
-     *
-     * @return void
-     */
-    public function __construct()
-    {
-        //
-    }
-
-    /**
      * Handle the event.
      *
      * @param  \App\Events\CourseCompleted  $event
      * @return void
      */
-    public function handle(CourseCompleted $event)
+    public function handle(CourseCompleted $event): void
     {
         $user = $event->user;
         $course = $event->course;

@@ -27,14 +27,15 @@ final readonly class ApiResponseService
         string $message,
         int $httpStatus,
         mixed $data = null,
-        array $additional = []
+        array $additional = [],
+        array $headers = []
     ): JsonResponse {
         return response()->json([
             'status' => $httpStatus,
             'success' => false,
             'data' => $data,
             'message' => $message,
-        ] + $additional, $httpStatus);
+        ] + $additional, $httpStatus, $headers);
     }
 
     public function resource(

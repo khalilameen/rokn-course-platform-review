@@ -38,11 +38,21 @@ final class WhatsAppConnectionController extends Controller
     {
         $configuredSecret = trim((string) config('whatsapp.linking.webhook_secret'));
         if ($configuredSecret === '') {
-            return response()->json(['success' => false, 'message' => 'Webhook is not configured'], 503);
+            return $this->responses->error(
+                'Webhook is not configured',
+                503,
+                null,
+                ['code' => 'webhook_not_configured']
+            );
         }
         $providedSecret = trim((string) $request->header('X-WhatsApp-Webhook-Secret'));
         if ($providedSecret === '' || !hash_equals($configuredSecret, $providedSecret)) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+            return $this->responses->error(
+                'Unauthorized',
+                401,
+                null,
+                ['code' => 'unauthenticated']
+            );
         }
 
         $payload = $request->all();
@@ -67,7 +77,14 @@ final class WhatsAppConnectionController extends Controller
         ]);
 
         if ($sender === null || $message === null) {
-            return response()->json(['success' => true, 'matched' => false]);
+            $data = ['matched' => false];
+
+            return $this->responses->success(
+                $data,
+                'Inbound message ignored',
+                200,
+                $data
+            );
         }
 
         try {
@@ -80,11 +97,17 @@ final class WhatsAppConnectionController extends Controller
                 );
             }
 
-            return response()->json([
-                'success' => true,
+            $data = [
                 'matched' => false,
                 'reason' => $exception->getMessage(),
-            ]);
+            ];
+
+            return $this->responses->success(
+                $data,
+                'Inbound message was not linked',
+                200,
+                $data
+            );
         }
 
         if ($result['matched'] && !$result['already_claimed'] && $result['user']) {
@@ -112,12 +135,18 @@ final class WhatsAppConnectionController extends Controller
             );
         }
 
-        return response()->json([
-            'success' => true,
+        $data = [
             'matched' => $result['matched'],
             'already_claimed' => $result['already_claimed'],
             'coins_added' => $result['coins'],
-        ]);
+        ];
+
+        return $this->responses->success(
+            $data,
+            'Inbound message processed',
+            200,
+            $data
+        );
     }
 
     public function consent(Request $request): JsonResponse

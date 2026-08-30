@@ -50,17 +50,6 @@ class CouponController extends Controller
     }
 
     /**
-     * Display the specified resource.
-     *
-     * @param  \App\Coupon  $coupon
-     * @return \Illuminate\Http\Response
-     */
-    public function show(Coupon $coupon)
-    {
-        //
-    }
-
-    /**
      * Show the form for editing the specified resource.
      *
      * @param  \App\Coupon  $coupon

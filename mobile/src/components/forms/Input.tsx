@@ -17,6 +17,7 @@ import {PasswordEye, PasswordEyeSlash} from '../../assets/SVG';
 import {
   fixedIconSlot,
   flexibleTextColumn,
+  Palette,
   rtlRowStyle,
   textDirection,
 } from '../../constants/designSystem';
@@ -130,9 +131,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: PixelPerfect(10),
     ...rtlRowStyle,
-    backgroundColor: '#111620',
+    backgroundColor: Palette.surface,
     borderWidth: 1,
-    borderColor: '#252C38',
+    borderColor: Palette.line,
   },
   textInputContainer: {
     ...flexibleTextColumn,

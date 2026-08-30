@@ -14,7 +14,7 @@ final class ClassificationController extends Controller
     public function index(): JsonResponse
     {
         return response()->json([
-            'status' => true,
+            'status' => 200,
             'success' => true,
             'message' => 'Classifications retrieved successfully',
             'data' => ClassificationResource::collection(Classification::all()),

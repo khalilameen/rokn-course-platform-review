@@ -27,6 +27,7 @@ class AuthEndpointTest extends ApiTestCase
     public function test_auth_methods_advertise_social_only_sign_in(): void
     {
         config()->set([
+            'social_auth.providers' => ['google', 'facebook'],
             'services.google.client_id' => 'configured',
             'services.google.client_secret' => 'configured',
             'services.facebook.client_id' => null,
@@ -52,6 +53,7 @@ class AuthEndpointTest extends ApiTestCase
     public function test_auth_methods_hide_facebook_until_its_graph_contract_is_safe(): void
     {
         config()->set([
+            'social_auth.providers' => ['facebook', 'google'],
             'services.google.client_id' => 'configured',
             'services.google.client_secret' => 'configured',
             'services.facebook.client_id' => 'configured',

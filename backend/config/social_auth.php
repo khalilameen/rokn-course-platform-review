@@ -1,8 +1,14 @@
 <?php
 
 return [
-    'providers' => ['facebook', 'google', 'tiktok', 'apple'],
-    'recommended_provider' => 'facebook',
+    // This is the single product declaration consumed by the API, dashboard
+    // and launch gate. Credentials decide availability; this list decides
+    // which providers Rokn intentionally promises to users.
+    'providers' => array_values(array_unique(array_filter(array_map(
+        static fn (string $provider): string => strtolower(trim($provider)),
+        explode(',', (string) env('SOCIAL_AUTH_PROVIDERS', 'google,tiktok,apple'))
+    )))),
+    'recommended_provider' => env('SOCIAL_AUTH_RECOMMENDED_PROVIDER', 'google'),
     'recommendation_badge' => 'احصل على ٢٠ عملة مجانية عند التسجيل لأول مرة!',
     'welcome_bonus_coins' => (int) env('WELCOME_BONUS_COINS', 20),
     'otp_enabled' => false,

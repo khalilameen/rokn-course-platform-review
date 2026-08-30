@@ -62,4 +62,31 @@ describe('source hygiene contracts', () => {
 
     expect(violations).toEqual([]);
   });
+
+  test('brand colour literals stay in the single token source', () => {
+    const tokenFile = path.join(sourceRoot, 'constants/brandTokens.ts');
+    const tokenSource = fs.readFileSync(tokenFile, 'utf8');
+    const protectedTokens = [
+      '#070A10',
+      '#111620',
+      '#252C38',
+      '#2C69DB',
+      '#245CC7',
+      '#D8A63C',
+    ];
+    const violations: string[] = [];
+
+    for (const file of sourceFiles(sourceRoot)) {
+      if (file === tokenFile) continue;
+      const text = fs.readFileSync(file, 'utf8');
+      for (const token of protectedTokens) {
+        if (text.toLowerCase().includes(token.toLowerCase())) {
+          violations.push(`${relative(file)} repeats ${token}`);
+        }
+      }
+    }
+
+    expect(tokenSource).toEqual(expect.stringContaining('#2C69DB'));
+    expect(violations).toEqual([]);
+  });
 });

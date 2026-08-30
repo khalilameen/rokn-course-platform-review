@@ -1,5 +1,6 @@
 import React from 'react';
 import Svg, {Defs, LinearGradient, Path, Stop} from 'react-native-svg';
+import {BrandColors} from '../../constants/brandTokens';
 
 export default function StreakFlame({size = 34}: {size?: number}) {
   return (
@@ -12,7 +13,7 @@ export default function StreakFlame({size = 34}: {size?: number}) {
       <Defs>
         <LinearGradient id="streakOuter" x1="0" x2="1" y1="0" y2="1">
           <Stop offset="0" stopColor="#79B2FF" />
-          <Stop offset="0.52" stopColor="#3478F6" />
+          <Stop offset="0.52" stopColor={BrandColors.primary} />
           <Stop offset="1" stopColor="#1CCFD2" />
         </LinearGradient>
       </Defs>

@@ -315,22 +315,15 @@ final class AdminLearningViewsTest extends TestCase
         self::assertStringContainsString('class="online-map__marker-label"', $online);
     }
 
-    public function test_standalone_location_prototypes_document_the_embedded_style_exception(): void
+    public function test_dead_standalone_location_prototypes_stay_removed(): void
     {
         foreach ([
             'lessons/location.html',
             'questions/location.html',
         ] as $view) {
-            $source = $this->viewSource($view);
-
-            self::assertStringStartsWith('<!DOCTYPE html>', $source, $view);
-            self::assertStringNotContainsString("@extends('admin.layouts.app')", $source, $view);
-            self::assertSame(1, substr_count(strtolower($source), '<style>'), $view);
-            self::assertSame(1, substr_count(strtolower($source), '</style>'), $view);
-            self::assertStringContainsString(
-                'Standalone legacy prototype: embedded layout CSS is required because no Blade admin layout is loaded.',
-                $source,
-                $view
+            self::assertFileDoesNotExist(
+                dirname(__DIR__, 2).'/resources/views/admin/'.$view,
+                $view.' is an unreferenced prototype; the live map belongs to pages/online.blade.php.'
             );
         }
     }

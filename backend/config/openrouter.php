@@ -5,7 +5,7 @@ return [
     'endpoint' => env('OPENROUTER_ENDPOINT', 'https://openrouter.ai/api/v1/chat/completions'),
     'default_model' => env('OPENROUTER_DEFAULT_MODEL'),
     'max_tokens' => (int) env('OPENROUTER_MAX_TOKENS', 420),
-    'timeout_seconds' => (int) env('OPENROUTER_TIMEOUT_SECONDS', 20),
+    'timeout_seconds' => (int) env('OPENROUTER_TIMEOUT_SECONDS', 45),
     'per_minute_limit' => (int) env('OPENROUTER_PER_MINUTE_LIMIT', 8),
     'daily_user_limit' => (int) env('OPENROUTER_DAILY_USER_LIMIT', 100),
     'global_daily_request_limit' => (int) env('OPENROUTER_GLOBAL_DAILY_REQUEST_LIMIT', 5000),

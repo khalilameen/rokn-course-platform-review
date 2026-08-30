@@ -29,7 +29,11 @@ const CarouselItem = ({
     <View style={styles.outer}>
       <ImageBackground source={course.image} style={styles.imageBackground}>
         <LinearGradient
-          colors={['rgba(7,10,16,0.03)', 'rgba(7,10,16,0.55)', '#070A10']}
+          colors={[
+            'rgba(7,10,16,0.03)',
+            'rgba(7,10,16,0.55)',
+            Palette.canvas,
+          ]}
           locations={[0.15, 0.58, 1]}
           style={styles.gradient}>
           <View style={styles.copy}>

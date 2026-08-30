@@ -71,6 +71,12 @@ class AdminIdentityViewsTest extends TestCase
             static fn (string $path): string => (string) file_get_contents($path),
             array_values($this->viewFiles())
         ));
+        $source .= (string) file_get_contents(
+            $this->projectRoot().'/resources/views/admin/partials/identity-theme.blade.php'
+        );
+        $source .= (string) file_get_contents(
+            $this->projectRoot().'/public/admin/assets/js/admin-identity-theme.js'
+        );
 
         foreach ([
             'admin.users.store',
@@ -157,6 +163,28 @@ class AdminIdentityViewsTest extends TestCase
         self::assertStringContainsString('.users-page', $source);
         self::assertStringContainsString('.exam-results-page', $source);
         self::assertStringContainsString('.design-settings-wrapper', $source);
+    }
+
+    public function test_identity_families_share_one_theme_runtime(): void
+    {
+        foreach (['users', 'grades', 'exam-results'] as $family) {
+            $partial = (string) file_get_contents(
+                $this->projectRoot().'/resources/views/admin/'.$family.'/partials/_dynamic_styles.blade.php'
+            );
+            self::assertStringContainsString("@include('admin.partials.identity-theme'", $partial, $family);
+            self::assertStringNotContainsString('function adjustBrightness', $partial, $family);
+        }
+
+        $shared = (string) file_get_contents(
+            $this->projectRoot().'/resources/views/admin/partials/identity-theme.blade.php'
+        );
+        self::assertStringContainsString('admin-identity-theme.js', $shared);
+
+        $runtime = (string) file_get_contents(
+            $this->projectRoot().'/public/admin/assets/js/admin-identity-theme.js'
+        );
+        self::assertStringContainsString('data-progress-value', $runtime);
+        self::assertStringContainsString("localStorage.getItem('darkMode')", $runtime);
     }
 
     /** @return array<string, string> */

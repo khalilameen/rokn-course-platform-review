@@ -41,7 +41,7 @@ final class CoursePdfController extends Controller
         });
 
         return response()->json([
-            'status' => true,
+            'status' => 200,
             'success' => true,
             'message' => 'Course PDFs retrieved successfully',
             'data' => $pdfs,
@@ -169,7 +169,7 @@ final class CoursePdfController extends Controller
         }
 
         return response()->json([
-            'status' => true,
+            'status' => 200,
             'success' => true,
             'message' => 'Course PDF retrieved successfully',
             'data' => $this->metadata($pdf, $courseId),
@@ -232,7 +232,7 @@ final class CoursePdfController extends Controller
     private function error(string $message, int $httpStatus): JsonResponse
     {
         return response()->json([
-            'status' => false,
+            'status' => $httpStatus,
             'success' => false,
             'message' => $message,
             'data' => null,

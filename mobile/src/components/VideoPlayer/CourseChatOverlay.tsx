@@ -1,7 +1,8 @@
-import React from 'react';
+import React, {useEffect, useRef} from 'react';
 import {useNavigation} from '@react-navigation/native';
 import {
   ActivityIndicator,
+  Animated,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -15,11 +16,12 @@ import {
 } from 'react-native';
 import Svg, {Path} from 'react-native-svg';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {rtlRowStyle, textDirection} from '../../constants/designSystem';
+import {Palette, rtlRowStyle, textDirection} from '../../constants/designSystem';
 import {formatArabicNumber} from '../../constants/arabicFormatting';
 import {Fonts} from '../../constants/styleConstants';
 import {useCourseChat} from './courseChat/useCourseChat';
 import type {CourseLearningData, CourseReel} from './types';
+import type {AssistantPresence} from './courseChat/useCourseChat';
 
 interface CourseChatOverlayProps {
   visible: boolean;
@@ -29,7 +31,7 @@ interface CourseChatOverlayProps {
 }
 
 type CourseChatNavigation = {
-  navigate: (screen: 'Wallet' | 'PrivacyPolicy') => void;
+  navigate: (screen: 'Wallet') => void;
 };
 
 const SendIcon = () => (
@@ -52,6 +54,60 @@ const SendIcon = () => (
   </Svg>
 );
 
+const TypingIndicator = () => {
+  const dots = useRef([
+    new Animated.Value(0.32),
+    new Animated.Value(0.32),
+    new Animated.Value(0.32),
+  ]).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.stagger(
+        140,
+        dots.map(dot =>
+          Animated.sequence([
+            Animated.timing(dot, {
+              toValue: 1,
+              duration: 280,
+              useNativeDriver: true,
+            }),
+            Animated.timing(dot, {
+              toValue: 0.32,
+              duration: 280,
+              useNativeDriver: true,
+            }),
+          ]),
+        ),
+      ),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [dots]);
+
+  return (
+    <View
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel="Rokn AI يكتب الآن"
+      style={styles.typingIndicator}>
+      {dots.map((opacity, index) => (
+        <Animated.View
+          key={index}
+          style={[styles.typingDot, {opacity}]}
+        />
+      ))}
+    </View>
+  );
+};
+
+const presenceLabel = (presence: AssistantPresence): string =>
+  presence === 'typing'
+    ? 'يكتب الآن'
+    : presence === 'connecting'
+    ? 'جاري الاتصال'
+    : 'متصل الآن';
+
 const CourseChatOverlay = ({
   visible,
   course,
@@ -62,10 +118,9 @@ const CourseChatOverlay = ({
   const {height: windowHeight, fontScale} = useWindowDimensions();
   const navigation = useNavigation<CourseChatNavigation>();
   const {
-    acceptDisclosure,
+    assistantPresence,
     assistantIncluded,
     confirmUpgrade,
-    disclosureAccepted,
     input,
     loadUpgradeQuote,
     messages,
@@ -117,6 +172,20 @@ const CourseChatOverlay = ({
           <View style={styles.header}>
             <View style={styles.headerCopy}>
               <Text style={styles.title}>Rokn AI</Text>
+              <View style={styles.presenceRow}>
+                <View
+                  style={[
+                    styles.presenceDot,
+                    assistantPresence === 'connecting' &&
+                      styles.presenceDotConnecting,
+                  ]}
+                />
+                <Text
+                  accessibilityLiveRegion="polite"
+                  style={styles.presenceText}>
+                  {presenceLabel(assistantPresence)}
+                </Text>
+              </View>
             </View>
             <View style={styles.playingPill}>
               <View style={styles.liveDot} />
@@ -220,41 +289,7 @@ const CourseChatOverlay = ({
                 )}
               </Pressable>
             </ScrollView>
-          ) : disclosureAccepted === false ? (
-            <ScrollView
-              contentContainerStyle={styles.disclosure}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}>
-              <Text style={styles.disclosureTitle}>قبل أول سؤال</Text>
-              <Text style={styles.disclosureText}>
-                لإنتاج الرد نرسل نص سؤالك وسياقًا مختصرًا عن الكورس إلى
-                OpenRouter ومزوّد النموذج. لا نضيف اسمك أو بريدك، ولا يحتفظ ركن
-                بسجل دائم للشات.
-              </Text>
-              <Text style={styles.disclosureHint}>
-                لا تكتب كلمة مرور أو بيانات مالية أو معلومات شخصية حساسة.
-              </Text>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => void acceptDisclosure()}
-                style={styles.disclosureButton}>
-                <Text style={styles.disclosureButtonText}>
-                  فهمت، ابدأ الشات
-                </Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="link"
-                onPress={() => {
-                  onClose();
-                  navigation.navigate('PrivacyPolicy');
-                }}
-                style={styles.disclosureLink}>
-                <Text style={styles.disclosureLinkText}>
-                  اقرأ سياسة الخصوصية
-                </Text>
-              </Pressable>
-            </ScrollView>
-          ) : disclosureAccepted === true ? (
+          ) : (
             <>
               <ScrollView
                 ref={scrollRef}
@@ -275,7 +310,11 @@ const CourseChatOverlay = ({
                         : styles.assistantBubble,
                     ]}>
                     {message.pending ? (
-                      <ActivityIndicator color="#FFFFFF" size="small" />
+                      assistantPresence === 'typing' ? (
+                        <TypingIndicator />
+                      ) : (
+                        <ActivityIndicator color="#FFFFFF" size="small" />
+                      )
                     ) : (
                       <Text style={styles.bubbleText}>{message.text}</Text>
                     )}
@@ -312,10 +351,6 @@ const CourseChatOverlay = ({
                 </Pressable>
               </View>
             </>
-          ) : (
-            <View style={styles.disclosureLoading}>
-              <ActivityIndicator color="#FFFFFF" />
-            </View>
           )}
         </View>
       </KeyboardAvoidingView>
@@ -372,6 +407,27 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontFamily: Fonts.bold,
     fontSize: 16,
+  },
+  presenceRow: {
+    ...rtlRowStyle,
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 5,
+    marginTop: 2,
+  },
+  presenceDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: Palette.success,
+  },
+  presenceDotConnecting: {
+    backgroundColor: Palette.coin,
+  },
+  presenceText: {
+    color: 'rgba(255,255,255,.62)',
+    fontFamily: Fonts.medium,
+    fontSize: 10,
   },
   playingPill: {
     minHeight: 28,
@@ -444,10 +500,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 22,
   },
-  disclosureLoading: {
-    flex: 1,
+  typingIndicator: {
+    minWidth: 42,
+    minHeight: 20,
+    ...rtlRowStyle,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 5,
+  },
+  typingDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,.86)',
   },
   entitlementGate: {
     flexGrow: 1,
@@ -475,7 +540,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 15,
-    backgroundColor: '#2C69DB',
+    backgroundColor: Palette.primary,
     marginTop: 24,
   },
   entitlementButtonPressed: {
@@ -544,59 +609,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 20,
     marginTop: 12,
-  },
-  disclosure: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingBottom: 28,
-  },
-  disclosureTitle: {
-    ...textDirection,
-    color: '#FFFFFF',
-    fontFamily: Fonts.bold,
-    fontSize: 22,
-    lineHeight: 32,
-  },
-  disclosureText: {
-    ...textDirection,
-    color: 'rgba(255,255,255,.76)',
-    fontFamily: Fonts.regular,
-    fontSize: 15,
-    lineHeight: 26,
-    marginTop: 12,
-  },
-  disclosureHint: {
-    ...textDirection,
-    color: 'rgba(255,255,255,.58)',
-    fontFamily: Fonts.regular,
-    fontSize: 13,
-    lineHeight: 22,
-    marginTop: 12,
-  },
-  disclosureButton: {
-    minHeight: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 15,
-    backgroundColor: '#2C69DB',
-    marginTop: 24,
-  },
-  disclosureButtonText: {
-    color: '#FFFFFF',
-    fontFamily: Fonts.bold,
-    fontSize: 16,
-  },
-  disclosureLink: {
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 4,
-  },
-  disclosureLinkText: {
-    color: '#8EB8FF',
-    fontFamily: Fonts.semiBold,
-    fontSize: 14,
   },
   composer: {
     minHeight: 72,

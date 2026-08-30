@@ -39,7 +39,7 @@ export type PortfolioProfile = {
   location: string;
   skills: string[];
   publicUrl: string;
-  isPublic: boolean;
+  shareMode: 'unlisted';
 };
 
 export type PortfolioItem = {
@@ -96,7 +96,7 @@ export const getPortfolioProfile = async (): Promise<PortfolioProfile> => {
     location: String(data.location || ''),
     skills: Array.isArray(data.skills) ? data.skills.map(String) : [],
     publicUrl: String(data.public_url || ''),
-    isPublic: Boolean(data.is_public),
+    shareMode: 'unlisted',
   };
 };
 
@@ -295,17 +295,14 @@ export const getWatchHistory = async (limit = 6): Promise<WatchHistory> => {
 export const updatePortfolioProfile = async ({
   slug,
   headline,
-  isPublic,
 }: {
   slug: string;
   headline: string;
-  isPublic?: boolean;
 }): Promise<PortfolioProfile> => {
   const data = payload(
     await publicRequest.put('portfolio-profile', {
       portfolio_slug: slug,
       portfolio_headline: headline,
-      ...(typeof isPublic === 'boolean' ? {portfolio_is_public: isPublic} : {}),
     }),
   );
   return {
@@ -314,21 +311,8 @@ export const updatePortfolioProfile = async ({
     location: String(data.location || ''),
     skills: Array.isArray(data.skills) ? data.skills.map(String) : [],
     publicUrl: String(data.public_url || ''),
-    isPublic: Boolean(data.is_public),
+    shareMode: 'unlisted',
   };
-};
-
-export const updatePortfolioVisibility = async (
-  isPublic: boolean,
-  publishExistingItems = false,
-): Promise<boolean> => {
-  const data = payload(
-    await publicRequest.put('portfolio-profile', {
-      portfolio_is_public: isPublic,
-      publish_existing_items: publishExistingItems,
-    }),
-  );
-  return Boolean(data.is_public);
 };
 
 export const getPortfolio = async (): Promise<PortfolioItem[]> => {
@@ -372,7 +356,6 @@ export const createPortfolioItem = async ({
   const form = new FormData();
   form.append('title', title);
   form.append('description', summary);
-  form.append('is_public', '1');
   if (sourceProjectId) form.append('source_project_id', sourceProjectId);
   if (courseId) form.append('course_id', courseId);
   if (cover?.uri) {
@@ -447,7 +430,6 @@ export const updateProductionPlaybackPreferences = updatePlaybackPreferences;
 export const clearProductionWatchHistory = clearWatchHistory;
 export const getProductionWatchHistory = getWatchHistory;
 export const updateProductionPortfolioProfile = updatePortfolioProfile;
-export const updateProductionPortfolioVisibility = updatePortfolioVisibility;
 export const getProductionPortfolio = getPortfolio;
 export const createProductionPortfolioItem = createPortfolioItem;
 export const getProductionEligibleProjects = getEligibleProjects;

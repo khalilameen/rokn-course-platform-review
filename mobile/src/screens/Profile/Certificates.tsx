@@ -427,13 +427,13 @@ export default function Certificates({
                       {activeCertificateLink}
                     </Text>
                     <Text style={styles.qrHint}>
-                      يفتح البورتفوليو العام ويقف مباشرة على هذه الشهادة.
+                      يفتح رابط البورتفوليو غير المُدرج ويقف مباشرة على هذه الشهادة.
                     </Text>
                   </View>
                 </View>
                 <Button
                   onPress={() => Linking.openURL(activeCertificateLink)}
-                  title="فتح البورتفوليو العام"
+                  title="فتح رابط البورتفوليو"
                 />
                 <Button
                   onPress={() =>

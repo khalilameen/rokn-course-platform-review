@@ -12,10 +12,13 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use RuntimeException;
+use App\Services\SocialAuthProviderRegistry;
 
 final class SocialOAuthController extends Controller
 {
-    private const PROVIDERS = ['google', 'facebook', 'tiktok'];
+    public function __construct(private readonly SocialAuthProviderRegistry $socialProviders)
+    {
+    }
 
     public function start(Request $request, string $socialProvider): RedirectResponse
     {
@@ -115,10 +118,11 @@ final class SocialOAuthController extends Controller
                 'success' => false,
                 'code' => 'social_login_expired',
                 'message' => 'انتهت محاولة تسجيل الدخول. ابدأ مرة أخرى.',
+                'data' => null,
             ], 410);
         }
 
-        if (!in_array((string) ($payload['provider'] ?? ''), self::PROVIDERS, true)) {
+        if (!$this->browserProviders()->contains((string) ($payload['provider'] ?? ''))) {
             // Corrupted or injected cache records are unusable and should not
             // remain replayable. Verifier mismatches on a valid provider stay
             // non-consuming so an attacker cannot burn the real app's code.
@@ -129,6 +133,7 @@ final class SocialOAuthController extends Controller
                 'success' => false,
                 'code' => 'social_login_expired',
                 'message' => 'انتهت محاولة تسجيل الدخول. ابدأ مرة أخرى.',
+                'data' => null,
             ], 410);
         }
 
@@ -141,6 +146,7 @@ final class SocialOAuthController extends Controller
                     'success' => false,
                     'code' => 'social_login_pkce_required',
                     'message' => 'ابدأ تسجيل الدخول من جديد لتأمين هذه المحاولة.',
+                    'data' => null,
                 ], 410);
             }
         } elseif ($verifier === '' || !hash_equals($challenge, $this->pkceChallenge($verifier))) {
@@ -149,6 +155,7 @@ final class SocialOAuthController extends Controller
                 'success' => false,
                 'code' => 'social_login_pkce_mismatch',
                 'message' => 'تعذر تأمين محاولة تسجيل الدخول. ابدأ من جديد.',
+                'data' => null,
             ], 422);
         }
 
@@ -159,6 +166,7 @@ final class SocialOAuthController extends Controller
                 'success' => false,
                 'code' => 'social_login_expired',
                 'message' => 'انتهت محاولة تسجيل الدخول. ابدأ مرة أخرى.',
+                'data' => null,
             ], 410);
         }
         $payload = $claimedPayload;
@@ -173,6 +181,7 @@ final class SocialOAuthController extends Controller
                 'success' => false,
                 'code' => 'social_login_expired',
                 'message' => 'انتهت محاولة تسجيل الدخول. ابدأ مرة أخرى.',
+                'data' => null,
             ], 410);
         }
 
@@ -311,8 +320,16 @@ final class SocialOAuthController extends Controller
     private function provider(string $provider): string
     {
         $provider = strtolower(trim($provider));
-        abort_unless(in_array($provider, self::PROVIDERS, true), 404);
+        abort_unless($this->browserProviders()->contains($provider), 404);
         return $provider;
+    }
+
+    /** @return \Illuminate\Support\Collection<int, string> */
+    private function browserProviders(): \Illuminate\Support\Collection
+    {
+        return $this->socialProviders->declared()
+            ->reject(static fn (string $provider): bool => $provider === 'apple')
+            ->values();
     }
 
     private function token(mixed $value): string

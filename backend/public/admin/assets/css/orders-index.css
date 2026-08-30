@@ -3,7 +3,7 @@
         padding: 20px 15px;
     }
 
-    .stat-icon--total { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    .stat-icon--total { background: linear-gradient(135deg, #2563eb 0%, #172554 100%); }
     .stat-icon--pending { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
     .stat-icon--approved { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
     .stat-icon--rejected { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); }
@@ -204,7 +204,7 @@
     }
 
     .stat-card:hover .stat-value {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
@@ -236,7 +236,7 @@
     }
 
     .card-header-modern {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         color: white;
         padding: 20px 25px;
         border: none;
@@ -309,7 +309,7 @@
 
     .filter-section-header .toggle-icon {
         font-size: 20px;
-        color: #667eea;
+        color: #2563eb;
         transition: transform 0.3s ease;
     }
 
@@ -350,12 +350,12 @@
     }
 
     .filter-control:focus {
-        border-color: #667eea;
+        border-color: #2563eb;
         box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
     }
 
     .btn-apply-filter {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         color: white;
         border: none;
         border-radius: 8px;
@@ -438,13 +438,13 @@
 
     .order-id {
         font-weight: 700;
-        color: #667eea;
+        color: #2563eb;
         text-decoration: none;
         font-size: 0.95rem;
     }
 
     .order-id:hover {
-        color: #764ba2;
+        color: #172554;
         text-decoration: underline;
     }
 
@@ -514,8 +514,8 @@
 
     .action-dropdown .btn.dropdown-toggle:hover,
     .action-dropdown .btn.dropdown-toggle:focus {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-color: #667eea;
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
+        border-color: #2563eb;
         color: white;
         transform: translateY(-2px);
         box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
@@ -527,8 +527,8 @@
     }
 
     .action-dropdown.show .btn.dropdown-toggle {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-color: #667eea;
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
+        border-color: #2563eb;
         color: white;
         box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
     }
@@ -612,7 +612,7 @@
 
     .action-dropdown .dropdown-menu .dropdown-item:hover {
         background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-        color: #667eea;
+        color: #2563eb;
         transform: translateX(5px);
     }
 
@@ -625,7 +625,7 @@
     }
 
     .action-dropdown .dropdown-menu .dropdown-item:active {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         color: white;
         transform: scale(0.98);
     }
@@ -660,7 +660,7 @@
 
     .payment-screenshot-thumb:hover {
         transform: scale(1.15);
-        border-color: #667eea;
+        border-color: #2563eb;
         box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
     }
 
@@ -673,7 +673,7 @@
     }
 
     .modal-modern .modal-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         color: white;
         border: none;
         padding: 20px 25px;
@@ -710,7 +710,7 @@
     }
 
     .modal-modern .btn-download {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         color: white;
         border: none;
         border-radius: 8px;
@@ -734,19 +734,19 @@
         border-radius: 8px;
         margin: 0 3px;
         border: 2px solid #e0e0e0;
-        color: #667eea;
+        color: #2563eb;
         font-weight: 600;
         transition: all 0.2s;
     }
 
     .page-link:hover {
-        background: #667eea;
-        border-color: #667eea;
+        background: #2563eb;
+        border-color: #2563eb;
         color: white;
         transform: translateY(-2px);
     }
 
     .page-item.active .page-link {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-color: #667eea;
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
+        border-color: #2563eb;
     }

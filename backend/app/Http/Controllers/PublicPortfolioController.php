@@ -14,6 +14,7 @@ class PublicPortfolioController extends Controller
         $portfolio = $service->find($slug, $request->query('certificate'));
         abort_if(!$portfolio, 404);
 
-        return view('portfolio.public', compact('portfolio'));
+        return response(view('portfolio.public', compact('portfolio')))
+            ->header('X-Robots-Tag', 'noindex, nofollow, noarchive');
     }
 }

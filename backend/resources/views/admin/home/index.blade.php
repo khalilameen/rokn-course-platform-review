@@ -420,17 +420,17 @@
                         datasets: [{
                             label: 'عدد الزوار',
                             data: {!! json_encode(array_column($dailyVisitors, 'count')) !!},
-                            borderColor: '#667eea',
+                            borderColor: '#2563eb',
                             backgroundColor: gradient,
                             borderWidth: 3,
                             fill: true,
                             tension: 0.4,
-                            pointBackgroundColor: '#667eea',
+                            pointBackgroundColor: '#2563eb',
                             pointBorderColor: '#fff',
                             pointBorderWidth: 3,
                             pointRadius: 6,
                             pointHoverRadius: 10,
-                            pointHoverBackgroundColor: '#764ba2',
+                            pointHoverBackgroundColor: '#172554',
                             pointHoverBorderColor: '#fff',
                             pointHoverBorderWidth: 3
                         }]
@@ -448,7 +448,7 @@
                                 backgroundColor: 'rgba(255, 255, 255, 0.95)',
                                 titleColor: '#2c3e50',
                                 bodyColor: '#2c3e50',
-                                borderColor: '#667eea',
+                                borderColor: '#2563eb',
                                 borderWidth: 2,
                                 cornerRadius: 10,
                                 displayColors: false,
@@ -529,8 +529,8 @@
                         datasets: [{
                             data: {!! json_encode($browserStats->pluck('count')) !!},
                             backgroundColor: [
-                                '#667eea',
-                                '#764ba2',
+                                '#2563eb',
+                                '#172554',
                                 '#4facfe',
                                 '#00f2fe',
                                 '#fa709a',
@@ -665,12 +665,12 @@
                             {
                                 label: 'شحن رصيد عبر Kashier (جنيه)',
                                 data: {!! json_encode(array_column($monthlyRevenue, 'course_revenue')) !!},
-                                borderColor: '#667eea',
+                                borderColor: '#2563eb',
                                 backgroundColor: 'rgba(102, 126, 234, 0.1)',
                                 borderWidth: 3,
                                 fill: true,
                                 tension: 0.4,
-                                pointBackgroundColor: '#667eea',
+                                pointBackgroundColor: '#2563eb',
                                 pointBorderColor: '#fff',
                                 pointBorderWidth: 2,
                                 pointRadius: 5,
@@ -750,7 +750,7 @@
                                 {{ $revenueStats['course_revenue'] }}
                             ],
                             backgroundColor: [
-                                '#667eea'
+                                '#2563eb'
                             ],
                             borderWidth: 0,
                             hoverBorderWidth: 3,
@@ -806,7 +806,7 @@
                         datasets: [{
                             data: {!! json_encode($paymentMethods->pluck('total')) !!},
                             backgroundColor: [
-                                '#667eea',
+                                '#2563eb',
                                 '#48bb78',
                                 '#f6ad55',
                                 '#fc8181',
@@ -871,7 +871,7 @@
                                 label: 'عملات مشتراة بمال',
                                 data: {!! json_encode($courseStats->pluck('paid_coins')) !!},
                                 backgroundColor: 'rgba(102, 126, 234, 0.8)',
-                                borderColor: '#667eea',
+                                borderColor: '#2563eb',
                                 borderWidth: 2,
                                 borderRadius: 6,
                                 barThickness: 'flex',

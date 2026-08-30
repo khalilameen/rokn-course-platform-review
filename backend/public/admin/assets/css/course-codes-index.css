@@ -1,7 +1,7 @@
     /* Page Header - Scoped to course-codes page to avoid header.blade.php conflicts */
     .course-codes-page .page-header,
     .course-codes-page .modern-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         border-radius: 15px;
         padding: 30px;
         margin-bottom: 30px;
@@ -77,7 +77,7 @@
         border: none;
     }
     .action-btn-group .btn-primary {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
     }
     .action-btn-group .btn-success {
         background: linear-gradient(135deg, #10b981 0%, #059669 100%);
@@ -118,7 +118,7 @@
     }
     .filter-section-header .toggle-icon {
         font-size: 20px;
-        color: #667eea;
+        color: #2563eb;
         transition: transform 0.3s ease;
     }
     .filter-section-header .toggle-icon.rotated {
@@ -148,7 +148,7 @@
         transition: all 0.3s ease;
     }
     .filter-section .form-control:focus, .filter-section .form-select:focus {
-        border-color: #667eea;
+        border-color: #2563eb;
         box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
     }
     .filter-grid {
@@ -178,7 +178,7 @@
         min-width: 1000px;
     }
     .modern-table thead {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
     }
     .modern-table thead th {
         color: white;
@@ -190,7 +190,7 @@
         position: sticky;
         top: 0;
         z-index: 10;
-        /* background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); */
+        /* background: linear-gradient(135deg, #2563eb 0%, #172554 100%); */
     }
     .modern-table tbody tr {
         border-bottom: 1px solid #f0f0f0;
@@ -206,7 +206,7 @@
         font-size: 12px;
     }
     .badge-primary-modern {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         color: white;
     }
     .badge-success-modern {
@@ -253,8 +253,8 @@
         justify-content: center;
     }
     .copy-code-btn:hover {
-        background: #667eea;
-        border-color: #667eea;
+        background: #2563eb;
+        border-color: #2563eb;
         color: white;
         transform: translateY(-1px);
         box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
@@ -317,20 +317,20 @@
         border-radius: 8px;
         margin: 0 3px;
         border: 2px solid #e0e0e0;
-        color: #667eea;
+        color: #2563eb;
         font-weight: 600;
         padding: 8px 16px;
         transition: all 0.3s ease;
     }
     .pagination .page-link:hover {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
         color: white;
-        border-color: #667eea;
+        border-color: #2563eb;
         transform: translateY(-2px);
     }
     .pagination .page-item.active .page-link {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-color: #667eea;
+        background: linear-gradient(135deg, #2563eb 0%, #172554 100%);
+        border-color: #2563eb;
         color: white;
     }
     .pagination .page-item.disabled .page-link {
@@ -421,6 +421,6 @@
     }
 
     .course-code-selected-count {
-        color: #667eea;
+        color: #2563eb;
         font-weight: 600;
     }

@@ -77,7 +77,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     title: 'تحديث تفاصيل الحساب مطلوب',
                     text: 'يجب تحديث تفاصيل الحساب قبل تفعيل طريقة الدفع الافتراضية',
                     icon: 'warning',
-                    confirmButtonColor: '#667eea',
+                    confirmButtonColor: '#2563eb',
                     confirmButtonText: 'حسناً'
                 });
                 return false;
@@ -96,7 +96,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     `,
                     icon: 'question',
                     showCancelButton: true,
-                    confirmButtonColor: '#667eea',
+                    confirmButtonColor: '#2563eb',
                     cancelButtonColor: '#e53e3e',
                     confirmButtonText: 'نعم، تأكيد التحديث',
                     cancelButtonText: 'إلغاء',

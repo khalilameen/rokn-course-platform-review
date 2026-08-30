@@ -65,8 +65,8 @@
                     <div class="col-md-4 mb-3">
                         <label class="font-weight-bold" for="recommended_social_provider">المنصة المميزة أعلى خيارات الدخول</label>
                         <select class="form-control" id="recommended_social_provider" name="recommended_social_provider" required>
-                            @foreach(['facebook' => 'Facebook', 'google' => 'Google', 'tiktok' => 'TikTok', 'apple' => 'Apple'] as $provider => $label)
-                                <option value="{{ $provider }}" {{ old('recommended_social_provider', $setting?->recommended_social_provider ?? 'facebook') === $provider ? 'selected' : '' }}>{{ $label }}</option>
+                            @foreach($socialProviderLabels as $provider => $label)
+                                <option value="{{ $provider }}" {{ old('recommended_social_provider', $setting?->recommended_social_provider ?? config('social_auth.recommended_provider')) === $provider ? 'selected' : '' }}>{{ $label }}</option>
                             @endforeach
                         </select>
                     </div>

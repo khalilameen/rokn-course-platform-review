@@ -262,7 +262,7 @@ body.dark-mode .course-codes-page .modern-header .subtitle {
 /* PRIMARY BUTTONS - Main Actions (Detail/View, Create) */
 .btn-primary-modern,
 .action-btn[style*="667eea"],
-.action-btn[style*="linear-gradient(135deg, #667eea"] {
+.action-btn[style*="linear-gradient(135deg, #2563eb"] {
     background: var(--color-primary) !important;
     color: white !important;
 }

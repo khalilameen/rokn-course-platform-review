@@ -16,7 +16,6 @@ const createProps = (
   deletingAccount: false,
   marketingNotifications: false,
   notifications: true,
-  portfolioPublic: false,
   quality: 'auto',
   reminderHour: 20,
   videoFit: 'cover',
@@ -43,7 +42,6 @@ const createProps = (
   onToggleAutoplay: callback(),
   onToggleMarketing: callback(),
   onToggleNotifications: callback(),
-  onTogglePortfolio: callback(),
   onToggleWatchHistory: callback(),
   ...overrides,
 });
@@ -52,7 +50,6 @@ const authenticatedRows = [
   'account.edit',
   'account.portfolio',
   'account.devices',
-  'account.visibility',
   'account.logout',
   'account.delete',
   'learning.notifications',
@@ -128,7 +125,7 @@ describe('settings screen contract', () => {
     expect(new Set(rows.map(row => row.id)).size).toBe(rows.length);
   });
 
-  it('assigns a distinct icon and an interaction contract to all 25 rows', () => {
+  it('assigns a distinct icon and an interaction contract to all 24 rows', () => {
     const authenticated = flattenRows(createProps());
     const guest = flattenRows(
       createProps({authenticated: false, notifications: false}),
@@ -137,8 +134,8 @@ describe('settings screen contract', () => {
       [...authenticated, ...guest].map(row => [row.id, row]),
     );
 
-    expect(rowsById.size).toBe(25);
-    expect(new Set([...rowsById.values()].map(row => row.icon)).size).toBe(25);
+    expect(rowsById.size).toBe(24);
+    expect(new Set([...rowsById.values()].map(row => row.icon)).size).toBe(24);
 
     for (const row of rowsById.values()) {
       if (row.id === 'about.language') {

@@ -18,11 +18,9 @@ import {
 } from '../../services/smartReminders';
 import {
   clearWatchHistory,
-  getPortfolioProfile,
   getProfile,
   updateNotificationStatus,
   updatePlaybackPreferences,
-  updatePortfolioVisibility as persistPortfolioVisibility,
 } from '../../services/roknApi';
 import {
   clearLocalWatchHistory,
@@ -57,7 +55,6 @@ export const useSettingsPreferences = ({
   const [notifications, setNotifications] = useState(false);
   const [marketingNotifications, setMarketingNotifications] = useState(false);
   const [watchHistory, setWatchHistory] = useState(true);
-  const [portfolioPublic, setPortfolioPublic] = useState(false);
   const [reminderHour, setReminderHour] = useState(20);
   const [autoplay, setAutoplay] = useState(true);
   const {dirtyKeys: privacyDirtyKeys, queue: queuePrivacyPreferenceSync} =
@@ -155,10 +152,6 @@ export const useSettingsPreferences = ({
 
   useEffect(() => {
     if (!hasAuthenticatedAccount) return;
-    void getPortfolioProfile()
-      .then(profile => setPortfolioPublic(profile.isPublic))
-      .catch(() => undefined);
-
     void accountScopedStorageKey(PENDING_WATCH_HISTORY_CLEAR_KEY)
       .then(async key => {
         if (!(await getItem(key))) return;
@@ -222,42 +215,6 @@ export const useSettingsPreferences = ({
       cancelLearningReminders();
       await unregisterPushDevice().catch(() => undefined);
     }
-  };
-
-  const savePortfolioVisibility = async (
-    value: boolean,
-    publishExistingItems = false,
-  ) => {
-    const previous = portfolioPublic;
-    setPortfolioPublic(value);
-    try {
-      const savedValue = await persistPortfolioVisibility(
-        value,
-        publishExistingItems,
-      );
-      setPortfolioPublic(savedValue);
-    } catch {
-      setPortfolioPublic(previous);
-      Alert.alert('تعذر حفظ الاختيار', 'تأكد من الاتصال ثم حاول مرة أخرى.');
-    }
-  };
-
-  const updatePortfolioVisibility = (value: boolean) => {
-    if (!value) {
-      void savePortfolioVisibility(false);
-      return;
-    }
-    Alert.alert(
-      'نشر البورتفوليو',
-      'سيصبح اسمك وصورتك المهنية ومشروعاتك وشهاداتك متاحة لأي شخص يملك الرابط. لن نعرض بريدك أو رقم هاتفك.',
-      [
-        {text: 'إلغاء', style: 'cancel'},
-        {
-          text: 'نشر البورتفوليو',
-          onPress: () => void savePortfolioVisibility(true, true),
-        },
-      ],
-    );
   };
 
   const confirmNotifications = async () => {
@@ -359,7 +316,6 @@ export const useSettingsPreferences = ({
     openFitChoice: () => setChoiceModal('fit'),
     openQualityChoice: () => setChoiceModal('quality'),
     openReminderChoice: () => setChoiceModal('reminderTime'),
-    portfolioPublic,
     quality,
     reminderHour,
     selectChoice,
@@ -368,7 +324,6 @@ export const useSettingsPreferences = ({
     toggleMarketing: (value: boolean) =>
       updatePreference(MARKETING_NOTIFICATIONS_KEY, value),
     toggleNotifications: updateNotifications,
-    togglePortfolio: updatePortfolioVisibility,
     toggleWatchHistory: (value: boolean) =>
       updatePreference(WATCH_HISTORY_ENABLED_KEY, value),
     videoFit,

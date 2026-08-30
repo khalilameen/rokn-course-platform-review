@@ -24,7 +24,6 @@ export const useSettingsController = () => {
     deletingAccount: account.deletingAccount,
     marketingNotifications: preferences.marketingNotifications,
     notifications: preferences.notifications,
-    portfolioPublic: preferences.portfolioPublic,
     quality: preferences.quality,
     reminderHour: preferences.reminderHour,
     videoFit: preferences.videoFit,
@@ -52,7 +51,6 @@ export const useSettingsController = () => {
     onToggleAutoplay: preferences.toggleAutoplay,
     onToggleMarketing: preferences.toggleMarketing,
     onToggleNotifications: preferences.toggleNotifications,
-    onTogglePortfolio: preferences.togglePortfolio,
     onToggleWatchHistory: preferences.toggleWatchHistory,
   };
 

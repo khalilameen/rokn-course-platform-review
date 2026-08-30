@@ -144,7 +144,7 @@ final class DashboardProductParityTest extends TestCase
         }
     }
 
-    public function test_legacy_numeric_profile_route_cannot_enumerate_accounts(): void
+    public function test_legacy_numeric_profile_route_cannot_enumerate_accounts_and_share_links_are_unlisted(): void
     {
         $first = $this->get('/profile/1');
         $missing = $this->get('/profile/999999999');
@@ -157,7 +157,10 @@ final class DashboardProductParityTest extends TestCase
             'portfolio_slug' => 'private-student',
             'portfolio_is_public' => false,
         ]);
-        self::assertNull($private->profile_deeplink);
+        self::assertSame(
+            route('portfolio.public', ['slug' => 'private-student']),
+            $private->profile_deeplink
+        );
 
         $public = new User([
             'portfolio_slug' => 'published-student',

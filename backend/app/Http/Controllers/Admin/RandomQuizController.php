@@ -156,17 +156,6 @@ return $xmlStr;
     }
 
     /**
-     * Display the specified resource.
-     *
-     * @param  \App\Quizz  $quizz
-     * @return \Illuminate\Http\Response
-     */
-    public function show(RandomQuiz $randomQuiz)
-    {
-        //
-    }
-
-    /**
      * Show the form for editing the specified resource.
      *
      * @param  \App\Quizz  $quizz
