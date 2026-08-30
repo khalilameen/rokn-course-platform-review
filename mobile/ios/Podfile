@@ -40,12 +40,6 @@ target 'Rokn' do
 
   config = use_native_modules!(config_command)
 
-  # Only enable modular headers for the Firebase/GoogleUtilities dependency chain
-  # to avoid Hermes/React runtime modulemap conflicts.
-  pod 'GoogleUtilities', :modular_headers => true
-  pod 'FirebaseCoreInternal', :modular_headers => true
-  pod 'RecaptchaInterop', :modular_headers => true
-
   use_react_native!(
     :path => config[:reactNativePath],
     :hermes_enabled => podfile_properties['expo.jsEngine'] == nil || podfile_properties['expo.jsEngine'] == 'hermes',

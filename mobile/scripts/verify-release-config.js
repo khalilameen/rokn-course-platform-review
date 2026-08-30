@@ -425,6 +425,12 @@ assert(
   'The iOS Podfile does not use the Firebase-supported dynamic framework linkage.',
 );
 assert(
+  !/^\s*pod\s+['"](?:FirebaseCoreInternal|GoogleUtilities|RecaptchaInterop)['"]/m.test(
+    iosPodfile,
+  ),
+  'Firebase SPM transitive products must not also be declared as CocoaPods dependencies.',
+);
+assert(
   iosEntitlements.includes('com.apple.developer.applesignin'),
   'Sign in with Apple entitlement is missing.',
 );
