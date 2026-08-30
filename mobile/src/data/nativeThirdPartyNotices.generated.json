@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "androidDependencyCount": 201,
   "androidProjectComponentCount": 20,
-  "podDependencyCount": 114,
+  "podDependencyCount": 111,
   "android": [
     {
       "coordinate": "androidx.activity:activity-ktx:1.9.3",
@@ -1929,22 +1929,6 @@
       "firstPartyGenerated": false
     },
     {
-      "coordinate": "FirebaseCoreInternal@12.18.0",
-      "licenses": [
-        "Apache-2.0"
-      ],
-      "legalDocumentCount": 1,
-      "firstPartyGenerated": false
-    },
-    {
-      "coordinate": "GoogleUtilities@8.1.3",
-      "licenses": [
-        "Apache-2.0"
-      ],
-      "legalDocumentCount": 2,
-      "firstPartyGenerated": false
-    },
-    {
       "coordinate": "RCT-Folly@2024.11.18.00",
       "licenses": [
         "Apache-2.0"
@@ -2589,14 +2573,6 @@
       "firstPartyGenerated": false
     },
     {
-      "coordinate": "RecaptchaInterop@101.0.0",
-      "licenses": [
-        "Apache-2.0"
-      ],
-      "legalDocumentCount": 1,
-      "firstPartyGenerated": false
-    },
-    {
       "coordinate": "SocketRocket@0.7.1",
       "licenses": [
         "BSD-3-Clause"
@@ -2739,5 +2715,5 @@
       ]
     }
   ],
-  "inventoryHash": "83733c6e988a40ad9bcdc9833e001af41f63232a9505acd2783211feb7b53fc8"
+  "inventoryHash": "4edae8404bb79cbcfb64cf9cf44d8a953140eca3d9fe050e694d22a47554316e"
 }
