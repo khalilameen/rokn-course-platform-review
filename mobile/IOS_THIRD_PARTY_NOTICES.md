@@ -6,8 +6,8 @@
 
 This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retains package-specific LICENSE and NOTICE documents from the distributed sources.
 
-- Dependencies: 111
-- Retained unique legal texts: 22
+- Dependencies: 113
+- Retained unique legal texts: 24
 
 ### BVLinearGradient@2.8.3
 
@@ -96,6 +96,14 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 - Podspec checksum: `21550be2946ea5bbf50f1a20b31facd19ba4150c`
 - Owning npm source: `expo-font@55.0.8`
 - Retained legal document(s): `371567d5d8999eeffba61ddbcb60ffbe4f25c3f165f1772e2c66befd0251bffa`, `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
+
+### ExpoIap@5.4.1
+
+- Platform: iOS
+- Selected license(s): MIT
+- Podspec checksum: `b92c306e1a22c53109557106e6fe921a35b45879`
+- Owning npm source: `expo-iap@5.4.1`
+- Retained legal document(s): `219baa0f0ec67b168492214cafd8fb602c82d690105278b603f5c4568e20be00`, `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
 ### ExpoKeepAwake@55.0.8
 
@@ -864,6 +872,13 @@ This file is bound to the exact Podfile.lock roots and SPEC CHECKSUMS and retain
 - Owning npm source: `react-native@0.83.10`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173`
 
+### openiap@3.3.1
+
+- Platform: iOS
+- Selected license(s): MIT
+- Podspec checksum: `98a778ba35f085cef035f235b5dc31c06640bef6`
+- Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `ae67647ad0b9810087914e116ba839be65e15d859a4f834238b72f0acd7b8f19`
+
 ### react-native-image-picker@8.2.1
 
 - Platform: iOS
@@ -924,6 +939,34 @@ Source(s): `installed-pod:RNCAsyncStorage@2.2.0/LICENSE`, `installed-pod:RNCClip
 MIT License
 
 Copyright (c) 2015-present, Facebook, Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### 219baa0f0ec67b168492214cafd8fb602c82d690105278b603f5c4568e20be00
+
+Source(s): `installed-pod:ExpoIap@5.4.1/LICENSE`, `npm:expo-iap@5.4.1/LICENSE`
+
+```text
+MIT License
+
+Copyright (c) 2025 hyochan
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -1642,6 +1685,34 @@ Source(s): `installed-pod:RNScreens@4.23.0/LICENSE`, `npm:react-native-screens@4
 The MIT License (MIT)
 
 Copyright (c) 2018 Software Mansion <swmansion.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### ae67647ad0b9810087914e116ba839be65e15d859a4f834238b72f0acd7b8f19
+
+Source(s): `installed-pod:openiap@3.3.1/LICENSE`
+
+```text
+# MIT License
+
+Copyright (c) 2025 hyo.dev
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
