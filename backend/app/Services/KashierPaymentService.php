@@ -163,11 +163,13 @@ final readonly class KashierPaymentService
 
         if (!empty($params['signatureKeys']) && is_array($params['signatureKeys'])) {
             $queryString = $this->buildSignatureKeysQuery($params['signatureKeys'], $signatureSource);
-            $expectedSignature = hash_hmac('sha256', $queryString, $secret, false);
+            if ($queryString !== null) {
+                $expectedSignature = hash_hmac('sha256', $queryString, $secret, false);
 
-            foreach ($candidates as $candidate) {
-                if (hash_equals($expectedSignature, (string) $candidate)) {
-                    return true;
+                foreach ($candidates as $candidate) {
+                    if (hash_equals($expectedSignature, (string) $candidate)) {
+                        return true;
+                    }
                 }
             }
 
@@ -372,13 +374,21 @@ final readonly class KashierPaymentService
             && !hash_equals($order->transaction_id, $transactionId);
     }
 
-    private function buildSignatureKeysQuery(array $signatureKeys, array $source): string
+    private function buildSignatureKeysQuery(array $signatureKeys, array $source): ?string
     {
         $pairs = [];
         foreach ($signatureKeys as $key) {
-            if (array_key_exists($key, $source) && !is_array($source[$key]) && !is_object($source[$key])) {
-                $pairs[] = $key . '=' . $source[$key];
+            if (
+                !is_string($key)
+                || $key === ''
+                || !array_key_exists($key, $source)
+                || (!is_scalar($source[$key]) && $source[$key] !== null)
+            ) {
+                return null;
             }
+
+            $value = $source[$key];
+            $pairs[] = rawurlencode($key) . '=' . rawurlencode($value === null ? '' : (string) $value);
         }
 
         return implode('&', $pairs);

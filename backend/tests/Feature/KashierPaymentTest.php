@@ -795,7 +795,7 @@ class KashierPaymentTest extends TestCase
 
         $signedPairs = [];
         foreach ($payload['data']['signatureKeys'] as $key) {
-            $signedPairs[] = $key . '=' . $payload['data'][$key];
+            $signedPairs[] = rawurlencode($key) . '=' . rawurlencode((string) $payload['data'][$key]);
         }
         $payload['hash'] = hash_hmac('sha256', implode('&', $signedPairs), self::TEST_API_KEY, false);
 
@@ -839,7 +839,7 @@ class KashierPaymentTest extends TestCase
 
         $signedPairs = [];
         foreach ($payload['data']['signatureKeys'] as $key) {
-            $signedPairs[] = $key . '=' . $payload['data'][$key];
+            $signedPairs[] = rawurlencode($key) . '=' . rawurlencode((string) $payload['data'][$key]);
         }
         $payload['data']['kashierSignature'] = hash_hmac(
             'sha256',
@@ -857,6 +857,36 @@ class KashierPaymentTest extends TestCase
             'order_ref'      => 'PKG-TEST-WEBHOOK-SIGNATURE',
             'status'         => 'approved',
             'transaction_id' => 'TX-TEST-2',
+        ]);
+    }
+
+   public function test_webhook_rejects_a_signature_when_a_declared_field_is_missing(): void
+    {
+        $this->createPendingOrder('PKG-TEST-WEBHOOK-MISSING-FIELD');
+
+        $payload = [
+            'event' => 'pay',
+            'data' => [
+                'merchantOrderId' => 'PKG-TEST-WEBHOOK-MISSING-FIELD',
+                'transactionId' => 'TX-TEST-MISSING-FIELD',
+                'status' => 'SUCCESS',
+                'signatureKeys' => ['merchantOrderId', 'channel', 'status', 'transactionId'],
+            ],
+        ];
+        $payload['data']['kashierSignature'] = hash_hmac(
+            'sha256',
+            'merchantOrderId=PKG-TEST-WEBHOOK-MISSING-FIELD&status=SUCCESS&transactionId=TX-TEST-MISSING-FIELD',
+            self::TEST_API_KEY,
+            false
+        );
+
+        $this->postJson('/payment/webhook', $payload)
+            ->assertStatus(403)
+            ->assertJsonPath('code', 'invalid_signature');
+
+        $this->assertDatabaseHas('orders', [
+            'order_ref' => 'PKG-TEST-WEBHOOK-MISSING-FIELD',
+            'status' => 'pending',
         ]);
     }
 
