@@ -57,6 +57,9 @@ const iosFirebaseNativeContents = read('ios/Rokn/GoogleService-Info.plist');
 const iosFirebase = parseFlatPlist(iosFirebaseSourceContents);
 const androidGradle = read('android/app/build.gradle');
 const androidManifest = read('android/app/src/main/AndroidManifest.xml');
+const notificationManifestPlugin = read(
+  'plugins/withNotificationManifestOverrides.js',
+);
 const androidDataExtractionRules = read(
   'android/app/src/main/res/xml/data_extraction_rules.xml',
 );
@@ -394,6 +397,17 @@ assert(
     app.plugins?.includes('@react-native-firebase/app') &&
     app.plugins?.includes('@react-native-firebase/messaging'),
   'Expo configuration does not preserve the native Firebase messaging integration.',
+);
+assert(
+  app.plugins?.includes('./plugins/withNotificationManifestOverrides') &&
+    /default_notification_color[\s\S]*tools:replace="android:resource"/.test(
+      androidManifest,
+    ) &&
+    /default_notification_channel_id[\s\S]*tools:replace="android:value"/.test(
+      androidManifest,
+    ) &&
+    notificationManifestPlugin.includes("'tools:replace'"),
+  'Android notification metadata overrides are not preserved across Expo prebuilds.',
 );
 assert(
   /Platform\.OS === 'ios'[\s\S]*registerDeviceForRemoteMessages\(messaging\)[\s\S]*getToken\(messaging\)/.test(
