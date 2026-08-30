@@ -340,6 +340,18 @@ test('native lock refresh captures the production Android metadata closure', () 
   assert.match(workflow, /-ProknEnableMinify=true/);
   assert.match(workflow, /-ProknEnableResourceShrink=true/);
   assert.match(workflow, /--write-verification-metadata sha256/);
+  assert.equal(
+    [...workflow.matchAll(/--write-locks/g)].length,
+    2,
+    'native lock refresh must update dependency locks before strict release resolution',
+  );
+  for (const lockfile of [
+    'mobile/android/app/gradle.lockfile',
+    'mobile/android/buildscript-gradle.lockfile',
+    'mobile/android/settings-gradle.lockfile',
+  ]) {
+    assert.equal([...workflow.matchAll(new RegExp(lockfile, 'g'))].length, 2);
+  }
   assert.equal([...workflow.matchAll(/NODE_ENV: production/g)].length, 2);
   assert.equal([...workflow.matchAll(/git rebase origin\/main/g)].length, 3);
   assert.equal([...workflow.matchAll(/git push origin HEAD:main/g)].length, 3);
