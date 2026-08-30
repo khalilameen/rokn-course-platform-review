@@ -431,6 +431,17 @@ assert(
   'Firebase SPM transitive products must not also be declared as CocoaPods dependencies.',
 );
 assert(
+  /def link_react_native_video_core_modules\(installer\)/.test(iosPodfile) &&
+    /target\.name == ['"]react-native-video['"]/.test(iosPodfile) &&
+    /target\.name == ['"]React-CoreModules['"]/.test(iosPodfile) &&
+    /video_target\.add_dependency\(core_modules_target\)/.test(iosPodfile) &&
+    /linker_flags\.push\(['"]-framework['"], framework_name\)/.test(
+      iosPodfile,
+    ) &&
+    /link_react_native_video_core_modules\(installer\)/.test(iosPodfile),
+  'The iOS Podfile does not link react-native-video to the React Native 0.83 CoreModules implementation.',
+);
+assert(
   iosEntitlements.includes('com.apple.developer.applesignin'),
   'Sign in with Apple entitlement is missing.',
 );

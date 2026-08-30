@@ -19,6 +19,37 @@ linkage = ENV['USE_FRAMEWORKS'] || 'dynamic'
 Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
 use_frameworks! :linkage => linkage.to_sym
 
+# React Native 0.83 owns the concrete RCTEventDispatcher implementation in
+# React-CoreModules. react-native-video 6.x still only declares React-Core,
+# which leaves its dynamic framework with an unresolved Objective-C class.
+# Keep the repair here (instead of editing node_modules) so installs remain
+# reproducible and Podfile.lock stays authoritative.
+def link_react_native_video_core_modules(installer)
+  video_target = installer.pods_project.targets.find { |target| target.name == 'react-native-video' }
+  core_modules_target = installer.pods_project.targets.find { |target| target.name == 'React-CoreModules' }
+
+  unless video_target && core_modules_target
+    raise Pod::Informative, 'Expected react-native-video and React-CoreModules pod targets were not generated.'
+  end
+
+  dependency_exists = video_target.dependencies.any? { |dependency| dependency.target == core_modules_target }
+  video_target.add_dependency(core_modules_target) unless dependency_exists
+
+  framework_name = File.basename(core_modules_target.product_reference.path, '.framework')
+  video_target.build_configurations.each do |build_config|
+    configured_flags = build_config.build_settings['OTHER_LDFLAGS']
+    linker_flags = if configured_flags.is_a?(Array)
+                     configured_flags.dup
+                   elsif configured_flags.nil? || configured_flags.strip.empty?
+                     ['$(inherited)']
+                   else
+                     configured_flags.split
+                   end
+    linker_flags.push('-framework', framework_name) unless linker_flags.include?(framework_name)
+    build_config.build_settings['OTHER_LDFLAGS'] = linker_flags
+  end
+end
+
 target 'Rokn' do
   use_expo_modules!
 
@@ -55,6 +86,8 @@ target 'Rokn' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    link_react_native_video_core_modules(installer)
 
     # fmt 11.0.2 fails to compile with Xcode 26+ due to stricter consteval checks.
     # Compile fmt as C++17 so FMT_USE_CONSTEVAL stays disabled.
