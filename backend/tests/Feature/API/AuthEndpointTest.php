@@ -49,6 +49,30 @@ class AuthEndpointTest extends ApiTestCase
             ]);
     }
 
+    public function test_auth_methods_hide_facebook_until_its_graph_contract_is_safe(): void
+    {
+        config()->set([
+            'services.google.client_id' => 'configured',
+            'services.google.client_secret' => 'configured',
+            'services.facebook.client_id' => 'configured',
+            'services.facebook.client_secret' => 'configured',
+            'services.facebook.graph_version' => 'v19.0',
+            'services.tiktok.client_key' => null,
+            'services.tiktok.client_secret' => null,
+            'services.apple.client_id' => null,
+        ]);
+
+        $this->getJson('/api/v1/auth-methods')
+            ->assertOk()
+            ->assertJsonPath('data.providers', ['google']);
+
+        config()->set('services.facebook.graph_version', 'v999.0');
+
+        $this->getJson('/api/v1/auth-methods')
+            ->assertOk()
+            ->assertJsonPath('data.providers', ['facebook', 'google']);
+    }
+
     public function test_legacy_phone_password_and_otp_routes_are_retired_consistently(): void
     {
         foreach ([

@@ -70,8 +70,13 @@ class ProductionPreflight extends Command
         $decodedFirebaseCredentials = $firebaseCredentialsBase64 !== ''
             ? base64_decode($firebaseCredentialsBase64, true)
             : false;
-        $firebaseCredentialsData = is_string($decodedFirebaseCredentials)
-            ? json_decode($decodedFirebaseCredentials, true)
+        $firebaseCredentialsJson = is_string($decodedFirebaseCredentials)
+            ? $decodedFirebaseCredentials
+            : (($firebaseCredentials !== '' && is_readable($firebaseCredentials))
+                ? file_get_contents($firebaseCredentials)
+                : false);
+        $firebaseCredentialsData = is_string($firebaseCredentialsJson)
+            ? json_decode($firebaseCredentialsJson, true)
             : null;
         $hasInjectedFirebaseCredentials = is_array($firebaseCredentialsData)
             && filled($firebaseCredentialsData['project_id'] ?? null)
@@ -197,6 +202,7 @@ class ProductionPreflight extends Command
         $require($this->configured('services.google.client_secret'), 'GOOGLE_CLIENT_SECRET is required.');
         $require($this->configured('services.tiktok.client_key'), 'TIKTOK_CLIENT_KEY is required.');
         $require($this->configured('services.tiktok.client_secret'), 'TIKTOK_CLIENT_SECRET is required.');
+        $require($this->configured('services.apple.client_id'), 'APPLE_CLIENT_ID is required for native Apple sign-in.');
 
         $require($this->configured('openrouter.api_key'), 'OPENROUTER_API_KEY is required while Rokn AI is enabled.');
         $require($this->configured('openrouter.default_model'), 'OPENROUTER_DEFAULT_MODEL is required while Rokn AI is enabled.');
@@ -261,8 +267,7 @@ class ProductionPreflight extends Command
             'MAIL_FROM_ADDRESS must be a real support email address.'
         );
         $require(
-            $hasInjectedFirebaseCredentials
-                || ($firebaseCredentials !== '' && is_readable($firebaseCredentials)),
+            $hasInjectedFirebaseCredentials,
             'Firebase credentials must be a valid FIREBASE_CREDENTIALS_BASE64 secret or a readable FIREBASE_CREDENTIALS file.'
         );
 

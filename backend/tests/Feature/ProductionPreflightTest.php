@@ -81,6 +81,7 @@ class ProductionPreflightTest extends TestCase
             'social_auth.allow_legacy_pkce' => true,
             'social_auth.return_urls' => ['rokn://auth', 'https://attacker.invalid/callback'],
             'services.facebook.graph_version' => 'v19.0',
+            'services.apple.client_id' => null,
         ]);
 
         self::assertSame(1, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
@@ -90,6 +91,7 @@ class ProductionPreflightTest extends TestCase
         self::assertStringContainsString('SOCIAL_AUTH_ALLOW_LEGACY_PKCE', $output);
         self::assertStringContainsString('SOCIAL_AUTH_RETURN_URLS', $output);
         self::assertStringContainsString('FACEBOOK_GRAPH_VERSION', $output);
+        self::assertStringContainsString('APPLE_CLIENT_ID', $output);
 
         foreach ([
             'http://api.rokn.academy/api/v1',
@@ -129,6 +131,11 @@ class ProductionPreflightTest extends TestCase
         $androidFingerprint = implode(':', array_fill(0, 32, 'AB'));
 
         try {
+            file_put_contents($credentials, json_encode([
+                'project_id' => 'rokn-production',
+                'client_email' => 'firebase-admin@rokn-production.iam.gserviceaccount.com',
+                'private_key' => "-----BEGIN"." PRIVATE KEY-----\nfixture\n-----END"." PRIVATE KEY-----\n",
+            ], JSON_THROW_ON_ERROR));
             config([
                 'app.env' => 'production',
                 'app.debug' => false,
@@ -170,6 +177,7 @@ class ProductionPreflightTest extends TestCase
                 'services.google.client_secret' => 'configured',
                 'services.tiktok.client_key' => 'configured',
                 'services.tiktok.client_secret' => 'configured',
+                'services.apple.client_id' => 'com.rokn',
                 'openrouter.api_key' => 'configured',
                 'openrouter.default_model' => 'configured',
                 'openrouter.allowed_models' => ['configured'],

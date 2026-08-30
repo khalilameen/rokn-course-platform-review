@@ -27,6 +27,9 @@ final class ProductionCapabilityService
      *     payment: array{ready: bool, reason: string},
      *     ai: array{ready: bool, reason: string},
      *     mail: array{ready: bool, reason: string},
+     *     push: array{ready: bool, reason: string},
+     *     social: array{ready: bool, reason: string, google: array, facebook: array, tiktok: array, apple: array, callbacks: array},
+     *     app_links: array{ready: bool, reason: string, android: array, apple: array},
      *     queue: array{ready: bool, reason: string, required_queues: list<string>, queues: array<string, array>}
      *   }
      * }
@@ -104,12 +107,31 @@ final class ProductionCapabilityService
         $payment = $this->paymentCapability();
         $ai = $this->aiCapability();
         $mail = $this->mailCapability();
+        $push = $this->pushCapability();
+        $social = $this->socialCapability();
+        $appLinks = $this->appLinksCapability();
         $queue = $this->queueCapability();
 
         return [
-            'ready' => $bunny['ready'] && $payment['ready'] && $ai['ready'] && $mail['ready'] && $queue['ready'],
+            'ready' => $bunny['ready']
+                && $payment['ready']
+                && $ai['ready']
+                && $mail['ready']
+                && $push['ready']
+                && $social['ready']
+                && $appLinks['ready']
+                && $queue['ready'],
             'checked_at' => now()->toIso8601String(),
-            'capabilities' => compact('bunny', 'payment', 'ai', 'mail', 'queue'),
+            'capabilities' => [
+                'bunny' => $bunny,
+                'payment' => $payment,
+                'ai' => $ai,
+                'mail' => $mail,
+                'push' => $push,
+                'social' => $social,
+                'app_links' => $appLinks,
+                'queue' => $queue,
+            ],
         ];
     }
 
@@ -173,6 +195,109 @@ final class ProductionCapabilityService
                 ? 'SMTP transactional mail and sender are configured'
                 : 'Transactional mail host, credentials, port, or sender is incomplete'
         );
+    }
+
+    private function pushCapability(): array
+    {
+        $credentials = $this->firebaseCredentials();
+        $ready = is_array($credentials)
+            && $this->filled($credentials['project_id'] ?? null)
+            && filter_var($credentials['client_email'] ?? null, FILTER_VALIDATE_EMAIL) !== false
+            && $this->filled($credentials['private_key'] ?? null);
+
+        return $this->item(
+            $ready,
+            $ready
+                ? 'Firebase service account صالح لإرسال الإشعارات'
+                : 'بيانات Firebase غير موجودة أو لا تحتوي project_id وclient_email وprivate_key'
+        );
+    }
+
+    private function socialCapability(): array
+    {
+        $googleReady = $this->configured('services.google.client_id')
+            && $this->configured('services.google.client_secret');
+        $facebookVersion = trim((string) config('services.facebook.graph_version'));
+        $facebookReady = $this->configured('services.facebook.client_id')
+            && $this->configured('services.facebook.client_secret')
+            && preg_match('/\Av\d+\.\d+\z/', $facebookVersion) === 1
+            && $facebookVersion !== 'v19.0';
+        $tiktokReady = $this->configured('services.tiktok.client_key')
+            && $this->configured('services.tiktok.client_secret');
+        $appleClientIds = array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) config('services.apple.client_id'))
+        )));
+        $appleReady = $appleClientIds !== []
+            && collect($appleClientIds)->every(fn (string $id): bool => $this->validPackageName($id));
+        $publicApiUrl = trim((string) config('social_auth.public_api_url'));
+        $returnUrls = array_values(array_unique(array_filter(array_map(
+            static fn ($value): string => trim((string) $value),
+            (array) config('social_auth.return_urls', [])
+        ))));
+        $callbacksReady = $this->validSocialApiUrl($publicApiUrl)
+            && config('social_auth.allow_legacy_pkce') === false
+            && $returnUrls === ['rokn://auth'];
+
+        $social = [
+            'google' => $this->item($googleReady, $googleReady ? 'Google OAuth مضبوط' : 'Google client ID أو secret ناقص'),
+            'facebook' => $this->item(
+                $facebookReady,
+                $facebookReady ? "Facebook OAuth مضبوط على {$facebookVersion}" : 'بيانات Facebook أو إصدار Graph المدعوم ناقص'
+            ),
+            'tiktok' => $this->item($tiktokReady, $tiktokReady ? 'TikTok OAuth مضبوط' : 'TikTok client key أو secret ناقص'),
+            'apple' => $this->item($appleReady, $appleReady ? 'Apple Sign in audiences مضبوطة' : 'Apple client ID ناقص أو غير صالح'),
+            'callbacks' => $this->item(
+                $callbacksReady,
+                $callbacksReady ? 'روابط العودة وPKCE مضبوطة للإنتاج' : 'Public API URL أو return URL أو سياسة PKCE غير صالحة'
+            ),
+        ];
+        $social['ready'] = collect($social)->every(
+            static fn (array $capability): bool => $capability['ready']
+        );
+        $social['reason'] = $social['ready']
+            ? 'كل طرق تسجيل الدخول المعلنة وروابط العودة مكتملة'
+            : 'طريقة تسجيل دخول أو عقد العودة ما زال ناقصًا';
+
+        return $social;
+    }
+
+    private function appLinksCapability(): array
+    {
+        $androidPackage = trim((string) config('app_links.android_package'));
+        $androidFingerprints = array_values(array_unique(array_filter(array_map(
+            static fn ($value): string => strtoupper(trim((string) $value)),
+            (array) config('app_links.android_sha256_fingerprints', [])
+        ))));
+        $appleAppIds = array_values(array_unique(array_filter(array_map(
+            static fn ($value): string => trim((string) $value),
+            (array) config('app_links.apple_app_ids', [])
+        ))));
+        $androidReady = $this->validPackageName($androidPackage)
+            && $androidFingerprints !== []
+            && collect($androidFingerprints)->every(
+                static fn (string $fingerprint): bool => preg_match('/\A(?:[0-9A-F]{2}:){31}[0-9A-F]{2}\z/', $fingerprint) === 1
+            );
+        $appleReady = $appleAppIds !== []
+            && collect($appleAppIds)->every(
+                static fn (string $appId): bool => preg_match('/\A[A-Z0-9]{10}\.(?:[A-Za-z0-9-]+\.)+[A-Za-z0-9-]+\z/', $appId) === 1
+            );
+        $appLinks = [
+            'android' => $this->item(
+                $androidReady,
+                $androidReady ? 'Android App Links وهوية توقيع التطبيق مضبوطان' : 'Android package أو SHA-256 signing fingerprints ناقصة'
+            ),
+            'apple' => $this->item(
+                $appleReady,
+                $appleReady ? 'Apple Universal Links app IDs مضبوطة' : 'Apple Team ID أو bundle ID ناقص'
+            ),
+        ];
+        $appLinks['ready'] = $androidReady && $appleReady;
+        $appLinks['reason'] = $appLinks['ready']
+            ? 'روابط فتح التطبيق مضبوطة على Android وApple'
+            : 'ربط التطبيق بالنطاق ناقص على منصة واحدة أو أكثر';
+
+        return $appLinks;
     }
 
     private function queueCapability(): array
@@ -271,6 +396,70 @@ final class ProductionCapabilityService
         }
 
         return '';
+    }
+
+    private function firebaseCredentials(): ?array
+    {
+        $base64 = trim((string) config('firebase.credentials.base64'));
+        if ($base64 !== '') {
+            $decoded = base64_decode($base64, true);
+
+            return is_string($decoded) ? $this->decodeJsonObject($decoded) : null;
+        }
+
+        $file = trim((string) config('firebase.credentials.file'));
+        if ($file === '' || !is_readable($file)) {
+            return null;
+        }
+
+        try {
+            $contents = file_get_contents($file);
+        } catch (Throwable) {
+            return null;
+        }
+
+        return is_string($contents) ? $this->decodeJsonObject($contents) : null;
+    }
+
+    private function decodeJsonObject(string $json): ?array
+    {
+        try {
+            $decoded = json_decode($json, true, 32, JSON_THROW_ON_ERROR);
+
+            return is_array($decoded) ? $decoded : null;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    private function configured(string $key): bool
+    {
+        return $this->filled(config($key));
+    }
+
+    private function filled(mixed $value): bool
+    {
+        return trim((string) $value) !== '';
+    }
+
+    private function validPackageName(string $value): bool
+    {
+        return preg_match('/\A[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_-]*)+\z/', $value) === 1;
+    }
+
+    private function validSocialApiUrl(string $url): bool
+    {
+        if ($url === '' || filter_var($url, FILTER_VALIDATE_URL) === false) {
+            return false;
+        }
+
+        $parts = parse_url($url);
+
+        return is_array($parts)
+            && strtolower((string) ($parts['scheme'] ?? '')) === 'https'
+            && $this->validHostname((string) ($parts['host'] ?? ''))
+            && !isset($parts['user'], $parts['pass'], $parts['query'], $parts['fragment'])
+            && rtrim((string) ($parts['path'] ?? ''), '/') === '/api/v1';
     }
 
     private function validHostname(string $hostname): bool

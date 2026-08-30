@@ -435,7 +435,10 @@ class SignController extends Controller
         $providers = collect(config('social_auth.providers', ['facebook', 'google', 'tiktok', 'apple']))
             ->filter(fn (string $provider) => match ($provider) {
                 'google' => filled(config('services.google.client_id')) && filled(config('services.google.client_secret')),
-                'facebook' => filled(config('services.facebook.client_id')) && filled(config('services.facebook.client_secret')),
+                'facebook' => filled(config('services.facebook.client_id'))
+                    && filled(config('services.facebook.client_secret'))
+                    && preg_match('/\Av\d+\.\d+\z/', trim((string) config('services.facebook.graph_version'))) === 1
+                    && trim((string) config('services.facebook.graph_version')) !== 'v19.0',
                 'tiktok' => filled(config('services.tiktok.client_key')) && filled(config('services.tiktok.client_secret')),
                 'apple' => filled(config('services.apple.client_id')),
                 default => false,

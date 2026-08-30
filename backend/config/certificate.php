@@ -79,7 +79,8 @@ return [
         'cert_id' => [
             'x'     => 0.135,
             'y'     => 0.87,
-            'size'  => 14,
+            // A UUID is the externally verifiable credential identifier.
+            'size'  => 9,
             'color' => '#333333',
         ],
 

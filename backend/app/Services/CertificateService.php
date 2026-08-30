@@ -69,8 +69,8 @@ class CertificateService
         }
 
         if (!$certificate) {
-            // Create the DB record first so we have the auto-increment ID to
-            // print on the image. A unique constraint resolves concurrent jobs.
+            // Create the DB record first so the public credential ID is stable
+            // across retries. A unique constraint resolves concurrent jobs.
             try {
                 $createAttributes = [
                     'public_id'    => (string) Str::uuid(),
@@ -103,7 +103,13 @@ class CertificateService
             $certificate->refresh();
         }
 
-        $filePath = $this->createCertificateImage($user, $course, $certificate);
+        $generatedAt = now();
+        $filePath = $this->createCertificateImage(
+            $user,
+            $course,
+            $certificate,
+            $generatedAt
+        );
 
         if (!$filePath) {
             // Keep the pending row as the durable recovery marker. The queued
@@ -113,7 +119,7 @@ class CertificateService
 
         $updateAttributes = [
             'image_path' => $filePath,
-            'generated_at' => now(),
+            'generated_at' => $generatedAt,
             'status' => 'active',
         ];
         if ($supportsVerificationLevel) {
@@ -144,7 +150,12 @@ class CertificateService
      * Image generation
      * ----------------------------------------------------------------*/
 
-    private function createCertificateImage(User $user, Course $course, Certificate $certificate): ?string
+    private function createCertificateImage(
+        User $user,
+        Course $course,
+        Certificate $certificate,
+        \DateTimeInterface $generatedAt
+    ): ?string
     {
         try {
             $cfg       = config('certificate');
@@ -196,7 +207,9 @@ class CertificateService
             }
 
             // ----- 3. Certificate ID -----
-            $certIdText = (string) $certificate->id;
+            // The printed credential must match the public API and QR target;
+            // database sequence IDs are implementation details, not credentials.
+            $certIdText = (string) $certificate->public_id;
             $pos = $positions['cert_id'];
             $img->text($certIdText, (int)($width * $pos['x']), (int)($height * $pos['y']), function ($font) use ($fontPath, $pos) {
                 $font->file($fontPath);
@@ -207,7 +220,7 @@ class CertificateService
             });
 
             // ----- 4. Date -----
-            $dateText = now()->format($cfg['date_format']);
+            $dateText = $generatedAt->format($cfg['date_format']);
             $pos = $positions['date'];
             $img->text($dateText, (int)($width * $pos['x']), (int)($height * $pos['y']), function ($font) use ($fontPath, $pos) {
                 $font->file($fontPath);

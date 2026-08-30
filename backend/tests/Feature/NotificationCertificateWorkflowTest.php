@@ -16,6 +16,7 @@ use App\Models\StudentNotification;
 use App\Models\User;
 use App\Services\CertificateService;
 use App\Services\NotificationService;
+use App\Services\PublicPortfolioService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -32,6 +33,7 @@ final class NotificationCertificateWorkflowTest extends TestCase
 {
     /** @var list<string> */
     private array $tables = [
+        'photos',
         'user_device_tokens', 'student_notifications', 'user_project_evaluations',
         'projects', 'student_section_progress', 'course_sections', 'certificates', 'course_enrollments',
         'courses', 'users',
@@ -382,6 +384,22 @@ final class NotificationCertificateWorkflowTest extends TestCase
         self::assertSame($pending->id, $certificate->id);
         self::assertNotSame('pending', $certificate->image_path);
         Storage::disk('certificate-test')->assertExists($certificate->image_path);
+        self::assertStringContainsString(
+            'certificate='.$certificate->public_id,
+            $certificate->portfolio_url
+        );
+
+        $verification = app(PublicPortfolioService::class)->find(
+            'certificate-student',
+            (string) $certificate->public_id
+        );
+        self::assertNotNull($verification);
+        self::assertTrue($verification['is_limited_certificate_view']);
+        self::assertSame(
+            $certificate->public_id,
+            $verification['highlighted_certificate']['public_id']
+        );
+        self::assertSame('active', $verification['highlighted_certificate']['status']);
     }
 
     private function user(string $email): User
@@ -444,6 +462,14 @@ final class NotificationCertificateWorkflowTest extends TestCase
             $table->string('name_en')->nullable();
             $table->timestamps();
             $table->softDeletes();
+        });
+        Schema::create('photos', function (Blueprint $table): void {
+            $table->id();
+            $table->string('path');
+            $table->string('type')->default('featured');
+            $table->string('photoable_type');
+            $table->unsignedBigInteger('photoable_id');
+            $table->timestamps();
         });
         Schema::create('course_enrollments', function (Blueprint $table): void {
             $table->id();

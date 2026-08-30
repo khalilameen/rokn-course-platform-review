@@ -73,6 +73,14 @@ final class OperationalHealthController extends Controller
             'payment' => (bool) data_get($report, 'capabilities.payment.ready'),
             'ai' => (bool) data_get($report, 'capabilities.ai.ready'),
             'mail' => (bool) data_get($report, 'capabilities.mail.ready'),
+            'push' => (bool) data_get($report, 'capabilities.push.ready'),
+            'social_google' => (bool) data_get($report, 'capabilities.social.google.ready'),
+            'social_facebook' => (bool) data_get($report, 'capabilities.social.facebook.ready'),
+            'social_tiktok' => (bool) data_get($report, 'capabilities.social.tiktok.ready'),
+            'social_apple' => (bool) data_get($report, 'capabilities.social.apple.ready'),
+            'social_callbacks' => (bool) data_get($report, 'capabilities.social.callbacks.ready'),
+            'app_links_android' => (bool) data_get($report, 'capabilities.app_links.android.ready'),
+            'app_links_apple' => (bool) data_get($report, 'capabilities.app_links.apple.ready'),
             'queue' => (bool) data_get($report, 'capabilities.queue.ready'),
         ];
         $ready = !in_array(false, $checks, true);

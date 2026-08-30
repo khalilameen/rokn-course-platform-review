@@ -23,6 +23,13 @@ final class ProductionCapabilityTest extends TestCase
     {
         parent::setUp();
 
+        $androidFingerprint = implode(':', array_fill(0, 32, 'AB'));
+        $firebaseCredentials = base64_encode(json_encode([
+            'project_id' => 'rokn-production',
+            'client_email' => 'firebase-admin@rokn-production.iam.gserviceaccount.com',
+            'private_key' => "-----BEGIN"." PRIVATE KEY-----\nfixture\n-----END"." PRIVATE KEY-----\n",
+        ], JSON_THROW_ON_ERROR));
+
         Schema::create('settings', function (Blueprint $table): void {
             $table->id();
             $table->boolean('bunny_enabled')->default(false);
@@ -66,6 +73,22 @@ final class ProductionCapabilityTest extends TestCase
             'mail.mailers.smtp.username' => 'mailer',
             'mail.mailers.smtp.password' => 'mail-secret',
             'mail.from.address' => 'hello@production.test',
+            'firebase.credentials.base64' => $firebaseCredentials,
+            'firebase.credentials.file' => storage_path('missing-firebase-fixture.json'),
+            'services.google.client_id' => 'google-client',
+            'services.google.client_secret' => 'google-secret',
+            'services.facebook.client_id' => 'facebook-client',
+            'services.facebook.client_secret' => 'facebook-secret',
+            'services.facebook.graph_version' => 'v999.0',
+            'services.tiktok.client_key' => 'tiktok-client',
+            'services.tiktok.client_secret' => 'tiktok-secret',
+            'services.apple.client_id' => 'com.rokn',
+            'social_auth.public_api_url' => 'https://api.rokn.test/api/v1',
+            'social_auth.return_urls' => ['rokn://auth'],
+            'social_auth.allow_legacy_pkce' => false,
+            'app_links.android_package' => 'com.rokn',
+            'app_links.android_sha256_fingerprints' => [$androidFingerprint],
+            'app_links.apple_app_ids' => ['ABCDE12345.com.rokn'],
             'operations.queue_heartbeat_key' => 'test:queue-heartbeat',
             'operations.queue_heartbeat_required_queues' => self::REQUIRED_QUEUES,
             'operations.queue_heartbeat_ttl_seconds' => 600,
@@ -117,6 +140,16 @@ final class ProductionCapabilityTest extends TestCase
         self::assertTrue($report['capabilities']['payment']['ready']);
         self::assertTrue($report['capabilities']['ai']['ready']);
         self::assertTrue($report['capabilities']['mail']['ready']);
+        self::assertTrue($report['capabilities']['push']['ready']);
+        self::assertTrue($report['capabilities']['social']['ready']);
+        self::assertTrue($report['capabilities']['social']['google']['ready']);
+        self::assertTrue($report['capabilities']['social']['facebook']['ready']);
+        self::assertTrue($report['capabilities']['social']['tiktok']['ready']);
+        self::assertTrue($report['capabilities']['social']['apple']['ready']);
+        self::assertTrue($report['capabilities']['social']['callbacks']['ready']);
+        self::assertTrue($report['capabilities']['app_links']['ready']);
+        self::assertTrue($report['capabilities']['app_links']['android']['ready']);
+        self::assertTrue($report['capabilities']['app_links']['apple']['ready']);
         self::assertTrue($report['capabilities']['queue']['ready']);
         self::assertSame(self::REQUIRED_QUEUES, $report['capabilities']['queue']['required_queues']);
         foreach (self::REQUIRED_QUEUES as $queue) {
@@ -128,12 +161,20 @@ final class ProductionCapabilityTest extends TestCase
             ->assertJsonPath('checks.bunny_assets', true)
             ->assertJsonPath('checks.queue', true)
             ->assertJsonPath('checks.mail', true)
+            ->assertJsonPath('checks.push', true)
+            ->assertJsonPath('checks.social_facebook', true)
+            ->assertJsonPath('checks.social_tiktok', true)
+            ->assertJsonPath('checks.app_links_android', true)
+            ->assertJsonPath('checks.app_links_apple', true)
             ->assertJsonMissing(['reason'])
             ->assertDontSee('stream-secret')
             ->assertDontSee('payment-secret')
             ->assertDontSee('dashboard-secret')
             ->assertDontSee('ai-secret')
-            ->assertDontSee('mail-secret');
+            ->assertDontSee('mail-secret')
+            ->assertDontSee('facebook-secret')
+            ->assertDontSee('tiktok-secret')
+            ->assertDontSee('PRIVATE KEY');
     }
 
     public function test_missing_or_stale_worker_heartbeat_fails_readiness(): void
@@ -196,6 +237,70 @@ final class ProductionCapabilityTest extends TestCase
         $this->getJson('/api/health/launch-ready')
             ->assertStatus(503)
             ->assertJsonPath('checks.mail', false);
+    }
+
+    public function test_missing_push_credentials_block_launch(): void
+    {
+        $this->recordAllQueueHeartbeats();
+        config([
+            'firebase.credentials.base64' => 'not-base64',
+            'firebase.credentials.file' => storage_path('missing-firebase-fixture.json'),
+        ]);
+
+        $report = app(ProductionCapabilityService::class)->report();
+
+        self::assertFalse($report['capabilities']['push']['ready']);
+        self::assertFalse($report['ready']);
+        $this->getJson('/api/health/launch-ready')
+            ->assertServiceUnavailable()
+            ->assertJsonPath('checks.push', false);
+    }
+
+    public function test_each_social_provider_and_callback_contract_blocks_launch_independently(): void
+    {
+        $this->recordAllQueueHeartbeats();
+        config([
+            'services.facebook.graph_version' => 'v19.0',
+            'services.tiktok.client_secret' => null,
+            'services.apple.client_id' => null,
+            'social_auth.public_api_url' => 'http://localhost/api/v1',
+        ]);
+
+        $report = app(ProductionCapabilityService::class)->report();
+
+        self::assertTrue($report['capabilities']['social']['google']['ready']);
+        self::assertFalse($report['capabilities']['social']['facebook']['ready']);
+        self::assertFalse($report['capabilities']['social']['tiktok']['ready']);
+        self::assertFalse($report['capabilities']['social']['apple']['ready']);
+        self::assertFalse($report['capabilities']['social']['callbacks']['ready']);
+        self::assertFalse($report['ready']);
+
+        $this->getJson('/api/health/launch-ready')
+            ->assertServiceUnavailable()
+            ->assertJsonPath('checks.social_google', true)
+            ->assertJsonPath('checks.social_facebook', false)
+            ->assertJsonPath('checks.social_tiktok', false)
+            ->assertJsonPath('checks.social_apple', false)
+            ->assertJsonPath('checks.social_callbacks', false);
+    }
+
+    public function test_android_and_apple_domain_associations_block_launch_independently(): void
+    {
+        $this->recordAllQueueHeartbeats();
+        config([
+            'app_links.android_sha256_fingerprints' => [],
+            'app_links.apple_app_ids' => ['invalid'],
+        ]);
+
+        $report = app(ProductionCapabilityService::class)->report();
+
+        self::assertFalse($report['capabilities']['app_links']['android']['ready']);
+        self::assertFalse($report['capabilities']['app_links']['apple']['ready']);
+        self::assertFalse($report['ready']);
+        $this->getJson('/api/health/launch-ready')
+            ->assertServiceUnavailable()
+            ->assertJsonPath('checks.app_links_android', false)
+            ->assertJsonPath('checks.app_links_apple', false);
     }
 
     public function test_legacy_key_only_falls_back_for_the_default_queue(): void

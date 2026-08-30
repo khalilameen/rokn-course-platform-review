@@ -171,8 +171,18 @@
                     ['رفع الفيديو إلى Bunny', data_get($capabilityReport, 'capabilities.bunny.upload')],
                     ['تشغيل الفيديو من CDN', data_get($capabilityReport, 'capabilities.bunny.playback')],
                     ['توقيع روابط التشغيل', data_get($capabilityReport, 'capabilities.bunny.signing')],
+                    ['صور وملفات Bunny', data_get($capabilityReport, 'capabilities.bunny.assets')],
                     ['الدفع عبر Kashier', data_get($capabilityReport, 'capabilities.payment')],
                     ['Rokn AI', data_get($capabilityReport, 'capabilities.ai')],
+                    ['البريد التشغيلي', data_get($capabilityReport, 'capabilities.mail')],
+                    ['إشعارات Firebase', data_get($capabilityReport, 'capabilities.push')],
+                    ['تسجيل Google', data_get($capabilityReport, 'capabilities.social.google')],
+                    ['تسجيل Facebook', data_get($capabilityReport, 'capabilities.social.facebook')],
+                    ['تسجيل TikTok', data_get($capabilityReport, 'capabilities.social.tiktok')],
+                    ['تسجيل Apple', data_get($capabilityReport, 'capabilities.social.apple')],
+                    ['روابط عودة تسجيل الدخول', data_get($capabilityReport, 'capabilities.social.callbacks')],
+                    ['فتح التطبيق على Android', data_get($capabilityReport, 'capabilities.app_links.android')],
+                    ['فتح التطبيق على Apple', data_get($capabilityReport, 'capabilities.app_links.apple')],
                     ['عامل المهام Queue', data_get($capabilityReport, 'capabilities.queue')],
                 ];
             @endphp
