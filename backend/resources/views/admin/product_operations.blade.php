@@ -94,7 +94,7 @@
             <div class="alert alert-success mb-0">كل الفيديوهات المسجلة جاهزة.</div>
         @else
             <div class="table-responsive"><table class="table table-sm admin-table mb-0">
-                <thead><tr><th>الكورس</th><th>الخطوة</th><th>الحالة</th><th>آخر فحص</th><th></th></tr></thead>
+                <thead><tr><th>الكورس</th><th>المقطع</th><th>الحالة</th><th>آخر فحص</th><th></th></tr></thead>
                 <tbody>@foreach($mediaAttention as $lesson)
                     <tr>
                         <td>{{ $lesson->course?->name_ar ?: $lesson->course?->name_en }}</td>

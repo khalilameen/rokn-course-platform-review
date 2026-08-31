@@ -192,8 +192,8 @@ class RoknExperienceDemoSeeder extends Seeder
                         [
                             'title' => $title,
                             'title_ar' => $title,
-                            'description' => 'خطوة واحدة عملية؛ شاهدها ثم طبّقها مباشرة داخل مشروع الوحدة.',
-                            'description_ar' => 'خطوة واحدة عملية؛ شاهدها ثم طبّقها مباشرة داخل مشروع الوحدة.',
+                            'description' => 'مقطع قصير يشرح فكرة واحدة بوضوح',
+                            'description_ar' => 'مقطع قصير يشرح فكرة واحدة بوضوح',
                             'description_en' => 'One focused step to apply in the module project.',
                             // Exercise the real try-before-unlock journey: two
                             // free reels, then the existing coin purchase gate.

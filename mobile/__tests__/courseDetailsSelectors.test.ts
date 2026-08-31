@@ -1,4 +1,5 @@
 import {
+  canChooseCourseAccess,
   selectCourseDetailsPresentation,
   selectCourseHeroHeight,
 } from '../src/screens/CourseDetails/details/selectors';
@@ -88,6 +89,22 @@ describe('course details presentation contract', () => {
     expect(presentation({remoteOwned: true}).primaryActionLabel).toBe(
       'استكمل الكورس',
     );
+  });
+
+  it('never exposes pricing tiers or educational access codes to a guest', () => {
+    const base = {
+      isDemoCourse: false,
+      owned: false,
+      pageReady: true,
+      remoteError: '',
+    };
+
+    expect(canChooseCourseAccess({...base, remoteSession: false})).toBe(false);
+    expect(canChooseCourseAccess({...base, remoteSession: null})).toBe(false);
+    expect(canChooseCourseAccess({...base, remoteSession: true})).toBe(true);
+    expect(
+      canChooseCourseAccess({...base, owned: true, remoteSession: true}),
+    ).toBe(false);
   });
 
   it('sorts package choices without mutating API data', () => {

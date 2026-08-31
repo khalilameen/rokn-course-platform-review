@@ -171,7 +171,7 @@ export default function Profile() {
                           user.avatar ||
                           user.profile_image,
                       }
-                    : require('../../assets/images/avatar.png')
+                    : require('../../assets/images/default-avatar.png')
                 }
                 style={styles.avatar}
               />
@@ -211,24 +211,6 @@ export default function Profile() {
                 <Text numberOfLines={1} style={styles.publicLinkText}>
                   rokn.app/@{username}
                 </Text>
-              </Pressable>
-            )}
-            {!authenticatedIdentity && (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() =>
-                  navigation.navigate('Login', {
-                    returnTo: {name: 'Profile'},
-                  })
-                }
-                style={({pressed}) => [
-                  styles.loginPrompt,
-                  pressed && styles.pressed,
-                ]}>
-                <Text style={styles.loginPromptTitle}>
-                  سجّل دخولك لحفظ تقدمك
-                </Text>
-                <Text style={styles.loginPromptArrow}>‹</Text>
               </Pressable>
             )}
           </PremiumCard>
@@ -334,18 +316,6 @@ const styles = StyleSheet.create({
     borderTopColor: Palette.lineSoft,
   },
   publicLinkText: {...Type.bodyStrong, ...textDirection, color: '#8BB5FF'},
-  loginPrompt: {
-    minHeight: Accessibility.minTouchTarget,
-    marginTop: Spacing.md,
-    paddingTop: Spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Palette.lineSoft,
-    ...rtlRowStyle,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  loginPromptTitle: {...Type.bodyStrong, ...textDirection, color: '#8BB5FF'},
-  loginPromptArrow: {fontSize: 26, color: '#8BB5FF'},
   tabs: {
     ...rtlRowStyle,
     backgroundColor: Palette.surface,

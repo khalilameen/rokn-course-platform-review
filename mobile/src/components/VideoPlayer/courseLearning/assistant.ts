@@ -16,7 +16,7 @@ const demoAssistantReply = (message: string, reel?: CourseReel) => {
     return 'اربط السعر بنطاق واضح\nهتسلّم إيه\nكام جولة تعديل\nوالموعد\nأي إضافة خارج الاتفاق لها سعر منفصل';
   }
   if (normalized.includes('عميل') || normalized.includes('عرض')) {
-    return 'رسالتك للعميل تكون قصيرة\nالمشكلة اللي فهمتها\nالنتيجة اللي هتوصلهاله\nالخطوة التالية والموعد\nمثال صغير مرتبط بمشكلته أقوى من سيرة طويلة';
+    return 'اكتب رسالة قصيرة\nالمشكلة التي فهمتها\nالنتيجة التي ستقدمها\nالخطوة التالية وموعدها';
   }
   if (
     normalized.includes('مشروع') ||
@@ -29,9 +29,9 @@ const demoAssistantReply = (message: string, reel?: CourseReel) => {
     return 'اعرض المشروع كقصة قرار\nالمشكلة\nدورك\nأهم قرار خدته\nوالنتيجة\nصور قليلة قوية أفضل من ألبوم طويل';
   }
   if (reel?.caption) {
-    return `الفكرة في الخطوة دي\n${reel.caption}\nطبّقها على حالة واحدة حقيقية`;
+    return `فكرة هذا المقطع\n${reel.caption}\nطبّقها على حالة حقيقية`;
   }
-  return 'اكتب الهدف والمشكلة اللي ظهرت\nمثال\nعايز أعمل كذا لكن واقف عند كذا\nهتطلع لك خطوة عملية بدل كلام عام';
+  return 'اكتب هدفك والمشكلة بوضوح\nمثال\nأريد تنفيذ كذا لكنني توقفت عند كذا';
 };
 
 export const courseIncludesAssistant = (
@@ -113,7 +113,7 @@ export const askCourseAssistant = async ({
   }
 
   return {
-    text: 'Rokn AI غير متاح للحظات\nكمّل الخطوة ومكانك محفوظ\nجرّب سؤالك تاني بعد شوية',
+    text: 'Rokn AI غير متاح الآن\nأكمل المقطع ومكانك محفوظ\nحاول لاحقًا',
     offline: true,
   };
 };

@@ -9,19 +9,15 @@ import {
   MoreLanguageIcon,
   MoreLogoutIcon,
   MoreRateAppIcon,
-  SettingsAutoplayIcon,
   SettingsClearHistoryIcon,
   SettingsDataRequestIcon,
   SettingsDevicesIcon,
-  SettingsDisplayIcon,
   SettingsFeedbackIcon,
   SettingsHistoryIcon,
-  SettingsLicensesIcon,
   SettingsMarketingIcon,
   SettingsPortfolioIcon,
   SettingsPrivacyIcon,
   SettingsQualityIcon,
-  SettingsRefundIcon,
   SettingsReminderIcon,
   SettingsTermsIcon,
   SupportWhatsAppIcon,
@@ -78,7 +74,6 @@ export type SettingsSectionModel = {
 
 export type SettingsSectionsProps = {
   authenticated: boolean;
-  autoplay: boolean;
   deletingAccount: boolean;
   marketingNotifications: boolean;
   notifications: boolean;
@@ -105,7 +100,6 @@ export type SettingsSectionsProps = {
   onReturnsPolicy: () => void;
   onSupport: () => void;
   onTermsOfUse: () => void;
-  onToggleAutoplay: (value: boolean) => void;
   onToggleMarketing: (value: boolean) => void;
   onToggleNotifications: (value: boolean) => void;
   onToggleWatchHistory: (value: boolean) => void;
@@ -132,7 +126,6 @@ export const buildSettingsSections = (
           id: 'account.devices',
           icon: SettingsDevicesIcon,
           onPress: props.onDevices,
-          subtitle: 'راجع الأجهزة وأنهِ أي جلسة لا تعرفها',
           title: 'الأجهزة المسجّل عليها',
         },
         {
@@ -147,7 +140,6 @@ export const buildSettingsSections = (
           icon: MoreDeleteAccountIcon,
           isLast: true,
           onPress: props.onDeleteAccount,
-          subtitle: 'حذف نهائي وليس تسجيل خروج',
           title: props.deletingAccount ? 'جارٍ حذف الحساب…' : 'حذف الحساب',
         },
       ]
@@ -157,7 +149,7 @@ export const buildSettingsSections = (
           icon: FullNameIcon,
           isLast: true,
           onPress: props.onLogin,
-          subtitle: 'لحفظ تقدمك ومحفوظاتك والرجوع إليها في أي وقت',
+          subtitle: 'احفظ تقدمك ومحفوظاتك',
           title: 'تسجيل الدخول',
         },
       ];
@@ -184,12 +176,6 @@ export const buildSettingsSections = (
         ]
       : []),
     {
-      id: 'learning.autoplay',
-      icon: SettingsAutoplayIcon,
-      title: 'تشغيل الخطوة التالية تلقائيًا',
-      toggle: {value: props.autoplay, onChange: props.onToggleAutoplay},
-    },
-    {
       id: 'learning.quality',
       icon: SettingsQualityIcon,
       onPress: props.onOpenQuality,
@@ -197,16 +183,9 @@ export const buildSettingsSections = (
       value: qualityLabel(props.quality),
     },
     {
-      id: 'learning.display',
-      icon: SettingsDisplayIcon,
-      onPress: props.onOpenFit,
-      title: 'عرض الفيديو',
-      value: fitLabel(props.videoFit),
-    },
-    {
       id: 'learning.history',
       icon: SettingsHistoryIcon,
-      subtitle: 'يحفظ آخر موضع شاهدته لتكمل من مكانك',
+      subtitle: 'أكمل من آخر موضع شاهدته',
       title: 'سجل المشاهدة',
       toggle: {value: props.watchHistory, onChange: props.onToggleWatchHistory},
     },
@@ -216,7 +195,6 @@ export const buildSettingsSections = (
       icon: SettingsClearHistoryIcon,
       isLast: true,
       onPress: props.onClearWatchHistory,
-      subtitle: 'لا يمس تقدم الكورسات أو الشهادات',
       title: 'مسح سجل المشاهدة',
     },
   ];
@@ -225,7 +203,6 @@ export const buildSettingsSections = (
     {
       id: 'privacy.marketing',
       icon: SettingsMarketingIcon,
-      subtitle: 'اختياري ويمكنك إيقافه في أي وقت',
       title: 'العروض والأخبار',
       toggle: {
         value: props.marketingNotifications,
@@ -245,16 +222,9 @@ export const buildSettingsSections = (
       title: 'شروط الاستخدام',
     },
     {
-      id: 'privacy.refunds',
-      icon: SettingsRefundIcon,
-      onPress: props.onReturnsPolicy,
-      title: 'سياسة الاسترداد',
-    },
-    {
       id: 'privacy.data-request',
       icon: SettingsDataRequestIcon,
       onPress: props.onOpenAccountDeletion,
-      subtitle: 'متاحة حتى لو لم تستطع تسجيل الدخول',
       title: 'طلب حذف الحساب أو البيانات',
     },
     {
@@ -283,12 +253,6 @@ export const buildSettingsSections = (
       icon: MoreRateAppIcon,
       onPress: props.onRateApp,
       title: 'قيّم ركن',
-    },
-    {
-      id: 'about.open-source',
-      icon: SettingsLicensesIcon,
-      onPress: props.onOpenSourceLicenses,
-      title: 'المكتبات مفتوحة المصدر',
     },
     {
       id: 'about.info',

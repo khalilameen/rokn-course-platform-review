@@ -32,6 +32,24 @@ const DEMO_COURSE_DURATION_MINUTES = Math.ceil(
 );
 let demoAccessPlans: CourseAccessPlan[] | null = null;
 
+export const canChooseCourseAccess = ({
+  isDemoCourse,
+  owned,
+  pageReady,
+  remoteError,
+  remoteSession,
+}: {
+  isDemoCourse: boolean;
+  owned: boolean;
+  pageReady: boolean;
+  remoteError: string;
+  remoteSession: boolean | null;
+}) =>
+  !owned &&
+  pageReady &&
+  !remoteError &&
+  (isDemoCourse || remoteSession === true);
+
 export const planBenefits = (plan: CourseAccessPlan): string[] => {
   const items = ['الكورس كامل ومشروعات العبور'];
   if (!plan.chatEnabled) {

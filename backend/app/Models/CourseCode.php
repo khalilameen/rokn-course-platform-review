@@ -337,11 +337,11 @@ class CourseCode extends Model
                 StudentNotificationService::notifyUser(
                     $user,
                     StudentNotificationService::TYPE_COURSE_ENROLLED,
-                    $grant ? 'منحتك اتفعّلت' : 'الكورس أصبح لك',
+                    $grant ? 'تم تفعيل منحتك' : 'الكورس أصبح لك',
                     $grant ? 'Your grant is active' : 'Course access active',
                     $grant
-                        ? 'الكورس والمشاريع كاملين متاحين لك. ابدأ أول خطوة وقت ما يناسبك.'
-                        : 'تقدر تبدأ ' . $course->name_ar . ' وتكمل من مكانك في أي وقت.',
+                        ? "الكورس ومشروعاته متاحة لك\nابدأ عندما يناسبك"
+                        : $course->name_ar . "\nابدأ أو أكمل من مكانك",
                     $grant
                         ? 'The complete course and projects are ready whenever you are.'
                         : 'You can start ' . $course->name_en . ' and resume at any time.',

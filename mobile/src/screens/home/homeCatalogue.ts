@@ -85,7 +85,7 @@ export const buildHomeSections = ({
     continueCourses.length
       ? {
           id: 'continue-learning',
-          title: 'كمّل من مكانك',
+          title: 'أكمل من مكانك',
           data: continueCourses,
         }
       : null,

@@ -66,7 +66,9 @@ export default function EditAccount() {
   const [email, setEmail] = useState(user.email ?? '');
   const storedAvatar = user.avatar || user.profile_image;
   const [avatar, setAvatar] = useState<ImageSourcePropType>(
-    storedAvatar ? {uri: storedAvatar} : require('../assets/images/avatar.png'),
+    storedAvatar
+      ? {uri: storedAvatar}
+      : require('../assets/images/default-avatar.png'),
   );
   const [avatarUpload, setAvatarUpload] = useState<
     {uri: string; type?: string; fileName?: string} | undefined
@@ -139,7 +141,7 @@ export default function EditAccount() {
     });
     const asset = result.assets?.[0];
     if (asset?.fileSize && asset.fileSize > 2 * 1024 * 1024) {
-      Alert.alert('الصورة كبيرة', 'اختر صورة أصغر من ٢ ميجابايت.');
+      Alert.alert('الصورة كبيرة', 'اختر صورة أصغر من ٢ ميجابايت');
       return;
     }
     if (asset?.uri) {
@@ -215,7 +217,7 @@ export default function EditAccount() {
       Alert.alert(
         'تعذّر حفظ التغييرات',
         firstError ||
-          String(payload.message || 'لم نفقد تعديلاتك. حاول مرة أخرى.'),
+          String(payload.message || 'تعديلاتك محفوظة\nحاول مرة أخرى'),
       );
     } finally {
       setSaving(false);

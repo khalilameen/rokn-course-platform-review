@@ -80,9 +80,9 @@ export const HomeOverlays = ({
           <Text style={styles.welcomeTitle}>{welcomeMessage?.title || 'رصيدك بدأ'}</Text>
           <Text style={styles.welcomeText}>
             {welcomeMessage?.description ||
-              `نزلنا لك ${formatArabicNumber(
+              `أضفنا ${formatArabicNumber(
                 Number(welcomeBonus || 0),
-              )} عملة ركن في المحفظة. دي عملات داخل التطبيق، مش جنيهات.`}
+              )} عملة ركن إلى محفظتك\nاستخدمها داخل التطبيق`}
           </Text>
           <Pressable
             accessibilityRole="button"
@@ -92,7 +92,7 @@ export const HomeOverlays = ({
               pressed && styles.pressed,
             ]}>
             <Text style={styles.actionButtonText}>
-              {welcomeMessage?.actionLabel || 'شوف الكورسات'}
+              {welcomeMessage?.actionLabel || 'افتح الكورسات'}
             </Text>
           </Pressable>
         </View>
@@ -114,10 +114,10 @@ export const HomeOverlays = ({
           <Text style={styles.welcomeTitle}>{rewardPrompt?.title}</Text>
           <Text style={styles.welcomeText}>{rewardPrompt?.description}</Text>
           <Pressable accessibilityRole="button" onPress={onOpenRewardPrompt} style={({pressed}) => [styles.actionButton, pressed && styles.pressed]}>
-            <Text style={styles.actionButtonText}>{rewardPrompt?.actionLabel || 'شوف المهمة'}</Text>
+            <Text style={styles.actionButtonText}>{rewardPrompt?.actionLabel || 'افتح المهمة'}</Text>
           </Pressable>
           <Pressable accessibilityRole="button" onPress={onDismissRewardPrompt} style={({pressed}) => [styles.secondaryButton, pressed && styles.pressed]}>
-            <Text style={styles.secondaryButtonText}>{rewardPrompt?.secondaryActionLabel || 'مش دلوقتي'}</Text>
+            <Text style={styles.secondaryButtonText}>{rewardPrompt?.secondaryActionLabel || 'لاحقًا'}</Text>
           </Pressable>
         </View>
       </View>
@@ -148,7 +148,7 @@ export const HomeOverlays = ({
             onPress={onDismissGuestPrompt}
             style={({pressed}) => [styles.secondaryButton, pressed && styles.pressed]}>
             <Text style={styles.secondaryButtonText}>
-              {guestPrompt?.secondaryActionLabel || 'كمّل كزائر'}
+              {guestPrompt?.secondaryActionLabel || 'المتابعة كزائر'}
             </Text>
           </Pressable>
         </View>

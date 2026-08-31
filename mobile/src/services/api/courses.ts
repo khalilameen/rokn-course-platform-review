@@ -334,7 +334,7 @@ const courseModules = (course: CourseDto): CourseModulePreview[] => {
         title: String(
           section?.title ||
             section?.content?.title ||
-            (type === 'project' ? 'مشروع العبور' : 'خطوة تعليمية'),
+            (type === 'project' ? 'مشروع العبور' : 'مقطع تعليمي'),
         ),
         type,
         isPreview: type === 'reel' && isPreviewSection(section),

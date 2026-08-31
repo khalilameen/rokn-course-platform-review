@@ -1,0 +1,86 @@
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+const normalizedCode = (value: unknown): string => {
+  if (typeof value !== 'string') return '';
+  const code = value
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9._-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 64);
+  return /^[A-Z0-9][A-Z0-9._-]{0,63}$/.test(code) ? code : '';
+};
+
+/**
+ * Convert provider, Axios and app failures to a closed diagnostic code.
+ * Provider tokens, callback URLs and free-form server messages never escape.
+ */
+export const socialAuthFailureCode = (error: unknown): string => {
+  const root = asRecord(error);
+  // The shared Axios interceptor intentionally rejects with response itself
+  // when one exists, while transport errors keep Axios' nested shape.
+  const response =
+    asRecord(root?.response) ??
+    (root && ('status' in root || 'data' in root) ? root : null);
+  const responseData = asRecord(response?.data);
+  const message = error instanceof Error ? error.message : '';
+
+  if (
+    root?.code === 'ERR_NETWORK' ||
+    root?.code === 'ECONNABORTED' ||
+    /network|timeout|internet|connection/i.test(message)
+  ) {
+    return 'NETWORK_UNAVAILABLE';
+  }
+
+  const backendCode = normalizedCode(
+    responseData?.code ?? responseData?.error ?? root?.code,
+  );
+  if (backendCode) return backendCode;
+
+  const messageCode = normalizedCode(message);
+  if (
+    messageCode &&
+    (messageCode.startsWith('LOGIN_') ||
+      messageCode.startsWith('PROVIDER_') ||
+      messageCode.startsWith('SESSION_') ||
+      messageCode.startsWith('SOCIAL_LOGIN_'))
+  ) {
+    return messageCode;
+  }
+
+  const status = Number(response?.status);
+  if (status >= 500) return 'PROVIDER_UNAVAILABLE';
+  return 'LOGIN_FAILED';
+};
+
+export const socialAuthMessage = (code: string): string => {
+  if (code === 'LOGIN_CANCELLED') return '';
+  if (code === 'PROVIDER_NOT_CONFIGURED') {
+    return 'طريقة الدخول غير متاحة الآن\nاختر طريقة أخرى';
+  }
+  if (code === 'PROVIDER_UNAVAILABLE' || code === 'LOGIN_UNAVAILABLE') {
+    return 'تعذّر الوصول إلى الحساب\nحاول مرة أخرى';
+  }
+  if (
+    code === 'LOGIN_CODE_MISSING' ||
+    code === 'SOCIAL_LOGIN_EXPIRED' ||
+    code === 'SOCIAL_LOGIN_PKCE_REQUIRED' ||
+    code === 'SOCIAL_LOGIN_PKCE_MISMATCH'
+  ) {
+    return 'انتهت محاولة الدخول\nحاول مرة أخرى';
+  }
+  if (code === 'LOGIN_SESSION_INVALID') {
+    return 'لم تكتمل بيانات الحساب\nحاول مرة أخرى';
+  }
+  if (code === 'SESSION_STORAGE_UNAVAILABLE') {
+    return 'تعذّر حفظ تسجيل الدخول\nأغلق التطبيق وافتحه ثم حاول';
+  }
+  if (code === 'NETWORK_UNAVAILABLE') {
+    return 'تحقق من الاتصال\nثم حاول مرة أخرى';
+  }
+  return 'لم يكتمل تسجيل الدخول\nحاول مرة أخرى';
+};

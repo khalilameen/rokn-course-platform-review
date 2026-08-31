@@ -68,7 +68,7 @@
                                 <button type="submit" class="btn btn-danger"><i class="fa fa-repeat"></i> طلب إعادة الإرسال</button>
                             </form>
                         @else
-                            <p class="text-muted mb-0">تم فتح الخطوة التالية للطالب. قبولك الآن يحوّل القرار إلى مراجعة بشرية موثقة.</p>
+                            <p class="text-muted mb-0">تم فتح المقطع التالي للطالب ويثبت قبولك المراجعة البشرية</p>
                         @endif
                     </div>
                 </div>

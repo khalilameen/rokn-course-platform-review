@@ -53,12 +53,12 @@ final class StudentNotificationPresentationService
     private function actions(string $type): array
     {
         return match ($type) {
-            'coins_claimed', 'package_purchased', 'coin_reward' => ['شوف رصيدك', 'View balance'],
-            'coin_offer' => ['شوف العرض', 'View offer'],
-            'learning_nudge', 'continue_course', 'course_enrolled' => ['كمّل من مكانك', 'Continue learning'],
-            'course_promotion' => ['اعرف تفاصيل الكورس', 'View course'],
-            'new_course' => ['شوف الكورس الجديد', 'View new course'],
-            'project_update' => ['شوف النتيجة', 'View result'],
+            'coins_claimed', 'package_purchased', 'coin_reward' => ['افتح المحفظة', 'View balance'],
+            'coin_offer' => ['افتح العرض', 'View offer'],
+            'learning_nudge', 'continue_course', 'course_enrolled' => ['أكمل من مكانك', 'Continue learning'],
+            'course_promotion' => ['تفاصيل الكورس', 'View course'],
+            'new_course' => ['افتح الكورس', 'View new course'],
+            'project_update' => ['افتح النتيجة', 'View result'],
             'certificate_ready', 'course_completed' => ['افتح الشهادة', 'View certificate'],
             default => ['افتح ركن', 'Open Rokn'],
         };

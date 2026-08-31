@@ -294,7 +294,7 @@ export default function Wallet() {
         if (!safeActionUrl) {
           Alert.alert(
             'ربط واتساب غير متاح',
-            'تعذّر تجهيز رسالة الربط الآن. جرّب بعد قليل.',
+            'حاول مرة أخرى لاحقًا',
           );
           return;
         }
@@ -303,7 +303,7 @@ export default function Wallet() {
         const details = errorPayload(error);
         Alert.alert(
           'تعذّر فتح واتساب',
-          String(details.message || 'حاول مرة أخرى بعد التأكد من الاتصال.'),
+          String(details.message || 'تحقق من الاتصال ثم حاول مرة أخرى'),
         );
       }
       return;
@@ -341,7 +341,7 @@ export default function Wallet() {
           if (!safeActionUrl) {
             Alert.alert(
               'تعذّر فتح المهمة',
-              'رابط المهمة غير صالح. لم نفتح أي صفحة، وهنراجع الرابط.',
+              'رابط المهمة غير متاح',
             );
             return;
           }
@@ -351,7 +351,7 @@ export default function Wallet() {
         const payload = errorPayload(error);
         Alert.alert(
           'تعذّر بدء المهمة',
-          String(payload.message || 'حاول مرة أخرى بعد التأكد من الاتصال.'),
+          String(payload.message || 'تحقق من الاتصال ثم حاول مرة أخرى'),
         );
       }
       return;
@@ -372,7 +372,7 @@ export default function Wallet() {
       const payload = errorPayload(error);
       Alert.alert(
         'المكافأة ليست جاهزة بعد',
-        String(payload.message || 'أكمل المهمة ثم عد للمطالبة بالعملات.'),
+        String(payload.message || 'أكمل المهمة ثم اطلب العملات'),
       );
     }
   };
@@ -400,16 +400,16 @@ export default function Wallet() {
         if (!result.demo) await refreshWallet();
         Alert.alert(
           'تم شحن الرصيد',
-          `أضفنا ${formatArabicNumber(result.coinsAdded)} إلى رصيدك.`,
+          `أضفنا ${formatArabicNumber(result.coinsAdded)} إلى رصيدك`,
         );
       } else if (result.pending) {
         Alert.alert(
           'العملية قيد التأكيد',
-          'سنحدّث رصيدك تلقائيًا فور وصول تأكيد الدفع.',
+          'سنحدّث رصيدك فور تأكيد الدفع',
         );
       }
     } catch {
-      Alert.alert('تعذّر فتح الدفع', 'رصيدك لم يتغير. حاول مرة أخرى بعد قليل.');
+      Alert.alert('تعذّر فتح الدفع', 'رصيدك لم يتغير\nحاول مرة أخرى');
     } finally {
       checkoutFlightRef.current = false;
       setCheckoutLoading(null);
@@ -424,7 +424,7 @@ export default function Wallet() {
             <HeaderWithBack hasArrow={false} title="المحفظة" />
             <StatusView
               actionLabel="تسجيل الدخول"
-              description="سجّل دخولك علشان تشوف رصيدك ومكافآتك وتكمل من أي جهاز."
+              description="سجّل الدخول لعرض رصيدك ومكافآتك من أي جهاز"
               onAction={() =>
                 navigation.navigate('Login', {
                   returnTo: {name: 'Wallet'},
@@ -631,7 +631,7 @@ export default function Wallet() {
                 {usingRemoteWallet && remoteLoading
                   ? 'نحدّث المهام المتاحة…'
                   : usingRemoteWallet && remoteError
-                  ? 'تعذّر تحميل المهام الآن. جرّب التحديث بعد قليل.'
+                  ? 'تعذّر تحميل المهام\nحاول التحديث لاحقًا'
                   : 'أنهيت كل المهام المتاحة حاليًا.'}
               </Text>
             )}

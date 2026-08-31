@@ -159,11 +159,11 @@
                                 </div>
                                 <div class="stat-mini">
                                     <span class="stat-mini-number">{{ number_format((int) ($course->preview_steps_count ?? 0)) }}</span>
-                                    <span class="stat-mini-label">خطوات مجانية</span>
+                                    <span class="stat-mini-label">مقاطع مجانية</span>
                                 </div>
                             </div>
                             <div class="text-muted course-card-footnote mb-3">
-                                يظهر للطالب {{ number_format((int) ($course->students_count ?? 0) + (int) ($course->active_enrollments_count ?? 0)) }} طالبًا
+                                يظهر للطالب {{ number_format((int) ($course->active_enrollments_count ?? 0)) }} طالبًا
                                 · {{ number_format((int) $course->sections_count) }} أقسام
                                 @if($course->is_main_course) · <strong class="text-primary">الكورس الرئيسي الوحيد</strong> @endif
                             </div>

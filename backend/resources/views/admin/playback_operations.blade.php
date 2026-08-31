@@ -98,7 +98,7 @@
 
         <div class="row mb-4">
             <div class="col-lg-7 mb-3"><div class="card admin-card h-100"><div class="card-body">
-                <h2 class="h5 mb-3">أكثر الخطوات فشلًا</h2>
+                <h2 class="h5 mb-3">أكثر المقاطع فشلًا</h2>
                 @forelse(data_get($operations, 'top_failing_lessons', collect()) as $failure)
                     <div class="admin-panel-row">
                         <div><strong>{{ $failure['lesson_title'] }}</strong><br><small class="text-muted">{{ $failure['course_title'] }}</small></div>
@@ -145,7 +145,7 @@
         <div class="card admin-card mb-4">
             <div class="card-header"><h2 class="h5 mb-0">أحدث أخطاء التشغيل</h2></div>
             <div class="table-responsive"><table class="table admin-table mb-0 text-right">
-                <thead class="thead-light"><tr><th>الكورس</th><th>الخطوة</th><th>الخطأ</th><th>الجودة</th><th>التعافي</th><th>آخر نشاط</th></tr></thead>
+                <thead class="thead-light"><tr><th>الكورس</th><th>المقطع</th><th>الخطأ</th><th>الجودة</th><th>التعافي</th><th>آخر نشاط</th></tr></thead>
                 <tbody>
                 @forelse(data_get($operations, 'latest_errors', collect()) as $error)
                     <tr>
@@ -169,7 +169,7 @@
                 <small class="text-muted">يمكن إنهاء الجلسة بعد {{ data_get($operations, 'stale_after_minutes', 10) }} دقائق بلا نشاط.</small>
             </div>
             <div class="table-responsive"><table class="table admin-table mb-0 text-right">
-                <thead class="thead-light"><tr><th>مرجع مجهّل</th><th>الكورس / الخطوة</th><th>الحالة</th><th>التقدم</th><th>الجودة</th><th>التعافي</th><th>آخر نشاط</th><th></th></tr></thead>
+                <thead class="thead-light"><tr><th>مرجع مجهّل</th><th>الكورس / المقطع</th><th>الحالة</th><th>التقدم</th><th>الجودة</th><th>التعافي</th><th>آخر نشاط</th><th></th></tr></thead>
                 <tbody>
                 @forelse(data_get($operations, 'recent_sessions', collect()) as $session)
                     @php

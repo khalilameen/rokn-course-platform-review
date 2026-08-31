@@ -327,14 +327,14 @@ export default function MyCorner() {
           ) : serverSession === false && !LOCAL_DEMO_ENABLED ? (
             <StatusView
               actionLabel="تسجيل الدخول"
-              description="سجّل دخولك علشان تحفظ تقدّمك وتكمل من أي جهاز."
+              description="سجّل الدخول لحفظ تقدمك ومتابعته من أي جهاز"
               onAction={() =>
                 navigation.navigate('Login', {
                   returnTo: {name: 'MyCorner'},
                 })
               }
               state="empty"
-              title="كورساتك هتظهر هنا"
+              title="ستظهر كورساتك هنا"
             />
           ) : serverSession === true && !courses.length ? (
             <StatusView
@@ -370,7 +370,7 @@ export default function MyCorner() {
                   : course.progress >= 100
                   ? 'مكتمل'
                   : isPrimaryResume
-                  ? 'كمّل الآن'
+                  ? 'أكمل الآن'
                   : hasProgress
                   ? 'قيد التعلّم'
                   : 'جاهز للبدء';
@@ -440,18 +440,18 @@ export default function MyCorner() {
                         <Text style={styles.nextLesson}>
                           {hasAccess
                             ? course.progress >= 100
-                              ? 'راجع أي خطوة وقتما تريد'
+                              ? 'راجع أي مقطع وقتما تريد'
                               : hasProgress
                               ? course.nextLessonTitle
                                 ? `التالي: ${course.nextLessonTitle}`
                                 : course.lastLessonTitle
-                                ? `كمّل بعد: ${course.lastLessonTitle}`
-                                : `الخطوة التالية رقم ${Math.min(
+                                ? `أكمل بعد ${course.lastLessonTitle}`
+                                : `المقطع التالي رقم ${Math.min(
                                     course.completedSections + 1,
                                     course.totalSections ||
                                       course.completedSections + 1,
                                   )}`
-                              : 'ابدأ بالخطوة الأولى'
+                              : 'ابدأ بالمقطع الأول'
                             : 'افتح صفحة الكورس وراجع تفاصيله'}
                         </Text>
                         {hasAccess && (
@@ -469,7 +469,7 @@ export default function MyCorner() {
                                 ? formatArabicDisplayText(
                                     `${Math.round(course.progress)}٪ · ${
                                       course.completedSections
-                                    } من ${course.totalSections || '—'} خطوة`,
+                                    } من ${course.totalSections || '—'} مقطع`,
                                   )
                                 : 'جاهز للبدء'}
                             </Text>
@@ -489,7 +489,7 @@ export default function MyCorner() {
             Boolean(watchHistory?.items.length)) ? (
             <>
               <SectionHeading
-                eyebrow="ارجع لخطوة بعينها"
+                eyebrow="ارجع إلى مقطع محدد"
                 style={styles.section}
                 title="آخر ما شاهدته"
               />
@@ -557,7 +557,7 @@ export default function MyCorner() {
                           />
                         </View>
                       </View>
-                      <Text style={styles.historyAction}>كمّل</Text>
+                      <Text style={styles.historyAction}>أكمل</Text>
                     </Pressable>
                   ))}
                 </View>
@@ -594,7 +594,7 @@ export default function MyCorner() {
                       </Text>
                     )}
                     {!earnedProfessionalBadge && (
-                      <Text style={styles.badgeLockedText}>لسه قدامك شوية</Text>
+                      <Text style={styles.badgeLockedText}>اقتربت من الوصول</Text>
                     )}
                   </PremiumCard>
                 ))}
@@ -650,7 +650,7 @@ export default function MyCorner() {
                     : 'ابدأ سلسلتك اليوم'}
                 </Text>
                 <Text style={styles.streakHint}>
-                  الخطوة المكتملة تحسب يوم تعلم
+                  إكمال مقطع يحسب يوم تعلم
                 </Text>
               </View>
             </View>
@@ -679,8 +679,8 @@ export default function MyCorner() {
                 learning.activityDays.length
                   ? `تعلمت في ${
                       week.filter(item => item.complete).length
-                    } أيام من آخر ٧ أيام. خطوة واحدة اليوم تكفي لتحافظ على إيقاعك.`
-                  : 'ابدأ أول خطوة النهاردة، وبعدها خليك على إيقاع بسيط يناسب يومك.',
+                    } أيام من آخر ٧ أيام\nمقطع واحد اليوم يحافظ على إيقاعك`
+                  : 'ابدأ أول مقطع اليوم\nواستمر بإيقاع يناسب يومك',
               )}
             </Text>
           </PremiumCard>

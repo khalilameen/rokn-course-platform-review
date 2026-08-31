@@ -118,7 +118,7 @@ class CourseModuleController extends Controller
         if ($module->sections()->count() > 0) {
             return back()->with(
                 'error',
-                'لا يمكن حذف الوحدة وهي تحتوي على خطوات أو مشروع. انقل محتواها أو احذفه أولًا حتى لا يصبح خارج خريطة الكورس.'
+                'لا يمكن حذف وحدة تحتوي على مقاطع أو مشروع\nانقل محتواها أو احذفه أولًا'
             );
         }
 

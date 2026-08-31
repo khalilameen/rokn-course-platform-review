@@ -76,7 +76,7 @@ export default function DeviceSessions() {
   const revoke = (session: DeviceSession) => {
     if (session.current || removing) return;
     Alert.alert(
-      'تسجيل الخروج من هذا الجهاز؟',
+      'تسجيل الخروج من الجهاز',
       'سيحتاج تسجيل الدخول من جديد على هذا الجهاز فقط',
       [
         {text: 'إلغاء', style: 'cancel'},
@@ -124,7 +124,7 @@ export default function DeviceSessions() {
               />
             }>
             <Text style={styles.intro}>
-              لو لقيت جهاز مش بتستخدمه، سجّل خروجك منه هنا
+              أنهِ أي جلسة على جهاز لا تستخدمه
             </Text>
 
             {loading ? (

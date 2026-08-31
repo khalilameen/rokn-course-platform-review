@@ -92,7 +92,7 @@ export default function FullTrackUpgradeSheet({
       setError(
         code.includes('not_priced')
           ? 'خيار الدعم غير مسعّر لهذا الكورس الآن'
-          : 'تعذّر تحميل التفاصيل الآن جرّب مرة تانية',
+          : 'تعذّر تحميل التفاصيل\nحاول مرة أخرى',
       );
     } finally {
       if (operationFlightRef.current === flight) {
@@ -154,8 +154,8 @@ export default function FullTrackUpgradeSheet({
       const code = errorCode(requestError);
       setError(
         code === 'insufficient_coins'
-          ? 'رصيدك اتغيّر راجع الناقص وحاول مرة تانية'
-          : 'لم يتم الخصم ورصيدك كما هو جرّب مرة تانية',
+          ? 'تغير رصيدك\nراجع المبلغ المتبقي وحاول مرة أخرى'
+          : 'لم يتم الخصم\nحاول مرة أخرى',
       );
       try {
         const refreshedQuote = await getFullTrackUpgradeQuote(courseId);
@@ -205,7 +205,7 @@ export default function FullTrackUpgradeSheet({
               {courseTitle}
             </Text>
             <Text style={styles.description}>
-              المحتوى والمشاريع مفتوحين لك من أول خطوة لآخر خطوة من غير أي مقابل
+              المحتوى والمشروعات متاحة لك كاملًا دون مقابل
             </Text>
 
             <View style={styles.includedCard}>
@@ -280,7 +280,7 @@ export default function FullTrackUpgradeSheet({
               accessibilityRole="button"
               onPress={onClose}
               style={styles.secondary}>
-              <Text style={styles.secondaryText}>كمّل الكورس مجانًا</Text>
+              <Text style={styles.secondaryText}>أكمل الكورس مجانًا</Text>
             </Pressable>
             <Text style={styles.reassurance}>
               إغلاق النافذة لا يؤثر على منحتك أو تقدمك

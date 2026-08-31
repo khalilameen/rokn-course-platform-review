@@ -2,7 +2,6 @@ import {useNavigation} from '@react-navigation/native';
 import type {RootNavigation} from '../../navigation/types';
 import React, {memo} from 'react';
 import {
-  Image,
   ImageSourcePropType,
   Pressable,
   StyleSheet,
@@ -20,6 +19,7 @@ import {
   useResponsiveLayout,
 } from '../../constants/designSystem';
 import {MetaPill} from '../ui/PremiumUI';
+import {CourseArtwork} from '../ui/CourseArtwork';
 
 export interface Course {
   id: string;
@@ -54,7 +54,7 @@ const CourseCard = memo<CourseCardProps>(
         accessibilityHint={
           isAvailable
             ? opensLearning
-              ? 'يفتح الكورس من آخر خطوة متاحة'
+              ? 'يفتح الكورس من آخر مقطع متاح'
               : 'يفتح تفاصيل الكورس'
             : item.label === 'قريبًا'
             ? 'بطاقة معاينة لكورس سيتوفر قريبًا'
@@ -83,10 +83,9 @@ const CourseCard = memo<CourseCardProps>(
           pressed && styles.pressed,
         ]}>
         <View style={styles.imageWrap}>
-          <Image
-            source={
-              item.image ?? require('../../assets/images/courseSlider.jpg')
-            }
+          <CourseArtwork
+            fallback={require('../../assets/images/courseSlider.jpg')}
+            source={item.image}
             style={styles.courseImage}
           />
           {!!item.label && (

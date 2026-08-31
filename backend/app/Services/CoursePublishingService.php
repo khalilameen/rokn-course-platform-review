@@ -104,18 +104,18 @@ final class CoursePublishingService
             }
 
             if ($reels->isEmpty()) {
-                $issues[] = "{$moduleLabel}: أضف خطوة تعليمية قصيرة واحدة على الأقل.";
+                $issues[] = "{$moduleLabel}: أضف مقطعًا تعليميًا واحدًا على الأقل";
             }
 
             foreach ($reels as $reel) {
                 $lesson = $reel->sectionable;
                 if ($lesson instanceof Lesson && (int) $lesson->duration_minutes < 1) {
                     $reelTitle = trim((string) ($reel->title_ar ?: $reel->title_en)) ?: 'بلا عنوان';
-                    $issues[] = "{$moduleLabel}: حدّد مدة الخطوة «{$reelTitle}» من مصدر موثوق قبل النشر.";
+                    $issues[] = "{$moduleLabel}: حدّد مدة المقطع «{$reelTitle}» قبل النشر";
                 }
                 if (!$lesson instanceof Lesson || !$this->lessonHasPlayableVideo($lesson)) {
                     $reelTitle = trim((string) ($reel->title_ar ?: $reel->title_en)) ?: 'بلا عنوان';
-                    $issues[] = "{$moduleLabel}: الخطوة «{$reelTitle}» لا تحتوي على فيديو صالح.";
+                    $issues[] = "{$moduleLabel}: المقطع «{$reelTitle}» لا يحتوي على فيديو صالح";
                 }
                 if ($lesson instanceof Lesson) {
                     $mediaState = $lesson->mediaState()->first();
@@ -135,7 +135,7 @@ final class CoursePublishingService
 
         $declaredReelsCount = (int) ($course->video_count ?? 0);
         if ($declaredReelsCount > 0 && $declaredReelsCount !== $reelsCount) {
-            $issues[] = "عدد الخطوات المعلن {$declaredReelsCount} بينما الموجود فعليًا {$reelsCount}. صحح العدد أو أكمل الرفع.";
+            $issues[] = "عدد المقاطع المعلن {$declaredReelsCount} بينما الموجود {$reelsCount}";
         }
         if ((int) ($course->files_count ?? 0) > 0 && $attachmentsCount === 0) {
             $issues[] = 'الكورس يعلن وجود مرفقات، لكن لا يوجد رابط أو ملف مرفق بأي وحدة.';

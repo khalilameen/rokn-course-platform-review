@@ -547,7 +547,7 @@ const Home = () => {
         ) : hasSearchQuery && !catalogueLoading && !catalogueError ? (
           <ResponsiveFrame>
             <StatusView
-              description="جرّب اسم مهارة أو اسم المدرب."
+              description="ابحث باسم المهارة أو المدرب"
               state="empty"
               title="لم نجد نتيجة مطابقة"
             />

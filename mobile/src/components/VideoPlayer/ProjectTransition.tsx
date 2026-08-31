@@ -130,10 +130,10 @@ const ProjectTransition = ({
           ? 'صيغة الملف غير مدعومة'
           : 'تعذّر قراءة حجم الملف',
         code === 'PROJECT_FILE_TOO_LARGE'
-          ? `اختار ملف أقل من ${PROJECT_SUBMISSION_MAX_LABEL} عشان يترفع بسهولة حتى لو الاتصال ضعيف.`
+          ? `اختر ملفًا أصغر من ${PROJECT_SUBMISSION_MAX_LABEL}`
           : code === 'PROJECT_FILE_TYPE_UNSUPPORTED'
-          ? `اختار ${PROJECT_SUBMISSION_FORMATS_LABEL}.`
-          : 'اختار الملف مرة أخرى أو جرّب نسخة أصغر منه.',
+          ? `اختر ${PROJECT_SUBMISSION_FORMATS_LABEL}`
+          : 'اختر الملف مرة أخرى أو نسخة أصغر',
       );
       return;
     }
@@ -148,8 +148,8 @@ const ProjectTransition = ({
         );
         if (inspection?.isBlank) {
           Alert.alert(
-            'الصورة مش واضحة',
-            'اختار صورة تبين شغلك. الصور السوداء أو الفارغة مش هتتحسب محاولة.',
+            'الصورة غير واضحة',
+            'اختر صورة واضحة لعملك\nالصور الفارغة لا تُقبل',
           );
           return;
         }
@@ -177,8 +177,8 @@ const ProjectTransition = ({
         setStatus(project.status);
         setSyncNote('');
         Alert.alert(
-          'المشاريع المعلّقة أخذت المساحة المتاحة',
-          'مشاريعك القديمة ما زالت محفوظة. اتصل بالإنترنت وافتح ركن حتى تُرسل، ثم جرّب تسليم هذا المشروع مرة أخرى.',
+          'اكتملت مساحة المشروعات المعلّقة',
+          'اتصل بالإنترنت لإرسالها\nثم حاول تسليم هذا المشروع',
         );
         return;
       }
@@ -199,14 +199,14 @@ const ProjectTransition = ({
     );
     if (result.provisional) {
       setSyncNote(
-        'استلمنا مشروعك ومكانك محفوظ\nأول ما المراجعة تخلص هنفتح لك اللي بعده هنا',
+        'استلمنا مشروعك\nسنفتح المقطع التالي بعد المراجعة',
       );
     }
   };
 
   const submit = async () => {
     if (!selectedFile) {
-      Alert.alert('اختار اللي هترفعه', 'صورة أو فيديو واضح لشغلك كفاية.');
+      Alert.alert('اختر ملف المشروع', 'صورة أو فيديو واضح لعملك');
       return;
     }
     if (submissionInFlightRef.current) return;
@@ -236,7 +236,7 @@ const ProjectTransition = ({
         ]}>
         <View style={styles.eyebrowRow}>
           <View style={styles.eyebrowLine} />
-          <Text style={styles.eyebrow}>دلوقتي دورك تطبّق</Text>
+          <Text style={styles.eyebrow}>حان وقت التطبيق</Text>
         </View>
         <Text style={styles.moduleTitle}>
           {formatArabicDisplayText(moduleTitle)}
@@ -295,10 +295,10 @@ const ProjectTransition = ({
               <View style={styles.successIcon}>
                 <Text style={styles.successCheck}>✓</Text>
               </View>
-              <Text style={styles.successTitle}>مشروعك عدى</Text>
+              <Text style={styles.successTitle}>تم اعتماد مشروعك</Text>
               <Text style={styles.successDescription}>
                 {onContinue
-                  ? 'فتحنا لك الخطوة اللي بعدها'
+                  ? 'فتحنا لك المقطع التالي'
                   : 'نجاحك اتسجل ومكانك محفوظ'}
               </Text>
               {!!syncNote && <Text style={styles.syncNote}>{syncNote}</Text>}
@@ -307,7 +307,7 @@ const ProjectTransition = ({
                   accessibilityRole="button"
                   style={styles.primaryButton}
                   onPress={onContinue}>
-                  <Text style={styles.primaryButtonText}>كمّل الكورس</Text>
+                  <Text style={styles.primaryButtonText}>أكمل الكورس</Text>
                 </Pressable>
               )}
             </View>
@@ -316,8 +316,8 @@ const ProjectTransition = ({
               <View style={styles.reviewLoader}>
                 <ActivityIndicator color="#76A9FF" size="large" />
               </View>
-              <Text style={styles.reviewTitle}>مشروعك عندنا</Text>
-              <Text style={styles.reviewDescription}>بنراجعه ومكانك محفوظ</Text>
+              <Text style={styles.reviewTitle}>استلمنا مشروعك</Text>
+              <Text style={styles.reviewDescription}>نراجعه الآن ومكانك محفوظ</Text>
               {!!syncNote && <Text style={styles.syncNote}>{syncNote}</Text>}
             </View>
           ) : (
@@ -340,10 +340,10 @@ const ProjectTransition = ({
                           ? 'صيغة الملف غير مدعومة'
                           : 'تعذّر قراءة حجم الملف',
                         code === 'PROJECT_FILE_TOO_LARGE'
-                          ? `الحد الأقصى ${PROJECT_SUBMISSION_MAX_LABEL}. اختار نسخة أصغر وحاول مرة أخرى.`
+                          ? `الحد الأقصى ${PROJECT_SUBMISSION_MAX_LABEL}\nاختر نسخة أصغر`
                           : code === 'PROJECT_FILE_TYPE_UNSUPPORTED'
-                          ? `اختار ${PROJECT_SUBMISSION_FORMATS_LABEL}.`
-                          : 'اختار الملف مرة أخرى أو جرّب نسخة أصغر منه.',
+                          ? `اختر ${PROJECT_SUBMISSION_FORMATS_LABEL}`
+                          : 'اختر الملف مرة أخرى أو نسخة أصغر',
                       );
                     }
                   }
@@ -355,12 +355,12 @@ const ProjectTransition = ({
                   <Text style={styles.uploadTitle}>
                     {selectedFile
                       ? selectedFile.name
-                      : 'ارفع صورة أو فيديو يوضح شغلك'}
+                      : 'ارفع صورة أو فيديو يوضح عملك'}
                   </Text>
                   <Text style={styles.uploadHint}>
                     {selectedFile
                       ? 'اضغط لتغيير الملف'
-                      : 'المهم يكون واضح إنك جرّبت ونفّذت'}
+                      : 'أظهر ما نفذته بوضوح'}
                   </Text>
                 </View>
               </Pressable>

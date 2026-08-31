@@ -132,18 +132,6 @@ const auditedNonSecretNames = new Set([
   'SECURE_TOKEN_KEY',
 ]);
 const secretNamePattern = secretNames.join('|');
-const lineSecretAssignment = new RegExp(
-  `^[ \\t]*(?:(?:export|set|const|let|var)[ \\t]+|-[ \\t]+)?["']?(?:${secretNamePattern})["']?[ \\t]*(?:=(?![=>])|:)[ \\t]*([^\\r\\n]*)$`,
-  'gim',
-);
-const commandSecretAssignment = new RegExp(
-  `^[ \\t]*env[ \\t]+["']?(?:${secretNamePattern})["']?[ \\t]*=(?![=>])[ \\t]*([^\\r\\n]*)$`,
-  'gim',
-);
-const jsonSecretAssignment = new RegExp(
-  `(?:[,{])[ \\t]*["']?(?:${secretNamePattern})["']?[ \\t]*:[ \\t]*(?:"((?:\\\\.|[^"\\\\])*)"|'((?:\\\\.|[^'\\\\])*)'|([^,}\\r\\n]*))`,
-  'gim',
-);
 const genericLineSecretAssignment =
   /^[ \t]*(?:(?:export|set|const|let|var)[ \t]+|-[ \t]+)?["']?([A-Z][A-Z0-9_]*)["']?[ \t]*(?:=(?![=>])|:)[ \t]*([^\r\n]*)$/gim;
 const genericCommandSecretAssignment =

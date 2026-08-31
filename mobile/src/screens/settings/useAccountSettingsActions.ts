@@ -54,7 +54,7 @@ export const useAccountSettingsActions = ({
     } catch {
       Alert.alert(
         'تعذّر فتح واتساب',
-        'رقم الدعم غير متاح حاليًا أو تعذر الاتصال. يمكنك إرسال بلاغ من داخل التطبيق.',
+        'تحقق من الاتصال\nأو أرسل بلاغًا من داخل ركن',
       );
     }
   };
@@ -65,7 +65,7 @@ export const useAccountSettingsActions = ({
     } catch {
       Alert.alert(
         'تعذّر فتح الصفحة',
-        'تواصل معنا عبر واتساب وسنساعدك في طلب حذف الحساب أو البيانات.',
+        'اطلب حذف الحساب عبر الدعم',
       );
     }
   };
@@ -93,7 +93,7 @@ export const useAccountSettingsActions = ({
         await Linking.openURL(appStoreUrl);
         return;
       }
-      Alert.alert('تعذّر فتح التقييم', 'جرّب مرة أخرى بعد قليل.');
+      Alert.alert('تعذّر فتح التقييم', 'حاول مرة أخرى');
     } catch {
       if (Platform.OS === 'android') {
         await Linking.openURL(
@@ -104,7 +104,7 @@ export const useAccountSettingsActions = ({
   };
 
   const logout = () =>
-    Alert.alert('تسجيل الخروج', 'هل تريد تسجيل الخروج من هذا الجهاز؟', [
+    Alert.alert('تسجيل الخروج', 'سيخرج حسابك من هذا الجهاز فقط', [
       {text: 'إلغاء', style: 'cancel'},
       {
         text: 'تسجيل الخروج',
@@ -138,7 +138,7 @@ export const useAccountSettingsActions = ({
     if (deletingAccount) return;
     const token = extractApiToken(userData);
     if (!token) {
-      Alert.alert('سجّل دخولك أولًا', 'نحتاج نتأكد أن الحساب لك قبل حذفه.', [
+      Alert.alert('سجّل الدخول', 'أكد هويتك أولًا', [
         {text: 'إلغاء', style: 'cancel'},
         {
           text: 'تسجيل الدخول',
@@ -180,8 +180,9 @@ export const useAccountSettingsActions = ({
       navigation.reset({index: 0, routes: [{name: 'Home'}]});
       Alert.alert(
         deletion.cleanupPending ? 'تم إغلاق الحساب' : 'تم حذف الحساب',
-        deletion.message ||
-          'تم إغلاق الحساب وإزالة بياناته الشخصية. قد تبقى سجلات محدودة يفرض القانون الاحتفاظ بها، مثل مراجع المعاملات.',
+        deletion.cleanupPending
+          ? 'أغلقنا حسابك\nسيكتمل حذف النسخ الاحتياطية لاحقًا'
+          : 'حذفنا حسابك وبيانات ملفك',
       );
     } catch (error) {
       if (error instanceof Error && error.message === 'LOGIN_CANCELLED') return;
@@ -190,7 +191,7 @@ export const useAccountSettingsActions = ({
         navigation.reset({index: 0, routes: [{name: 'Home'}]});
         Alert.alert(
           'تم حذف الحساب',
-          'حُذف الحساب من ركن، لكن تعذر تنظيف بعض البيانات المحلية. ستختفي بعد حذف بيانات التطبيق من إعدادات الهاتف.',
+          'امسح بيانات التطبيق لإزالة النسخة المحلية',
         );
       } else {
         const mismatch =
@@ -199,8 +200,8 @@ export const useAccountSettingsActions = ({
         Alert.alert(
           'تعذر حذف الحساب',
           mismatch
-            ? 'الحساب الذي اخترته مختلف عن حساب ركن الحالي. أعد المحاولة بنفس طريقة وحساب تسجيل الدخول.'
-            : 'لم يُحذف الحساب. أكد هويتك بنفس حساب تسجيل الدخول ثم حاول مرة أخرى، أو استخدم صفحة طلب الحذف.',
+            ? 'اختر حساب ركن نفسه\nثم حاول مرة أخرى'
+            : 'أكد هويتك من جديد\nأو استخدم صفحة الحذف',
           [
             {text: 'إلغاء', style: 'cancel'},
             {text: 'صفحة الحذف', onPress: openAccountDeletionPage},
@@ -224,9 +225,9 @@ export const useAccountSettingsActions = ({
           paidCoins > 0
             ? `\n\nلديك ${toArabicDigits(
                 paidCoins,
-              )} من رصيدك المدفوع. تواصل معنا قبل الحذف إذا أردت مراجعته.`
+              )} من الرصيد المدفوع\nراجع الدعم قبل الحذف إذا أردت استعادته`
             : '';
-        return `سيُغلق حسابك وتُحذف بيانات ملفك والمحفوظات والبورتفوليو. ستفقد الوصول إلى الكورسات والعملات، وقد نحتفظ فقط بسجلات المعاملات أو مكافحة الاحتيال التي يفرضها القانون.${balanceWarning}`;
+        return `سيُحذف ملفك وتقدمك ومحفوظاتك\nوستفقد الكورسات والعملات${balanceWarning}`;
       })(),
       [
         {text: 'إلغاء', style: 'cancel'},

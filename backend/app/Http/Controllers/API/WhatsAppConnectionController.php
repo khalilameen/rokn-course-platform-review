@@ -118,7 +118,7 @@ final class WhatsAppConnectionController extends Controller
                     StudentNotificationService::TYPE_COINS_CLAIMED,
                     'تم ربط واتساب',
                     'WhatsApp Connected',
-                    'ضفنا ' . $result['coins'] . ' عملة ركن لرصيدك.',
+                    'أضفنا ' . $result['coins'] . " عملة ركن إلى رصيدك\nافتح المحفظة لمعرفة التفاصيل",
                     $result['coins'] . ' Rokn coins were added to your wallet.',
                     null,
                     $method ? CoinEarningMethod::class : null,

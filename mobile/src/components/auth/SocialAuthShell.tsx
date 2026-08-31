@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import {useDispatch, useSelector} from 'react-redux';
+import Svg, {Path} from 'react-native-svg';
 import {Container, Content} from '../containers/Containers';
 import {ResponsiveFrame} from '../ui/PremiumUI';
 import {
@@ -43,6 +44,11 @@ import type {
   SocialAuthMethods,
   SocialProvider,
 } from '../../services/socialAuth';
+import {
+  socialAuthFailureCode,
+  socialAuthMessage,
+} from '../../services/socialAuthErrors';
+import {reportClientError} from '../../services/operationalTelemetry';
 import {
   LOGIN_RETURN_TO_PARAMLESS_ROUTES,
   type LoginRouteParams,
@@ -75,7 +81,7 @@ const providers: Array<{
   id: SocialProvider;
   label: string;
   image?: ImageSourcePropType;
-  mark?: string;
+  brandMark?: 'tiktok';
 }> = [
   {
     id: 'facebook',
@@ -87,26 +93,29 @@ const providers: Array<{
     label: 'المتابعة بحساب Google',
     image: require('../../assets/images/google.png'),
   },
-  {id: 'tiktok', label: 'المتابعة بحساب TikTok', mark: '♪'},
+  {
+    id: 'tiktok',
+    label: 'المتابعة بحساب TikTok',
+    brandMark: 'tiktok',
+  },
   ...(Platform.OS === 'ios'
-    ? ([{id: 'apple', label: 'المتابعة بحساب Apple'}] as const)
+    ? ([
+        {
+          id: 'apple',
+          label: 'المتابعة بحساب Apple',
+        },
+      ] as const)
     : []),
 ];
 
-const authErrorMessage = (error: unknown) => {
-  const code = error instanceof Error ? error.message : '';
-  if (code === 'LOGIN_CANCELLED') return '';
-  if (code === 'PROVIDER_NOT_CONFIGURED') {
-    return 'طريقة الدخول دي مش متاحة دلوقتي. جرّب طريقة تانية.';
-  }
-  if (code === 'PROVIDER_UNAVAILABLE') {
-    return 'تعذّر الوصول إلى مزوّد الدخول الآن. جرّب طريقة أخرى.';
-  }
-  if (code === 'LOGIN_SESSION_INVALID') {
-    return 'وصل رد غير مكتمل من الحساب. حاول مرة أخرى قبل المتابعة.';
-  }
-  return 'لم يكتمل الدخول. تأكد من الاتصال وحاول مرة أخرى.';
-};
+const TikTokMark = () => (
+  <Svg accessibilityElementsHidden width={24} height={24} viewBox="0 0 24 24">
+    <Path
+      d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.03-.5-.04-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.45 3.98-2.14 6.15-1.74.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-2.98.42-.6.44-1.02 1.11-1.13 1.85-.09.53-.05 1.08.15 1.58.19.47.5.89.91 1.2.78.61 1.9.74 2.79.29.59-.3 1.03-.85 1.16-1.5.07-.25.05-.51.05-.76.01-4.25-.01-8.51.01-12.76z"
+      fill="#FFFFFF"
+    />
+  </Svg>
+);
 
 export default function SocialAuthShell() {
   const navigation = useNavigation<RootNavigation>();
@@ -209,7 +218,13 @@ export default function SocialAuthShell() {
       dispatch(saveLoginData(restoredSession));
       finishAuthenticatedNavigation();
     } catch (error) {
-      const message = authErrorMessage(error);
+      const code = socialAuthFailureCode(error);
+      if (code !== 'LOGIN_CANCELLED') {
+        void reportClientError(new Error(code), {
+          source: `auth.${provider}`,
+        });
+      }
+      const message = socialAuthMessage(code);
       if (message) Alert.alert('تعذّر تسجيل الدخول', message);
     } finally {
       setLoading(null);
@@ -360,9 +375,9 @@ export default function SocialAuthShell() {
                           source={provider.image}
                           style={styles.providerImage}
                         />
-                      ) : (
-                        <Text style={styles.tiktokMark}>{provider.mark}</Text>
-                      )}
+                      ) : provider.brandMark === 'tiktok' ? (
+                        <TikTokMark />
+                      ) : null}
                     </View>
                     <Text
                       style={[
@@ -397,13 +412,13 @@ export default function SocialAuthShell() {
           {authMethods && authMethods.providers.length === 0 && (
             <View style={styles.authStatus}>
               <Text style={styles.authStatusText}>
-                طرق تسجيل الدخول مش متاحة دلوقتي
+                طرق تسجيل الدخول غير متاحة الآن
               </Text>
             </View>
           )}
 
           <Text style={styles.legal}>
-            بالمتابعة، أنت توافق على{' '}
+            بالمتابعة أنت توافق على{' '}
             <Text
               onPress={() => navigation.navigate('TermsOfUse')}
               style={styles.legalLink}>
@@ -480,7 +495,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   providerImage: {width: 27, height: 27, resizeMode: 'contain'},
-  tiktokMark: {fontSize: 25, color: '#FFFFFF', fontWeight: '700'},
   providerLabel: {
     ...Type.bodyStrong,
     ...textDirection,

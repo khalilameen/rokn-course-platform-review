@@ -325,7 +325,7 @@ export const mapCoursePayload = (
           moduleId,
           title: valueAsString(
             section?.title || content?.title,
-            `الخطوة ${reelNumber}`,
+            `المقطع ${reelNumber}`,
           ),
           caption: valueAsString(content?.description || section?.description),
           // Locked lessons keep outline metadata without a playable source.
@@ -474,7 +474,7 @@ export const loadCourseLearningData = async (
     const response = await publicRequest.get(`courses/${courseId}/details`);
     const mapped = mapCoursePayload(response.data);
     if (!mapped) {
-      throw new Error('لم تُنشر خطوات هذا الكورس بعد');
+      throw new Error('لم تُنشر مقاطع هذا الكورس بعد');
     }
     return {course: mapped, usedFallback: false};
   } catch (caught: unknown) {

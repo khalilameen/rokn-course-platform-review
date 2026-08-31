@@ -123,8 +123,6 @@ export const useCourseDetailsData = ({
         ) {
           setNotice('تعذّر جلب بعض بيانات المحفظة الآن. لم يتغير رصيدك.');
         }
-      } else if (active) {
-        setNotice('سجّل الدخول لفتح هذا الكورس بمحفظتك.');
       }
       if (active) setRemoteLoading(false);
     })();

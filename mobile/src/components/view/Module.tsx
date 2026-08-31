@@ -63,7 +63,7 @@ const MapProjectCard = ({
   const submit = async () => {
     if (locked) return;
     if (!file) {
-      Alert.alert('اختار اللي هترفعه', 'صورة أو فيديو واضح لشغلك كفاية.');
+      Alert.alert('اختر ملف المشروع', 'صورة أو فيديو واضح لعملك');
       return;
     }
     setStatus('reviewing');
@@ -87,8 +87,8 @@ const MapProjectCard = ({
     } catch {
       setStatus('needs_retry');
       Alert.alert(
-        'التسليم ما اكتملش',
-        'ملفك لسه عندك. تأكد من الاتصال واضغط تسليم مرة ثانية.',
+        'لم يكتمل التسليم',
+        'ملفك محفوظ\nتحقق من الاتصال ثم حاول مرة أخرى',
       );
     }
   };
@@ -110,9 +110,9 @@ const MapProjectCard = ({
 
       {status === 'passed' ? (
         <View style={styles.projectPassedState}>
-          <Text style={styles.projectPassedTitle}>مشروعك عدى</Text>
+          <Text style={styles.projectPassedTitle}>تم اعتماد مشروعك</Text>
           <Text style={styles.projectPassedCopy}>
-            فتحنا لك الخطوة اللي بعدها
+            فتحنا المقطع التالي
           </Text>
         </View>
       ) : status === 'reviewing' ? (
@@ -121,15 +121,15 @@ const MapProjectCard = ({
             <ActivityIndicator color="#76A9FF" />
           </View>
           <View style={styles.reviewingCopy}>
-            <Text style={styles.reviewingTitle}>مشروعك عندنا</Text>
-            <Text style={styles.reviewingText}>بنراجعه ومكانك محفوظ</Text>
+            <Text style={styles.reviewingTitle}>استلمنا مشروعك</Text>
+            <Text style={styles.reviewingText}>نراجعه الآن ومكانك محفوظ</Text>
           </View>
         </View>
       ) : locked ? (
         <View style={styles.projectLockedState}>
-          <Text style={styles.projectLockedTitle}>كمّل خطوات الوحدة الأول</Text>
+          <Text style={styles.projectLockedTitle}>أكمل مقاطع الوحدة أولًا</Text>
           <Text style={styles.projectLockedText}>
-            بعد آخر خطوة هتلاقي التسليم هنا
+            يظهر التسليم بعد آخر مقطع
           </Text>
         </View>
       ) : (
@@ -152,8 +152,8 @@ const MapProjectCard = ({
                       ? 'حجم الملف كبير'
                       : 'تعذّر قراءة الملف',
                     code === 'PROJECT_FILE_TYPE_UNSUPPORTED'
-                      ? `اختار ${PROJECT_SUBMISSION_FORMATS_LABEL}.`
-                      : 'اختار نسخة أصغر أو جرّب الملف مرة أخرى.',
+                      ? `اختر ${PROJECT_SUBMISSION_FORMATS_LABEL}`
+                      : 'اختر نسخة أصغر أو حاول مرة أخرى',
                   );
                 }
               }
@@ -163,12 +163,12 @@ const MapProjectCard = ({
             </View>
             <View style={styles.filePickerCopy}>
               <Text style={styles.filePickerTitle} numberOfLines={1}>
-                {file?.name || 'ارفع صورة أو فيديو يوضح شغلك'}
+                {file?.name || 'ارفع صورة أو فيديو يوضح عملك'}
               </Text>
               <Text style={styles.filePickerHint}>
                 {file
-                  ? 'تقدر تغيّر الملف قبل التسليم'
-                  : 'المهم يكون واضح إنك جرّبت ونفذت'}
+                  ? 'يمكنك تغيير الملف قبل التسليم'
+                  : 'أظهر ما نفذته بوضوح'}
               </Text>
             </View>
           </Pressable>
@@ -222,7 +222,7 @@ const Module = ({
           </Text>
           <Text style={styles.meta}>
             {formatArabicDisplayText(
-              `${module.reels.length} خطوة · ${percentage}% مكتمل`,
+              `${module.reels.length} مقطع · ${percentage}% مكتمل`,
             )}
           </Text>
         </View>
@@ -244,7 +244,7 @@ const Module = ({
         <View style={styles.content}>
           {module.isLocked && (
             <Text style={styles.lockedHint}>
-              كمّل مشروع الوحدة اللي قبلها عشان تفتح خطواتها.
+              أكمل مشروع الوحدة السابقة لفتح مقاطعها
             </Text>
           )}
 
@@ -284,7 +284,7 @@ const Module = ({
           )}
 
           <View style={styles.reelsSection}>
-            <Text style={styles.sectionLabel}>خطوات الوحدة</Text>
+            <Text style={styles.sectionLabel}>مقاطع الوحدة</Text>
             {module.reels.map(reel => {
               const unavailable =
                 module.isLocked || reel.isLocked || !reel.videoUrl.trim();
@@ -319,7 +319,7 @@ const Module = ({
                         ? 'تفتح مع تقدّمك'
                         : reel.isCompleted
                         ? 'شوهدت'
-                        : 'خطوة قصيرة'}
+                        : 'مقطع قصير'}
                     </Text>
                   </View>
                   {unavailable ? (
@@ -352,7 +352,7 @@ const Module = ({
               </View>
               <Text style={styles.projectTitle}>{module.project.title}</Text>
               <Text style={styles.lockedProjectHint}>
-                تفاصيله تفتح لما توصل للوحدة دي
+                تظهر التفاصيل عند الوصول إلى هذه الوحدة
               </Text>
             </View>
           ) : module.project ? (

@@ -342,9 +342,9 @@ final class CoursePurchaseController extends Controller
                 StudentNotificationService::notifyUser(
                     $user->fresh(),
                     StudentNotificationService::TYPE_COURSE_ENROLLED,
-                    'تم فتح الكورس',
+                    'الكورس جاهز',
                     'Course unlocked',
-                    'يمكنك الآن بدء كورس: ' . $course->name_ar,
+                    $course->name_ar . "\nابدأ أول مقطع الآن",
                     'You can now start: ' . $course->name_en,
                     '/courses/' . $course->id,
                     Course::class,

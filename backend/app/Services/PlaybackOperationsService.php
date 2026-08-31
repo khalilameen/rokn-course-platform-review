@@ -264,7 +264,7 @@ final class PlaybackOperationsService
             foreach ($lessons as $lesson) {
                 $course = isset($lesson->list_id) ? $courseLabels->get($lesson->list_id) : null;
                 $labels->put((int) $lesson->id, [
-                    'lesson_title' => $this->firstFilled($lesson, ['title_ar', 'title_en', 'title']) ?: 'خطوة غير معنونة',
+                    'lesson_title' => $this->firstFilled($lesson, ['title_ar', 'title_en', 'title']) ?: 'مقطع بلا عنوان',
                     'course_title' => $course
                         ? ($this->firstFilled($course, ['name_ar', 'name_en']) ?: 'كورس غير معنون')
                         : '—',
@@ -285,7 +285,7 @@ final class PlaybackOperationsService
             return array_merge(
                 $data,
                 $labels->get((int) ($row->lesson_id ?? 0), [
-                    'lesson_title' => 'خطوة محذوفة أو غير متاحة',
+                    'lesson_title' => 'مقطع محذوف أو غير متاح',
                     'course_title' => '—',
                 ])
             );

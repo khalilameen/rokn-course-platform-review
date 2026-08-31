@@ -36,7 +36,7 @@ final class EngagementExperienceTest extends TestCase
             ->assertJsonPath('data.key', 'guest_registration_prompt')
             ->assertJsonPath('data.coins', 27)
             ->assertJsonPath('data.dismissible', true)
-            ->assertJsonFragment(['action_label_ar' => 'سجّل واستلم الهدية']);
+            ->assertJsonFragment(['action_label_ar' => 'تسجيل الدخول']);
     }
 
     public function test_inbound_whatsapp_message_verifies_the_number_and_credits_only_once(): void

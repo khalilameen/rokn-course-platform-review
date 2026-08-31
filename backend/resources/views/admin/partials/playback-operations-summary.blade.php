@@ -63,7 +63,7 @@
 
             <div class="row mt-2">
                 <div class="col-lg-7 mb-3">
-                    <h3 class="h6">أكثر الخطوات فشلًا — آخر {{ data_get($playbackOperations, 'period_days', 7) }} أيام</h3>
+                    <h3 class="h6">أكثر المقاطع فشلًا — آخر {{ data_get($playbackOperations, 'period_days', 7) }} أيام</h3>
                     @forelse(data_get($playbackOperations, 'top_failing_lessons', collect())->take(5) as $failure)
                         <div class="admin-panel-row">
                             <div><strong>{{ $failure['lesson_title'] }}</strong><br><small class="text-muted">{{ $failure['course_title'] }}</small></div>

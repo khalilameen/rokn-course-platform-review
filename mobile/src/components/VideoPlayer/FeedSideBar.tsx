@@ -176,7 +176,7 @@ const CourseIndexModule = ({
             {formatArabicDisplayText(module.title)}
           </Text>
           <Text style={styles.moduleMeta}>
-            {formatArabicNumber(module.reels.length)} خطوة
+            {formatArabicNumber(module.reels.length)} مقطع
           </Text>
         </View>
         <View style={styles.moduleHeaderActions}>
@@ -248,7 +248,7 @@ const CourseIndexModule = ({
                     ? 'تم العبور'
                     : module.project.status === 'reviewing'
                     ? 'قيد المراجعة'
-                    : 'بعد آخر خطوة في الوحدة'}
+                    : 'بعد آخر مقطع في الوحدة'}
                 </Text>
               </View>
               {projectUnavailable && <LockIcon />}
@@ -497,7 +497,7 @@ const FeedSideBar = ({
           </Text>
           <Text style={styles.attachmentBody}>
             {course.attachmentPrompt?.body ||
-              'حمّل الملفات واستخدمها مع الخطوات العملية في هذه الوحدة.'}
+              'حمّل الملفات واستخدمها مع محتوى هذه الوحدة'}
           </Text>
           <View style={styles.attachmentList}>
             {attachments.map(attachment => (
@@ -543,7 +543,7 @@ const FeedSideBar = ({
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.saveSheetContent}>
           <Text style={styles.sheetEyebrow}>المحفوظات</Text>
-          <Text style={styles.saveSheetTitle}>تحفظ الخطوة فين؟</Text>
+          <Text style={styles.saveSheetTitle}>أين تريد حفظ المقطع</Text>
           {foldersLoading ? (
             <ActivityIndicator color="#76A9FF" style={styles.folderLoader} />
           ) : (

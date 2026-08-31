@@ -15,6 +15,23 @@ describe('course details presentation', () => {
     ).toBe(120);
   });
 
+  it('sums lesson minutes when an older details response omits course metadata', () => {
+    expect(
+      normalizeCourseDurationMinutes({
+        modules: [
+          {
+            sections: [
+              {content: {duration_minutes: 5}},
+              {content: {duration_minutes: 2}},
+              {content: {duration_minutes: 1}},
+              {content: {}},
+            ],
+          },
+        ],
+      }),
+    ).toBe(8);
+  });
+
   it('does not invent a duration for missing, zero, or invalid metadata', () => {
     expect(normalizeCourseDurationMinutes(undefined)).toBeNull();
     expect(

@@ -47,14 +47,14 @@ export const normalizeNotificationKind = (value: unknown): NotificationKind =>
   kindAliases[String(value || '').trim().toLowerCase()] || 'account_update';
 
 export const notificationDefaultAction: Record<NotificationKind, string> = {
-  learning_reminder: 'كمّل من مكانك',
+  learning_reminder: 'أكمل من مكانك',
   streak_reminder: 'حافظ على استمراريتك',
-  continue_course: 'كمّل الكورس',
-  course_recommendation: 'اعرف تفاصيل الكورس',
-  new_course: 'شوف الكورس الجديد',
-  coin_reward: 'شوف رصيدك',
-  coin_offer: 'شوف العرض',
-  project_update: 'شوف النتيجة',
+  continue_course: 'أكمل الكورس',
+  course_recommendation: 'تفاصيل الكورس',
+  new_course: 'افتح الكورس',
+  coin_reward: 'افتح المحفظة',
+  coin_offer: 'افتح العرض',
+  project_update: 'افتح النتيجة',
   certificate_ready: 'افتح الشهادة',
   account_update: 'افتح ركن',
 };

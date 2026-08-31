@@ -204,7 +204,7 @@ export default function Notifications() {
         loadMoreFlightRef.current === flight &&
         requestGeneration === notificationGenerationRef.current
       ) {
-        setNotificationError('تعذّر تحميل الإشعارات الأقدم. جرّب مرة أخرى.');
+        setNotificationError('تعذّر تحميل الإشعارات الأقدم\nحاول مرة أخرى');
       }
     } finally {
       if (loadMoreFlightRef.current === flight) {
@@ -252,29 +252,30 @@ export default function Notifications() {
     if (learning.completed > 0 && learning.completed < 30) {
       items.push({
         id: `learning-${learning.completed}`,
-        title: 'خطوتك التالية جاهزة',
+        title: 'مقطعك التالي جاهز',
         description: formatArabicDisplayText(
-          `أنهيت ${learning.completed} من ٣٠ خطوة. سنعيدك إلى مكانك مباشرة.`,
+          `أنهيت ${learning.completed} من ٣٠ مقطعًا\nأكمل من مكانك`,
         ),
         time: 'الآن',
         read: false,
         tone: 'learning',
         link: 'rokn://course/demo-freelance-course/watch',
-        actionLabel: 'كمّل من مكانك',
+        actionLabel: 'أكمل من مكانك',
       });
     }
     if (learning.passed > 0) {
       items.push({
         id: `projects-${learning.passed}`,
-        title: learning.passed === 3 ? 'اكتملت مشاريع الكورس' : 'مشروعك عبر',
+        title:
+          learning.passed === 3 ? 'اكتملت مشروعات الكورس' : 'تم اعتماد مشروعك',
         description: formatArabicDisplayText(
-          `تم اعتماد ${learning.passed} من ٣ مشاريع وفتح ما يليها.`,
+          `اعتمدنا ${learning.passed} من ٣ مشروعات\nالمقطع التالي مفتوح`,
         ),
         time: 'آخر تقدم',
         read: false,
         tone: 'project',
         link: 'rokn://course/demo-freelance-course/watch',
-        actionLabel: 'شوف النتيجة',
+        actionLabel: 'افتح النتيجة',
       });
     }
     (experience?.transactions ?? []).slice(0, 6).forEach(transaction => {
@@ -292,7 +293,7 @@ export default function Notifications() {
         read: false,
         tone: 'coins',
         link: 'rokn://wallet',
-        actionLabel: 'شوف رصيدك',
+        actionLabel: 'افتح المحفظة',
       });
     });
     return items;
@@ -353,7 +354,7 @@ export default function Notifications() {
         await markAllNotificationsRead();
       } catch {
         if (requestGeneration === notificationGenerationRef.current) {
-          setNotificationError('تعذّر تحديث حالة القراءة. جرّب مرة أخرى.');
+          setNotificationError('تعذّر تحديث حالة القراءة\nحاول مرة أخرى');
           void refreshNotifications();
         }
       } finally {
@@ -407,10 +408,10 @@ export default function Notifications() {
           return;
         }
         setNotificationError(
-          'الإشعار محفوظ، لكن الرابط غير مكتمل. حدّث الصفحة ثم جرّب مرة أخرى.',
+          'رابط الإشعار غير مكتمل\nحدّث الصفحة ثم حاول مرة أخرى',
         );
       } catch {
-        setNotificationError('التحديث محفوظ، لكن تعذّر فتح وجهته الآن.');
+        setNotificationError('تعذّر فتح وجهة الإشعار الآن');
       }
     }
   };
@@ -556,7 +557,7 @@ export default function Notifications() {
               />
             ) : !source.length ? (
               <StatusView
-                description="ستظهر هنا تذكيرات التعلّم ونتائج المشاريع وحركة العملات."
+                description="تذكيرات التعلم ونتائج المشروعات وحركة العملات"
                 title="لا توجد إشعارات"
               />
             ) : notificationError && serverSession === true ? (
@@ -583,7 +584,7 @@ export default function Notifications() {
                   loadingMore && styles.loadMoreDisabled,
                 ]}>
                 <Text style={styles.loadMoreText}>
-                  {loadingMore ? 'بنحمّل الأقدم' : 'عرض إشعارات أقدم'}
+                  {loadingMore ? 'نحمّل الأقدم' : 'عرض إشعارات أقدم'}
                 </Text>
               </Pressable>
             </View>

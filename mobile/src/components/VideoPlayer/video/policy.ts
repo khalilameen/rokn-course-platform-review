@@ -206,24 +206,24 @@ export const selectPlaybackErrorCopy = (
 ) => {
   if (unsupportedSource) {
     return {
-      title: 'الفيديو ده محتاج تحديث',
-      message: 'الفيديو لسه ما اترفعش بصيغة تشتغل داخل ركن.',
+      title: 'الفيديو يحتاج إلى تحديث',
+      message: 'صيغة الفيديو غير جاهزة للتشغيل',
     };
   }
   if (failureKind === 'offline') {
     return {
       title: 'أنت غير متصل بالإنترنت',
-      message: 'اتصل بالإنترنت وحاول تاني.',
+      message: 'اتصل بالإنترنت ثم حاول مرة أخرى',
     };
   }
   if (failureKind === 'timeout') {
     return {
-      title: 'الاتصال بطّأ أكتر من اللازم',
-      message: 'جرّب تاني أو اختار جودة أقل من إعدادات المشاهدة.',
+      title: 'الاتصال بطيء',
+      message: 'حاول مرة أخرى أو اختر جودة أقل',
     };
   }
   return {
-    title: 'الفيديو مش واصل دلوقتي',
-    message: 'جرّب تاني بعد لحظة.',
+    title: 'الفيديو غير متاح الآن',
+    message: 'حاول مرة أخرى بعد لحظة',
   };
 };

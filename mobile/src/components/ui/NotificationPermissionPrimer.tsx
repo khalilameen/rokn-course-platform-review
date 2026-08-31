@@ -105,27 +105,27 @@ export default function NotificationPermissionPrimer({
   const copy = useMemo(() => {
     if (!supported) {
       return {
-        eyebrow: 'من غير ما يعطّلك',
-        title: 'الإشعارات مش متاحة على الجهاز ده',
-        body: 'تقدر تكمّل تعليمك عادي وكل تقدمك هيفضل محفوظ',
-        footnote: 'هتلاقي كل التحديثات المهمة جوه ركن',
+        eyebrow: 'تقدمك محفوظ',
+        title: 'الإشعارات غير متاحة',
+        body: 'تابع التعلم دون إشعارات',
+        footnote: 'ستجد التحديثات داخل ركن',
         action: 'تمام',
       };
     }
     if (phase === 'denied') {
       return {
-        eyebrow: 'خطوة واحدة',
-        title: 'الإشعارات مقفولة من الهاتف',
-        body: 'افتح إعدادات ركن واسمح بالإشعارات وبعدها اختار الأنواع اللي تهمك',
-        footnote: 'تقدر تكمّل من غيرها عادي',
+        eyebrow: 'من إعدادات الهاتف',
+        title: 'الإشعارات متوقفة',
+        body: 'اسمح بإشعارات ركن من إعدادات الهاتف',
+        footnote: 'يمكنك المتابعة دونها',
         action: 'فتح إعدادات الهاتف',
       };
     }
     return {
-      eyebrow: 'على قد اللي يهمك',
-      title: 'خليك عارف خطوتك الجاية',
-      body: 'نرجّعك لمكانك لما تكون جاهز ونبلّغك لو وصلتلك مكافأة أو نزل كورس يستاهل تشوفه',
-      footnote: 'العروض اختيارية من الإعدادات وتقدر توقف أي نوع وقت ما تحب',
+      eyebrow: 'ما يهمك فقط',
+      title: 'لا تفوّت مقطعك التالي',
+      body: 'اعرف موعد التعلم والمكافآت والكورسات الجديدة',
+      footnote: 'تحكم في الإشعارات من الإعدادات',
       action: 'فعّل الإشعارات',
     };
   }, [phase, supported]);
@@ -224,17 +224,17 @@ export default function NotificationPermissionPrimer({
                 ]}>
                 <Benefit
                   icon={<LearningStepIcon />}
-                  label="كمّل من مكانك"
+                  label="أكمل من مكانك"
                   stacked={stackBenefits}
                 />
                 <Benefit
                   icon={<RoknCoinStack size={46} />}
-                  label="مكافآت وصلتلك"
+                  label="مكافآت جديدة"
                   stacked={stackBenefits}
                 />
                 <Benefit
                   icon={<CourseSuggestionIcon />}
-                  label="كورسات تستاهل"
+                  label="كورسات جديدة"
                   stacked={stackBenefits}
                 />
               </View>
@@ -279,7 +279,7 @@ export default function NotificationPermissionPrimer({
                   styles.later,
                   pressed && styles.pressed,
                 ]}>
-                <Text style={styles.laterText}>مش دلوقتي</Text>
+                <Text style={styles.laterText}>لاحقًا</Text>
               </Pressable>
             )}
           </View>

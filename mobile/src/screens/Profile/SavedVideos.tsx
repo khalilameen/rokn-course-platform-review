@@ -263,7 +263,7 @@ export default function SavedVideos() {
           ? current
           : [...current, item],
       );
-      setActionError('لم نتمكن من إزالة الخطوة. جرّب مرة أخرى.');
+      setActionError('تعذّرت إزالة المقطع\nحاول مرة أخرى');
     }
   }, []);
 
@@ -271,8 +271,8 @@ export default function SavedVideos() {
     const folder = folders.find(item => item.id === activeFolderId);
     if (!folder || deletingFolder) return;
     Alert.alert(
-      'حذف القائمة؟',
-      `سيتم حذف قائمة «${folder.name}». المحتوى المحفوظ في قوائم أخرى سيظل موجودًا.`,
+      'حذف القائمة',
+      `سنحذف ${folder.name}\nوتبقى المحفوظات في القوائم الأخرى`,
       [
         {text: 'إلغاء', style: 'cancel'},
         {
@@ -351,7 +351,7 @@ export default function SavedVideos() {
     return (
       <StatusView
         actionLabel="تسجيل الدخول"
-        description="سجّل دخولك علشان تلاقي كل اللي حفظته على أي جهاز."
+        description="سجّل الدخول لعرض محفوظاتك على أي جهاز"
         onAction={() =>
           navigation.navigate('Login', {
             returnTo: {name: 'Profile'},
@@ -493,7 +493,7 @@ export default function SavedVideos() {
         <StatusView
           description="اضغط حفظ أثناء المشاهدة واختر القائمة التي تناسبك."
           state="empty"
-          title="لا توجد خطوات محفوظة"
+          title="لا توجد مقاطع محفوظة"
         />
       ) : !visibleSaved.length ? (
         <StatusView
@@ -608,7 +608,7 @@ export default function SavedVideos() {
               loadingMore && styles.moreButtonDisabled,
             ]}>
             <Text style={styles.moreButtonText}>
-              {loadingMore ? 'بنحمّل الباقي…' : 'عرض المزيد'}
+              {loadingMore ? 'نحمّل البقية…' : 'عرض المزيد'}
             </Text>
           </Pressable>
         </View>

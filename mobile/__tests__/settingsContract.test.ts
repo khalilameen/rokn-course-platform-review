@@ -12,7 +12,6 @@ const createProps = (
   overrides: Partial<SettingsSectionsProps> = {},
 ): SettingsSectionsProps => ({
   authenticated: true,
-  autoplay: true,
   deletingAccount: false,
   marketingNotifications: false,
   notifications: true,
@@ -39,7 +38,6 @@ const createProps = (
   onReturnsPolicy: callback(),
   onSupport: callback(),
   onTermsOfUse: callback(),
-  onToggleAutoplay: callback(),
   onToggleMarketing: callback(),
   onToggleNotifications: callback(),
   onToggleWatchHistory: callback(),
@@ -54,42 +52,34 @@ const authenticatedRows = [
   'account.delete',
   'learning.notifications',
   'learning.reminder-time',
-  'learning.autoplay',
   'learning.quality',
-  'learning.display',
   'learning.history',
   'learning.clear-history',
   'privacy.marketing',
   'privacy.policy',
   'privacy.terms',
-  'privacy.refunds',
   'privacy.data-request',
   'privacy.feedback',
   'privacy.support',
   'about.language',
   'about.rate',
-  'about.open-source',
   'about.info',
 ];
 
 const guestRows = [
   'account.login',
   'learning.notifications',
-  'learning.autoplay',
   'learning.quality',
-  'learning.display',
   'learning.history',
   'learning.clear-history',
   'privacy.marketing',
   'privacy.policy',
   'privacy.terms',
-  'privacy.refunds',
   'privacy.data-request',
   'privacy.feedback',
   'privacy.support',
   'about.language',
   'about.rate',
-  'about.open-source',
   'about.info',
 ];
 
@@ -125,7 +115,7 @@ describe('settings screen contract', () => {
     expect(new Set(rows.map(row => row.id)).size).toBe(rows.length);
   });
 
-  it('assigns a distinct icon and an interaction contract to all 24 rows', () => {
+  it('assigns a distinct icon and an interaction contract to all visible rows', () => {
     const authenticated = flattenRows(createProps());
     const guest = flattenRows(
       createProps({authenticated: false, notifications: false}),
@@ -134,8 +124,12 @@ describe('settings screen contract', () => {
       [...authenticated, ...guest].map(row => [row.id, row]),
     );
 
-    expect(rowsById.size).toBe(24);
-    expect(new Set([...rowsById.values()].map(row => row.icon)).size).toBe(24);
+    expect(rowsById.size).toBe(20);
+    expect(new Set([...rowsById.values()].map(row => row.icon)).size).toBe(20);
+    expect(rowsById.has('learning.display')).toBe(false);
+    expect(rowsById.has('about.open-source')).toBe(false);
+    expect(rowsById.has('privacy.refunds')).toBe(false);
+    expect(rowsById.has('learning.autoplay')).toBe(false);
 
     for (const row of rowsById.values()) {
       if (row.id === 'about.language') {

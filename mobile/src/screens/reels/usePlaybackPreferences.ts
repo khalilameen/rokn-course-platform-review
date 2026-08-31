@@ -18,28 +18,24 @@ export const usePlaybackPreferences = (serverSession: boolean | null) => {
   const [playbackPreferencesReady, setPlaybackPreferencesReady] =
     useState(false);
   const [fitMode, setFitMode] = useState<VideoFitMode>('cover');
-  const [autoplay, setAutoplay] = useState(true);
   playbackSpeedRef.current = playbackSpeed;
 
   useEffect(() => {
     void Promise.all([
       getItem('VIDEO_QUALITY'),
-      getItem('PREF_AUTOPLAY'),
       getItem('VIDEO_PLAYBACK_SPEED'),
       getItem('VIDEO_FIT_MODE'),
     ])
-      .then(async ([savedQuality, savedAutoplay, savedSpeed, savedFitMode]) => {
+      .then(async ([savedQuality, savedSpeed, savedFitMode]) => {
         const profile = (await hasSession())
           ? await getProfile().catch(() => null)
           : null;
         if (profile) {
           savedQuality = profile.videoQualityPreference;
-          savedAutoplay = profile.autoplayNextEnabled;
           savedSpeed = profile.playbackSpeed;
           savedFitMode = profile.videoFitMode;
           await Promise.all([
             saveItem('VIDEO_QUALITY', savedQuality),
-            saveItem('PREF_AUTOPLAY', savedAutoplay),
             saveItem('VIDEO_PLAYBACK_SPEED', savedSpeed),
             saveItem('VIDEO_FIT_MODE', savedFitMode),
           ]);
@@ -58,7 +54,6 @@ export const usePlaybackPreferences = (serverSession: boolean | null) => {
         ) {
           setSelectedQuality(normalizedQuality as VideoQuality);
         }
-        if (typeof savedAutoplay === 'boolean') setAutoplay(savedAutoplay);
         if (
           typeof savedSpeed === 'number' &&
           [0.75, 1, 1.25, 1.5, 2].includes(savedSpeed)
@@ -114,7 +109,7 @@ export const usePlaybackPreferences = (serverSession: boolean | null) => {
   const getPlaybackSpeed = useCallback(() => playbackSpeedRef.current, []);
 
   return {
-    autoplay,
+    autoplay: true,
     changeFitMode,
     changePlaybackSpeed,
     changeQuality,

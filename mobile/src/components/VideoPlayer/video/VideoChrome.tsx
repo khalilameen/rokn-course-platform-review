@@ -84,7 +84,7 @@ export const VideoChrome = ({
         <View pointerEvents="none" style={styles.centerState}>
           <SkeletonBlock height={54} radius={27} width={54} />
           <Text style={styles.stateText}>
-            {recoveryMessage || 'لحظة ونكمّل من مكانك'}
+            {recoveryMessage || 'لحظة ونكمل من مكانك'}
           </Text>
         </View>
       )}
@@ -103,7 +103,7 @@ export const VideoChrome = ({
             accessibilityRole="button"
             style={styles.retryButton}
             onPress={onRetry}>
-            <Text style={styles.retryText}> حاول مرة تانية</Text>
+            <Text style={styles.retryText}> حاول مرة أخرى</Text>
           </Pressable>
         </View>
       )}

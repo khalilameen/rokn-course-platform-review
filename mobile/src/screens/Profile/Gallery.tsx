@@ -186,7 +186,7 @@ export default function Gallery() {
     });
     const asset = result.assets?.[0];
     if (asset?.fileSize && asset.fileSize > 8 * 1024 * 1024) {
-      Alert.alert('الصورة كبيرة', 'اختر غلافًا أصغر من ٨ ميجابايت.');
+      Alert.alert('الصورة كبيرة', 'اختر غلافًا أصغر من ٨ ميجابايت');
       return;
     }
     if (asset?.uri) {
@@ -289,7 +289,7 @@ export default function Gallery() {
       Alert.alert(
         'تعذّر إضافة المشروع',
         String(
-          payload.message || 'احتفظنا بالبيانات في الشاشة. حاول مرة أخرى.',
+          payload.message || 'بياناتك محفوظة\nحاول مرة أخرى',
         ),
       );
     } finally {
@@ -313,7 +313,7 @@ export default function Gallery() {
     } catch {
       Alert.alert(
         'تعذّر حذف المشروع',
-        'لم نحذف شيئًا. حاول مرة أخرى بعد قليل.',
+        'المشروع ما زال محفوظًا\nحاول مرة أخرى',
       );
     } finally {
       setSaving(false);
@@ -324,7 +324,7 @@ export default function Gallery() {
     if (!selected || selected.source === 'demo' || saving) return;
     Alert.alert(
       'حذف المشروع',
-      `هل تريد حذف «${selected.title}» من البورتفوليو؟ لا يمكن التراجع عن ذلك.`,
+      `سيُحذف ${selected.title} من البورتفوليو\nلا يمكن التراجع`,
       [
         {text: 'إلغاء', style: 'cancel'},
         {
@@ -360,7 +360,7 @@ export default function Gallery() {
       ) : serverSession === false && !LOCAL_DEMO_ENABLED ? (
         <StatusView
           actionLabel="تسجيل الدخول"
-          description="سجّل دخولك علشان تضيف مشروعاتك وتشارك رابط بورتفوليو ثابت."
+          description="سجّل الدخول لإضافة مشروعاتك ومشاركة البورتفوليو"
           onAction={() =>
             navigation.navigate('Login', {
               returnTo: {name: 'Profile'},

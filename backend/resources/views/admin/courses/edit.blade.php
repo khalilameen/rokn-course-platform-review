@@ -56,7 +56,7 @@
                 </strong>
                 <span>
                     {{ $publishingAudit['counts']['modules'] }} وحدات ·
-                    {{ $publishingAudit['counts']['reels'] }} خطوة ·
+                    {{ $publishingAudit['counts']['reels'] }} مقطع ·
                     {{ $publishingAudit['counts']['projects'] }} مشروعات
                 </span>
             </div>

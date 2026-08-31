@@ -56,14 +56,12 @@ export const useSettingsPreferences = ({
   const [marketingNotifications, setMarketingNotifications] = useState(false);
   const [watchHistory, setWatchHistory] = useState(true);
   const [reminderHour, setReminderHour] = useState(20);
-  const [autoplay, setAutoplay] = useState(true);
   const {dirtyKeys: privacyDirtyKeys, queue: queuePrivacyPreferenceSync} =
     usePrivacyPreferenceSync();
 
   useEffect(() => {
     void Promise.all([
       getSmartRemindersEnabled(),
-      getItem('PREF_AUTOPLAY'),
       getItem('VIDEO_QUALITY'),
       getItem(VIDEO_FIT_MODE_KEY),
       getItem(REMINDER_HOUR_KEY),
@@ -72,7 +70,6 @@ export const useSettingsPreferences = ({
     ]).then(
       async ([
         savedNotifications,
-        savedAutoplay,
         savedQuality,
         savedVideoFit,
         savedReminderHour,
@@ -82,7 +79,6 @@ export const useSettingsPreferences = ({
         if (typeof savedNotifications === 'boolean') {
           setNotifications(savedNotifications);
         }
-        if (typeof savedAutoplay === 'boolean') setAutoplay(savedAutoplay);
         if (typeof savedQuality === 'string') setQuality(savedQuality);
         if (savedVideoFit === 'cover' || savedVideoFit === 'contain') {
           setVideoFit(savedVideoFit);
@@ -133,11 +129,9 @@ export const useSettingsPreferences = ({
                 profile.marketingNotificationsEnabled,
               );
             }
-            setAutoplay(profile.autoplayNextEnabled);
             setQuality(profile.videoQualityPreference);
             setVideoFit(profile.videoFitMode);
             await Promise.all([
-              saveItem('PREF_AUTOPLAY', profile.autoplayNextEnabled),
               saveItem('VIDEO_QUALITY', profile.videoQualityPreference),
               saveItem(VIDEO_FIT_MODE_KEY, profile.videoFitMode),
               saveItem('VIDEO_PLAYBACK_SPEED', profile.playbackSpeed),
@@ -179,7 +173,6 @@ export const useSettingsPreferences = ({
       await saveItem(key, value);
     }
     if (key === REMINDER_ENABLED_KEY) setNotifications(value);
-    if (key === 'PREF_AUTOPLAY') setAutoplay(value);
     if (key === WATCH_HISTORY_ENABLED_KEY) setWatchHistory(value);
     if (key === MARKETING_NOTIFICATIONS_KEY) {
       setMarketingNotifications(value);
@@ -199,11 +192,6 @@ export const useSettingsPreferences = ({
       await queuePrivacyPreferenceSync({
         marketingNotificationsEnabled: value,
       });
-    }
-    if (hasAuthenticatedAccount && key === 'PREF_AUTOPLAY') {
-      void updatePlaybackPreferences({autoplayNextEnabled: value}).catch(
-        () => undefined,
-      );
     }
   };
 
@@ -271,7 +259,7 @@ export const useSettingsPreferences = ({
   const confirmClearWatchHistory = () =>
     Alert.alert(
       'مسح سجل المشاهدة',
-      'سنمسح آخر ما شاهدته ومواضع الاستكمال فقط. تقدم الكورسات والمشاريع والشهادات والمحفوظات لن تتأثر.',
+      'سنمسح آخر ما شاهدته فقط\nويبقى تقدمك وشهاداتك محفوظة',
       [
         {text: 'إلغاء', style: 'cancel'},
         {
@@ -295,8 +283,8 @@ export const useSettingsPreferences = ({
             Alert.alert(
               'تم مسح السجل',
               serverSynced
-                ? 'تقدمك في الكورسات وكل ما فتحته ما زال محفوظًا.'
-                : 'تم مسحه من هذا الجهاز، وسنكمل مسحه من حسابك تلقائيًا عند عودة الاتصال. تقدم الكورس لن يتأثر.',
+                ? 'بقي تقدمك في الكورسات محفوظًا'
+                : 'مسحناه من هذا الجهاز\nوسيكتمل من حسابك عند عودة الاتصال',
             );
           },
         },
@@ -304,7 +292,6 @@ export const useSettingsPreferences = ({
     );
 
   return {
-    autoplay,
     choiceModal,
     closeChoiceModal: () => setChoiceModal(null),
     closeNotificationPrimer: () => setNotificationPrimer(false),
@@ -319,8 +306,6 @@ export const useSettingsPreferences = ({
     quality,
     reminderHour,
     selectChoice,
-    toggleAutoplay: (value: boolean) =>
-      updatePreference('PREF_AUTOPLAY', value),
     toggleMarketing: (value: boolean) =>
       updatePreference(MARKETING_NOTIFICATIONS_KEY, value),
     toggleNotifications: updateNotifications,

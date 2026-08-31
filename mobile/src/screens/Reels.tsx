@@ -623,7 +623,7 @@ const Reels = () => {
         />
       ) : !feedItems.length ? (
         <ReelsUnavailableState
-          message="لم تصلنا خطوات منشورة أو مشروع مفتوح لهذا الكورس. حدّث المحتوى، وإن استمرت المشكلة فارجع إلى تفاصيل الكورس."
+          message="لا توجد مقاطع منشورة أو مشروع مفتوح لهذا الكورس"
           onPrimary={() => void load()}
           onSecondary={() =>
             navigation.replace('CourseDetails', {
@@ -632,7 +632,7 @@ const Reels = () => {
           }
           primaryLabel="تحديث المحتوى"
           secondaryLabel="فتح تفاصيل الكورس"
-          title="لا توجد خطوة متاحة الآن"
+          title="لا يوجد مقطع متاح الآن"
         />
       ) : (
         <>

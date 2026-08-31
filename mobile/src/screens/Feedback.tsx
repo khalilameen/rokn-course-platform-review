@@ -71,7 +71,7 @@ export default function Feedback() {
     const asset = result.assets?.[0];
     if (!asset?.uri) return;
     if (Number(asset.fileSize || 0) > 4 * 1024 * 1024) {
-      Alert.alert('الصورة كبيرة', 'اختار صورة أصغر من ٤ ميجابايت.');
+      Alert.alert('الصورة كبيرة', 'اختر صورة أصغر من ٤ ميجابايت');
       return;
     }
     setAttachment({
@@ -98,7 +98,7 @@ export default function Feedback() {
       setSent(true);
     } catch {
       setError(
-        'الرسالة ما وصلتش. راجع الاتصال وحاول مرة أخرى. كلامك لسه موجود.',
+        'لم تصل الرسالة\nتحقق من الاتصال ثم حاول مرة أخرى\nنصك محفوظ',
       );
     } finally {
       setBusy(false);
@@ -110,12 +110,12 @@ export default function Feedback() {
       <Container noPadding>
         <Content noPadding>
           <ResponsiveFrame>
-            <HeaderWithBack title="رأيك يفرق" />
+            <HeaderWithBack title="إرسال ملاحظة" />
             <StatusView
               actionLabel="العودة"
-              description="وصلتنا رسالتك. لو محتاجة رد هنتواصل معك من بيانات حسابك."
+              description="وصلتنا رسالتك\nسنتواصل معك عند الحاجة"
               onAction={() => navigation.goBack()}
-              title="شكرًا إنك قلت لنا"
+              title="شكرًا لملاحظتك"
             />
           </ResponsiveFrame>
         </Content>
@@ -127,15 +127,15 @@ export default function Feedback() {
     <Container noPadding>
       <Content noPadding>
         <ResponsiveFrame style={styles.frame}>
-          <HeaderWithBack title="رأيك يفرق" />
+          <HeaderWithBack title="إرسال ملاحظة" />
           <SectionHeading
             eyebrow="من داخل التطبيق"
             style={styles.heading}
-            title="قول لنا اللي حصل بالضبط"
+            title="ماذا حدث"
           />
           <Text style={styles.intro}>
-            مشكلة وقفتك أو تفصيلة شايف إنها تتعمل أحسن؟ ابعتها هنا وهنعرف أنت
-            على أي إصدار ونوع جهاز فقط عشان نوصل للسبب أسرع.
+            اكتب المشكلة أو الاقتراح
+            {'\n'}سنرفق إصدار التطبيق ونوع الجهاز تلقائيًا
           </Text>
 
           <View style={styles.categories}>
@@ -170,7 +170,7 @@ export default function Feedback() {
               multiline
               maxLength={1600}
               onChangeText={setMessage}
-              placeholder="كنت فين؟ ضغطت على إيه؟ وإيه اللي ظهر لك؟"
+              placeholder="أين كنت وما الذي ظهر لك"
               placeholderTextColor={Palette.textFaint}
               selectionColor={Palette.primary}
               style={styles.input}
@@ -207,7 +207,7 @@ export default function Feedback() {
                   pressed && styles.pressed,
                 ]}>
                 <Text style={styles.attachmentButtonText}>
-                  أضف صورة لو هتوضح المشكلة
+                  أضف صورة إذا كانت توضح المشكلة
                 </Text>
               </Pressable>
             )}

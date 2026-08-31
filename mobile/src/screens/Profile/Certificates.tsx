@@ -281,8 +281,8 @@ export default function Certificates({
           }
           description={
             serverSession === false && !LOCAL_DEMO_ENABLED
-              ? 'سجّل دخولك علشان تشوف شهاداتك الموثقة وتشاركها.'
-              : 'تُضاف شهادتك هنا بعد اجتياز مشروع التخرج.'
+              ? 'سجّل الدخول لعرض شهاداتك ومشاركتها'
+              : 'تظهر شهادتك هنا بعد اجتياز مشروع التخرج'
           }
           onAction={() => {
             if (serverSession === false && !LOCAL_DEMO_ENABLED) {
@@ -340,8 +340,8 @@ export default function Certificates({
             <View style={styles.lockedSection}>
               <Text style={styles.lockedHeading}>شهادات تنتظر التفعيل</Text>
               <Text style={styles.lockedIntro}>
-                أنهيت الكورس بمنحتك كاملة. لو محتاج الشهادة وRokn AI تقدر تختار
-                مستوى الدعم المناسب من هنا.
+                أنهيت الكورس بمنحتك كاملة
+                {'\n'}يمكنك إضافة الشهادة وRokn AI من هنا
               </Text>
               {grantCourses.map(course => (
                 <Pressable

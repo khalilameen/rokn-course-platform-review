@@ -63,10 +63,9 @@ class BaseCourseResource extends JsonResource
         $activeStudentsCount = array_key_exists('active_enrollments_count', $attributes)
             ? max(0, (int) $attributes['active_enrollments_count'])
             : null;
-        $verifiedHistoricalStudents = max(0, (int) ($this->students_count ?? 0));
-        $displayStudentsCount = $activeStudentsCount === null
-            ? null
-            : $verifiedHistoricalStudents + $activeStudentsCount;
+        // Public social proof is real-time enrollment data. The legacy manual
+        // counter stays out of the public contract and financial reporting.
+        $displayStudentsCount = $activeStudentsCount;
         $durationMinutes = array_key_exists('duration_minutes_computed', $attributes)
             ? max(0, (int) $attributes['duration_minutes_computed'])
             : app(CourseDurationService::class)->minutes($this->resource);
@@ -118,8 +117,8 @@ class BaseCourseResource extends JsonResource
                     ? $this->catalog_badge_tone
                     : 'blue',
             ],
-            'average_rating' => $this->when($ratingsCount > 0, $ratingsAverage),
-            'ratings_count' => $this->when($ratingsCount > 0, $ratingsCount),
+            'average_rating' => $ratingsCount > 0 ? $ratingsAverage : null,
+            'ratings_count' => $ratingsCount,
             'path_id' => $this->path_id,
             'path_title' => $this->coursePath ? $this->coursePath->title : null,
             'ratings' => CourseRatingResource::collection($this->whenLoaded('ratings')),
@@ -204,8 +203,6 @@ class BaseCourseResource extends JsonResource
                 'duration_minutes' => $this->when($durationMinutes > 0, $durationMinutes),
                 'home_work_count' => $this->when((int) ($this->home_work_count ?? 0) > 0, (int) $this->home_work_count),
                 'files_count' => $this->when((int) ($this->files_count ?? 0) > 0, (int) $this->files_count),
-                // The manual baseline is for verifiable learners from before
-                // this system. New active enrollments are counted automatically.
                 'students_count' => $this->when($displayStudentsCount !== null, $displayStudentsCount),
                 'sections_count' => $this->when((int) ($this->sections_count ?? 0) > 0, (int) $this->sections_count),
                 'preview_reels_count' => $previewReelsCount,

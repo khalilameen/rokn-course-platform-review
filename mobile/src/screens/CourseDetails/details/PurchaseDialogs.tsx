@@ -372,7 +372,7 @@ export const CoursePurchaseDialog = ({
                         ? `حتى ${formatArabicNumber(
                             selectedPlan.chatMessageLimit,
                           )} رسالة مع Rokn AI`
-                        : 'التعلّم والمشروعات من غير Rokn AI'}
+                        : 'التعلّم والمشروعات دون Rokn AI'}
                     </Text>
                   </View>
                 )}
@@ -430,7 +430,7 @@ export const CoursePurchaseDialog = ({
                 </Text>
                 <Text style={[styles.sheetDescription, styles.centerText]}>
                   {grantActivated
-                    ? 'الكورس والمشاريع متاحين لك كاملين من أول خطوة لآخر خطوة. Rokn AI والشهادة اختيار إضافي لو احتجتهم بعدين.'
+                    ? 'الكورس ومشروعاته متاحة لك كاملة\nيمكنك إضافة Rokn AI والشهادة لاحقًا'
                     : 'حفظنا مكانك، وفتحت الوحدة الأولى. ابدأ الآن أو عد إليها من الصفحة الرئيسية في أي وقت.'}
                 </Text>
                 <Pressable
@@ -441,7 +441,7 @@ export const CoursePurchaseDialog = ({
                     pressed && styles.primaryButtonPressed,
                   ]}>
                   <Text style={styles.sheetPrimaryText}>
-                    {grantActivated ? 'ابدأ التعلّم مجانًا' : 'ابدأ أول خطوة'}
+                    {grantActivated ? 'ابدأ التعلّم مجانًا' : 'ابدأ أول مقطع'}
                   </Text>
                 </Pressable>
               </>
@@ -451,7 +451,7 @@ export const CoursePurchaseDialog = ({
             {busy && dialogStep === 'topup' && (
               <View style={styles.busyRow}>
                 <ActivityIndicator color={Palette.primary} size="small" />
-                <Text style={styles.busyText}>لحظة ونكمّل…</Text>
+                <Text style={styles.busyText}>لحظة ونكمل…</Text>
               </View>
             )}
           </ScrollView>
@@ -506,7 +506,7 @@ export const CourseRetentionDialog = ({
             <Text style={styles.retentionMarkText}>＋</Text>
           </View>
           <Text style={[styles.sheetTitle, styles.centerText]}>
-            تقدر تكمل بدون شحن الآن
+            يمكنك المتابعة دون شحن الآن
           </Text>
           <Text style={[styles.sheetDescription, styles.centerText]}>
             في مهام مجانية تُنجز مرة واحدة وتضيف عملات لرصيدك. اختر ما يناسبك

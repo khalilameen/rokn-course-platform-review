@@ -82,8 +82,8 @@ export const enableSmartReminders = async () => {
 export const previewSmartReminder = async () => {
   if (!nativeReminders) return false;
   return nativeReminders.preview(
-    'نكمّل من مكانك؟',
-    'لما تفضى افتح ركن وهتلاقي الخطوة اللي بعدها جاهزة',
+    'أكمل من مكانك',
+    'افتح ركن\nمقطعك التالي جاهز',
     'rokn://home',
     'learning_reminder',
     undefined,
@@ -98,10 +98,10 @@ export const previewCoinNotification = async ({
   if (!nativeReminders) return false;
   const kind: NotificationKind = offer ? 'coin_offer' : 'coin_reward';
   return nativeReminders.preview(
-    offer ? 'عرض رصيد لفترة محدودة' : 'رصيدك وصل',
+    offer ? 'عملات إضافية لك' : 'وصلت مكافأتك',
     offer
-      ? `فيه ${amount} عملة إضافية مستنياك في المحفظة`
-      : `أضفنا ${amount} عملة لرصيدك. تقدر تشوف التفاصيل من المحفظة`,
+      ? `لديك ${amount} عملة إضافية\nافتح المحفظة لاستلامها`
+      : `أضفنا ${amount} عملة إلى رصيدك\nاعرف التفاصيل من المحفظة`,
     'rokn://wallet',
     kind,
     undefined,
@@ -130,15 +130,15 @@ export const scheduleNextLearningReminder = async ({
     streakDays > 1 ? 'streak_reminder' : 'learning_reminder';
   const body = formatArabicDisplayText(
     nextReelTitle
-      ? `${courseTitle ? `${courseTitle}\n` : ''}وقفت عند: ${nextReelTitle}\nكمّلها وقت ما تكون فاضي`
+      ? `${courseTitle ? `${courseTitle}\n` : ''}توقفت عند ${nextReelTitle}\nأكمل عندما يناسبك`
       : streakDays > 1
-        ? `باقي خطوة صغيرة وتحافظ على ${streakDays} أيام من الاستمرار`
-        : 'خمس دقايق كفاية تنجز فيهم خطوة جديدة',
+        ? `مقطع واحد يحافظ على استمرارية ${streakDays} أيام`
+        : 'خمس دقائق تكفي لمقطع جديد',
   );
   return nativeReminders.schedule(
     8101,
     formatArabicDisplayText(
-      streakDays > 1 ? 'ما تقطعش استمراريتك النهارده' : 'نكمّل من مكانك؟',
+      streakDays > 1 ? 'حافظ على استمراريتك اليوم' : 'أكمل من مكانك',
     ),
     body,
     nextPreferredTime(reminderHour),
@@ -158,8 +158,8 @@ export const scheduleProjectReviewResult = async (
   if (!(await getSmartRemindersEnabled())) return false;
   return nativeReminders.schedule(
     8102,
-    'مشروعك عبر',
-    `راجعنا «${projectTitle}». الوحدة التالية مفتوحة الآن.`,
+    'تم اعتماد مشروعك',
+    `اعتمدنا ${projectTitle}\nالوحدة التالية مفتوحة`,
     Date.now() + 12_000,
     courseId,
     `rokn://course/${encodeURIComponent(courseId)}`,
@@ -183,7 +183,7 @@ export const scheduleCoinRewardNotification = async ({
   if (!safeAmount) return false;
   return nativeReminders.schedule(
     8103,
-    'رصيدك زاد',
+    'وصلت مكافأتك',
     `${reason ? `${reason}\n` : ''}أضفنا ${safeAmount} عملة لرصيدك`,
     Date.now() + Math.max(1_000, delayMs),
     undefined,
@@ -208,8 +208,8 @@ export const previewCourseNotification = async ({
   if (!nativeReminders) return false;
   const kind: NotificationKind = isNew ? 'new_course' : 'continue_course';
   return nativeReminders.preview(
-    isNew ? 'كورس جديد على ركن' : 'الكورس ده عندك بالفعل',
-    isNew ? title : `${title}\nارجع كمّل من آخر خطوة وقفت عندها`,
+    isNew ? 'كورس جديد على ركن' : 'هذا الكورس لديك',
+    isNew ? title : `${title}\nأكمل من آخر مقطع`,
     `rokn://course/${encodeURIComponent(courseId)}${isNew ? '' : '/watch'}`,
     kind,
     safeNotificationImageUrl(imageUrl),

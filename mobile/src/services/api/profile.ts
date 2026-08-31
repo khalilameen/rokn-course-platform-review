@@ -272,7 +272,7 @@ export const getWatchHistory = async (limit = 6): Promise<WatchHistory> => {
       ),
       courseImage: item.course_image ? String(item.course_image) : undefined,
       lessonId: String(lessonId),
-      lessonTitle: String(item.lesson_title || 'خطوة من الكورس'),
+      lessonTitle: String(item.lesson_title || 'مقطع من الكورس'),
       lessonThumbnail: item.lesson_thumbnail
         ? String(item.lesson_thumbnail)
         : undefined,

@@ -120,6 +120,12 @@ const eventNameFor = (source: string) => {
 
 const errorCodeFor = (error: Error, source: string) => {
   const message = String(error.message || '').toUpperCase();
+  if (
+    source.includes('auth') &&
+    /^[A-Z0-9][A-Z0-9._-]{0,63}$/.test(message)
+  ) {
+    return message;
+  }
   if (message.startsWith('VIDEO_BUFFER_TIMEOUT')) return 'VIDEO_BUFFER_TIMEOUT';
   if (message.startsWith('VIDEO_PLAYBACK')) return 'VIDEO_PLAYBACK';
   if (message.startsWith('PAYMENT_STATUS_TIMEOUT')) {

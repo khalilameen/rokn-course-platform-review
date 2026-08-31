@@ -34,19 +34,6 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
   },
-  heroMetaRow: {...rtlRowStyle, alignItems: 'center', gap: 9},
-  categoryPill: {
-    borderRadius: Radius.pill,
-    backgroundColor: Palette.primarySoft,
-    paddingHorizontal: 11,
-    paddingVertical: 5,
-  },
-  categoryPillText: {
-    ...Type.caption,
-    color: '#8DB6FF',
-    fontFamily: Fonts.semiBold,
-  },
-  heroMeta: {...Type.caption, ...textDirection, color: Palette.textMuted},
   heroTitle: {
     ...Type.display,
     ...textDirection,
@@ -432,6 +419,15 @@ const styles = StyleSheet.create({
     marginTop: 7,
   },
   planList: {gap: 10, marginTop: 18},
+  coursePlansSection: {
+    marginTop: 18,
+    marginBottom: 14,
+    padding: 16,
+    borderRadius: 20,
+    backgroundColor: Palette.surface,
+    borderWidth: 1,
+    borderColor: Palette.lineSoft,
+  },
   planCard: {
     padding: 15,
     borderRadius: 18,

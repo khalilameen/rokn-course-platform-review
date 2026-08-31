@@ -20,7 +20,6 @@ export const useSettingsController = () => {
 
   const sectionsProps: SettingsSectionsProps = {
     authenticated,
-    autoplay: preferences.autoplay,
     deletingAccount: account.deletingAccount,
     marketingNotifications: preferences.marketingNotifications,
     notifications: preferences.notifications,
@@ -48,7 +47,6 @@ export const useSettingsController = () => {
     onReturnsPolicy: account.openReturnsPolicy,
     onSupport: account.openWhatsAppSupport,
     onTermsOfUse: () => navigation.navigate('TermsOfUse'),
-    onToggleAutoplay: preferences.toggleAutoplay,
     onToggleMarketing: preferences.toggleMarketing,
     onToggleNotifications: preferences.toggleNotifications,
     onToggleWatchHistory: preferences.toggleWatchHistory,

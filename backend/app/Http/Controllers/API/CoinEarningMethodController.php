@@ -306,9 +306,9 @@ final class CoinEarningMethodController extends Controller
                 StudentNotificationService::notifyUser(
                     $user->fresh(),
                     StudentNotificationService::TYPE_COINS_CLAIMED,
-                    'تم استلام العملات',
+                    'وصلت مكافأتك',
                     'Coins Claimed',
-                    'تمت إضافة ' . $method->coins_amount . ' عملة إلى محفظتك',
+                    'أضفنا ' . $method->coins_amount . " عملة إلى محفظتك\nافتح المحفظة لمعرفة التفاصيل",
                     $method->coins_amount . ' coins have been added to your wallet',
                     null,
                     CoinEarningMethod::class,

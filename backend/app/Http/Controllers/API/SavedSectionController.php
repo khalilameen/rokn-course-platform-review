@@ -485,7 +485,7 @@ final class SavedSectionController extends Controller
             return response()->json([
                 'status' => 200,
                 'success' => true,
-                'message' => 'تمت إزالة الخطوة من المحفوظات',
+                'message' => 'تمت إزالة المقطع من المحفوظات',
                 'data' => ['removed_memberships' => $removed],
             ]);
         } catch (\Throwable $e) {

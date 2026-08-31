@@ -368,21 +368,21 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
           recoveryAttemptsRef.current += 1;
           publishRuntimeMetrics({});
           setEffectiveQuality(step.quality);
-          restartPlayback('الاتصال بطّأ شوية · بنظبط الجودة');
+          restartPlayback('الاتصال بطيء\nنضبط الجودة');
           return true;
         }
         if (step.kind === 'fallback') {
           recoveryAttemptsRef.current += 1;
           publishRuntimeMetrics({});
           setUsingFallback(true);
-          restartPlayback('بنجرب مصدر تاني ونكمّل من مكانك');
+          restartPlayback('نجرب مصدرًا آخر\nونكمل من مكانك');
           return true;
         }
         if (step.kind === 'retry') {
           sameSourceRetryUsedRef.current = true;
           recoveryAttemptsRef.current += 1;
           publishRuntimeMetrics({});
-          restartPlayback('بنحاول نوصل للفيديو مرة تانية', 900);
+          restartPlayback('نحاول الوصول إلى الفيديو', 900);
           return true;
         }
 
@@ -476,7 +476,7 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
       diagnosticRequestRef.current += 1;
       setError(false);
       setFailureKind('source');
-      setRecoveryMessage('بنحاول نوصل للفيديو');
+      setRecoveryMessage('نحاول الوصول إلى الفيديو');
       setIsBuffering(true);
       setUsingFallback(false);
       setEffectiveQuality(selectedQuality);

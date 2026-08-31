@@ -123,9 +123,10 @@ export default function Lessons() {
     <View style={styles.container}>
       <View style={styles.intro}>
         <Text style={styles.eyebrow}>خريطة الكورس</Text>
-        <Text style={styles.heading}>كل خطوة أمامك، بدون ما تضيع مكانك</Text>
+        <Text style={styles.heading}>كل مقاطع الكورس أمامك</Text>
         <Text style={styles.introCopy}>
-          افتح أي خطوة متاحة، وبعد آخر خطوة ستظهر لك صفحة المشروع تلقائيًا.
+          افتح أي مقطع متاح
+          {'\n'}يظهر المشروع بعد آخر مقطع في الوحدة
         </Text>
       </View>
 
@@ -164,7 +165,7 @@ export default function Lessons() {
           </Text>
           <Text style={styles.certificateDescription}>
             {grantAccess
-              ? 'منحتك فاتحة الكورس والمشاريع كاملة. اضغط هنا لو حابب تضيف Rokn AI والشهادة.'
+              ? 'منحتك تفتح الكورس ومشروعاته كاملة\nأضف Rokn AI والشهادة عند الحاجة'
               : certificateReady
               ? 'ستظهر في بورتفوليوك ويصل رمز QR إلى صفحة المشاركة.'
               : 'تفتح بعد اعتماد مشروع التخرج.'}

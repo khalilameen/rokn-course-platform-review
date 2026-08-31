@@ -679,11 +679,10 @@ final readonly class KashierPaymentService
                 StudentNotificationService::notifyUser(
                     $user,
                     StudentNotificationService::TYPE_PACKAGE_PURCHASED,
-                    'تم شراء الباقة',
+                    'تم شحن رصيدك',
                     'Package Purchased',
-                    'تم شراء الباقة بنجاح. تم إضافة '
-                        . $this->coinAmount($order)
-                        . ' عملة إلى محفظتك',
+                    'أضفنا ' . $this->coinAmount($order)
+                        . " عملة إلى محفظتك\nالرصيد جاهز للاستخدام",
                     'Package purchased successfully. ' . $this->coinAmount($order) . ' coins added to your wallet.',
                     null,
                     Package::class,

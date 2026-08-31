@@ -195,10 +195,10 @@ class StudentNotificationService
             'welcome_bonus_received',
             ['coins' => $coinsAmount],
             [
-                'title_ar' => 'رصيدك بدأ',
+                'title_ar' => 'وصلت هديتك',
                 'title_en' => 'Your balance is ready',
-                'message_ar' => 'نزلنا لك ' . self::arabicDigits($coinsAmount)
-                    . ' عملة ركن في المحفظة. دي عملات داخل التطبيق، مش جنيهات.',
+                'message_ar' => 'أضفنا ' . self::arabicDigits($coinsAmount)
+                    . " عملة ركن إلى محفظتك\nاستخدمها داخل التطبيق",
                 'message_en' => 'We added ' . $coinsAmount
                     . ' Rokn coins to your wallet. They are in-app credits, not cash.',
             ]

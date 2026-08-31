@@ -109,10 +109,7 @@ final readonly class CourseSearchService
                 'preview_count' => (int) $course->preview_count,
                 'ratings_count' => (int) $course->ratings_count,
                 'rating_average' => round((float) ($course->ratings_avg_rating ?? 0), 1),
-                'students_count' => max(
-                    (int) $course->students_count,
-                    (int) $course->active_enrollments_count
-                ),
+                'students_count' => (int) $course->active_enrollments_count,
             ];
         })->values();
 

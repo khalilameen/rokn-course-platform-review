@@ -129,7 +129,7 @@
             <aside class="course-studio__rail studio-authoring-control" aria-label="أدوات الكورس">
                 <section class="studio-rail-card studio-rail-card--status">
                     <div class="studio-rail-card__heading"><span class="studio-status-dot {{ $course->is_coming_soon ? 'is-draft' : 'is-live' }}"></span><div><small>حالة الكورس</small><h2>{{ !$course->is_coming_soon ? 'منشور للطلاب' : ($publishingAudit['ready'] ? 'جاهز للنشر' : 'مسودة غير مكتملة') }}</h2></div></div>
-                    <div class="studio-readiness"><span><strong>{{ $publishingAudit['counts']['modules'] }}</strong> وحدات</span><span><strong>{{ $publishingAudit['counts']['reels'] }}</strong> خطوات</span><span><strong>{{ $publishingAudit['counts']['projects'] }}</strong> مشروعات</span></div>
+                    <div class="studio-readiness"><span><strong>{{ $publishingAudit['counts']['modules'] }}</strong> وحدات</span><span><strong>{{ $publishingAudit['counts']['reels'] }}</strong> مقاطع</span><span><strong>{{ $publishingAudit['counts']['projects'] }}</strong> مشروعات</span></div>
                     @if($course->is_coming_soon && !$publishingAudit['ready'])<ul>@foreach(array_slice($publishingAudit['issues'], 0, 4) as $issue)<li>{{ $issue }}</li>@endforeach</ul>@endif
                     <a href="{{ route('admin.courses.edit', [$course, 'return_to' => 'studio']) }}">مراجعة الجاهزية والنشر</a>
                 </section>

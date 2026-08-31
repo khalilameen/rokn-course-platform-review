@@ -17,7 +17,7 @@ describe('production notification language boundary', () => {
     expect(notification.description).toBe('رسالة عربية');
     expect(notification.tone).toBe('coins');
     expect(notification.kind).toBe('coin_reward');
-    expect(notification.actionLabel).toBe('شوف رصيدك');
+    expect(notification.actionLabel).toBe('افتح المحفظة');
   });
 
   it('falls back to generic fields when Arabic copy is absent', () => {

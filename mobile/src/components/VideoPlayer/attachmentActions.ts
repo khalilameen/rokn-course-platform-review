@@ -61,7 +61,7 @@ export const openCourseAttachment = async (attachment: CourseAttachment) => {
   if (!isAllowedRemoteUrl(attachment.url)) {
     Alert.alert(
       'الرابط غير متاح',
-      'رابط الملف غير صالح. جرّب مرة أخرى أو تواصل معنا لو استمرت المشكلة.',
+      'حاول مرة أخرى\nأو تواصل مع الدعم',
     );
     return {copied: false, downloaded: false};
   }
@@ -72,8 +72,8 @@ export const openCourseAttachment = async (attachment: CourseAttachment) => {
     Alert.alert(
       'تم نسخ الرابط',
       temporaryLink
-        ? 'افتحه على الكمبيوتر خلال ٣٠ دقيقة. لو انتهت مدته، ارجع لهنا وانسخ رابطًا جديدًا.'
-        : 'افتح الرابط من الكمبيوتر ليبدأ تنزيل ملفات العمل.',
+        ? 'افتحه على الكمبيوتر خلال ٣٠ دقيقة\nوانسخ رابطًا جديدًا إذا انتهت مدته'
+        : 'افتح الرابط على الكمبيوتر لتنزيل الملفات',
     );
     return {copied: true, downloaded: false};
   }
@@ -88,7 +88,7 @@ export const openCourseAttachment = async (attachment: CourseAttachment) => {
       );
       Alert.alert(
         'بدأ التنزيل',
-        'يمكنك متابعة التقدم من إشعار التنزيل، وسنخبرك فور اكتماله.',
+        'تابع التقدم من إشعار التنزيل',
       );
       return {copied: false, downloaded: true, downloadId};
     } catch {
@@ -105,7 +105,7 @@ export const openCourseAttachment = async (attachment: CourseAttachment) => {
     }
     Alert.alert(
       'تعذر تنزيل الملف',
-      'حاول مرة أخرى بعد التأكد من الاتصال.',
+      'تحقق من الاتصال ثم حاول مرة أخرى',
     );
     return {copied: false, downloaded: false};
   }
@@ -144,7 +144,7 @@ export const openCourseAttachment = async (attachment: CourseAttachment) => {
     if (await openRemoteDownload(attachment.url)) {
       return {copied: false, downloaded: true};
     }
-    Alert.alert('تعذر تنزيل الملف', 'حاول مرة أخرى بعد التأكد من الاتصال.');
+    Alert.alert('تعذر تنزيل الملف', 'تحقق من الاتصال ثم حاول مرة أخرى');
     return {copied: false, downloaded: false};
   }
 };

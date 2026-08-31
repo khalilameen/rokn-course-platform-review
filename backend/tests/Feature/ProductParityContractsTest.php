@@ -7,6 +7,7 @@ namespace Tests\Feature;
 use App\Http\Middleware\AppFrontNameSpace;
 use App\Http\Middleware\WebsiteVisitorCount;
 use App\Models\Course;
+use App\Models\CourseRating;
 use App\Models\Lesson;
 use App\Models\LessonMediaState;
 use App\Models\Path;
@@ -187,6 +188,73 @@ final class ProductParityContractsTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.0.courses.0.id', $course->id)
             ->assertJsonPath('data.0.courses.0.metadata.duration_minutes', 15);
+    }
+
+    public function test_guest_course_social_proof_uses_real_enrollments_and_ratings(): void
+    {
+        $course = $this->course([
+            'name_ar' => 'كورس الدليل الاجتماعي',
+            'price' => 300,
+            'students_count' => 900,
+            'is_coming_soon' => false,
+            'is_catalog_visible' => true,
+        ]);
+        $lesson = Lesson::create([
+            'list_id' => $course->id,
+            'title' => 'مقطع منشور',
+            'duration_minutes' => 7,
+            'is_opened' => true,
+        ]);
+        DB::table('course_sections')->insert([
+            'course_id' => $course->id,
+            'title' => 'مقطع منشور',
+            'section_type' => 'lesson',
+            'sectionable_type' => Lesson::class,
+            'sectionable_id' => $lesson->id,
+            'order' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $activeLearners = [$this->user(), $this->user()];
+        $inactiveLearner = $this->user();
+        foreach ($activeLearners as $learner) {
+            DB::table('course_enrollments')->insert([
+                'tenant_id' => 1,
+                'user_id' => $learner->id,
+                'course_id' => $course->id,
+                'enrolled_at' => now(),
+                'is_active' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+        DB::table('course_enrollments')->insert([
+            'tenant_id' => 1,
+            'user_id' => $inactiveLearner->id,
+            'course_id' => $course->id,
+            'enrolled_at' => now(),
+            'is_active' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        CourseRating::create([
+            'user_id' => $activeLearners[0]->id,
+            'course_id' => $course->id,
+            'rating' => 5,
+        ]);
+        CourseRating::create([
+            'user_id' => $activeLearners[1]->id,
+            'course_id' => $course->id,
+            'rating' => 4,
+        ]);
+
+        $this->getJson("/api/v1/courses/{$course->id}/details")
+            ->assertOk()
+            ->assertJsonPath('data.metadata.duration_minutes', 7)
+            ->assertJsonPath('data.metadata.students_count', 2)
+            ->assertJsonPath('data.ratings_count', 2)
+            ->assertJsonPath('data.average_rating', 4.5);
     }
 
     public function test_learning_dashboard_returns_only_a_valid_resume_projection(): void

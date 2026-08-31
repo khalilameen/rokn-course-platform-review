@@ -27,6 +27,7 @@ import type {LoginReturnTo} from '../../navigation/types';
 import {goBackOrHome} from '../../navigation/RootNavigationHelper';
 import {
   CourseBody,
+  CourseAccessPlansSection,
   CourseHero,
   CourseIntro,
   StickyCourseAction,
@@ -39,6 +40,7 @@ import {
 } from './details/PurchaseDialogs';
 import type {DialogStep} from './details/PurchaseDialogs';
 import {
+  canChooseCourseAccess,
   selectCourseDetailsPresentation,
   selectCourseHeroHeight,
 } from './details/selectors';
@@ -109,13 +111,11 @@ export default function CourseDetails() {
     pageReady,
     previewReelCount,
     primaryActionLabel,
-    projectCount,
     purchasePrice,
     rewardContributionLimit,
     rewardContributionPercent,
     ratingAverage,
     ratingsCount,
-    reelCount,
     selectedPlan,
     shortfall,
     spendableBalance,
@@ -149,6 +149,13 @@ export default function CourseDetails() {
   }, [accessPlans, selectedPlanCode]);
 
   const heroHeight = selectCourseHeroHeight(layout);
+  const showCourseAccessOptions = canChooseCourseAccess({
+    isDemoCourse,
+    owned,
+    pageReady,
+    remoteError,
+    remoteSession,
+  });
   const {onPrimaryActionLayout, onScroll, showStickyAction} =
     useStickyCourseAction(heroHeight);
 
@@ -218,7 +225,7 @@ export default function CourseDetails() {
       if (hasPreview) startPreview();
       else
         setNotice(
-          'سجّل الدخول بالحساب الذي فُتح عليه الكورس لتجده جاهزًا هنا.',
+          'سجّل الدخول بالحساب الذي فُتح عليه الكورس',
         );
       return;
     }
@@ -425,7 +432,7 @@ export default function CourseDetails() {
           } catch {
             setDialogStep(null);
             setNotice(
-              'وصل تأكيد الدفع، لكن تحديث الرصيد لسه متأخر. مش محتاج تدفع تاني؛ افتح الصفحة بعد لحظات.',
+              'وصل تأكيد الدفع\nسيظهر الرصيد بعد لحظات\nلا تدفع مرة أخرى',
             );
           }
         }
@@ -533,10 +540,7 @@ export default function CourseDetails() {
           isDemoCourse={isDemoCourse}
           maxContentWidth={layout.maxContentWidth}
           onBack={() => goBackOrHome(navigation)}
-          projectCount={projectCount}
-          reelCount={reelCount}
           remoteCourse={remoteCourse}
-          remoteLoading={remoteLoading}
           topInset={insets.top}
         />
 
@@ -557,20 +561,30 @@ export default function CourseDetails() {
             onPreview={() => startPreview()}
             owned={owned}
             pageReady={pageReady}
-            previewReelCount={previewReelCount}
             primaryActionLabel={primaryActionLabel}
             ratingAverage={ratingAverage}
             ratingsCount={ratingsCount}
             remoteError={remoteError}
             studentsCount={studentsCount}
           />
+          <CourseAccessPlansSection
+            accessPlans={accessPlans}
+            onSelectPlan={plan => {
+              setSelectedPlanCode(plan.code);
+              setDialogStep(
+                (planSpendableBalances[plan.code] ?? 0) >= plan.priceCoins
+                  ? 'confirm'
+                  : 'topup',
+              );
+            }}
+            selectedPlanCode={selectedPlanCode}
+            visible={showCourseAccessOptions}
+          />
           <CourseCodeRedemptionAction
             onPress={openCodeRedemption}
             visible={
               CAN_REDEEM_COURSE_ACCESS_CODE &&
-              !owned &&
-              pageReady &&
-              !remoteError
+              showCourseAccessOptions
             }
           />
           {!!notice && dialogStep === null && !redemptionVisible && (

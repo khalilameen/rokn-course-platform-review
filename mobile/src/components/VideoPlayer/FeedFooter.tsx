@@ -30,7 +30,7 @@ const FeedFooter = ({data, bottomInset = 0}: FeedFooterProps) => {
       ]}>
       <View style={styles.numberPill}>
         <Text style={styles.numberText} maxFontSizeMultiplier={1.15}>
-          الخطوة {formatArabicNumber(data.reelNumber)}
+          المقطع {formatArabicNumber(data.reelNumber)}
         </Text>
       </View>
       <Text

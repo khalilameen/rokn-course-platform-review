@@ -276,7 +276,7 @@ export const getSavedLessonsPage = async (
             folderId: String(folder.id),
             folderName: String(folder.name || 'المشاهدة لاحقًا'),
             courseId: String(lesson.course?.id || lesson.course_id || ''),
-            title: String(lesson.title || 'خطوة محفوظة'),
+            title: String(lesson.title || 'مقطع محفوظ'),
             courseTitle: String(lesson.course?.title || 'كورس ركن'),
             duration: `${String(
               Math.floor(Number(lesson.duration_minutes || 0)),

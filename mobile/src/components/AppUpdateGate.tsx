@@ -81,7 +81,7 @@ const AppUpdateGate: FC<Props> = ({notice, onDismiss}) => {
               <Text style={styles.markText}>R</Text>
             </View>
             <Text style={styles.title}>
-              {notice.isBlocking ? 'حدّث ركن عشان تكمّل' : 'نسخة جديدة من ركن'}
+              {notice.isBlocking ? 'حدّث ركن للمتابعة' : 'نسخة جديدة من ركن'}
             </Text>
             <Text style={styles.message}>{notice.message}</Text>
             {!!notice.releaseNotes && (
@@ -91,8 +91,7 @@ const AppUpdateGate: FC<Props> = ({notice, onDismiss}) => {
             )}
             {unavailable && (
               <Text accessibilityRole="alert" style={styles.error}>
-                رابط التحديث غير متاح دلوقتي. تقدر تكمّل وهنحاول تاني بعد ما
-                يتظبط.
+                رابط التحديث غير متاح الآن
               </Text>
             )}
             {!!notice.downloadUrl && (
@@ -117,7 +116,7 @@ const AppUpdateGate: FC<Props> = ({notice, onDismiss}) => {
                 onPress={onDismiss}
                 style={styles.secondaryButton}>
                 <Text style={styles.secondaryLabel}>
-                  {unavailable ? 'كمّل دلوقتي' : 'بعدها بشوية'}
+                  {unavailable ? 'المتابعة' : 'لاحقًا'}
                 </Text>
               </Pressable>
             )}

@@ -19,18 +19,18 @@ import {FinishOnBoarding} from '../store/reducers/settings';
 const steps = [
   {
     number: '١',
-    title: 'مفيش رغي ولا حشو',
-    description: 'سامحنا عشان آخر كل خطوة هيخليك عايز تفتح اللي بعدها',
+    title: 'مقاطع قصيرة بلا حشو',
+    description: 'كل مقطع يشرح فكرة واحدة بوضوح',
   },
   {
     number: '٢',
-    title: 'الطالب مش مجرد متفرج',
-    description: 'بتطبّق مشاريع عشان تكمّل',
+    title: 'تعلّم بالتطبيق',
+    description: 'نفّذ مشروعات لتتقدم في الكورس',
   },
   {
     number: '٣',
-    title: 'اسأل براحتك',
-    description: 'Rokn AI مع كل كورس يجاوبك فورًا من غير ما تخرج من الخطوة',
+    title: 'اسأل من داخل المقطع',
+    description: 'يساعدك Rokn AI دون مغادرة الكورس',
   },
 ];
 
@@ -57,8 +57,8 @@ export default function Onboarding() {
             source={require('../assets/images/logo.png')}
             style={styles.logo}
           />
-          <Text style={styles.eyebrow}>اسكرول واتعلم</Text>
-          <Text style={styles.title}>تم اغتيال ملل الكورسات بنجاح</Text>
+          <Text style={styles.eyebrow}>تعلّم بمقاطع قصيرة</Text>
+          <Text style={styles.title}>تعلّم أسرع وطبّق أكثر</Text>
           <Text style={styles.subtitle}>
             أول منصة كورسات في العالم تنتج محتواها دقيقة بدقيقة
           </Text>
@@ -75,7 +75,7 @@ export default function Onboarding() {
               </View>
             ))}
           </View>
-          <Button loader={finishing} onPress={finish} title="يلا نبدأ" />
+          <Button loader={finishing} onPress={finish} title="ابدأ الآن" />
         </ResponsiveFrame>
       </Content>
     </Container>

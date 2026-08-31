@@ -87,10 +87,10 @@ export const ReelsPreviewGate = ({
         <View style={styles.previewBadge}>
           <Text style={styles.previewBadgeText}>معاينة مجانية مكتملة</Text>
         </View>
-        <Text style={styles.previewGateTitle}>دي كانت البداية</Text>
+        <Text style={styles.previewGateTitle}>هذه كانت البداية</Text>
         <Text style={styles.previewGateText}>
           خلّصت {formatArabicNumber(previewCount)} من المحتوى المجاني
-          {'\n'}كمّل من الخطوة التالية واحتفظ بتقدّمك
+          {'\n'}أكمل من المقطع التالي واحفظ تقدمك
         </Text>
         <Pressable
           accessibilityRole="button"

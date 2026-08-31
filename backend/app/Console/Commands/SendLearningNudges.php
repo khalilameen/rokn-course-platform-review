@@ -71,9 +71,9 @@ final class SendLearningNudges extends Command
                     'learning_nudge',
                     ['course' => $courseName],
                     [
-                        'title_ar' => 'خطوتك الجاية مستنياك',
+                        'title_ar' => 'مقطعك التالي جاهز',
                         'title_en' => 'Your next step is ready',
-                        'message_ar' => "ارجع لـ {$courseName}. مقطع واحد كفاية ترجع للمود.",
+                        'message_ar' => "{$courseName}\nأكمل بمقطع واحد اليوم",
                         'message_en' => "Continue {$courseName}. One short clip is enough to get back into it.",
                     ]
                 );

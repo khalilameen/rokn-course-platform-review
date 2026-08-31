@@ -51,7 +51,7 @@ export default function SearchAssist({
       <View accessibilityLiveRegion="polite" style={styles.searchingRow}>
         <ActivityIndicator color={Palette.primary} size="small" />
         <Text style={styles.searchingText}>
-          بنعرض الموجود ونبحث في باقي الكورسات…
+          نعرض النتائج ونبحث في بقية الكورسات…
         </Text>
       </View>
     );
@@ -64,7 +64,7 @@ export default function SearchAssist({
       {!!recent.length && (
         <>
           <View style={styles.headingRow}>
-            <Text style={styles.heading}>بحثت عنها قبل كده</Text>
+            <Text style={styles.heading}>عمليات البحث السابقة</Text>
             <Pressable
               accessibilityLabel="مسح سجل البحث"
               accessibilityRole="button"
@@ -93,7 +93,7 @@ export default function SearchAssist({
           styles.heading,
           recent.length > 0 && styles.suggestionsHeading,
         ]}>
-        جرّب تبحث عن
+        ابحث عن
       </Text>
       <View style={styles.chips}>
         {suggestions.map(item => (

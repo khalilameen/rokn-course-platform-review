@@ -11,6 +11,8 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import {CourseDetailsSkeleton} from '../../../components/ui/Skeleton';
 import {StatusView} from '../../../components/ui/PremiumUI';
+import {CourseArtwork} from '../../../components/ui/CourseArtwork';
+import {CoinAmount} from '../../../components/ui/RoknCoin';
 import {CAN_START_EXTERNAL_CHECKOUT} from '../../../constants/distribution';
 import {Palette, useResponsiveLayout} from '../../../constants/designSystem';
 import {
@@ -18,19 +20,21 @@ import {
   formatArabicNumber,
 } from '../../../constants/arabicFormatting';
 import {createDemoCourse} from '../../../components/VideoPlayer/demoCourse';
-import type {CourseDetails as CourseDetailsDto} from '../../../services/roknApi';
+import type {
+  CourseAccessPlan,
+  CourseDetails as CourseDetailsDto,
+} from '../../../services/roknApi';
 import Lessons from '../Lessons';
+import {planBenefits} from './selectors';
 import styles from './styles';
 
 export const CourseAbout = ({details}: {details?: CourseDetailsDto | null}) => {
   const {isTablet} = useResponsiveLayout();
   const outcomes = details
     ? [
-        `${details?.reelCount || 0} خطوة قصيرة يمكن استكمالها دون جلسات طويلة`,
-        details?.projectCount
-          ? `${details.projectCount} مشروع عبور يثبت المحاولة العملية`
-          : 'تقدّم محفوظ والعودة من نفس موضع المشاهدة',
-        'خريطة واضحة ومرفقات تظهر في وقتها داخل الرحلة',
+        'تقدّم محفوظ والعودة من نفس موضع المشاهدة',
+        'خريطة واضحة للوحدات والمقاطع',
+        'مرفقات تظهر في وقتها داخل الكورس',
       ]
     : [
         'عرض خدمة واضح يمكن إرساله للعميل',
@@ -51,7 +55,7 @@ export const CourseAbout = ({details}: {details?: CourseDetailsDto | null}) => {
           <Text style={styles.bodyCopy}>
             {formatArabicDisplayText(
               details?.description ||
-                'ثلاثون خطوة قصيرة تنقلك من تحديد خدمتك، إلى كتابة العرض، ثم إدارة المشروع والتسليم وبناء دراسة حالة محترمة. كل وحدة تنتهي بمشروع عبور بسيط يقيس المحاولة الجادة، لا الإجابة المثالية.',
+                'ثلاثون مقطعًا قصيرًا من تحديد خدمتك إلى إدارة المشروع والتسليم\nتنتهي كل وحدة بمشروع عبور عند الحاجة',
             )}
           </Text>
           <View style={styles.outcomes}>
@@ -76,7 +80,7 @@ export const CourseAbout = ({details}: {details?: CourseDetailsDto | null}) => {
               details?.instructorImage
                 ? {uri: details.instructorImage}
                 : details
-                ? require('../../../assets/images/avatar.png')
+                ? require('../../../assets/images/default-avatar.png')
                 : require('../../../assets/images/demo-course/instructor-karim.jpg')
             }
             style={styles.instructorImage}
@@ -144,8 +148,8 @@ export const LockedOutline = ({
       <Text style={styles.sectionTitle}>
         {formatArabicDisplayText(
           details
-            ? `${details.modules.length} وحدات · ${details.reelCount} خطوة · ${details.projectCount} مشروعات عبور`
-            : '٣ وحدات · ٣٠ خطوة · ٣ مشروعات عبور',
+            ? `${details.modules.length} وحدات · ${details.reelCount} مقطع · ${details.projectCount} مشروعات عبور`
+            : '٣ وحدات · ٣٠ مقطعًا · ٣ مشروعات عبور',
         )}
       </Text>
       {details && !modules.length && (
@@ -174,7 +178,7 @@ export const LockedOutline = ({
                   {formatArabicDisplayText(module.title)}
                 </Text>
                 <Text style={styles.moduleMeta}>
-                  {formatArabicNumber(module.reelCount)} خطوة
+                  {formatArabicNumber(module.reelCount)} مقطع
                   {module.projectCount ? ' · مشروع عبور' : ''}
                 </Text>
               </View>
@@ -245,7 +249,8 @@ export const LockedOutline = ({
         );
       })}
       <Text style={styles.lockedNote}>
-        يمكنك رؤية الخريطة قبل الشراء، وتفتح الخطوات والمرفقات بعد فتح الكورس.
+        يمكنك رؤية الخريطة قبل الشراء
+        {'\n'}تُفتح المقاطع والمرفقات بعد شراء الكورس
       </Text>
     </View>
   );
@@ -258,11 +263,65 @@ type CourseHeroProps = {
   isDemoCourse: boolean;
   maxContentWidth: number;
   onBack: () => void;
-  projectCount: number;
-  reelCount: number;
   remoteCourse: CourseDetailsDto | null;
-  remoteLoading: boolean;
   topInset: number;
+};
+
+type CourseAccessPlansSectionProps = {
+  accessPlans: CourseAccessPlan[];
+  onSelectPlan: (plan: CourseAccessPlan) => void;
+  selectedPlanCode: string;
+  visible: boolean;
+};
+
+export const CourseAccessPlansSection = ({
+  accessPlans,
+  onSelectPlan,
+  selectedPlanCode,
+  visible,
+}: CourseAccessPlansSectionProps) => {
+  if (!visible || !accessPlans.length) return null;
+
+  return (
+    <View style={styles.coursePlansSection}>
+      <Text style={styles.sheetEyebrow}>اختر الفئة المناسبة لك</Text>
+      <Text style={styles.sheetTitle}>الكورس واحد، ومستوى الدعم باختيارك</Text>
+      <Text style={styles.sheetDescription}>
+        قارن الإمكانيات واختر الفئة
+        {'\n'}ثم أكمل الدفع من الصفحة نفسها
+      </Text>
+      <View style={styles.planList}>
+        {accessPlans.map(plan => (
+          <Pressable
+            accessibilityHint="يفتح ملخص الفئة وإتمام الشراء"
+            accessibilityLabel={`${plan.name} بسعر ${formatArabicNumber(
+              plan.priceCoins,
+            )} عملة`}
+            accessibilityRole="button"
+            key={plan.code}
+            onPress={() => onSelectPlan(plan)}
+            style={({pressed}) => [
+              styles.planCard,
+              plan.code === selectedPlanCode && styles.planCardSelected,
+              pressed && styles.pressed,
+            ]}>
+            <View style={styles.planHeader}>
+              <Text style={styles.planName}>{plan.name}</Text>
+              <CoinAmount size={17} value={plan.priceCoins} />
+            </View>
+            <View style={styles.planBenefits}>
+              {planBenefits(plan).map(item => (
+                <View key={item} style={styles.planBenefitRow}>
+                  <View style={styles.planCheck} />
+                  <Text style={styles.planBenefitText}>{item}</Text>
+                </View>
+              ))}
+            </View>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
 };
 
 export const CourseHero = ({
@@ -272,20 +331,20 @@ export const CourseHero = ({
   isDemoCourse,
   maxContentWidth,
   onBack,
-  projectCount,
-  reelCount,
   remoteCourse,
-  remoteLoading,
   topInset,
 }: CourseHeroProps) => (
   <View style={[styles.hero, {height: heroHeight}]}>
-    <Image
+    <CourseArtwork
+      fallback={
+        isDemoCourse
+          ? require('../../../assets/images/demo-course/ui-freelance-cover.jpg')
+          : require('../../../assets/images/courseSliderBackground.jpg')
+      }
       source={
         !isDemoCourse && remoteCourse?.imageUrl
           ? {uri: remoteCourse.imageUrl}
-          : isDemoCourse
-          ? require('../../../assets/images/demo-course/ui-freelance-cover.jpg')
-          : require('../../../assets/images/courseSliderBackground.jpg')
+          : undefined
       }
       style={styles.heroImage}
     />
@@ -315,22 +374,6 @@ export const CourseHero = ({
           maxWidth: maxContentWidth,
         },
       ]}>
-      <View style={styles.heroMetaRow}>
-        <View style={styles.categoryPill}>
-          <Text style={styles.categoryPillText}>
-            {isDemoCourse ? 'عمل حر' : 'تعلّم تطبيقي'}
-          </Text>
-        </View>
-        <Text style={styles.heroMeta}>
-          {!isDemoCourse && remoteLoading
-            ? 'نجهّز تفاصيل الكورس…'
-            : formatArabicDisplayText(
-                `${reelCount} خطوة${
-                  projectCount ? ` · ${projectCount} مشروعات` : ''
-                }`,
-              )}
-        </Text>
-      </View>
       <Text style={styles.heroTitle}>
         {formatArabicDisplayText(courseTitle)}
       </Text>
@@ -347,7 +390,6 @@ type CourseIntroProps = {
   onPreview: () => void;
   owned: boolean;
   pageReady: boolean;
-  previewReelCount: number;
   primaryActionLabel: string;
   ratingAverage: number | null;
   ratingsCount: number;
@@ -364,7 +406,6 @@ export const CourseIntro = ({
   onPreview,
   owned,
   pageReady,
-  previewReelCount,
   primaryActionLabel,
   ratingAverage,
   ratingsCount,
@@ -375,44 +416,34 @@ export const CourseIntro = ({
     <Text style={styles.heroSubtitle}>
       {formatArabicDisplayText(courseDescription)}
     </Text>
-    {pageReady &&
-      ((ratingsCount > 0 && ratingAverage !== null) ||
-        studentsCount > 0 ||
-        durationMinutes !== null) && (
-        <View style={styles.socialProofRow}>
-          {ratingsCount > 0 && ratingAverage !== null && (
-            <Text style={styles.socialProofText}>
-              <Text style={styles.ratingText}>
-                ★{' '}
-                {formatArabicNumber(ratingAverage, {
-                  minimumFractionDigits: 1,
-                  maximumFractionDigits: 1,
-                })}
-              </Text>{' '}
-              {formatArabicNumber(ratingsCount)} تقييم
-            </Text>
-          )}
-          {studentsCount > 0 && (
-            <>
-              {ratingsCount > 0 && ratingAverage !== null && (
-                <View style={styles.socialProofDot} />
-              )}
-              <Text style={styles.socialProofText}>
-                {formatArabicNumber(studentsCount)} طالب
-              </Text>
-            </>
-          )}
-          {durationMinutes !== null && (
-            <>
-              {((ratingsCount > 0 && ratingAverage !== null) ||
-                studentsCount > 0) && <View style={styles.socialProofDot} />}
-              <Text style={styles.socialProofText}>
-                {formatArabicNumber(durationMinutes)} دقيقة
-              </Text>
-            </>
-          )}
-        </View>
-      )}
+    {pageReady && (
+      <View style={styles.socialProofRow}>
+        {durationMinutes !== null && (
+          <Text style={styles.socialProofText}>
+            {formatArabicNumber(durationMinutes)} دقيقة
+          </Text>
+        )}
+        {durationMinutes !== null && <View style={styles.socialProofDot} />}
+        {ratingsCount > 0 && ratingAverage !== null ? (
+          <Text style={styles.socialProofText}>
+            <Text style={styles.ratingText}>
+              ★{' '}
+              {formatArabicNumber(ratingAverage, {
+                minimumFractionDigits: 1,
+                maximumFractionDigits: 1,
+              })}
+            </Text>{' '}
+            {formatArabicNumber(ratingsCount)} تقييم
+          </Text>
+        ) : (
+          <Text style={styles.socialProofText}>جديد</Text>
+        )}
+        <View style={styles.socialProofDot} />
+        <Text style={styles.socialProofText}>
+          {formatArabicNumber(studentsCount)} طالب
+        </Text>
+      </View>
+    )}
     <View onLayout={onPrimaryActionLayout} style={styles.priceAndAction}>
       <Pressable
         accessibilityRole="button"
@@ -433,11 +464,7 @@ export const CourseIntro = ({
       </Pressable>
       {!owned && hasPreview && pageReady && CAN_START_EXTERNAL_CHECKOUT && (
         <Pressable
-          accessibilityLabel={
-            previewReelCount === 1
-              ? 'مشاهدة الخطوة المجانية'
-              : 'مشاهدة الخطوات المجانية'
-          }
+          accessibilityLabel="مشاهدة مجانية"
           accessibilityRole="button"
           onPress={onPreview}
           style={({pressed}) => [
@@ -445,9 +472,7 @@ export const CourseIntro = ({
             pressed && styles.pressed,
           ]}>
           <Text style={styles.previewButtonText}>
-            {previewReelCount === 1
-              ? 'شاهد الخطوة المجانية'
-              : `شاهد أول ${formatArabicNumber(previewReelCount)} خطوات مجانًا`}
+            شاهد مجانًا
           </Text>
         </Pressable>
       )}

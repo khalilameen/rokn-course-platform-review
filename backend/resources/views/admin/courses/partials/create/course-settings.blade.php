@@ -133,7 +133,7 @@
                             </div>
                             <div>
                                 <div class="checkbox-item__title">مسودة مخفية</div>
-                                <div class="checkbox-item__description">يحفظ الكورس الجديد كمسودة تلقائيًا حتى تُكمل وحداته وخطواته ومشروعات العبور.</div>
+                                <div class="checkbox-item__description">يُحفظ الكورس كمسودة حتى تكتمل وحداته ومقاطعه ومشروعاته</div>
                             </div>
                             {!! Form::hidden('is_coming_soon', 0) !!}
                             {!! Form::checkbox('is_coming_soon', 1, true, ['id' => 'is_coming_soon', 'class' => 'course-create-checkbox-input']) !!}

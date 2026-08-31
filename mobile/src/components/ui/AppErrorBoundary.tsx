@@ -55,10 +55,10 @@ export default class AppErrorBoundary extends React.Component<Props, State> {
           <View style={styles.mark}>
             <Text style={styles.markText}>ر</Text>
           </View>
-          <Text style={styles.title}>نرتّب هذه اللحظة</Text>
+          <Text style={styles.title}>حدث توقف غير متوقع</Text>
           <Text style={styles.message}>
-            حدث توقف غير متوقع، ومكانك في الكورس محفوظ. جرّب المتابعة الآن، أو
-            أعد تشغيل ركن إذا استمر التوقف.
+            مكانك محفوظ
+            {'\n'}حاول المتابعة أو أعد تشغيل ركن
           </Text>
           <Pressable
             accessibilityRole="button"
