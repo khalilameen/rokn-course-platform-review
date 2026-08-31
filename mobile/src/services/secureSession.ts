@@ -1,13 +1,63 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
+import {Platform} from 'react-native';
 
 const USER_DATA_KEY = 'USER_DATA';
 const LEGACY_REDUX_AUTH_KEY = 'persist:auth';
 const MIGRATION_KEY = '@rokn/auth-secure-migration-v1';
 const MIGRATION_VERSION = '2';
 const SECURE_TOKEN_KEY = 'rokn.auth.api-token.v1';
-const SECURE_OPTIONS: SecureStore.SecureStoreOptions = {
-  keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+const SECURE_STORAGE_PROBE_KEY = 'rokn.auth.storage-probe.v1';
+export const secureStoreOptionsForPlatform = (
+  platform: string,
+): SecureStore.SecureStoreOptions =>
+  platform === 'ios'
+    ? {keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY}
+    : {};
+
+// `keychainAccessible` is an iOS-only native constant. Reading and forwarding
+// it on Android makes the native options record invalid in release builds.
+const SECURE_OPTIONS = secureStoreOptionsForPlatform(Platform.OS);
+
+let storageAvailabilityPromise: Promise<void> | null = null;
+
+const performStorageAvailabilityCheck = async () => {
+  if (!(await SecureStore.isAvailableAsync())) {
+    throw new Error('SESSION_STORAGE_UNAVAILABLE');
+  }
+  const probe = `rokn-${Date.now()}`;
+  try {
+    await SecureStore.setItemAsync(
+      SECURE_STORAGE_PROBE_KEY,
+      probe,
+      SECURE_OPTIONS,
+    );
+    const restored = await SecureStore.getItemAsync(
+      SECURE_STORAGE_PROBE_KEY,
+      SECURE_OPTIONS,
+    );
+    if (restored !== probe) throw new Error('SESSION_STORAGE_UNAVAILABLE');
+  } catch {
+    throw new Error('SESSION_STORAGE_UNAVAILABLE');
+  } finally {
+    await SecureStore.deleteItemAsync(
+      SECURE_STORAGE_PROBE_KEY,
+      SECURE_OPTIONS,
+    ).catch(() => undefined);
+  }
+};
+
+/** Fail before opening OAuth if this release cannot persist the returned session. */
+export const assertSecureSessionStorageAvailable = async () => {
+  if (!storageAvailabilityPromise) {
+    storageAvailabilityPromise = performStorageAvailabilityCheck().catch(
+      error => {
+        storageAvailabilityPromise = null;
+        throw error;
+      },
+    );
+  }
+  await storageAvailabilityPromise;
 };
 
 const SENSITIVE_SESSION_KEYS = new Set([
@@ -330,4 +380,5 @@ export const resetSecureSessionMigrationForTests = () => {
   sessionCacheReady = false;
   sessionLoadPromise = null;
   sessionCacheEpoch = 0;
+  storageAvailabilityPromise = null;
 };

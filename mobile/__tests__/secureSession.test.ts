@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import {
+  assertSecureSessionStorageAvailable,
   deleteSecureSession,
   extractApiToken,
   extractUserProfile,
@@ -9,6 +10,7 @@ import {
   restoreSecureAuthState,
   sanitizeSessionForStorage,
   saveSecureSession,
+  secureStoreOptionsForPlatform,
 } from '../src/services/secureSession';
 
 const secureValues = new Map<string, string>();
@@ -21,6 +23,9 @@ const secureSet = SecureStore.setItemAsync as jest.MockedFunction<
 const secureDelete = SecureStore.deleteItemAsync as jest.MockedFunction<
   typeof SecureStore.deleteItemAsync
 >;
+const secureIsAvailable = SecureStore.isAvailableAsync as jest.MockedFunction<
+  typeof SecureStore.isAvailableAsync
+>;
 
 describe('secure mobile session persistence', () => {
   beforeEach(async () => {
@@ -29,12 +34,37 @@ describe('secure mobile session persistence', () => {
     resetSecureSessionMigrationForTests();
     await AsyncStorage.clear();
     secureGet.mockImplementation(async key => secureValues.get(key) ?? null);
+    secureIsAvailable.mockResolvedValue(true);
     secureSet.mockImplementation(async (key, value) => {
       secureValues.set(key, value);
     });
     secureDelete.mockImplementation(async key => {
       secureValues.delete(key);
     });
+  });
+
+  it('passes iOS keychain accessibility only to the iOS native module', () => {
+    expect(secureStoreOptionsForPlatform('android')).toEqual({});
+    expect(secureStoreOptionsForPlatform('ios')).toEqual({
+      keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+    });
+  });
+
+  it('proves secure storage can round-trip before opening a social provider', async () => {
+    await expect(assertSecureSessionStorageAvailable()).resolves.toBeUndefined();
+    expect(secureSet).toHaveBeenCalledWith(
+      'rokn.auth.storage-probe.v1',
+      expect.stringMatching(/^rokn-\d+$/),
+      expect.any(Object),
+    );
+    expect(secureValues.has('rokn.auth.storage-probe.v1')).toBe(false);
+  });
+
+  it('fails before OAuth when the native secure store cannot persist', async () => {
+    secureSet.mockRejectedValueOnce(new Error('native write failed'));
+    await expect(assertSecureSessionStorageAvailable()).rejects.toThrow(
+      'SESSION_STORAGE_UNAVAILABLE',
+    );
   });
 
   it('migrates both legacy plaintext copies without losing the signed-in user', async () => {

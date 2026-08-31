@@ -48,6 +48,7 @@ import {
   socialAuthFailureCode,
   socialAuthMessage,
 } from '../../services/socialAuthErrors';
+import {assertSecureSessionStorageAvailable} from '../../services/secureSession';
 import {reportClientError} from '../../services/operationalTelemetry';
 import {
   LOGIN_RETURN_TO_PARAMLESS_ROUTES,
@@ -192,6 +193,7 @@ export default function SocialAuthShell() {
     }
     setLoading(provider);
     try {
+      await assertSecureSessionStorageAvailable();
       const availableMethods = authMethods ?? (await getSocialAuthMethods());
       setAuthMethods(availableMethods);
       const session = await signInWithSocialProvider(

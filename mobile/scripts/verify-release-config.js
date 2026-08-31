@@ -76,6 +76,7 @@ const iosInfoPlist = read('ios/Rokn/Info.plist');
 const iosPodfile = read('ios/Podfile');
 const runtimeConfig = read('src/config/runtime.ts');
 const apiConfig = read('src/constants/api.ts');
+const apiBaseUrlConfig = read('src/constants/apiBaseUrl.ts');
 const environmentExample = read('.env.example');
 const androidReleaseScript = read('scripts/build-android-release.ps1');
 const nativePushTokens = read('src/services/nativePushTokens.ts');
@@ -561,7 +562,9 @@ assert(
   'The local APK builder must preserve the same live-test contract as EAS preview.',
 );
 assert(
-  apiConfig.includes(`const defaultRoknApiUrl = '${productionApiBase}'`) &&
+  apiConfig.includes("import {roknApiUrl} from './apiBaseUrl';") &&
+    apiConfig.includes('export const mainUrl = roknApiUrl;') &&
+    apiBaseUrlConfig.includes(`'${productionApiBase}'`) &&
     environmentExample.includes(`EXPO_PUBLIC_API_URL=${productionApiBase}`) &&
     androidReleaseScript.includes(
       `Production builds must use the deployed API base '${productionApiBase}'.`,
