@@ -67,6 +67,8 @@ export const socialAuthMessage = (code: string): string => {
   }
   if (
     code === 'LOGIN_CODE_MISSING' ||
+    code === 'LOGIN_URL_INVALID' ||
+    code === 'LOGIN_SECURE_FLOW_UNAVAILABLE' ||
     code === 'SOCIAL_LOGIN_EXPIRED' ||
     code === 'SOCIAL_LOGIN_PKCE_REQUIRED' ||
     code === 'SOCIAL_LOGIN_PKCE_MISMATCH'

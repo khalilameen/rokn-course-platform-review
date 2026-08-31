@@ -82,6 +82,14 @@ const createPkcePair = async () => {
   };
 };
 
+const encodeQuery = (values: Record<string, string>) =>
+  Object.entries(values)
+    .map(
+      ([key, value]) =>
+        `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
+    )
+    .join('&');
+
 const createAppleNonce = async () => {
   const bytes = await Crypto.getRandomBytesAsync(32);
   const raw = Array.from(bytes, byte =>
@@ -221,22 +229,32 @@ export const signInWithSocialProvider = async (
     }
   }
 
-  const startUrl = resolveSocialAuthStartUrl(
-    methods.authorizationUrls?.[provider],
-    mainUrl,
-    provider,
-  );
+  let startUrl: string;
+  try {
+    startUrl = resolveSocialAuthStartUrl(
+      methods.authorizationUrls?.[provider],
+      mainUrl,
+      provider,
+    );
+  } catch {
+    throw new Error('LOGIN_URL_INVALID');
+  }
   const returnUrl = 'rokn://auth';
-  const pkce = await createPkcePair();
+  let pkce: Awaited<ReturnType<typeof createPkcePair>>;
+  try {
+    pkce = await createPkcePair();
+  } catch {
+    throw new Error('LOGIN_SECURE_FLOW_UNAVAILABLE');
+  }
   const separator = startUrl.includes('?') ? '&' : '?';
   const result = await WebBrowser.openAuthSessionAsync(
-    `${startUrl}${separator}${new URLSearchParams({
+    `${startUrl}${separator}${encodeQuery({
       return_to: returnUrl,
       code_challenge: pkce.challenge,
       code_challenge_method: 'S256',
-    }).toString()}`,
+    })}`,
     returnUrl,
-    {showInRecents: true},
+    {createTask: true, useProxyActivity: true, showInRecents: true},
   );
 
   if (result.type === 'cancel' || result.type === 'dismiss') {
