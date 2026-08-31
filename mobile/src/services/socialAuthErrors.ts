@@ -65,6 +65,9 @@ export const socialAuthMessage = (code: string): string => {
   if (code === 'PROVIDER_UNAVAILABLE' || code === 'LOGIN_UNAVAILABLE') {
     return 'تعذّر الوصول إلى الحساب\nحاول مرة أخرى';
   }
+  if (code === 'LOGIN_BROWSER_UNAVAILABLE') {
+    return 'تعذّر فتح صفحة الدخول\nحاول مرة أخرى';
+  }
   if (
     code === 'LOGIN_CODE_MISSING' ||
     code === 'LOGIN_URL_INVALID' ||

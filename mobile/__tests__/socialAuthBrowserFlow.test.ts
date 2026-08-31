@@ -1,6 +1,22 @@
 const mockOpenAuthSession = jest.fn();
+const mockOpenUrl = jest.fn();
+let redirectHandler: ((event: {url: string}) => void) | undefined;
 
-jest.mock('react-native', () => ({Platform: {OS: 'android'}}));
+jest.mock('react-native', () => ({
+  Platform: {OS: 'android'},
+  Linking: {
+    addEventListener: jest.fn(
+      (_event: string, handler: (event: {url: string}) => void) => {
+        redirectHandler = handler;
+        return {remove: jest.fn()};
+      },
+    ),
+    openURL: (...args: unknown[]) => mockOpenUrl(...args),
+  },
+  AppState: {
+    addEventListener: jest.fn(() => ({remove: jest.fn()})),
+  },
+}));
 
 jest.mock('expo-crypto', () => ({
   randomUUID: jest.fn(() => '11111111-1111-4111-8111-111111111111'),
@@ -26,7 +42,9 @@ import {signInWithSocialProvider} from '../src/services/socialAuth';
 
 describe('browser social auth launch', () => {
   it('opens a deterministic encoded PKCE request on Android', async () => {
-    mockOpenAuthSession.mockResolvedValue({type: 'cancel'});
+    mockOpenUrl.mockImplementation(async () => {
+      redirectHandler?.({url: 'rokn://auth?error=LOGIN_CANCELLED'});
+    });
 
     await expect(
       signInWithSocialProvider('google', {
@@ -40,12 +58,11 @@ describe('browser social auth launch', () => {
       }),
     ).rejects.toThrow('LOGIN_CANCELLED');
 
-    expect(mockOpenAuthSession).toHaveBeenCalledWith(
+    expect(mockOpenUrl).toHaveBeenCalledWith(
       expect.stringMatching(
         /^https:\/\/rokn\.app\/api\/v1\/social-auth\/google\/start\?return_to=rokn%3A%2F%2Fauth&code_challenge=[A-Za-z0-9_-]{43}&code_challenge_method=S256$/,
       ),
-      'rokn://auth',
-      {createTask: true, useProxyActivity: true, showInRecents: true},
     );
+    expect(mockOpenAuthSession).not.toHaveBeenCalled();
   });
 });

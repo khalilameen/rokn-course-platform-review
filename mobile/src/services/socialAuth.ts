@@ -4,6 +4,7 @@ import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
 import {mainUrl, publicRequest} from '../constants/api';
 import {sha256Base64Url, sha256Hex} from '../utils/sha256';
+import {openAndroidAuthSession} from './androidAuthSession';
 
 export type SocialProvider = 'google' | 'tiktok' | 'facebook' | 'apple';
 
@@ -228,15 +229,15 @@ export const signInWithSocialProvider = async (
     throw new Error('LOGIN_SECURE_FLOW_UNAVAILABLE');
   }
   const separator = startUrl.includes('?') ? '&' : '?';
-  const result = await WebBrowser.openAuthSessionAsync(
-    `${startUrl}${separator}${encodeQuery({
-      return_to: returnUrl,
-      code_challenge: pkce.challenge,
-      code_challenge_method: 'S256',
-    })}`,
-    returnUrl,
-    {createTask: true, useProxyActivity: true, showInRecents: true},
-  );
+  const authorizationUrl = `${startUrl}${separator}${encodeQuery({
+    return_to: returnUrl,
+    code_challenge: pkce.challenge,
+    code_challenge_method: 'S256',
+  })}`;
+  const result =
+    Platform.OS === 'android'
+      ? await openAndroidAuthSession(authorizationUrl, returnUrl)
+      : await WebBrowser.openAuthSessionAsync(authorizationUrl, returnUrl);
 
   if (result.type === 'cancel' || result.type === 'dismiss') {
     throw new Error('LOGIN_CANCELLED');

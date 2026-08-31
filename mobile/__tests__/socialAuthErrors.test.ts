@@ -42,5 +42,8 @@ describe('social auth failure presentation', () => {
     expect(socialAuthMessage('LOGIN_FAILED')).toBe(
       'لم يكتمل تسجيل الدخول\nحاول مرة أخرى',
     );
+    expect(socialAuthMessage('LOGIN_BROWSER_UNAVAILABLE')).toBe(
+      'تعذّر فتح صفحة الدخول\nحاول مرة أخرى',
+    );
   });
 });

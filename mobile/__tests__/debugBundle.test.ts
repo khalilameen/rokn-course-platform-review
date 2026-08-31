@@ -89,8 +89,8 @@ describe('debug bundle privacy boundary', () => {
       schema_version: 1,
       generated_at: '2026-08-12T10:00:00.000Z',
       app: {
-        version: '1.0.27',
-        build_number: 28,
+        version: '1.0.28',
+        build_number: 29,
         platform: 'android',
         os_major: 34,
         distribution_channel: expect.stringMatching(/^(direct|play|appstore)$/),
