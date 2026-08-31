@@ -3,7 +3,6 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
 import {mainUrl, publicRequest} from '../constants/api';
-import {resolveSocialAuthStartUrl} from './socialAuthUrlPolicy';
 
 export type SocialProvider = 'google' | 'tiktok' | 'facebook' | 'apple';
 
@@ -229,16 +228,11 @@ export const signInWithSocialProvider = async (
     }
   }
 
-  let startUrl: string;
-  try {
-    startUrl = resolveSocialAuthStartUrl(
-      methods.authorizationUrls?.[provider],
-      mainUrl,
-      provider,
-    );
-  } catch {
-    throw new Error('LOGIN_URL_INVALID');
-  }
+  // Build this from the already-normalized production API base instead of
+  // parsing a server-returned URL in Hermes. The backend route is canonical,
+  // provider-specific and avoids a runtime URL-polyfill failure before the
+  // browser can open.
+  const startUrl = `${mainUrl}social-auth/${provider}/start`;
   const returnUrl = 'rokn://auth';
   let pkce: Awaited<ReturnType<typeof createPkcePair>>;
   try {

@@ -37,7 +37,7 @@ describe('browser social auth launch', () => {
       signInWithSocialProvider('google', {
         providers: ['google'],
         authorizationUrls: {
-          google: 'https://rokn.app/api/v1/social-auth/google/start',
+          google: 'not-a-runtime-safe-url',
         },
         welcomeBonus: 20,
         recommendedProvider: 'google',
