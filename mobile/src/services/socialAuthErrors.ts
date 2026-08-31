@@ -81,7 +81,7 @@ export const socialAuthMessage = (code: string): string => {
   if (code === 'LOGIN_SESSION_INVALID') {
     return 'لم تكتمل بيانات الحساب\nحاول مرة أخرى';
   }
-  if (code === 'SESSION_STORAGE_UNAVAILABLE') {
+  if (code.startsWith('SESSION_STORAGE_UNAVAILABLE')) {
     return 'تعذّر حفظ تسجيل الدخول\nأغلق التطبيق وافتحه ثم حاول';
   }
   if (code === 'NETWORK_UNAVAILABLE') {

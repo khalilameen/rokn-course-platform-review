@@ -21,9 +21,26 @@ const SECURE_OPTIONS = secureStoreOptionsForPlatform(Platform.OS);
 
 let storageAvailabilityPromise: Promise<void> | null = null;
 
+const storageFailure = (stage: string, error?: unknown) => {
+  const nativeCode =
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    typeof error.code === 'string'
+      ? error.code
+          .toUpperCase()
+          .replace(/[^A-Z0-9]+/g, '_')
+          .replace(/^_+|_+$/g, '')
+          .slice(0, 28)
+      : '';
+  return new Error(
+    `SESSION_STORAGE_UNAVAILABLE_${stage}${nativeCode ? `_${nativeCode}` : ''}`,
+  );
+};
+
 const performStorageAvailabilityCheck = async () => {
   if (!(await SecureStore.isAvailableAsync())) {
-    throw new Error('SESSION_STORAGE_UNAVAILABLE');
+    throw storageFailure('MODULE');
   }
   const probe = `rokn-${Date.now()}`;
   try {
@@ -32,18 +49,33 @@ const performStorageAvailabilityCheck = async () => {
       probe,
       SECURE_OPTIONS,
     );
+  } catch (error) {
+    throw storageFailure('WRITE', error);
+  }
+
+  try {
     const restored = await SecureStore.getItemAsync(
       SECURE_STORAGE_PROBE_KEY,
       SECURE_OPTIONS,
     );
-    if (restored !== probe) throw new Error('SESSION_STORAGE_UNAVAILABLE');
-  } catch {
-    throw new Error('SESSION_STORAGE_UNAVAILABLE');
-  } finally {
+    if (restored !== probe) throw storageFailure('ROUNDTRIP');
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith('SESSION_STORAGE_UNAVAILABLE_')
+    ) {
+      throw error;
+    }
+    throw storageFailure('READ', error);
+  }
+
+  try {
     await SecureStore.deleteItemAsync(
       SECURE_STORAGE_PROBE_KEY,
       SECURE_OPTIONS,
-    ).catch(() => undefined);
+    );
+  } catch (error) {
+    throw storageFailure('DELETE', error);
   }
 };
 
