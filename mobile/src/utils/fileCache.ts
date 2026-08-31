@@ -260,6 +260,13 @@ export const cleanupOldFiles = async (): Promise<void> => {
  * cache and the document directory used by older test builds.
  */
 export const clearTransientChatCache = async (): Promise<void> => {
+  const legacyStorageKeys = (await AsyncStorage.getAllKeys().catch(() => []))
+    .filter(
+      key => key === 'persist:chat' || key.includes('@rokn/course-chat/'),
+    );
+  if (legacyStorageKeys.length) {
+    await AsyncStorage.multiRemove(legacyStorageKeys).catch(() => undefined);
+  }
   await Promise.all(
     [getCacheDir(), getLegacyCacheDir()].map(async directory => {
       try {

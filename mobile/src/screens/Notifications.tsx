@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   CommonActions,
   useFocusEffect,
@@ -49,6 +48,11 @@ import {
 import {formatArabicDisplayText} from '../constants/arabicFormatting';
 import {LOCAL_DEMO_ENABLED} from '../config/runtime';
 import {isExternalWebLink, parseRoknDestination} from '../navigation/deepLinks';
+import {
+  normalizeLocalNotificationIds,
+  readLocalNotificationIds,
+  writeLocalNotificationIds,
+} from '../services/localUiState';
 
 type NotificationItem = {
   id: string;
@@ -61,9 +65,6 @@ type NotificationItem = {
   image?: ImageSourcePropType;
   actionLabel?: string;
 };
-
-const READ_KEY = '@rokn/notifications/read/v1';
-const MAX_LOCAL_READ_IDS = 250;
 
 export default function Notifications() {
   const navigation = useNavigation<RootNavigation>();
@@ -101,25 +102,10 @@ export default function Notifications() {
   );
   useEffect(() => {
     let active = true;
-    void AsyncStorage.getItem(READ_KEY)
-      .then(value => {
+    void readLocalNotificationIds()
+      .then(compact => {
         if (!active) return;
-        try {
-          if (!value) return;
-          const parsed = JSON.parse(value);
-          if (!Array.isArray(parsed)) return;
-          const compact = Array.from(
-            new Set(parsed.filter(item => typeof item === 'string')),
-          ).slice(-MAX_LOCAL_READ_IDS) as string[];
-          setReadIds(compact);
-          if (compact.length !== parsed.length) {
-            void AsyncStorage.setItem(READ_KEY, JSON.stringify(compact)).catch(
-              () => undefined,
-            );
-          }
-        } catch {
-          // Ignore a damaged preference; notifications remain usable.
-        }
+        setReadIds(compact);
       })
       .catch(() => undefined);
     return () => {
@@ -329,11 +315,9 @@ export default function Notifications() {
 
   const updateReadIds = (next: string[]) => {
     // Keep the demo/offline read list bounded; the API owns server state.
-    const unique = Array.from(new Set(next)).slice(-MAX_LOCAL_READ_IDS);
+    const unique = normalizeLocalNotificationIds(next);
     setReadIds(unique);
-    void AsyncStorage.setItem(READ_KEY, JSON.stringify(unique)).catch(
-      () => undefined,
-    );
+    void writeLocalNotificationIds(unique).catch(() => undefined);
   };
 
   const hasUnread = source.some(

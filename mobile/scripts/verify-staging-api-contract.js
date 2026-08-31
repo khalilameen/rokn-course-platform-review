@@ -35,13 +35,20 @@ const stagingApiBase = value => {
     url.password ||
     url.search ||
     url.hash ||
-    !url.pathname.endsWith('/api/')
+    !/\/api(?:\/v1)?\/$/.test(url.pathname)
   ) {
     throw new Error(
-      'ROKN_SMOKE_API_BASE must be a credential-free HTTPS URL ending in /api/.',
+      'ROKN_SMOKE_API_BASE must be a credential-free HTTPS URL ending in /api/ or /api/v1/.',
     );
   }
+  if (url.pathname.endsWith('/api/')) url.pathname += 'v1/';
   return url;
+};
+
+const unversionedApiBase = versionedBase => {
+  const root = new URL(versionedBase.href);
+  root.pathname = root.pathname.replace(/v1\/$/, '');
+  return root;
 };
 
 const responseJson = async (fetchImpl, base, path, expectedStatus, method) => {
@@ -110,6 +117,7 @@ const verifyStagingApiContract = async ({
   fetchImpl = fetch,
 }) => {
   const base = stagingApiBase(apiBase);
+  const rootBase = unversionedApiBase(base);
   const fixtures = {
     courseId: positiveInteger(courseId, 'ROKN_SMOKE_COURSE_ID'),
     lessonId: positiveInteger(lessonId, 'ROKN_SMOKE_LESSON_ID'),
@@ -118,7 +126,7 @@ const verifyStagingApiContract = async ({
 
   const launch = await responseJson(
     fetchImpl,
-    base,
+    rootBase,
     'health/launch-ready',
     200,
     'GET',

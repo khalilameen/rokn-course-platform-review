@@ -41,6 +41,7 @@ import {
   Profile as ProfileDto,
 } from '../../services/roknApi';
 import type {RootState} from '../../store/store';
+import {portfolioUrlFor} from '../../services/publicLinks';
 
 type ProfileTab = 'portfolio' | 'certificates' | 'saved';
 export default function Profile() {
@@ -69,11 +70,8 @@ export default function Profile() {
     portfolioProfile?.slug ||
     (authenticatedIdentity ? user.portfolio_slug || user.username : '') ||
     '';
-  const portfolioBase =
-    process.env.EXPO_PUBLIC_PORTFOLIO_URL || 'https://rokn.app';
   const publicPortfolioUrl =
-    portfolioProfile?.publicUrl ||
-    `${portfolioBase.replace(/\/$/, '')}/@${encodeURIComponent(username)}`;
+    portfolioProfile?.publicUrl || portfolioUrlFor(username);
   const canSharePortfolio = Boolean(username);
 
   useFocusEffect(

@@ -139,6 +139,21 @@ class CourseEndpointTest extends ApiTestCase
         }
     }
 
+    public function test_every_legacy_lesson_shape_exposes_the_same_duration(): void
+    {
+        $this->getJson('/api/v1/lesson/10')
+            ->assertOk()
+            ->assertJsonPath('data.duration_minutes', 15);
+
+        DB::table('lessons')->where('id', 10)->update(['is_opened' => false]);
+
+        $this->getJson('/api/v1/lesson/10')
+            ->assertOk()
+            ->assertJsonPath('message', 'Lesson preview retrieved successfully')
+            ->assertJsonPath('data.duration_minutes', 15)
+            ->assertJsonMissingPath('data.video_link');
+    }
+
     public function test_authenticated_user_can_view_course_progress(): void
     {
         $this->actingAs($this->user, 'api')

@@ -33,14 +33,14 @@ const responseFor = (pathname, method = 'GET') => {
   if (pathname === '/api/health/launch-ready') {
     return jsonResponse(200, {success: true, status: 'launch_ready'});
   }
-  if (pathname === '/api/product-features') {
+  if (pathname === '/api/v1/product-features') {
     return jsonResponse(200, {
       data: {
         flags: {checkout: true, playback: true, project_uploads: true},
       },
     });
   }
-  if (pathname === '/api/courses/64/details') {
+  if (pathname === '/api/v1/courses/64/details') {
     return jsonResponse(200, {
       success: true,
       data: {title: 'Staging course', access_plans: validPlans},
@@ -48,36 +48,36 @@ const responseFor = (pathname, method = 'GET') => {
   }
   if (
     [
-      '/api/auth-methods',
-      '/api/packages',
-      '/api/paths',
-      '/api/settings',
-      '/api/content/pages/about',
-      '/api/content/pages/privacy',
-      '/api/content/pages/contact',
+      '/api/v1/auth-methods',
+      '/api/v1/packages',
+      '/api/v1/paths',
+      '/api/v1/settings',
+      '/api/v1/content/pages/about',
+      '/api/v1/content/pages/privacy',
+      '/api/v1/content/pages/contact',
     ].includes(pathname)
   ) {
     return jsonResponse(200, {success: true, data: []});
   }
   if (
     [
-      '/api/wallet',
-      '/api/learning/courses',
-      '/api/user/paths',
-      '/api/user/profile',
-      '/api/user/watch-history',
-      '/api/certificates',
-      '/api/notifications',
-      '/api/saved-folders',
-      '/api/saved-lessons',
-      '/api/portfolio',
-      '/api/portfolio-profile',
-      '/api/courses/64/full-track-upgrade',
-      '/api/rewards/daily',
-      '/api/payment/initiate',
-      '/api/certificates/64/issue',
-      '/api/lessons/641/playback-manifest',
-      '/api/projects/684/submissions',
+      '/api/v1/wallet',
+      '/api/v1/learning/courses',
+      '/api/v1/user/paths',
+      '/api/v1/user/profile',
+      '/api/v1/user/watch-history',
+      '/api/v1/certificates',
+      '/api/v1/notifications',
+      '/api/v1/saved-folders',
+      '/api/v1/saved-lessons',
+      '/api/v1/portfolio',
+      '/api/v1/portfolio-profile',
+      '/api/v1/courses/64/full-track-upgrade',
+      '/api/v1/rewards/daily',
+      '/api/v1/payment/initiate',
+      '/api/v1/certificates/64/issue',
+      '/api/v1/lessons/641/playback-manifest',
+      '/api/v1/projects/684/submissions',
     ].includes(pathname)
   ) {
     return jsonResponse(401, {success: false, message: 'Unauthenticated'});
@@ -109,7 +109,7 @@ test('rejects a deployed backend that is missing a protected route', async () =>
       lessonId: 641,
       projectId: 684,
       fetchImpl: async (url, options) => {
-        if (new URL(url).pathname === '/api/wallet') {
+        if (new URL(url).pathname === '/api/v1/wallet') {
           return jsonResponse(404, {message: 'Not found'});
         }
         return fakeFetch(url, options);
@@ -127,7 +127,7 @@ test('rejects a course that does not expose all three plans', async () => {
       lessonId: 641,
       projectId: 684,
       fetchImpl: async (url, options) => {
-        if (new URL(url).pathname === '/api/courses/64/details') {
+        if (new URL(url).pathname === '/api/v1/courses/64/details') {
           return jsonResponse(200, {
             data: {title: 'Staging course', access_plans: validPlans.slice(0, 2)},
           });
@@ -166,5 +166,13 @@ test('requires a credential-free HTTPS api base ending in api', () => {
   assert.throws(
     () => stagingApiBase('https://staging.rokn.app/v1/'),
     /\/api\//,
+  );
+  assert.equal(
+    stagingApiBase('https://staging.rokn.app/api/').href,
+    'https://staging.rokn.app/api/v1/',
+  );
+  assert.equal(
+    stagingApiBase('https://staging.rokn.app/api/v1/').href,
+    'https://staging.rokn.app/api/v1/',
   );
 });

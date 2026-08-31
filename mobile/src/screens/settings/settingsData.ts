@@ -23,17 +23,16 @@ import {
   SupportWhatsAppIcon,
 } from '../../assets/SVG';
 import {toArabicDigits} from '../../constants/arabicFormatting';
-import {mainUrl} from '../../constants/api';
 import appConfig from '../../../app.json';
+import {
+  accountDeletionUrl,
+  returnsPolicyUrl,
+} from '../../services/publicLinks';
+
+export {accountDeletionUrl, returnsPolicyUrl};
 
 export const PENDING_WATCH_HISTORY_CLEAR_KEY =
   '@rokn/pending-watch-history-clear/v1';
-const publicWebBaseUrl = mainUrl.replace(/api(?:\/v1)?\/?$/i, '');
-export const accountDeletionUrl =
-  process.env.EXPO_PUBLIC_ACCOUNT_DELETION_URL?.trim() ||
-  `${publicWebBaseUrl}account-deletion`;
-export const returnsPolicyUrl = `${publicWebBaseUrl}returns-policy`;
-
 export const settingsAppVersion = toArabicDigits(appConfig.expo.version);
 
 export const qualityLabel = (value: string) => {

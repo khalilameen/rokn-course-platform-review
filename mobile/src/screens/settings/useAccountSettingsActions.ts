@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {useState} from 'react';
 import {Alert, Linking, Platform} from 'react-native';
 import type {AppDispatch} from '../../store/store';
@@ -36,6 +35,7 @@ import {
 import type {PublicAppSettings} from '../../services/publicAppSettings';
 import {accountDeletionUrl} from './settingsData';
 import type {SettingsNavigation} from './types';
+import {configuredAppStoreUrl} from '../../services/publicLinks';
 
 export const useAccountSettingsActions = ({
   dispatch,
@@ -84,7 +84,7 @@ export const useAccountSettingsActions = ({
       }
       const appStoreUrl =
         safeDashboardUrl(settings.ios_app_url) ||
-        safeDashboardUrl(process.env.EXPO_PUBLIC_APP_STORE_URL);
+        safeDashboardUrl(configuredAppStoreUrl());
       if (appStoreUrl) {
         await Linking.openURL(appStoreUrl);
         return;
@@ -163,15 +163,8 @@ export const useAccountSettingsActions = ({
       cancelLearningReminders();
       await setSmartRemindersEnabled(false);
       await removeItem(AsyncKeys.USER_DATA);
-      const keys = await AsyncStorage.getAllKeys();
-      const accountKeys = keys.filter(
-        key =>
-          key === AsyncKeys.IS_LOGIN ||
-          key === 'persist:auth' ||
-          key.endsWith(`:${accountScope}`) ||
-          key.includes(`:${accountScope}:`),
-      );
-      if (accountKeys.length) await AsyncStorage.multiRemove(accountKeys);
+      await clearAccountScopedStorage(accountScope);
+      await removeItem(AsyncKeys.IS_LOGIN);
       dispatch(LogOut());
       navigation.reset({index: 0, routes: [{name: 'Home'}]});
       Alert.alert(

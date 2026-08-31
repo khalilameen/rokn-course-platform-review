@@ -18,6 +18,7 @@ class ShortLessonResource extends JsonResource
         return [
             'id' => (int)$this->id,
             'title' => (string)$this->title,
+            'duration_minutes' => max(0, (int) $this->duration_minutes),
             'is_opened' => (bool) $this->is_opened,
             'description' =>  (string)$this->description,
             'image' => $this->image ? (string)$this->image: null,

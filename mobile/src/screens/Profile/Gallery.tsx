@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, {useCallback, useEffect, useState} from 'react';
 import {useNavigation} from '@react-navigation/native';
 import type {RootNavigation} from '../../navigation/types';
@@ -43,6 +42,10 @@ import {
 } from '../../services/roknApi';
 import {LOCAL_DEMO_ENABLED} from '../../config/runtime';
 import {formatArabicDisplayText} from '../../constants/arabicFormatting';
+import {
+  readLocalPortfolioDrafts,
+  writeLocalPortfolioDrafts,
+} from '../../services/localUiState';
 
 type Project = {
   id: string;
@@ -55,8 +58,6 @@ type Project = {
   courseId?: string;
   sourceProjectId?: string;
 };
-
-const CUSTOM_PROJECTS_KEY = '@rokn/portfolio/custom-projects/v1';
 
 const initialProjects: Project[] = [
   {
@@ -149,18 +150,13 @@ export default function Gallery() {
 
     try {
       setProjects(initialProjects);
-      const value = await AsyncStorage.getItem(CUSTOM_PROJECTS_KEY);
-      if (value) {
-        const saved = JSON.parse(value) as Project[];
-        if (Array.isArray(saved)) {
-          setProjects([
-            ...saved
-              .filter(item => item?.id?.startsWith('local-'))
-              .map(item => ({...item, source: 'local' as const})),
-            ...initialProjects,
-          ]);
-        }
-      }
+      const saved = await readLocalPortfolioDrafts<Project>();
+      setProjects([
+        ...saved
+          .filter(item => item?.id?.startsWith('local-'))
+          .map(item => ({...item, source: 'local' as const})),
+        ...initialProjects,
+      ]);
     } catch {
       // Invalid local drafts leave verified demo portfolio items visible.
     } finally {
@@ -173,9 +169,8 @@ export default function Gallery() {
   }, [loadProjects]);
 
   const persistCustomProjects = (next: Project[]) =>
-    AsyncStorage.setItem(
-      CUSTOM_PROJECTS_KEY,
-      JSON.stringify(next.filter(item => item.id.startsWith('local-'))),
+    writeLocalPortfolioDrafts(
+      next.filter(item => item.id.startsWith('local-')),
     );
 
   const pickCover = async () => {

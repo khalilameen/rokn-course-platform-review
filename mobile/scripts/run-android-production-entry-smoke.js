@@ -165,7 +165,7 @@ const verifyGuestJourney = async () => {
 
 const topActivity = () => adb(['shell', 'dumpsys', 'activity', 'activities']);
 
-const verifyProviderHandoff = async ({label, expectedDomain}) => {
+const verifyProviderHandoff = async ({label, expectedDomain, finalProvider = false}) => {
   await tapLabel(label);
   const deadline = Date.now() + timeoutMs;
   let xml = '';
@@ -182,7 +182,11 @@ const verifyProviderHandoff = async ({label, expectedDomain}) => {
   }
   process.stdout.write(`PASS ${label} > ${expectedDomain}\n`);
   adb(['shell', 'input', 'keyevent', '4']);
-  await waitForUi(node => textOrDescription(node, label));
+  const returned = await waitForUi(node =>
+    textOrDescription(node, label) ||
+    (finalProvider && node['content-desc'] === 'الرئيسية'),
+  );
+  assertNoPublicBlocker(returned.nodes);
 };
 
 const verifyAuthEntry = async () => {
@@ -200,6 +204,7 @@ const verifyAuthEntry = async () => {
   await verifyProviderHandoff({
     label: 'المتابعة بحساب TikTok',
     expectedDomain: 'tiktok.com',
+    finalProvider: true,
   });
 };
 

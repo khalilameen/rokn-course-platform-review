@@ -49,10 +49,7 @@ import type {
 import {extractUserProfile} from '../../constants/helpers';
 import {LOCAL_DEMO_ENABLED} from '../../config/runtime';
 import type {RootState} from '../../store/store';
-
-declare const process: {
-  env: {EXPO_PUBLIC_PORTFOLIO_URL?: string};
-};
+import {certificateUrlFor} from '../../services/publicLinks';
 
 const demoCredential = 'RKN-FRL-24018';
 const demoCourseTitle = 'من أول مهارة إلى أول عميل';
@@ -125,12 +122,10 @@ export default function Certificates({
   const username =
     resolvedUsername || user?.username || user?.portfolio_slug || 'student';
   const displayName = resolvedDisplayName || user?.name || 'طالب ركن';
-  const publicBase =
-    process.env.EXPO_PUBLIC_PORTFOLIO_URL || 'https://rokn.app';
-  const portfolioUrl = `${publicBase.replace(/\/$/, '')}/@${encodeURIComponent(
-    username,
-  )}`;
-  const certificateLink = `${portfolioUrl}?certificate=${demoCredential}`;
+  const certificateLink = certificateUrlFor(
+    String(username),
+    demoCredential,
+  );
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -253,10 +248,10 @@ export default function Certificates({
   const activeCredential = selectedCertificate?.publicId || demoCredential;
   const activeCertificateLink =
     selectedCertificate?.portfolioUrl ||
-    `${portfolioUrl}?certificate=${encodeURIComponent(activeCredential)}`;
+    certificateUrlFor(String(username), activeCredential);
   const destinationFor = (certificate: CertificateDto) =>
     certificate.portfolioUrl ||
-    `${portfolioUrl}?certificate=${encodeURIComponent(certificate.publicId)}`;
+    certificateUrlFor(String(username), certificate.publicId);
 
   return (
     <View style={styles.container}>

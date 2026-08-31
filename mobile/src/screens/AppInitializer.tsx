@@ -1,6 +1,5 @@
 import React, {FC, useEffect, useState} from 'react';
 import {AppState} from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {useDispatch, useSelector} from 'react-redux';
 import Navigation from '../navigation/Navigation';
 import {initializApp} from '../store/actions/settings';
@@ -43,16 +42,6 @@ const AppInitializer: FC = () => {
   );
 
   useEffect(() => {
-    // Older test builds persisted Rokn AI conversations. Server-backed chat is
-    // session-only, so clear those legacy records without retaining history.
-    void AsyncStorage.getAllKeys()
-      .then(keys =>
-        keys.filter(
-          key => key === 'persist:chat' || key.includes('@rokn/course-chat/'),
-        ),
-      )
-      .then(keys => (keys.length ? AsyncStorage.multiRemove(keys) : undefined))
-      .catch(() => undefined);
     void clearTransientChatCache();
 
     let active = true;

@@ -23,6 +23,7 @@ class LessonResource extends JsonResource
         return [
             'id' => (int)$this->id,
             'title' => (string)$this->title,
+            'duration_minutes' => max(0, (int) $this->duration_minutes),
             'is_opened' => (bool) $this->is_opened,
             'description' =>  (string)$this->description,
             'video_source_type' => $videoData['video_source_type'],
