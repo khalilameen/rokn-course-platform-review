@@ -1,12 +1,8 @@
-const mockDigestString = jest.fn();
 const mockOpenAuthSession = jest.fn();
 
 jest.mock('react-native', () => ({Platform: {OS: 'android'}}));
 
 jest.mock('expo-crypto', () => ({
-  CryptoDigestAlgorithm: {SHA256: 'SHA-256'},
-  CryptoEncoding: {BASE64: 'base64', HEX: 'hex'},
-  digestStringAsync: (...args: unknown[]) => mockDigestString(...args),
   randomUUID: jest.fn(() => '11111111-1111-4111-8111-111111111111'),
 }));
 
@@ -30,7 +26,6 @@ import {signInWithSocialProvider} from '../src/services/socialAuth';
 
 describe('browser social auth launch', () => {
   it('opens a deterministic encoded PKCE request on Android', async () => {
-    mockDigestString.mockResolvedValue('challenge+/=');
     mockOpenAuthSession.mockResolvedValue({type: 'cancel'});
 
     await expect(
@@ -47,7 +42,7 @@ describe('browser social auth launch', () => {
 
     expect(mockOpenAuthSession).toHaveBeenCalledWith(
       expect.stringMatching(
-        /^https:\/\/rokn\.app\/api\/v1\/social-auth\/google\/start\?return_to=rokn%3A%2F%2Fauth&code_challenge=challenge-_&code_challenge_method=S256$/,
+        /^https:\/\/rokn\.app\/api\/v1\/social-auth\/google\/start\?return_to=rokn%3A%2F%2Fauth&code_challenge=[A-Za-z0-9_-]{43}&code_challenge_method=S256$/,
       ),
       'rokn://auth',
       {createTask: true, useProxyActivity: true, showInRecents: true},

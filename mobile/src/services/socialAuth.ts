@@ -3,6 +3,7 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
 import {mainUrl, publicRequest} from '../constants/api';
+import {sha256Base64Url, sha256Hex} from '../utils/sha256';
 
 export type SocialProvider = 'google' | 'tiktok' | 'facebook' | 'apple';
 
@@ -65,19 +66,9 @@ const createPkcePair = async () => {
     /-/g,
     '',
   );
-  const digest = await Crypto.digestStringAsync(
-    Crypto.CryptoDigestAlgorithm.SHA256,
-    verifier,
-    {encoding: Crypto.CryptoEncoding.BASE64},
-  );
   return {
     verifier,
-    challenge: digest
-      .replace(/\+/g, '-')
-      .split('/')
-      .join('_')
-      .split('=')
-      .join(''),
+    challenge: sha256Base64Url(verifier),
   };
 };
 
@@ -94,11 +85,7 @@ const createAppleNonce = async () => {
   const raw = Array.from(bytes, byte =>
     byte.toString(16).padStart(2, '0'),
   ).join('');
-  const digest = (
-    await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, raw, {
-      encoding: Crypto.CryptoEncoding.HEX,
-    })
-  ).toLowerCase();
+  const digest = sha256Hex(raw);
 
   if (!/^[a-f0-9]{64}$/.test(raw) || !/^[a-f0-9]{64}$/.test(digest)) {
     throw new Error('APPLE_NONCE_GENERATION_FAILED');

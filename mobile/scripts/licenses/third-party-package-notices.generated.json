@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "verified package-lock.json production closure",
-  "packageCount": 716,
-  "packagePathCount": 814,
+  "packageCount": 717,
+  "packagePathCount": 815,
   "packages": [
     {
       "coordinate": "@babel/code-frame@7.10.4",
@@ -9136,6 +9136,26 @@
           "path": "ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt",
           "sha256": "cfe585d3b98a89f87d69a0cdf97fc69778861a4d511208a99ee309aef04a9c56",
           "text": "UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD\n\nPackage: jimp-compact@0.16.1\nExact npm tarball: https://registry.npmjs.org/jimp-compact/-/jimp-compact-0.16.1.tgz\nTarball integrity: sha512-dZ6Ra7u1G8c4Letq/B5EzAxj4tLFHL+cGtdpR+PVm4yzPDj+lCk+AbivWt1eOM+ikzkowtyV7qSqX6qr3t71Ww==\nDeclared license: MIT\nSelected license: MIT\nAuthor metadata: <not published>\nRepository metadata: nuxt-community/jimp-compact\nHomepage metadata: <not published>\n\nThe exact npm package root was inspected and did not publish a standalone\nLICENSE, LICENCE, COPYING, NOTICE, or COPYRIGHT file. This coordinate is\ntherefore covered by an exact, reviewed absence exception. The package\nmetadata above and the selected standard license terms are retained here;\nthe exception does not apply to any other name or version.\n\nStandard terms source: @babel/code-frame@7.29.7/LICENSE\n\nMIT License\n\nCopyright (c) 2014-present Sebastian McKenzie and other contributors\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n\"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+        }
+      ]
+    },
+    {
+      "coordinate": "js-sha256@1.0.0",
+      "name": "js-sha256",
+      "version": "1.0.0",
+      "selectedLicense": "MIT",
+      "declaredLicense": "MIT",
+      "integrity": "sha512-Bqxf6ENUzYIMzuELCmRNrJOVbjKH1oMgbfYJBKVr/W1Xf9fazpahqCbb24v1pR7XV1isuqhM+w9KWpK7zCyUQw==",
+      "resolved": "https://registry.npmjs.org/js-sha256/-/js-sha256-1.0.0.tgz",
+      "legalSource": "package-root",
+      "sourceReference": "https://registry.npmjs.org/js-sha256/-/js-sha256-1.0.0.tgz",
+      "publishedLegalFileCount": 1,
+      "apacheNotice": null,
+      "files": [
+        {
+          "path": "LICENSE.txt",
+          "sha256": "a8f693b9c6ae60193e636191e924cbe00eb5812bb812b792475838238d733ba8",
+          "text": "Copyright (c) 2014-2026 Chen, Yi-Cyuan\n\nMIT License\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n\"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be\nincluded in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND\nNONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE\nLIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION\nOF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION\nWITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
         }
       ]
     },

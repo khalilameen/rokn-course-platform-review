@@ -1,6 +1,6 @@
 {
   "name": "Rokn",
-  "version": "1.0.26",
+  "version": "1.0.27",
   "private": true,
   "main": "index.js",
   "packageManager": "npm@10.9.3",
@@ -58,6 +58,7 @@
     "expo-secure-store": "~55.0.16",
     "expo-web-browser": "~55.0.18",
     "i18next": "^25.7.3",
+    "js-sha256": "1.0.0",
     "react": "19.2.0",
     "react-i18next": "^16.5.0",
     "react-native": "0.83.10",

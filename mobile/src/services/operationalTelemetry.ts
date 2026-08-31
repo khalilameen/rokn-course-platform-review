@@ -8,6 +8,7 @@ import {
   flushDurableOutbox,
   readDurableOutbox,
 } from './durableOutbox';
+import {sha256Hex} from '../utils/sha256';
 
 const endpoint = `${roknApiUrl}client-events`;
 const TELEMETRY_OUTBOX_KEY = '@rokn/client-events-outbox/v1';
@@ -209,10 +210,7 @@ export const reportClientError = (error: Error, context: ErrorContext = {}) => {
       payload,
       maxItems: MAX_TELEMETRY_EVENTS,
     });
-    const errorFingerprint = await Crypto.digestStringAsync(
-      Crypto.CryptoDigestAlgorithm.SHA256,
-      fingerprintSource,
-    );
+    const errorFingerprint = sha256Hex(fingerprintSource);
     await enqueueDurableOutbox({
       storageKey: TELEMETRY_OUTBOX_KEY,
       id: eventId,

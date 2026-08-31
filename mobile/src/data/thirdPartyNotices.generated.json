@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "package-lock.json production dependency closure",
-  "packageCount": 716,
-  "packagePathCount": 814,
-  "inventoryHash": "a417d17a35337164bb7fa7e35ef3a718c0209b3d53be4ccb9a7b9fb4365ba307",
+  "packageCount": 717,
+  "packagePathCount": 815,
+  "inventoryHash": "5b4aed1d1c1ec4a00fc21bd56c8440da1e05bbdf1a07176e96715149c4dc4c68",
   "packages": [
     {
       "name": "@babel/code-frame",
@@ -4562,6 +4562,16 @@
       "declaredLicense": "MIT",
       "sourceUrl": "https://www.npmjs.com/package/jimp-compact/v/0.16.1",
       "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "js-sha256",
+      "version": "1.0.0",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/js-sha256/v/1.0.0",
+      "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
     },
