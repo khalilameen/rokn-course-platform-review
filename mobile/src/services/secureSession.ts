@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
-import {Platform} from 'react-native';
+import {NativeModules, Platform} from 'react-native';
 
 const USER_DATA_KEY = 'USER_DATA';
 const LEGACY_REDUX_AUTH_KEY = 'persist:auth';
@@ -18,6 +18,47 @@ export const secureStoreOptionsForPlatform = (
 // `keychainAccessible` is an iOS-only native constant. Reading and forwarding
 // it on Android makes the native options record invalid in release builds.
 const SECURE_OPTIONS = secureStoreOptionsForPlatform(Platform.OS);
+
+type AndroidSecureSessionModule = {
+  setItem: (key: string, value: string) => Promise<void>;
+  getItem: (key: string) => Promise<string | null>;
+  deleteItem: (key: string) => Promise<void>;
+};
+
+const androidSecureSession = () =>
+  NativeModules.RoknSecureSession as AndroidSecureSessionModule | undefined;
+
+const secureStorageAvailable = async () => {
+  if (Platform.OS !== 'android') return SecureStore.isAvailableAsync();
+  return Boolean(androidSecureSession());
+};
+
+const secureSetItem = (key: string, value: string) => {
+  if (Platform.OS !== 'android') {
+    return SecureStore.setItemAsync(key, value, SECURE_OPTIONS);
+  }
+  const module = androidSecureSession();
+  if (!module?.setItem) throw storageFailure('MODULE');
+  return module.setItem(key, value);
+};
+
+const secureGetItem = (key: string) => {
+  if (Platform.OS !== 'android') {
+    return SecureStore.getItemAsync(key, SECURE_OPTIONS);
+  }
+  const module = androidSecureSession();
+  if (!module?.getItem) throw storageFailure('MODULE');
+  return module.getItem(key);
+};
+
+const secureDeleteItem = (key: string) => {
+  if (Platform.OS !== 'android') {
+    return SecureStore.deleteItemAsync(key, SECURE_OPTIONS);
+  }
+  const module = androidSecureSession();
+  if (!module?.deleteItem) throw storageFailure('MODULE');
+  return module.deleteItem(key);
+};
 
 let storageAvailabilityPromise: Promise<void> | null = null;
 
@@ -39,25 +80,18 @@ const storageFailure = (stage: string, error?: unknown) => {
 };
 
 const performStorageAvailabilityCheck = async () => {
-  if (!(await SecureStore.isAvailableAsync())) {
+  if (!(await secureStorageAvailable())) {
     throw storageFailure('MODULE');
   }
   const probe = `rokn-${Date.now()}`;
   try {
-    await SecureStore.setItemAsync(
-      SECURE_STORAGE_PROBE_KEY,
-      probe,
-      SECURE_OPTIONS,
-    );
+    await secureSetItem(SECURE_STORAGE_PROBE_KEY, probe);
   } catch (error) {
     throw storageFailure('WRITE', error);
   }
 
   try {
-    const restored = await SecureStore.getItemAsync(
-      SECURE_STORAGE_PROBE_KEY,
-      SECURE_OPTIONS,
-    );
+    const restored = await secureGetItem(SECURE_STORAGE_PROBE_KEY);
     if (restored !== probe) throw storageFailure('ROUNDTRIP');
   } catch (error) {
     if (
@@ -70,10 +104,7 @@ const performStorageAvailabilityCheck = async () => {
   }
 
   try {
-    await SecureStore.deleteItemAsync(
-      SECURE_STORAGE_PROBE_KEY,
-      SECURE_OPTIONS,
-    );
+    await secureDeleteItem(SECURE_STORAGE_PROBE_KEY);
   } catch (error) {
     throw storageFailure('DELETE', error);
   }
@@ -239,7 +270,7 @@ const performLegacyMigration = async () => {
       AsyncStorage.getItem(USER_DATA_KEY),
       AsyncStorage.getItem(LEGACY_REDUX_AUTH_KEY),
       AsyncStorage.getItem(MIGRATION_KEY),
-      SecureStore.getItemAsync(SECURE_TOKEN_KEY, SECURE_OPTIONS),
+      secureGetItem(SECURE_TOKEN_KEY),
     ]);
 
   const asyncSession = parseJson(rawUserData);
@@ -259,11 +290,7 @@ const performLegacyMigration = async () => {
 
   // Never erase a plaintext credential until its secure copy has succeeded.
   if (tokenToKeep && tokenToKeep !== secureToken) {
-    await SecureStore.setItemAsync(
-      SECURE_TOKEN_KEY,
-      tokenToKeep,
-      SECURE_OPTIONS,
-    );
+    await secureSetItem(SECURE_TOKEN_KEY, tokenToKeep);
   }
 
   if (sessionToKeep !== null) {
@@ -294,14 +321,11 @@ export const migrateLegacySession = async () => {
 export const saveSecureSession = async (session: unknown) => {
   const apiToken = extractApiToken(session);
   const sanitized = sanitizeSessionForStorage(session);
-  const previousToken = await SecureStore.getItemAsync(
-    SECURE_TOKEN_KEY,
-    SECURE_OPTIONS,
-  );
+  const previousToken = await secureGetItem(SECURE_TOKEN_KEY);
   const tokenChanged = Boolean(apiToken && apiToken !== previousToken);
 
   if (tokenChanged && apiToken) {
-    await SecureStore.setItemAsync(SECURE_TOKEN_KEY, apiToken, SECURE_OPTIONS);
+    await secureSetItem(SECURE_TOKEN_KEY, apiToken);
   }
 
   try {
@@ -317,13 +341,9 @@ export const saveSecureSession = async (session: unknown) => {
     // Avoid pairing a newly written token with another account's old profile.
     if (tokenChanged) {
       if (previousToken) {
-        await SecureStore.setItemAsync(
-          SECURE_TOKEN_KEY,
-          previousToken,
-          SECURE_OPTIONS,
-        );
+        await secureSetItem(SECURE_TOKEN_KEY, previousToken);
       } else {
-        await SecureStore.deleteItemAsync(SECURE_TOKEN_KEY, SECURE_OPTIONS);
+        await secureDeleteItem(SECURE_TOKEN_KEY);
       }
     }
     throw error;
@@ -343,7 +363,7 @@ export const loadSecureSession = async () => {
     await migrateLegacySession();
     const [rawProfile, apiToken] = await Promise.all([
       AsyncStorage.getItem(USER_DATA_KEY),
-      SecureStore.getItemAsync(SECURE_TOKEN_KEY, SECURE_OPTIONS),
+      secureGetItem(SECURE_TOKEN_KEY),
     ]);
 
     let restoredSession: unknown = null;
@@ -351,7 +371,7 @@ export const loadSecureSession = async () => {
       // A secure token without its profile can only be a partially completed
       // logout. Remove it instead of resurrecting an ownerless session.
       if (apiToken) {
-        await SecureStore.deleteItemAsync(SECURE_TOKEN_KEY, SECURE_OPTIONS);
+        await secureDeleteItem(SECURE_TOKEN_KEY);
       }
     } else {
       restoredSession = attachTokenInMemory(parseJson(rawProfile), apiToken);
@@ -387,7 +407,7 @@ export const deleteSecureSession = async () => {
   sessionCacheReady = true;
   sessionLoadPromise = null;
   const results = await Promise.allSettled([
-    SecureStore.deleteItemAsync(SECURE_TOKEN_KEY, SECURE_OPTIONS),
+    secureDeleteItem(SECURE_TOKEN_KEY),
     AsyncStorage.removeItem(USER_DATA_KEY),
     AsyncStorage.removeItem(LEGACY_REDUX_AUTH_KEY),
   ]);
@@ -400,7 +420,7 @@ export const clearSecureSessionStorage = async () => {
   cachedSession = null;
   sessionCacheReady = true;
   sessionLoadPromise = null;
-  await SecureStore.deleteItemAsync(SECURE_TOKEN_KEY, SECURE_OPTIONS);
+  await secureDeleteItem(SECURE_TOKEN_KEY);
   await AsyncStorage.clear();
   migrationPromise = null;
 };

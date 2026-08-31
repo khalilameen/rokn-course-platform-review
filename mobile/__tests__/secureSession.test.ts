@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
+import {NativeModules, Platform} from 'react-native';
 import {
   assertSecureSessionStorageAvailable,
   deleteSecureSession,
@@ -58,6 +59,44 @@ describe('secure mobile session persistence', () => {
       expect.any(Object),
     );
     expect(secureValues.has('rokn.auth.storage-probe.v1')).toBe(false);
+  });
+
+  it('uses the Rokn Android Keystore bridge on Android releases', async () => {
+    const originalPlatform = Platform.OS;
+    const androidValues = new Map<string, string>();
+    const nativeModule = {
+      setItem: jest.fn(async (key: string, value: string) => {
+        androidValues.set(key, value);
+      }),
+      getItem: jest.fn(async (key: string) => androidValues.get(key) ?? null),
+      deleteItem: jest.fn(async (key: string) => {
+        androidValues.delete(key);
+      }),
+    };
+    Object.defineProperty(Platform, 'OS', {value: 'android', configurable: true});
+    NativeModules.RoknSecureSession = nativeModule;
+    resetSecureSessionMigrationForTests();
+
+    try {
+      await expect(
+        assertSecureSessionStorageAvailable(),
+      ).resolves.toBeUndefined();
+      expect(nativeModule.setItem).toHaveBeenCalledWith(
+        'rokn.auth.storage-probe.v1',
+        expect.stringMatching(/^rokn-\d+$/),
+      );
+      expect(nativeModule.deleteItem).toHaveBeenCalledWith(
+        'rokn.auth.storage-probe.v1',
+      );
+      expect(secureSet).not.toHaveBeenCalled();
+    } finally {
+      delete NativeModules.RoknSecureSession;
+      Object.defineProperty(Platform, 'OS', {
+        value: originalPlatform,
+        configurable: true,
+      });
+      resetSecureSessionMigrationForTests();
+    }
   });
 
   it('fails before OAuth when the native secure store cannot persist', async () => {
