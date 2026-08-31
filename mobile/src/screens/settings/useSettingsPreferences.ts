@@ -36,10 +36,7 @@ import {
   readPendingPrivacyPreferences,
   usePrivacyPreferenceSync,
 } from './usePrivacyPreferenceSync';
-import {
-  PENDING_WATCH_HISTORY_CLEAR_KEY,
-  VIDEO_FIT_MODE_KEY,
-} from './settingsData';
+import {PENDING_WATCH_HISTORY_CLEAR_KEY} from './settingsData';
 
 export const useSettingsPreferences = ({
   hasAuthenticatedAccount,
@@ -51,7 +48,6 @@ export const useSettingsPreferences = ({
   const [choiceModal, setChoiceModal] = useState<SettingsChoice>(null);
   const [notificationPrimer, setNotificationPrimer] = useState(false);
   const [quality, setQuality] = useState('auto');
-  const [videoFit, setVideoFit] = useState('cover');
   const [notifications, setNotifications] = useState(false);
   const [marketingNotifications, setMarketingNotifications] = useState(false);
   const [watchHistory, setWatchHistory] = useState(true);
@@ -63,7 +59,6 @@ export const useSettingsPreferences = ({
     void Promise.all([
       getSmartRemindersEnabled(),
       getItem('VIDEO_QUALITY'),
-      getItem(VIDEO_FIT_MODE_KEY),
       getItem(REMINDER_HOUR_KEY),
       accountScopedStorageKey(WATCH_HISTORY_ENABLED_KEY).then(getItem),
       accountScopedStorageKey(MARKETING_NOTIFICATIONS_KEY).then(getItem),
@@ -71,7 +66,6 @@ export const useSettingsPreferences = ({
       async ([
         savedNotifications,
         savedQuality,
-        savedVideoFit,
         savedReminderHour,
         savedWatchHistory,
         savedMarketingNotifications,
@@ -80,9 +74,6 @@ export const useSettingsPreferences = ({
           setNotifications(savedNotifications);
         }
         if (typeof savedQuality === 'string') setQuality(savedQuality);
-        if (savedVideoFit === 'cover' || savedVideoFit === 'contain') {
-          setVideoFit(savedVideoFit);
-        }
         if (typeof savedWatchHistory === 'boolean') {
           setWatchHistory(savedWatchHistory);
         }
@@ -130,10 +121,8 @@ export const useSettingsPreferences = ({
               );
             }
             setQuality(profile.videoQualityPreference);
-            setVideoFit(profile.videoFitMode);
             await Promise.all([
               saveItem('VIDEO_QUALITY', profile.videoQualityPreference),
-              saveItem(VIDEO_FIT_MODE_KEY, profile.videoFitMode),
               saveItem('VIDEO_PLAYBACK_SPEED', profile.playbackSpeed),
             ]);
           } catch {
@@ -233,19 +222,6 @@ export const useSettingsPreferences = ({
       void updateReminderHour(Number(key));
       return;
     }
-    if (choiceModal === 'fit') {
-      const nextFit = key as 'cover' | 'contain';
-      setVideoFit(nextFit);
-      void saveItem(VIDEO_FIT_MODE_KEY, nextFit);
-      if (hasAuthenticatedAccount) {
-        void updatePlaybackPreferences({videoFitMode: nextFit}).catch(
-          () => undefined,
-        );
-      }
-      setChoiceModal(null);
-      return;
-    }
-
     setQuality(key);
     void saveItem('VIDEO_QUALITY', key);
     if (hasAuthenticatedAccount) {
@@ -300,7 +276,6 @@ export const useSettingsPreferences = ({
     marketingNotifications,
     notificationPrimer,
     notifications,
-    openFitChoice: () => setChoiceModal('fit'),
     openQualityChoice: () => setChoiceModal('quality'),
     openReminderChoice: () => setChoiceModal('reminderTime'),
     quality,
@@ -311,7 +286,6 @@ export const useSettingsPreferences = ({
     toggleNotifications: updateNotifications,
     toggleWatchHistory: (value: boolean) =>
       updatePreference(WATCH_HISTORY_ENABLED_KEY, value),
-    videoFit,
     watchHistory,
   };
 };

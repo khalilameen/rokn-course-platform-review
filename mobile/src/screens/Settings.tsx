@@ -31,7 +31,6 @@ export default function Settings() {
         onSelect={controller.selectChoice}
         quality={controller.quality}
         reminderHour={controller.reminderHour}
-        videoFit={controller.videoFit}
       />
       <NotificationPermissionPrimer
         onClose={controller.closeNotificationPrimer}

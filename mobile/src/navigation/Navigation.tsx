@@ -9,10 +9,8 @@ import type {RootState} from '../store/store';
 
 import {navigationRef} from './RootNavigationHelper';
 
-import Splash from '../screens/Splash';
 import Reels from '../screens/Reels';
 import Home from '../screens/Home';
-import Onboarding from '../screens/Onboarding';
 import Login from '../screens/Login';
 import CourseDetails from '../screens/CourseDetails';
 import MyCorner from '../screens/MyCorner';
@@ -61,9 +59,7 @@ const linking: LinkingOptions<RootStackParamList> = {
 };
 
 const Stacks = () => {
-  const {onboarding, language} = useSelector(
-    (state: RootState) => state.settings,
-  );
+  const language = useSelector((state: RootState) => state.settings.language);
   const languageCode =
     (typeof language === 'string' ? language : language?.code) || 'ar';
   const needsArabicBootstrap = languageCode !== 'ar' || !I18nManager.isRTL;
@@ -71,16 +67,8 @@ const Stacks = () => {
   return (
     <Stack.Navigator
       screenOptions={{headerShown: false}}
-      initialRouteName={
-        needsArabicBootstrap
-          ? 'LanguageSelect'
-          : !onboarding
-          ? 'Onboarding'
-          : 'Home'
-      }>
-      <Stack.Screen name="Splash" component={Splash} />
+      initialRouteName={needsArabicBootstrap ? 'LanguageSelect' : 'Home'}>
       <Stack.Screen name="LanguageSelect" component={LanguageSelect} />
-      <Stack.Screen name="Onboarding" component={Onboarding} />
       <Stack.Screen name="Login" component={Login} />
       <Stack.Screen name="EditAccount" component={EditAccount} />
       <Stack.Screen name="Feedback" component={Feedback} />

@@ -34,7 +34,7 @@ import {
   safeDashboardUrl,
 } from '../../services/publicAppSettings';
 import type {PublicAppSettings} from '../../services/publicAppSettings';
-import {accountDeletionUrl, returnsPolicyUrl} from './settingsData';
+import {accountDeletionUrl} from './settingsData';
 import type {SettingsNavigation} from './types';
 
 export const useAccountSettingsActions = ({
@@ -68,10 +68,6 @@ export const useAccountSettingsActions = ({
         'اطلب حذف الحساب عبر الدعم',
       );
     }
-  };
-
-  const openReturnsPolicy = () => {
-    void Linking.openURL(returnsPolicyUrl);
   };
 
   const openStoreRating = async () => {
@@ -244,7 +240,6 @@ export const useAccountSettingsActions = ({
     deletingAccount,
     logout,
     openAccountDeletionPage,
-    openReturnsPolicy,
     openStoreRating,
     openWhatsAppSupport,
   };

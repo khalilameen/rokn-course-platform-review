@@ -19,7 +19,7 @@ import settings from './reducers/settings';
 const settingsConfig = {
   key: 'settings',
   storage: AsyncStorage,
-  whitelist: ['language', 'onboarding', 'city_name'],
+  whitelist: ['language', 'city_name'],
 };
 const rootReducer = combineReducers({
   // The session is restored from SecureStore; auth stays out of AsyncStorage.

@@ -86,11 +86,9 @@ const Reels = () => {
   const [serverSession, setServerSession] = useState<boolean | null>(null);
   const {
     autoplay,
-    changeFitMode,
     changePlaybackSpeed,
     changeQuality,
     dataSaver,
-    fitMode,
     getPlaybackSpeed,
     playbackPreferencesReady,
     playbackSpeed,
@@ -537,14 +535,12 @@ const Reels = () => {
 
   const renderItem = useReelsFeedRenderer({
     bottomInset: insets.bottom,
-    changeFitMode,
     changePlaybackSpeed,
     changeQuality,
     completeAndAdvance,
     course,
     currentIndex,
     feedLength: feedItems.length,
-    fitMode,
     frameWidth,
     handlePlaybackEvent,
     handlePlaybackMetrics,

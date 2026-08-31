@@ -60,9 +60,7 @@ export type LoginRouteParams = {
 };
 
 export type RootStackParamList = {
-  Splash: undefined;
   LanguageSelect: undefined;
-  Onboarding: undefined;
   Login: LoginRouteParams | undefined;
   EditAccount: undefined;
   Feedback: {sourceScreen?: string} | undefined;

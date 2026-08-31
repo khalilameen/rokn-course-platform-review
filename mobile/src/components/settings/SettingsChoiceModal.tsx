@@ -9,7 +9,7 @@ import {
   textDirection,
 } from '../../constants/designSystem';
 
-export type SettingsChoice = 'quality' | 'fit' | 'reminderTime' | null;
+export type SettingsChoice = 'quality' | 'reminderTime' | null;
 
 type Props = {
   bottomInset: number;
@@ -18,7 +18,6 @@ type Props = {
   onSelect: (key: string) => void;
   quality: string;
   reminderHour: number;
-  videoFit: string;
 };
 
 const choicesFor = (choice: SettingsChoice) => {
@@ -27,12 +26,6 @@ const choicesFor = (choice: SettingsChoice) => {
       {key: '10', label: 'صباحًا · ١٠:٠٠'},
       {key: '15', label: 'بعد الظهر · ٣:٠٠'},
       {key: '20', label: 'مساءً · ٨:٠٠'},
-    ];
-  }
-  if (choice === 'fit') {
-    return [
-      {key: 'cover', label: 'ملء الشاشة — مناسب للفيديو الرأسي'},
-      {key: 'contain', label: 'الفيديو كامل — من دون قص الحواف'},
     ];
   }
   return [
@@ -50,19 +43,14 @@ export const SettingsChoiceModal = ({
   onSelect,
   quality,
   reminderHour,
-  videoFit,
 }: Props) => {
   const selectedKey =
     choice === 'reminderTime'
       ? String(reminderHour)
-      : choice === 'fit'
-      ? videoFit
       : quality;
   const title =
     choice === 'reminderTime'
       ? 'وقت مناسب لتذكيرك'
-      : choice === 'fit'
-      ? 'طريقة عرض الفيديو'
       : 'جودة الفيديو الافتراضية';
 
   return (

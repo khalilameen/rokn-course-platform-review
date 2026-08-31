@@ -24,7 +24,7 @@
       "expo-iap"
     ],
     "splash": {
-      "image": "./src/assets/images/authLogo.png",
+      "image": "./src/assets/images/logo.png",
       "resizeMode": "contain",
       "backgroundColor": "#080B12"
     },
@@ -135,7 +135,7 @@
         "backgroundColor": "#080B12"
       },
       "splash": {
-        "image": "./src/assets/images/authLogo.png",
+        "image": "./src/assets/images/logo.png",
         "resizeMode": "contain",
         "backgroundColor": "#080B12"
       }

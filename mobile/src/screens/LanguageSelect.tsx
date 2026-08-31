@@ -3,16 +3,14 @@ import type {RootNavigation} from '../navigation/types';
 import React, {useEffect} from 'react';
 import {I18nManager} from 'react-native';
 import RNRestart from 'react-native-restart';
-import {useDispatch, useSelector} from 'react-redux';
+import {useDispatch} from 'react-redux';
 import {AsyncKeys, saveItem} from '../constants/helpers';
 import {setLanguage} from '../store/reducers/settings';
 import Splash from './Splash';
-import type {RootState} from '../store/store';
 
 export default function LanguageSelect() {
   const navigation = useNavigation<RootNavigation>();
   const dispatch = useDispatch();
-  const {onboarding} = useSelector((state: RootState) => state.settings);
 
   useEffect(() => {
     let active = true;
@@ -33,14 +31,14 @@ export default function LanguageSelect() {
 
       navigation.reset({
         index: 0,
-        routes: [{name: !onboarding ? 'Onboarding' : 'Home'}],
+        routes: [{name: 'Home'}],
       });
     })();
 
     return () => {
       active = false;
     };
-  }, [dispatch, navigation, onboarding]);
+  }, [dispatch, navigation]);
 
   return <Splash />;
 }

@@ -230,11 +230,11 @@ export default function CourseDetails() {
       return;
     }
     if (coursePrice === null) {
-      setNotice('سعر هذا الكورس لم يُنشر بعد، لذلك لم نفتح أي عملية شراء.');
+      setNotice('سعر الكورس لم يُنشر بعد\nلم نبدأ أي عملية شراء');
       return;
     }
     if (!isDemoCourse && coursePrice > 0 && remoteBalance === null) {
-      setNotice('تعذّر التحقق من رصيدك الآن. حاول مرة أخرى بعد لحظات.');
+      setNotice('تعذّر التحقق من رصيدك\nحاول بعد لحظات');
       return;
     }
     setDialogStep(
@@ -287,11 +287,11 @@ export default function CourseDetails() {
       return;
     }
     if (coursePrice === null) {
-      setNotice('سعر هذا الكورس لم يُنشر بعد، لذلك لم نفتح أي عملية شراء.');
+      setNotice('سعر الكورس لم يُنشر بعد\nلم نبدأ أي عملية شراء');
       return;
     }
     if (!isDemoCourse && coursePrice > 0 && remoteBalance === null) {
-      setNotice('تعذّر التحقق من رصيدك الآن. حاول مرة أخرى بعد لحظات.');
+      setNotice('تعذّر التحقق من رصيدك\nحاول بعد لحظات');
       return;
     }
     setDialogStep(
@@ -391,7 +391,7 @@ export default function CourseDetails() {
 
     if (result.packages.length) setRemotePackages(result.packages);
     setNotice(
-      'لم يصل تأكيد إضافة الرصيد بالكامل بعد. لن نطلب منك الدفع مرة أخرى؛ أعد المحاولة بعد لحظات.',
+      'لم يصل تأكيد الرصيد بعد\nلا تدفع مرة أخرى\nحاول بعد لحظات',
     );
     setDialogStep('topup');
     return false;
@@ -411,10 +411,10 @@ export default function CourseDetails() {
     try {
       const result = await openCoinCheckout(coinPackage);
       if (result.cancelled) {
-        setNotice('أُغلقت صفحة الدفع ولم يتغير رصيدك.');
+        setNotice('أُغلقت صفحة الدفع\nرصيدك لم يتغير');
       } else if (result.pending) {
         setNotice(
-          'الدفع قيد التأكيد. سنحدّث الرصيد تلقائيًا عند وصول النتيجة.',
+          'الدفع قيد التأكيد\nسنحدّث الرصيد تلقائيًا',
         );
       } else if (result.success) {
         if (result.demo) {
@@ -438,7 +438,7 @@ export default function CourseDetails() {
         }
       }
     } catch {
-      setNotice('تعذر فتح بوابة الدفع الآن. حاول مرة أخرى دون أن تفقد مكانك.');
+      setNotice('تعذّر فتح الدفع\nمكانك ورصيدك محفوظان\nحاول مرة أخرى');
     } finally {
       commerceInFlightRef.current = false;
       setBusy(false);
@@ -459,7 +459,7 @@ export default function CourseDetails() {
     try {
       await activateSelectedCourse();
     } catch {
-      setNotice('تعذّر فتح الكورس الآن. لم يتغير رصيدك.');
+      setNotice('تعذّر فتح الكورس\nرصيدك لم يتغير');
     } finally {
       commerceInFlightRef.current = false;
       setBusy(false);
@@ -471,7 +471,7 @@ export default function CourseDetails() {
     setGrantActivated(false);
     const normalizedCode = courseCode.trim().toUpperCase();
     if (!normalizedCode) {
-      setNotice('اكتب الكود أولًا.');
+      setNotice('اكتب الكود أولًا');
       return;
     }
     if (!isDemoCourse && remoteSession === false) {
@@ -488,7 +488,7 @@ export default function CourseDetails() {
       if (isDemoCourse) {
         const result = await redeemDemoCourseCode(normalizedCode, courseId);
         if (!result.redeemed) {
-          setNotice('الكود غير صحيح أو لم يعد متاحًا.');
+          setNotice('الكود غير صحيح أو لم يعد متاحًا');
           return;
         }
         setExperience(result.state);
@@ -501,8 +501,8 @@ export default function CourseDetails() {
       if (result.courseId && result.courseId !== courseId) {
         setNotice(
           result.courseName
-            ? `هذا الكود مخصص لكورس «${result.courseName}».`
-            : 'هذا الكود مخصص لكورس آخر.',
+            ? `هذا الكود مخصص لكورس «${result.courseName}»`
+            : 'هذا الكود مخصص لكورس آخر',
         );
         return;
       }
@@ -517,7 +517,7 @@ export default function CourseDetails() {
       const payload = errorPayload(error);
       setNotice(
         String(payload.message || '') ||
-          'تعذّر تفعيل الكود الآن. لم يتغير رصيدك.',
+          'تعذّر تفعيل الكود\nرصيدك لم يتغير',
       );
     } finally {
       commerceInFlightRef.current = false;

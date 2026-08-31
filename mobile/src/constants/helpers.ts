@@ -94,7 +94,7 @@ const belongsToAccountScope = (key: string, accountScope: string) =>
 
 /**
  * Remove only data owned by one signed-in account. Device preferences such as
- * language/onboarding and the device-only push invalidation tombstone survive
+ * language and the device-only push invalidation tombstone survive
  * logout, while course caches, queues and privacy preferences cannot leak into
  * a later account on the same phone.
  */

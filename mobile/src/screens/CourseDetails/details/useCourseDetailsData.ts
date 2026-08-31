@@ -121,7 +121,7 @@ export const useCourseDetailsData = ({
           (walletResult.status === 'rejected' ||
             packagesResult.status === 'rejected')
         ) {
-          setNotice('تعذّر جلب بعض بيانات المحفظة الآن. لم يتغير رصيدك.');
+          setNotice('تعذّر جلب بيانات المحفظة\nرصيدك لم يتغير');
         }
       }
       if (active) setRemoteLoading(false);

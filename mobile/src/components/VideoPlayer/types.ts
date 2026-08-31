@@ -4,8 +4,6 @@ export type VideoQualitySources = Partial<
   Record<Exclude<VideoQuality, 'auto'>, string>
 >;
 
-export type VideoFitMode = 'cover' | 'contain';
-
 export type AttachmentPlatform = 'computer' | 'mobile' | 'app' | 'file' | 'any';
 
 export interface CourseAttachment {

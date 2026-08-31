@@ -10,7 +10,6 @@ import type {
   CourseLearningData,
   CourseReel,
   SelectedProjectFile,
-  VideoFitMode,
   VideoQuality,
 } from '../../components/VideoPlayer/types';
 import type {
@@ -31,14 +30,12 @@ export type ReelsNavigation = {
 
 export const useReelsFeedRenderer = ({
   bottomInset,
-  changeFitMode,
   changePlaybackSpeed,
   changeQuality,
   completeAndAdvance,
   course,
   currentIndex,
   feedLength,
-  fitMode,
   frameWidth,
   handlePlaybackEvent,
   handlePlaybackMetrics,
@@ -62,14 +59,12 @@ export const useReelsFeedRenderer = ({
   topInset,
 }: {
   bottomInset: number;
-  changeFitMode: (mode: VideoFitMode) => void;
   changePlaybackSpeed: (speed: number) => void;
   changeQuality: (quality: VideoQuality) => void;
   completeAndAdvance: (reel: CourseReel) => void | Promise<void>;
   course: CourseLearningData | null;
   currentIndex: number;
   feedLength: number;
-  fitMode: VideoFitMode;
   frameWidth: number;
   handlePlaybackEvent: (reel: CourseReel, event: PlaybackPlayerEvent) => void;
   handlePlaybackMetrics: (
@@ -125,7 +120,6 @@ export const useReelsFeedRenderer = ({
           }
           playbackSpeed={playbackSpeed}
           selectedQuality={selectedQuality}
-          fitMode={fitMode}
           saved={reel ? savedLessons.has(reel.lessonId) : false}
           initialPosition={
             reel ? positions.current[`${course.id}:${reel.id}`] || 0 : 0
@@ -134,7 +128,6 @@ export const useReelsFeedRenderer = ({
           bottomInset={bottomInset}
           onPlaybackSpeedChange={changePlaybackSpeed}
           onQualityChange={changeQuality}
-          onFitModeChange={changeFitMode}
           onToggleSave={folder => {
             if (reel) toggleSaved(reel, folder).catch(() => undefined);
           }}
@@ -198,14 +191,12 @@ export const useReelsFeedRenderer = ({
     },
     [
       bottomInset,
-      changeFitMode,
       changePlaybackSpeed,
       changeQuality,
       completeAndAdvance,
       course,
       currentIndex,
       feedLength,
-      fitMode,
       frameWidth,
       handlePlaybackEvent,
       handlePlaybackMetrics,

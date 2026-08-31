@@ -5,7 +5,6 @@ export type AppLanguage = string | {code?: string};
 export interface SettingsState {
   language: AppLanguage;
   city_name: string;
-  onboarding: boolean;
   device_token: string;
   voip_token: string;
   appLoaded: boolean;
@@ -14,7 +13,6 @@ export interface SettingsState {
 const initialState: SettingsState = {
   language: '',
   city_name: '',
-  onboarding: false,
   device_token: '',
   voip_token: '',
   appLoaded: false,
@@ -29,9 +27,6 @@ const settingsSlice = createSlice({
     },
     setCityName: (state, action: PayloadAction<string>) => {
       state.city_name = action.payload;
-    },
-    FinishOnBoarding: (state, action: PayloadAction<boolean>) => {
-      state.onboarding = action.payload;
     },
     setDeviceToken: (state, action: PayloadAction<string>) => {
       state.device_token = action.payload;
@@ -53,7 +48,6 @@ export const {
   setCityName,
   setDeviceToken,
   setVoipToken,
-  FinishOnBoarding,
   EmptyAppLoaded,
   setAppLoaded,
 } = settingsSlice.actions;

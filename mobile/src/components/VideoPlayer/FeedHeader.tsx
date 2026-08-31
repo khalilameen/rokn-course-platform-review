@@ -9,7 +9,7 @@ import {
 } from '../../constants/arabicFormatting';
 import {rtlRowStyle, textDirection} from '../../constants/designSystem';
 import {Fonts} from '../../constants/styleConstants';
-import {VideoFitMode, VideoQuality} from './types';
+import {VideoQuality} from './types';
 import {goBackOrHome} from '../../navigation/RootNavigationHelper';
 
 const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5, 2];
@@ -20,8 +20,6 @@ interface FeedHeaderProps {
   selectedQuality: VideoQuality;
   qualityOptions: VideoQuality[];
   onQualityChange: (quality: VideoQuality) => void;
-  fitMode: VideoFitMode;
-  onFitModeChange: (mode: VideoFitMode) => void;
   topInset?: number;
 }
 
@@ -68,8 +66,6 @@ const FeedHeader = ({
   selectedQuality,
   qualityOptions,
   onQualityChange,
-  fitMode,
-  onFitModeChange,
   topInset = 0,
 }: FeedHeaderProps) => {
   const navigation = useNavigation<RootNavigation>();
@@ -162,34 +158,6 @@ const FeedHeader = ({
               })}
             </View>
 
-            <View style={styles.divider} />
-            <Text style={styles.sectionLabel}>عرض الفيديو</Text>
-            <View style={styles.fitRow}>
-              {(
-                [
-                  ['cover', 'ملء الشاشة'],
-                  ['contain', 'إظهار الفيديو كاملًا'],
-                ] as const
-              ).map(([mode, label]) => {
-                const selected = fitMode === mode;
-                return (
-                  <Pressable
-                    key={mode}
-                    accessibilityRole="button"
-                    style={[styles.fitChip, selected && styles.selectedChip]}
-                    onPress={() => onFitModeChange(mode)}>
-                    <Text
-                      style={[
-                        styles.qualityText,
-                        selected && styles.selectedText,
-                      ]}>
-                      {label}
-                    </Text>
-                    {selected && <CheckIcon />}
-                  </Pressable>
-                );
-              })}
-            </View>
           </View>
         </>
       )}
@@ -312,22 +280,5 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,.75)',
     fontFamily: Fonts.regular,
     fontSize: 14,
-  },
-  fitRow: {
-    ...rtlRowStyle,
-    gap: 8,
-  },
-  fitChip: {
-    flex: 1,
-    minHeight: 44,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    ...rtlRowStyle,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(255,255,255,.055)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,.08)',
   },
 });

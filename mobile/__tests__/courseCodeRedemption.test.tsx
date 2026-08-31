@@ -92,7 +92,7 @@ describe('course-code redemption UI', () => {
     );
     expect(action.props).toMatchObject({
       accessibilityRole: 'button',
-      accessibilityHint: 'يفتح نافذة آمنة لإدخال كود الوصول إلى هذا الكورس',
+      accessibilityHint: 'يفتح إدخال كود الوصول إلى هذا الكورس',
     });
     expect(JSON.stringify(renderer!.toJSON())).not.toMatch(
       /شراء|دفع الآن|رابط/,

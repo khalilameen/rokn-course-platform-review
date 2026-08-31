@@ -16,13 +16,13 @@ export const CourseCodeRedemptionAction = ({
   return (
     <View style={styles.redemptionCard}>
       <View style={styles.redemptionCopy}>
-        <Text style={styles.redemptionTitle}>لديك كود من جهة تعليمية؟</Text>
+        <Text style={styles.redemptionTitle}>كود جهة تعليمية</Text>
         <Text style={styles.redemptionDescription}>
-          فعّل كود الوصول على حسابك لتجد الكورس جاهزًا هنا.
+          فعّل الكود على حسابك لفتح الكورس
         </Text>
       </View>
       <Pressable
-        accessibilityHint="يفتح نافذة آمنة لإدخال كود الوصول إلى هذا الكورس"
+        accessibilityHint="يفتح إدخال كود الوصول إلى هذا الكورس"
         accessibilityLabel="تفعيل كود جهة تعليمية"
         accessibilityRole="button"
         onPress={onPress}

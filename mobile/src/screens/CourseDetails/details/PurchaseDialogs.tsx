@@ -35,7 +35,7 @@ const CourseCodeEntry = ({
   onRedeemCourseCode,
 }: CourseCodeEntryProps) => (
   <View style={styles.codeBox}>
-    <Text style={styles.codeTitle}>لديك كود من جهة تعليمية؟</Text>
+    <Text style={styles.codeTitle}>كود جهة تعليمية</Text>
     <View style={styles.codeRow}>
       <TextInput
         accessibilityHint="أدخل الكود الذي استلمته من الجهة التعليمية"

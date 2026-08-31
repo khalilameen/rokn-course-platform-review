@@ -544,7 +544,7 @@ export default function Notifications() {
             {showLoading ? (
               <StatusView
                 state="loading"
-                description="نجمع آخر ما يهمك فقط."
+                description="نجمع آخر ما يهمك فقط"
                 title="نحدّث إشعاراتك"
               />
             ) : showError ? (

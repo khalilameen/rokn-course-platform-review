@@ -26,7 +26,6 @@ import {toArabicDigits} from '../../constants/arabicFormatting';
 import {mainUrl} from '../../constants/api';
 import appConfig from '../../../app.json';
 
-export const VIDEO_FIT_MODE_KEY = 'VIDEO_FIT_MODE';
 export const PENDING_WATCH_HISTORY_CLEAR_KEY =
   '@rokn/pending-watch-history-clear/v1';
 const publicWebBaseUrl = mainUrl.replace(/api(?:\/v1)?\/?$/i, '');
@@ -44,9 +43,6 @@ export const qualityLabel = (value: string) => {
   }
   return toArabicDigits(value);
 };
-
-export const fitLabel = (value: string) =>
-  value === 'contain' ? 'الفيديو كامل' : 'ملء الشاشة';
 
 export const reminderTimeLabel = (hour: number) => {
   if (hour === 10) return 'صباحًا · ١٠:٠٠';
@@ -79,7 +75,6 @@ export type SettingsSectionsProps = {
   notifications: boolean;
   quality: string;
   reminderHour: number;
-  videoFit: string;
   watchHistory: boolean;
   onAbout: () => void;
   onClearWatchHistory: () => void;
@@ -88,16 +83,13 @@ export type SettingsSectionsProps = {
   onEditAccount: () => void;
   onFeedback: () => void;
   onLogin: () => void;
-  onOpenSourceLicenses: () => void;
   onLogout: () => void;
   onOpenAccountDeletion: () => void;
-  onOpenFit: () => void;
   onOpenQuality: () => void;
   onOpenReminderTime: () => void;
   onPortfolio: () => void;
   onPrivacyPolicy: () => void;
   onRateApp: () => void;
-  onReturnsPolicy: () => void;
   onSupport: () => void;
   onTermsOfUse: () => void;
   onToggleMarketing: (value: boolean) => void;

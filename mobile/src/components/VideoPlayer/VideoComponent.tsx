@@ -9,7 +9,7 @@ import React, {
 } from 'react';
 import {Image, PanResponder, StyleSheet, View} from 'react-native';
 import Video, {SelectedVideoTrackType, VideoRef} from 'react-native-video';
-import {CourseReel, VideoFitMode, VideoQuality} from './types';
+import {CourseReel, VideoQuality} from './types';
 import {probeVideoSource} from './videoSourcePolicy';
 import {
   PlaybackPlayerEvent,
@@ -36,7 +36,6 @@ interface VideoComponentProps {
   isVisible: boolean;
   playbackSpeed?: number;
   selectedQuality?: VideoQuality;
-  fitMode?: VideoFitMode;
   initialPosition?: number;
   bottomInset?: number;
   onProgress?: (currentTime: number, duration: number) => void;
@@ -55,7 +54,6 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
       isVisible,
       playbackSpeed = 1,
       selectedQuality = 'auto',
-      fitMode = 'cover',
       initialPosition = 0,
       bottomInset = 0,
       onProgress,
@@ -537,7 +535,7 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
             }-${retryKey}`}
             ref={videoRef}
             source={source}
-            resizeMode={fitMode}
+            resizeMode="cover"
             paused={!isVisible || pausedByUser}
             muted={!isVisible}
             repeat={false}

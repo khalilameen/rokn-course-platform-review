@@ -293,7 +293,7 @@ export default function SavedVideos() {
               })
               .catch(() =>
                 setFolderError(
-                  'تعذّر حذف القائمة الآن. تأكد من الاتصال وحاول مرة أخرى.',
+                  'تعذّر حذف القائمة\nتحقق من الاتصال وحاول مرة أخرى',
                 ),
               )
               .finally(() => setDeletingFolder(false));

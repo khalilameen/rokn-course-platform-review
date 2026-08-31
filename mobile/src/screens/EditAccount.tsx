@@ -232,7 +232,7 @@ export default function EditAccount() {
           {serverSession === false ? (
             <StatusView
               actionLabel="سجّل الدخول"
-              description="بيانات الحساب مرتبطة بطريقة الدخول التي اخترتها."
+              description="بيانات الحساب مرتبطة بطريقة الدخول التي اخترتها"
               onAction={() => navigation.replace('Login')}
               state="error"
               title="سجّل الدخول لتعديل حسابك"

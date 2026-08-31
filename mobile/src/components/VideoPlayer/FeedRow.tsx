@@ -3,7 +3,6 @@ import {StyleSheet, View} from 'react-native';
 import {
   CourseLearningData,
   CourseFeedItem,
-  VideoFitMode,
   VideoQuality,
 } from './types';
 import VideoComponent from './VideoComponent';
@@ -30,14 +29,12 @@ interface FeedRowProps {
   shouldMountVideo: boolean;
   playbackSpeed: number;
   selectedQuality: VideoQuality;
-  fitMode: VideoFitMode;
   saved: boolean;
   initialPosition: number;
   topInset: number;
   bottomInset: number;
   onPlaybackSpeedChange: (speed: number) => void;
   onQualityChange: (quality: VideoQuality) => void;
-  onFitModeChange: (mode: VideoFitMode) => void;
   onToggleSave: (folder?: SavedFolderOption | null) => void;
   onBeforeOpenSave: () => boolean;
   onOpenChat: () => void;
@@ -63,14 +60,12 @@ const FeedRow = ({
   shouldMountVideo,
   playbackSpeed,
   selectedQuality,
-  fitMode,
   saved,
   initialPosition,
   topInset,
   bottomInset,
   onPlaybackSpeedChange,
   onQualityChange,
-  onFitModeChange,
   onToggleSave,
   onBeforeOpenSave,
   onOpenChat,
@@ -128,7 +123,6 @@ const FeedRow = ({
             isVisible={isVisible}
             playbackSpeed={playbackSpeed}
             selectedQuality={effectiveQuality}
-            fitMode={fitMode}
             initialPosition={initialPosition}
             bottomInset={bottomInset}
             onProgress={handleProgress}
@@ -148,8 +142,6 @@ const FeedRow = ({
               selectedQuality={effectiveQuality}
               qualityOptions={availableQualities}
               onQualityChange={onQualityChange}
-              fitMode={fitMode}
-              onFitModeChange={onFitModeChange}
               topInset={topInset}
             />
             <FeedSideBar
