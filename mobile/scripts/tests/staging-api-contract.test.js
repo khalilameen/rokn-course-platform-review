@@ -157,6 +157,34 @@ test('rejects an unavailable launch gate', async () => {
   );
 });
 
+test('reports independent contract failures in one run', async () => {
+  await assert.rejects(
+    verifyStagingApiContract({
+      apiBase: 'https://staging.rokn.app/api/v1/',
+      courseId: 64,
+      lessonId: 641,
+      projectId: 684,
+      fetchImpl: async (url, options) => {
+        const pathname = new URL(url).pathname;
+        if (pathname === '/api/health/launch-ready') {
+          return jsonResponse(503, {success: false, status: 'launch_blocked'});
+        }
+        if (pathname === '/api/v1/auth-methods') {
+          return jsonResponse(404, {message: 'Not found'});
+        }
+        if (pathname === '/api/v1/wallet') {
+          return jsonResponse(404, {message: 'Not found'});
+        }
+        return fakeFetch(url, options);
+      },
+    }),
+    error =>
+      /launch readiness/.test(error.message) &&
+      /public GET auth-methods/.test(error.message) &&
+      /protected GET wallet/.test(error.message),
+  );
+});
+
 test('requires a credential-free HTTPS api base ending in api', () => {
   assert.throws(() => stagingApiBase('http://staging.rokn.app/api/'), /HTTPS/);
   assert.throws(

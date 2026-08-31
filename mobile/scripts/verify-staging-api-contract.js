@@ -123,48 +123,67 @@ const verifyStagingApiContract = async ({
     lessonId: positiveInteger(lessonId, 'ROKN_SMOKE_LESSON_ID'),
     projectId: positiveInteger(projectId, 'ROKN_SMOKE_PROJECT_ID'),
   };
-
-  const launch = await responseJson(
-    fetchImpl,
-    rootBase,
-    'health/launch-ready',
-    200,
-    'GET',
-  );
-  if (launch?.success !== true || launch?.status !== 'launch_ready') {
-    throw new Error('The staging backend did not confirm launch readiness.');
-  }
-
-  const features = await responseJson(
-    fetchImpl,
-    base,
-    'product-features?bucket=0',
-    200,
-    'GET',
-  );
-  for (const flag of requiredFlags) {
-    if (features?.data?.flags?.[flag] !== true) {
-      throw new Error(`The staging feature flag '${flag}' is not enabled.`);
+  const failures = [];
+  const inspect = async (scope, check) => {
+    try {
+      return await check();
+    } catch (error) {
+      failures.push(`${scope}: ${error.message}`);
+      return null;
     }
-  }
+  };
 
-  const details = await responseJson(
-    fetchImpl,
-    base,
-    `courses/${fixtures.courseId}/details`,
-    200,
-    'GET',
-  );
-  if (!String(details?.data?.title || '').trim()) {
-    throw new Error('The staging course details response has an empty title.');
-  }
-  verifyPlans(details);
+  await inspect('launch readiness', async () => {
+    const launch = await responseJson(
+      fetchImpl,
+      rootBase,
+      'health/launch-ready',
+      200,
+      'GET',
+    );
+    if (launch?.success !== true || launch?.status !== 'launch_ready') {
+      throw new Error('The staging backend did not confirm launch readiness.');
+    }
+  });
+
+  await inspect('product features', async () => {
+    const features = await responseJson(
+      fetchImpl,
+      base,
+      'product-features?bucket=0',
+      200,
+      'GET',
+    );
+    for (const flag of requiredFlags) {
+      if (features?.data?.flags?.[flag] !== true) {
+        throw new Error(`The staging feature flag '${flag}' is not enabled.`);
+      }
+    }
+  });
+
+  await inspect('course details', async () => {
+    const details = await responseJson(
+      fetchImpl,
+      base,
+      `courses/${fixtures.courseId}/details`,
+      200,
+      'GET',
+    );
+    if (!String(details?.data?.title || '').trim()) {
+      throw new Error('The staging course details response has an empty title.');
+    }
+    verifyPlans(details);
+  });
 
   for (const [method, path] of publicRoutes) {
-    const response = await responseJson(fetchImpl, base, path, 200, method);
-    if (response?.success !== true) {
-      throw new Error(`${method} ${path} did not return a successful API envelope.`);
-    }
+    await inspect(`public ${method} ${path}`, async () => {
+      const response = await responseJson(fetchImpl, base, path, 200, method);
+      if (response?.success !== true) {
+        throw new Error(
+          `${method} ${path} did not return a successful API envelope.`,
+        );
+      }
+    });
   }
 
   const protectedRoutes = [
@@ -187,7 +206,13 @@ const verifyStagingApiContract = async ({
     ['POST', `projects/${fixtures.projectId}/submissions`],
   ];
   for (const [method, path] of protectedRoutes) {
-    await responseJson(fetchImpl, base, path, 401, method);
+    await inspect(`protected ${method} ${path}`, () =>
+      responseJson(fetchImpl, base, path, 401, method),
+    );
+  }
+
+  if (failures.length) {
+    throw new Error(`Staging contract failed:\n- ${failures.join('\n- ')}`);
   }
 
   return {
