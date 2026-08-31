@@ -2,7 +2,7 @@
   "expo": {
     "name": "Rokn",
     "slug": "rokn",
-    "version": "1.0.23",
+    "version": "1.0.24",
     "icon": "./src/assets/images/brand/rokn-app-icon-1024.png",
     "orientation": "default",
     "scheme": "rokn",
@@ -30,7 +30,7 @@
     },
     "android": {
       "package": "com.rokn",
-      "versionCode": 24,
+      "versionCode": 25,
       "googleServicesFile": "./android/app/google-services.json",
       "intentFilters": [
         {
@@ -142,7 +142,7 @@
     },
     "ios": {
       "bundleIdentifier": "com.rokn",
-      "buildNumber": "22",
+      "buildNumber": "23",
       "googleServicesFile": "./ios/GoogleService-Info.plist",
       "supportsTablet": true,
       "usesAppleSignIn": true,

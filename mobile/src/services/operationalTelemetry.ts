@@ -2,17 +2,14 @@ import {NativeModules, Platform} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import appConfig from '../../app.json';
+import {roknApiUrl} from '../constants/apiBaseUrl';
 import {
   enqueueDurableOutbox,
   flushDurableOutbox,
   readDurableOutbox,
 } from './durableOutbox';
 
-const apiRoot = (
-  process.env.EXPO_PUBLIC_API_URL?.trim() ||
-  'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/'
-).replace(/\/?$/, '/');
-const endpoint = `${apiRoot}client-events`;
+const endpoint = `${roknApiUrl}client-events`;
 const TELEMETRY_OUTBOX_KEY = '@rokn/client-events-outbox/v1';
 const TELEMETRY_HISTORY_KEY = '@rokn/client-events-history/v1';
 const MAX_TELEMETRY_EVENTS = 24;

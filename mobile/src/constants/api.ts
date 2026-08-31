@@ -19,19 +19,11 @@ import {
   setSmartRemindersEnabled,
 } from '../services/smartReminders';
 import {invalidateLocalPushDeviceRegistration} from '../services/pushDeviceState';
+import {roknApiUrl} from './apiBaseUrl';
 // Never fall back to the unrelated legacy medical API this mobile shell was
 // originally forked from. Expo inlines EXPO_PUBLIC_* values at build time, so
 // release/staging channels can point at their own Rokn host without a code change.
-const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
-// Test builds must still exercise Rokn's own public contract. Release
-// artifacts are stricter and refuse to build without an explicit HTTPS URL,
-// but falling back to an unrelated/retired development host made otherwise
-// healthy APKs look completely broken on a real phone.
-const defaultRoknApiUrl = 'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/';
-export const mainUrl = (configuredApiUrl || defaultRoknApiUrl).replace(
-  /\/?$/,
-  '/',
-);
+export const mainUrl = roknApiUrl;
 export const headers = {
   Accept: 'application/json',
   'Cache-Control': 'no-cache',

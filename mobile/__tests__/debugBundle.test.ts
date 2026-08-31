@@ -89,7 +89,7 @@ describe('debug bundle privacy boundary', () => {
       schema_version: 1,
       generated_at: '2026-08-12T10:00:00.000Z',
       app: {
-        version: '1.0.23',
+        version: '1.0.24',
         build_number: 24,
         platform: 'android',
         os_major: 34,
