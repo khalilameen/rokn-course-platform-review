@@ -1,5 +1,4 @@
 const mockGetRandomBytes = jest.fn();
-const mockDigestString = jest.fn();
 const mockAppleAvailability = jest.fn();
 const mockAppleSignIn = jest.fn();
 const mockPost = jest.fn();
@@ -9,14 +8,7 @@ jest.mock('react-native', () => ({
 }));
 
 jest.mock('expo-crypto', () => ({
-  CryptoDigestAlgorithm: {SHA256: 'SHA-256'},
-  CryptoEncoding: {BASE64: 'base64', HEX: 'hex'},
   getRandomBytesAsync: (length: number) => mockGetRandomBytes(length),
-  digestStringAsync: (
-    algorithm: string,
-    value: string,
-    options?: {encoding?: string},
-  ) => mockDigestString(algorithm, value, options),
   randomUUID: jest.fn(() => '11111111-1111-4111-8111-111111111111'),
 }));
 
@@ -48,7 +40,6 @@ describe('Apple sign-in nonce binding', () => {
     mockGetRandomBytes.mockResolvedValue(
       Uint8Array.from({length: 32}, (_, index) => index),
     );
-    mockDigestString.mockResolvedValue('a'.repeat(64));
     mockAppleSignIn.mockResolvedValue({
       identityToken: 'signed-apple-identity-token',
       fullName: {givenName: 'Rokn', familyName: 'Learner'},
@@ -83,11 +74,11 @@ describe('Apple sign-in nonce binding', () => {
     ).resolves.toMatchObject({api_token: 'rokn-session-token'});
 
     expect(mockGetRandomBytes).toHaveBeenCalledWith(32);
-    expect(mockDigestString).toHaveBeenCalledWith('SHA-256', rawNonce, {
-      encoding: 'hex',
-    });
     expect(mockAppleSignIn).toHaveBeenCalledWith(
-      expect.objectContaining({nonce: 'a'.repeat(64)}),
+      expect.objectContaining({
+        nonce:
+          '6c86c6aac5fb24bcf5d9939cb7d7d5645ce39418f449e03b262dd4fa14b4b92b',
+      }),
     );
     expect(mockPost).toHaveBeenCalledWith(
       'social-login',
@@ -98,7 +89,10 @@ describe('Apple sign-in nonce binding', () => {
       }),
     );
     expect(mockPost.mock.calls[0][1]).not.toEqual(
-      expect.objectContaining({nonce: 'a'.repeat(64)}),
+      expect.objectContaining({
+        nonce:
+          '6c86c6aac5fb24bcf5d9939cb7d7d5645ce39418f449e03b262dd4fa14b4b92b',
+      }),
     );
   });
 });

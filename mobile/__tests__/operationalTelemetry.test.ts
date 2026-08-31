@@ -1,10 +1,6 @@
 const mockFetch = jest.fn(
   async (_url: string, _request: {body?: string}) => ({ok: true}),
 );
-const mockDigest = jest.fn(
-  async (_algorithm: string, _value: string) => 'a'.repeat(64),
-);
-
 jest.mock('react-native', () => ({
   NativeModules: {},
   Platform: {OS: 'android', Version: 34},
@@ -13,9 +9,6 @@ jest.mock('react-native', () => ({
 jest.mock('expo/virtual/env', () => ({env: {}}));
 
 jest.mock('expo-crypto', () => ({
-  CryptoDigestAlgorithm: {SHA256: 'SHA-256'},
-  digestStringAsync: (algorithm: string, value: string) =>
-    mockDigest(algorithm, value),
   randomUUID: () => '8d78f65e-8385-4b8b-8ea1-ccf985a4a191',
 }));
 
@@ -47,16 +40,13 @@ describe('operational telemetry contract', () => {
       device_tier: 'unknown',
       screen_key: 'coin_checkout',
       error_code: 'PAYMENT_STATUS_TIMEOUT',
-      error_fingerprint: 'a'.repeat(64),
+      error_fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
     expect(payload).not.toHaveProperty('message');
     expect(payload).not.toHaveProperty('stack');
     expect(payload).not.toHaveProperty('component_stack');
     expect(JSON.stringify(payload)).not.toContain('user@example.com');
     expect(JSON.stringify(payload)).not.toContain('secret');
-    expect(mockDigest.mock.calls[0][1]).not.toContain('user@example.com');
-    expect(mockDigest.mock.calls[0][1]).not.toContain('secret');
-
     const diagnostics = await require('../src/services/operationalTelemetry')
       .getOperationalDiagnosticsSnapshot();
     expect(diagnostics).toEqual([
