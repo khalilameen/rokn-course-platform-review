@@ -234,6 +234,156 @@ describe('coin checkout boundary', () => {
     );
   });
 
+  it('keeps an older package recoverable while opening the newly selected package', async () => {
+    process.env.EXPO_PUBLIC_BUILD_PROFILE = 'production';
+    process.env.EXPO_PUBLIC_ENABLE_LOCAL_DEMO = '0';
+    jest.resetModules();
+
+    const WebBrowser = require('expo-web-browser') as {
+      openAuthSessionAsync: jest.Mock;
+    };
+    const {publicRequest} = require('../src/constants/api') as {
+      publicRequest: {post: jest.Mock};
+    };
+    const helpers = require('../src/constants/helpers') as {
+      getItem: jest.Mock;
+      removeItem: jest.Mock;
+      saveItem: jest.Mock;
+    };
+    const olderAttempt = {
+      idempotencyKey: '22222222-2222-4222-8222-222222222222',
+      packageId: 2,
+      expectedPrice: 99,
+      expectedCoins: 1200,
+      createdAt: '2026-09-01T11:55:43.000Z',
+      orderRef: 'PKG-OLDER-PENDING',
+    };
+    const newAttempt = {
+      idempotencyKey: '11111111-1111-4111-8111-111111111111',
+      packageId: 3,
+      expectedPrice: 149,
+      expectedCoins: 2400,
+      createdAt: expect.any(String),
+    };
+    helpers.getItem
+      .mockResolvedValueOnce(olderAttempt)
+      .mockResolvedValueOnce(olderAttempt)
+      .mockResolvedValueOnce({attempts: [olderAttempt, newAttempt]});
+    publicRequest.post.mockResolvedValueOnce({
+      data: {
+        payment_url: 'https://checkout.kashier.io/new-package',
+        order_ref: 'PKG-NEW-SELECTION',
+        idempotency_key: '11111111-1111-4111-8111-111111111111',
+      },
+    });
+    WebBrowser.openAuthSessionAsync.mockResolvedValueOnce({type: 'cancel'});
+
+    const {openCoinCheckout} = require('../src/services/coinCheckout') as {
+      openCoinCheckout: (coinPackage: {
+        id: string;
+        coins: number;
+        price: number;
+        label: string;
+      }) => Promise<{cancelled: boolean; orderRef?: string}>;
+    };
+
+    await expect(
+      openCoinCheckout({id: '3', coins: 2400, price: 149, label: 'باقة'}),
+    ).resolves.toMatchObject({
+      pending: true,
+      cancelled: true,
+      orderRef: 'PKG-NEW-SELECTION',
+    });
+    expect(helpers.removeItem).not.toHaveBeenCalled();
+    expect(helpers.saveItem).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        attempts: expect.arrayContaining([
+          expect.objectContaining({orderRef: 'PKG-OLDER-PENDING'}),
+          expect.objectContaining({packageId: 3}),
+        ]),
+      }),
+    );
+    expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledWith(
+      'https://checkout.kashier.io/new-package',
+      'rokn://payment-result',
+      {showInRecents: true},
+    );
+  });
+
+  it('replaces an expired attempt in the same tap', async () => {
+    process.env.EXPO_PUBLIC_BUILD_PROFILE = 'production';
+    process.env.EXPO_PUBLIC_ENABLE_LOCAL_DEMO = '0';
+    jest.resetModules();
+
+    const WebBrowser = require('expo-web-browser') as {
+      openAuthSessionAsync: jest.Mock;
+    };
+    const {publicRequest} = require('../src/constants/api') as {
+      publicRequest: {post: jest.Mock};
+    };
+    const helpers = require('../src/constants/helpers') as {
+      getItem: jest.Mock;
+      removeItem: jest.Mock;
+    };
+    const expiredAttempt = {
+      idempotencyKey: '22222222-2222-4222-8222-222222222222',
+      packageId: 2,
+      expectedPrice: 99,
+      expectedCoins: 1200,
+      createdAt: '2026-09-01T10:00:00.000Z',
+      orderRef: 'PKG-EXPIRED-ATTEMPT',
+    };
+    helpers.getItem
+      .mockResolvedValueOnce(expiredAttempt)
+      .mockResolvedValueOnce(expiredAttempt)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+    publicRequest.post
+      .mockResolvedValueOnce({
+        data: {
+          data: {
+            status: 'pending',
+            financial_status: 'pending',
+            package: {coins: 1200},
+          },
+        },
+      })
+      .mockRejectedValueOnce({
+        response: {
+          data: {
+            code: 'checkout_attempt_expired',
+            data: {order_ref: 'PKG-EXPIRED-ATTEMPT', status: 'cancelled'},
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          payment_url: 'https://checkout.kashier.io/fresh-attempt',
+          order_ref: 'PKG-FRESH-ATTEMPT',
+          idempotency_key: '11111111-1111-4111-8111-111111111111',
+        },
+      });
+    WebBrowser.openAuthSessionAsync.mockResolvedValueOnce({type: 'cancel'});
+
+    const {openCoinCheckout} = require('../src/services/coinCheckout') as {
+      openCoinCheckout: (coinPackage: {
+        id: string;
+        coins: number;
+        price: number;
+        label: string;
+      }) => Promise<{cancelled: boolean; orderRef?: string}>;
+    };
+
+    await expect(
+      openCoinCheckout({id: '2', coins: 1200, price: 99, label: 'باقة'}),
+    ).resolves.toMatchObject({
+      cancelled: true,
+      orderRef: 'PKG-FRESH-ATTEMPT',
+    });
+    expect(helpers.removeItem).toHaveBeenCalled();
+  });
+
   it('resumes the server checkout after app payment state was lost', async () => {
     process.env.EXPO_PUBLIC_BUILD_PROFILE = 'production';
     process.env.EXPO_PUBLIC_ENABLE_LOCAL_DEMO = '0';

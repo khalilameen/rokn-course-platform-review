@@ -80,6 +80,7 @@ describe('Apple sign-in nonce binding', () => {
       signInWithSocialProvider('apple', {
         providers: ['apple'],
         authorizationUrls: {},
+        authorizationApiUrl: 'https://rokn.app/api/v1',
         welcomeBonus: null,
         recommendedProvider: 'apple',
         recommendationText: null,

@@ -1,9 +1,10 @@
+@php($isPending = !$success && (bool) ($pending ?? false))
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>{{ $success ? 'تمت عملية الدفع' : 'فشل الدفع' }}</title>
+    <title>{{ $success ? 'تم الدفع' : ($isPending ? 'جار تأكيد الدفع' : 'لم يكتمل الدفع') }}</title>
     <style>
         * {
             margin: 0;
@@ -52,6 +53,11 @@
         .icon-circle.failure {
             background: rgba(239, 68, 68, 0.15);
             border: 2px solid rgba(239, 68, 68, 0.4);
+        }
+
+        .icon-circle.pending {
+            background: rgba(99, 102, 241, 0.15);
+            border: 2px solid rgba(99, 102, 241, 0.4);
         }
 
         h1 {
@@ -216,6 +222,14 @@
             <button class="btn btn-secondary" onclick="retryDeepLink()">
                 إعادة المحاولة
             </button>
+        @elseif($isPending)
+            <div class="icon-circle pending">…</div>
+            <h1>جار تأكيد الدفع</h1>
+            <p class="subtitle">{{ $message ?? 'سنحدّث الرصيد فور تأكيد العملية' }}</p>
+
+            <button class="btn btn-primary" onclick="returnToApp()">
+                العودة إلى التطبيق
+            </button>
         @else
             {{-- ======================== FAILURE STATE ======================== --}}
             <div class="icon-circle failure">✕</div>
@@ -243,7 +257,7 @@
         // -------------------------------------------------------
         // Payment result data (safe to embed — no sensitive info)
         // -------------------------------------------------------
-        var PAYMENT_STATUS  = @json($success ? 'success' : 'failed');
+        var PAYMENT_STATUS  = @json($success ? 'success' : ($isPending ? 'pending' : 'failed'));
         var ORDER_REF       = @json((string) ($order_ref ?? ''));
         var COINS_CREDITED  = @json((int) ($coins_credited ?? 0));
         var TRANSACTION_ID  = @json((string) ($transaction_id ?? ''));
@@ -298,7 +312,9 @@
         // Auto-notify on page load (after a brief delay for WebView to be ready)
         window.addEventListener('load', function () {
             setTimeout(function () {
-                notifyApp();
+                if (!notifyApp()) {
+                    window.location.replace(deepLinkUrl);
+                }
             }, 300);
         });
     </script>

@@ -516,7 +516,7 @@ export default function SocialAuthShell() {
               </Pressable>
             </View>
           )}
-          {authMethods && authMethods.providers.length === 0 && (
+          {authMethods && orderedProviders.length === 0 && (
             <View accessibilityRole="alert" style={styles.authStatus}>
               <Text style={styles.authStatusText}>
                 طرق تسجيل الدخول غير متاحة الآن

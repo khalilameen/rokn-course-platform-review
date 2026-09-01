@@ -168,7 +168,10 @@ export default function MyCorner() {
           .finally(() => {
             if (active) setWatchHistoryLoading(false);
           });
-        const cachedDashboard = await getCachedLearningDashboard();
+        const cachedDashboard = await getCachedLearningDashboard().catch(
+          () => null,
+        );
+        if (!active) return;
         if (active && cachedDashboard) {
           setLearningDashboard(cachedDashboard);
           setLearning({
@@ -187,7 +190,7 @@ export default function MyCorner() {
               passedProjects: [],
               activityDays: dashboard.activityDays,
             });
-            setDashboardError('');
+            setDashboardError(dashboard.partialError || '');
           }
         } catch (error) {
           if (active) {

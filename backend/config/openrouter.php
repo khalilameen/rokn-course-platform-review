@@ -4,6 +4,10 @@ return [
     'api_key' => env('OPENROUTER_API_KEY'),
     'endpoint' => env('OPENROUTER_ENDPOINT', 'https://openrouter.ai/api/v1/chat/completions'),
     'default_model' => env('OPENROUTER_DEFAULT_MODEL'),
+    // Course chat is deliberately short and immediate. Reasoning models can
+    // otherwise spend the entire small completion budget thinking and return
+    // a successful response with no learner-visible answer.
+    'reasoning_effort' => env('OPENROUTER_REASONING_EFFORT', 'none'),
     'max_tokens' => (int) env('OPENROUTER_MAX_TOKENS', 420),
     'timeout_seconds' => (int) env('OPENROUTER_TIMEOUT_SECONDS', 45),
     'connect_timeout_seconds' => (int) env('OPENROUTER_CONNECT_TIMEOUT_SECONDS', 5),

@@ -7,11 +7,11 @@ use App\Http\Requests\Admin\UserRequest;
 use App\Models\Order;
 use App\Models\Bill;
 use App\Models\DesignSetting;
-use App\Models\Setting;
 use App\Models\User;
 use App\Models\UserNote;
 use App\Services\StudentNotificationService;
 use App\Services\AccountDeletionService;
+use App\Services\DeviceLoginService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -103,7 +103,7 @@ class UsersController extends Controller
      * @param User $user
      * @return \Illuminate\Contracts\View\Factory|\Illuminate\View\View
      */
-    public function show(User $user, Request $request)
+    public function show(User $user, Request $request, DeviceLoginService $deviceLogin)
     {
 
         $user->loadCount('deviceTokens')->load([
@@ -153,13 +153,12 @@ class UsersController extends Controller
             'pass_rate' => $totalExams > 0 ? round(($passedExams / $totalExams) * 100, 2) : 0
         ];
 
-        // Get settings for device login policy
-        $settings = Setting::first();
+        $deviceLoginPolicy = $deviceLogin->configuredPolicy();
 
         // Get design settings
         $designSettings = $this->getDesignSettings();
 
-        return view('admin.users.show', compact('user', 'orders', 'bills', 'notes', 'examResults', 'examStats', 'settings', 'designSettings'));
+        return view('admin.users.show', compact('user', 'orders', 'bills', 'notes', 'examResults', 'examStats', 'deviceLoginPolicy', 'designSettings'));
     }
 
     /**
@@ -325,12 +324,9 @@ class UsersController extends Controller
     /**
      * Reset the locked device for a user (single_device_permanent policy).
      */
-    public function resetDevice(User $user)
+    public function resetDevice(User $user, DeviceLoginService $deviceLogin)
     {
-        // Check if device login policy is single_device_permanent
-        $settings = Setting::first();
-
-        if ($settings?->device_login_policy === 'single_device_permanent') {
+        if ($deviceLogin->configuredPolicy() === DeviceLoginService::POLICY_SINGLE_PERMANENT) {
             DB::transaction(function () use ($user): void {
                 $locked = User::query()->lockForUpdate()->findOrFail($user->id);
                 $locked->purgeApiTokens();

@@ -395,6 +395,9 @@ class OrdersController extends Controller
                 => 'لا يمكن اعتماد طلب عُكس ماليًا',
             'Wallet course orders can only be created by the wallet purchase flow.'
                 => 'طلبات الكورسات بعملات ركن تُنشأ من مسار الشراء فقط',
+            'Provider-controlled orders require verified provider evidence.',
+            'Provider-controlled orders cannot be changed manually.'
+                => 'حالة هذا الطلب يحددها مزود الدفع بعد التحقق',
             'A settled order cannot be rejected. Register a refund or chargeback for finance review.',
             'A settled order cannot be cancelled. Register a refund or chargeback for finance review.'
                 => 'الطلب المسدد لا يُلغى من هنا\nسجّل الاسترداد أو الاعتراض للمراجعة المالية',

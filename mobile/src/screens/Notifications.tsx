@@ -150,7 +150,7 @@ export default function Notifications() {
   const notificationCacheKeyRef = useRef<string | null>(null);
   const loadMoreFlightRef = useRef<symbol | null>(null);
   const markAllFlightRef = useRef<symbol | null>(null);
-  const readFlightsRef = useRef(new Set<string>());
+  const readFlightsRef = useRef(new Map<string, symbol>());
   const lastRefreshAtRef = useRef(0);
   const notificationErrorRef = useRef('');
   notificationErrorRef.current = notificationError;
@@ -177,18 +177,6 @@ export default function Notifications() {
         : () => undefined,
     [],
   );
-  useEffect(() => {
-    let active = true;
-    void readLocalNotificationIds()
-      .then(compact => {
-        if (!active) return;
-        setReadIds(compact);
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, []);
   const refreshNotifications = useCallback(async () => {
     refreshControllerRef.current?.abort();
     loadMoreControllerRef.current?.abort();
@@ -197,9 +185,29 @@ export default function Notifications() {
     lastRefreshAtRef.current = Date.now();
     const requestGeneration = ++notificationGenerationRef.current;
     loadMoreFlightRef.current = null;
+    markAllFlightRef.current = null;
     setLoadingMore(false);
     setLoading(true);
     try {
+      const scopedCacheKey = await notificationCacheKey();
+      if (requestGeneration !== notificationGenerationRef.current) return;
+      if (
+        notificationCacheKeyRef.current !== null &&
+        notificationCacheKeyRef.current !== scopedCacheKey
+      ) {
+        // Never leave the previous account's inbox visible or let one of its
+        // mark-read flights block a notification with the same id.
+        readFlightsRef.current.clear();
+        setServerNotifications([]);
+        setCourseImages({});
+        setNotificationCursor(null);
+        setHasMoreNotifications(false);
+        setNotificationError('');
+      }
+      notificationCacheKeyRef.current = scopedCacheKey;
+      const localReadIds = await readLocalNotificationIds().catch(() => []);
+      if (requestGeneration !== notificationGenerationRef.current) return;
+      setReadIds(localReadIds);
       const sessionAvailable = await hasSession();
       if (requestGeneration !== notificationGenerationRef.current) return;
       setServerSession(sessionAvailable);
@@ -212,9 +220,6 @@ export default function Notifications() {
         setNotificationError('');
         return;
       }
-      const scopedCacheKey = await notificationCacheKey();
-      if (requestGeneration !== notificationGenerationRef.current) return;
-      notificationCacheKeyRef.current = scopedCacheKey;
       const pageRequest = getNotificationsPage({signal: controller.signal});
       const coursesRequest = getCachedPublishedCourses().catch(() => []);
       const cachedNotifications = await readCachedNotifications(scopedCacheKey);
@@ -370,6 +375,7 @@ export default function Notifications() {
         notificationCacheKeyRef.current = null;
         loadMoreFlightRef.current = null;
         markAllFlightRef.current = null;
+        readFlightsRef.current.clear();
         clearInterval(reconnectTimer);
       };
     }, [refreshNotifications]),
@@ -498,7 +504,8 @@ export default function Notifications() {
     if (!read) {
       if (serverSession === true) {
         if (!readFlightsRef.current.has(item.id)) {
-          readFlightsRef.current.add(item.id);
+          const flight = Symbol(`notification-read-${item.id}`);
+          readFlightsRef.current.set(item.id, flight);
           void markNotificationRead(item.id)
             .then(() => {
               if (requestGeneration !== notificationGenerationRef.current) {
@@ -522,7 +529,11 @@ export default function Notifications() {
                 setNotificationError('تعذّر تحديث حالة القراءة');
               }
             })
-            .finally(() => readFlightsRef.current.delete(item.id));
+            .finally(() => {
+              if (readFlightsRef.current.get(item.id) === flight) {
+                readFlightsRef.current.delete(item.id);
+              }
+            });
         }
       } else {
         updateReadIds([...readIds, item.id]);

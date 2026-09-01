@@ -20,6 +20,7 @@ use App\Services\CourseChatAccessService;
 use App\Services\CourseAccessPlanService;
 use App\Services\FinancialAnomalyService;
 use App\Services\FinancialProvenanceService;
+use App\Services\PackageChannelPricingService;
 use App\Services\WalletService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -32,6 +33,10 @@ use Illuminate\Support\Facades\DB;
  */
 final class CourseChatUpgradeController extends Controller
 {
+    public function __construct(private readonly PackageChannelPricingService $packagePricing)
+    {
+    }
+
     public function quote(
         Request $request,
         Course $course,
@@ -599,7 +604,8 @@ final class CourseChatUpgradeController extends Controller
                     ->where('price', '>', 0)
                     ->orderBy('coins')
                     ->limit(3)
-                    ->get(['id', 'name_ar', 'name_en', 'price', 'coins'])
+                    ->get()
+                    ->map(fn (Package $package): array => $this->packagePricing->packagePayload($package))
                 : [],
         ];
     }

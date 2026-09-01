@@ -204,7 +204,11 @@ export const getCurrentPushDeviceToken = async () => getStoredPushDeviceToken();
 /** Invalidate Firebase and clear local registration after a logout attempt. */
 export const clearCurrentPushDeviceRegistration = async () => {
   const pendingKey = await pendingNotificationStorageKey();
+  pushNavigationGeneration += 1;
   pendingNotificationResponse = null;
+  openNotificationByIdFlights.clear();
+  responseOpenFlights.clear();
+  recentlyOpenedResponses.clear();
   await Promise.allSettled([
     invalidateLocalPushDeviceRegistration(),
     removeItem(pendingKey),
@@ -275,6 +279,7 @@ const openNotificationByIdFlights = new Map<string, Promise<boolean>>();
 const responseOpenFlights = new Map<string, Promise<boolean>>();
 const recentlyOpenedResponses = new Map<string, number>();
 const RESPONSE_DEDUPE_MS = 8_000;
+let pushNavigationGeneration = 0;
 
 const notificationResponseKey = (
   response: Notifications.NotificationResponse,
@@ -296,12 +301,16 @@ const notificationResponseKey = (
 
 const openNotificationById = async (notificationId: string) => {
   const accountScope = await getCurrentAccountStorageScope();
+  const generation = pushNavigationGeneration;
   const flightKey = `${accountScope}:${notificationId}`;
   const existing = openNotificationByIdFlights.get(flightKey);
   if (existing) return existing;
   const flight = getNotification(notificationId)
     .then(async notification => {
-      if ((await getCurrentAccountStorageScope()) !== accountScope) {
+      if (
+        generation !== pushNavigationGeneration ||
+        (await getCurrentAccountStorageScope()) !== accountScope
+      ) {
         return false;
       }
       const opened = navigateToNotificationData({
@@ -315,7 +324,10 @@ const openNotificationById = async (notificationId: string) => {
       return opened;
     })
     .catch(async error => {
-      if ((await getCurrentAccountStorageScope()) !== accountScope) {
+      if (
+        generation !== pushNavigationGeneration ||
+        (await getCurrentAccountStorageScope()) !== accountScope
+      ) {
         return false;
       }
       const status = Number(
@@ -331,7 +343,11 @@ const openNotificationById = async (notificationId: string) => {
       // and retry state, so it is the safe fallback for every fetch failure.
       return navigate('Notifications');
     })
-    .finally(() => openNotificationByIdFlights.delete(flightKey));
+    .finally(() => {
+      if (openNotificationByIdFlights.get(flightKey) === flight) {
+        openNotificationByIdFlights.delete(flightKey);
+      }
+    });
   openNotificationByIdFlights.set(flightKey, flight);
   return flight;
 };
@@ -339,7 +355,9 @@ const openNotificationById = async (notificationId: string) => {
 export const openNotificationLink = async (
   response: Notifications.NotificationResponse,
 ) => {
-  const responseKey = notificationResponseKey(response);
+  const accountScope = await getCurrentAccountStorageScope();
+  const generation = pushNavigationGeneration;
+  const responseKey = `${accountScope}:${notificationResponseKey(response)}`;
   const recentOpen = recentlyOpenedResponses.get(responseKey) || 0;
   const elapsed = Date.now() - recentOpen;
   if (elapsed >= 0 && elapsed < RESPONSE_DEDUPE_MS) return true;
@@ -347,6 +365,12 @@ export const openNotificationLink = async (
   if (existing) return existing;
 
   const flight = (async () => {
+    if (
+      generation !== pushNavigationGeneration ||
+      (await getCurrentAccountStorageScope()) !== accountScope
+    ) {
+      return false;
+    }
     const notificationId = notificationIdFromResponse(response);
     if (notificationId && !(await currentSessionToken())) {
       // A tap can outlive the account that received it. Its durable inbox row
@@ -374,7 +398,11 @@ export const openNotificationLink = async (
       });
     }
     return opened;
-  })().finally(() => responseOpenFlights.delete(responseKey));
+  })().finally(() => {
+    if (responseOpenFlights.get(responseKey) === flight) {
+      responseOpenFlights.delete(responseKey);
+    }
+  });
   responseOpenFlights.set(responseKey, flight);
   return flight;
 };

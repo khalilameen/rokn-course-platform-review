@@ -21,7 +21,16 @@ document.addEventListener('DOMContentLoaded', function () {
         webm: 'video/webm',
     };
     const chunkBytes = 20 * 1024 * 1024;
-    const storageKey = `rokn:bunny-upload:${form.dataset.courseId}:${form.dataset.sectionId || 'new'}`;
+    const recordVersion = 2;
+    const ownerId = @json((string) auth()->id());
+    const courseId = String(form.dataset.courseId || '');
+    const sectionId = String(form.dataset.sectionId || 'new');
+    const storageKey = `rokn:bunny-upload:${ownerId}:${courseId}:${sectionId}`;
+    const terminalCodes = new Set([
+        'bunny_upload_claim_unavailable',
+        'bunny_upload_operation_unavailable',
+    ]);
+    const serverRejectedClaim = @json($errors->has('bunny_video_claim_terminal'));
     let currentFile = null;
     let currentRecord = null;
     let currentRequest = null;
@@ -73,7 +82,19 @@ document.addEventListener('DOMContentLoaded', function () {
     const readRecord = file => {
         try {
             const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
-            if (!saved || saved.fingerprint !== fingerprint(file)) return null;
+            const matchesContext = saved
+                && Number(saved.version) === recordVersion
+                && String(saved.ownerId) === ownerId
+                && String(saved.courseId) === courseId
+                && String(saved.sectionId) === sectionId
+                && saved.fingerprint === fingerprint(file);
+            const claimExpiresAt = Date.parse(saved?.claimExpiresAt || '') || 0;
+            const operationExpired = !saved?.claim
+                && Number(saved?.savedAt || 0) < Date.now() - (15 * 60 * 1000);
+            if (!matchesContext || operationExpired || (saved.claim && claimExpiresAt <= Date.now())) {
+                localStorage.removeItem(storageKey);
+                return null;
+            }
             // performance.now is process-local. A reloaded page renews the
             // short-lived authorization while keeping the resumable TUS URL.
             saved.headers = null;
@@ -85,8 +106,22 @@ document.addEventListener('DOMContentLoaded', function () {
     };
 
     const saveRecord = record => {
-        currentRecord = record;
-        localStorage.setItem(storageKey, JSON.stringify(record));
+        currentRecord = Object.assign(record, {
+            version: recordVersion,
+            ownerId,
+            courseId,
+            sectionId,
+            savedAt: Date.now(),
+        });
+        localStorage.setItem(storageKey, JSON.stringify(currentRecord));
+    };
+
+    const clearRecord = () => {
+        localStorage.removeItem(storageKey);
+        currentRecord = null;
+        claimInput.value = '';
+        fileInput.disabled = false;
+        if (fileInput.dataset.videoRequired === 'true') fileInput.setAttribute('data-required', 'true');
     };
 
     const applyAuthorization = (record, authorization) => {
@@ -96,6 +131,9 @@ document.addEventListener('DOMContentLoaded', function () {
             ? performance.now() + ttlSeconds * 1000
             : 0;
         record.authorizationExpiresAt = Date.parse(authorization.authorization_expires_at || '') || 0;
+        if (authorization.claim_expires_at) {
+            record.claimExpiresAt = authorization.claim_expires_at;
+        }
     };
 
     const freshAuthorization = async record => {
@@ -176,7 +214,7 @@ document.addEventListener('DOMContentLoaded', function () {
         request.send(file.slice(offset, end));
     });
 
-    const upload = async file => {
+    const upload = async (file, restartCount = 0) => {
         const extension = String(file.name || '').split('.').pop().toLowerCase();
         const declaredMime = file.type || mimeByExtension[extension] || '';
         if (!allowedMimes.includes(declaredMime) || mimeByExtension[extension] !== declaredMime) {
@@ -198,6 +236,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 headers: null,
                 authorizationExpiresAt: 0,
                 authorizationDeadline: 0,
+                claimExpiresAt: null,
                 uploadUrl: null,
             };
             saveRecord(record);
@@ -213,6 +252,7 @@ document.addEventListener('DOMContentLoaded', function () {
             Object.assign(record, {
                 endpoint: issued.upload_endpoint,
                 claim: issued.claim,
+                claimExpiresAt: issued.claim_expires_at,
             });
             applyAuthorization(record, issued);
             saveRecord(record);
@@ -230,6 +270,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 Object.assign(record, {
                     endpoint: issued.upload_endpoint,
                     claim: issued.claim,
+                    claimExpiresAt: issued.claim_expires_at,
                 });
                 applyAuthorization(record, issued);
                 saveRecord(record);
@@ -243,9 +284,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
         let offset = await remoteOffset(record);
         if (offset === null) {
-            localStorage.removeItem(storageKey);
-            currentRecord = null;
-            return upload(file);
+            clearRecord();
+            if (restartCount >= 1) {
+                throw Object.assign(new Error('تعذر استئناف الرفع\nاختر الملف وحاول مرة أخرى'), {
+                    code: 'bunny_remote_upload_unavailable',
+                });
+            }
+            return upload(file, restartCount + 1);
         }
         if (!Number.isFinite(offset) || offset < 0 || offset > file.size) {
             throw new Error('حالة الرفع غير صالحة');
@@ -269,9 +314,13 @@ document.addEventListener('DOMContentLoaded', function () {
                 await new Promise(resolve => setTimeout(resolve, [1000, 2000, 5000, 10000, 20000][failures - 1]));
                 const resumed = await remoteOffset(record);
                 if (resumed === null) {
-                    localStorage.removeItem(storageKey);
-                    currentRecord = null;
-                    return upload(file);
+                    clearRecord();
+                    if (restartCount >= 1) {
+                        throw Object.assign(new Error('تعذر استئناف الرفع\nاختر الملف وحاول مرة أخرى'), {
+                            code: 'bunny_remote_upload_unavailable',
+                        });
+                    }
+                    return upload(file, restartCount + 1);
                 }
                 offset = resumed;
             }
@@ -295,11 +344,7 @@ document.addEventListener('DOMContentLoaded', function () {
             if (lastSubmitter) form.requestSubmit(lastSubmitter);
             else form.requestSubmit();
         } catch (error) {
-            if (String(error?.message || '').includes('انتهت عملية الرفع')
-                || String(error?.message || '').includes('تغيرت بيانات الملف')) {
-                localStorage.removeItem(storageKey);
-                currentRecord = null;
-            }
+            if (terminalCodes.has(String(error?.code || ''))) clearRecord();
             show(error.message || 'تعذر رفع الفيديو', Number(progressBar?.getAttribute('aria-valuenow') || 0), true);
         } finally {
             uploading = false;
@@ -347,7 +392,9 @@ document.addEventListener('DOMContentLoaded', function () {
         void startUploadAndSubmit();
     });
 
-    if (claimInput.value) {
+    if (serverRejectedClaim) {
+        clearRecord();
+    } else if (claimInput.value) {
         fileInput.removeAttribute('required');
         fileInput.removeAttribute('data-required');
     }

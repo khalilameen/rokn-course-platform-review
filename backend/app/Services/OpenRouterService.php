@@ -44,7 +44,14 @@ final class OpenRouterService
                     'model' => $model,
                     'messages' => $messages,
                     'temperature' => max(0, min(1.2, $temperature)),
-                    'max_tokens' => max(80, min((int) config('openrouter.max_tokens', 500), $maxTokens)),
+                    'max_completion_tokens' => max(
+                        80,
+                        min((int) config('openrouter.max_tokens', 500), $maxTokens)
+                    ),
+                    'reasoning' => [
+                        'effort' => $this->reasoningEffort(),
+                        'exclude' => true,
+                    ],
                     'provider' => [
                         'data_collection' => 'deny',
                         'zdr' => true,
@@ -79,8 +86,23 @@ final class OpenRouterService
         $this->recordSuccess();
 
         $body = $response->json();
-        $content = data_get($body, 'choices.0.message.content');
-        if (!is_string($content) || trim($content) === '') {
+        $content = $this->learnerVisibleContent(
+            data_get($body, 'choices.0.message.content')
+        );
+        if ($content === '') {
+            Log::warning('OpenRouter returned no learner-visible answer.', [
+                'provider_request_id' => data_get($body, 'id'),
+                'model' => data_get($body, 'model', $model),
+                'finish_reason' => data_get($body, 'choices.0.finish_reason'),
+                'native_finish_reason' => data_get($body, 'choices.0.native_finish_reason'),
+                'completion_tokens' => max(
+                    0,
+                    (int) data_get($body, 'usage.completion_tokens', 0)
+                ),
+                'reasoning_returned' => filled(
+                    data_get($body, 'choices.0.message.reasoning')
+                ) || filled(data_get($body, 'choices.0.message.reasoning_details')),
+            ]);
             throw new \RuntimeException('AI provider returned an empty response.');
         }
         $content = trim((string) preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $content));
@@ -113,6 +135,48 @@ final class OpenRouterService
                 'cost_reported' => is_numeric($providerCost),
             ],
         ];
+    }
+
+    private function learnerVisibleContent(mixed $content): string
+    {
+        if (is_string($content)) {
+            return trim($content);
+        }
+        if (!is_array($content)) {
+            return '';
+        }
+
+        $lines = [];
+        foreach ($content as $part) {
+            if (is_string($part) && trim($part) !== '') {
+                $lines[] = trim($part);
+                continue;
+            }
+            if (!is_array($part)) {
+                continue;
+            }
+
+            $type = strtolower(trim((string) ($part['type'] ?? '')));
+            if ($type !== '' && !in_array($type, ['text', 'output_text'], true)) {
+                continue;
+            }
+            if (is_string($part['text'] ?? null) && trim($part['text']) !== '') {
+                $lines[] = trim($part['text']);
+            }
+        }
+
+        return implode("\n", $lines);
+    }
+
+    private function reasoningEffort(): string
+    {
+        $effort = strtolower(trim((string) config('openrouter.reasoning_effort', 'none')));
+
+        return in_array(
+            $effort,
+            ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+            true
+        ) ? $effort : 'none';
     }
 
     private function circuitIsOpen(): bool

@@ -82,9 +82,9 @@ final readonly class PlatformCommercialReportService
                     'in_app_notifications' => (int) $push['in_app_notifications'],
                     'read_notifications' => (int) $push['read_notifications'],
                     'push_attempts' => (int) $push['push_attempts'],
-                    'push_delivered' => (int) $push['push_delivered'],
-                    'push_delivery_rate_percentage' => (int) $push['push_attempts'] > 0
-                        ? round(((int) $push['push_delivered'] / (int) $push['push_attempts']) * 100, 2)
+                    'push_provider_accepted' => (int) $push['push_provider_accepted'],
+                    'push_provider_acceptance_rate_percentage' => (int) $push['push_attempts'] > 0
+                        ? round(((int) $push['push_provider_accepted'] / (int) $push['push_attempts']) * 100, 2)
                         : null,
                 ];
             })
@@ -106,14 +106,14 @@ final readonly class PlatformCommercialReportService
             'in_app_notifications' => (int) $studentRows->sum('in_app_notifications'),
             'read_notifications' => (int) $studentRows->sum('read_notifications'),
             'push_attempts' => (int) $studentRows->sum('push_attempts'),
-            'push_delivered' => (int) $studentRows->sum('push_delivered'),
+            'push_provider_accepted' => (int) $studentRows->sum('push_provider_accepted'),
         ];
         $summary += $notificationTotals;
-        $summary['push_delivery_rate_percentage'] = $notificationTotals['push_attempts'] > 0
-            ? round(($notificationTotals['push_delivered'] / $notificationTotals['push_attempts']) * 100, 2)
+        $summary['push_provider_acceptance_rate_percentage'] = $notificationTotals['push_attempts'] > 0
+            ? round(($notificationTotals['push_provider_accepted'] / $notificationTotals['push_attempts']) * 100, 2)
             : null;
-        $notificationTotals['push_delivery_rate_percentage']
-            = $summary['push_delivery_rate_percentage'];
+        $notificationTotals['push_provider_acceptance_rate_percentage']
+            = $summary['push_provider_acceptance_rate_percentage'];
         $serviceBreakdown = $this->serviceBreakdown($rows, $notificationTotals)->map(function (array $service) use (
             $summary
         ): array {
@@ -247,25 +247,25 @@ final readonly class PlatformCommercialReportService
 
         $hasRead = Schema::hasColumn('student_notifications', 'is_read');
         $hasAttempted = Schema::hasColumn('student_notifications', 'push_attempted_at');
-        $hasDelivered = Schema::hasColumn('student_notifications', 'push_sent_at');
+        $hasProviderAccepted = Schema::hasColumn('student_notifications', 'push_sent_at');
         $readSql = $hasRead ? 'SUM(CASE WHEN is_read = 1 THEN 1 ELSE 0 END)' : '0';
         $attemptedSql = $hasAttempted
             ? 'SUM(CASE WHEN push_attempted_at IS NOT NULL THEN 1 ELSE 0 END)'
             : '0';
-        $deliveredSql = $hasDelivered
+        $providerAcceptedSql = $hasProviderAccepted
             ? 'SUM(CASE WHEN push_sent_at IS NOT NULL THEN 1 ELSE 0 END)'
             : '0';
 
         return DB::table('student_notifications')
             ->whereIn('user_id', $userIds)
-            ->selectRaw("user_id, COUNT(*) as in_app_notifications, {$readSql} as read_notifications, {$attemptedSql} as push_attempts, {$deliveredSql} as push_delivered")
+            ->selectRaw("user_id, COUNT(*) as in_app_notifications, {$readSql} as read_notifications, {$attemptedSql} as push_attempts, {$providerAcceptedSql} as push_provider_accepted")
             ->groupBy('user_id')
             ->get()
             ->mapWithKeys(fn ($row): array => [(int) $row->user_id => [
                 'in_app_notifications' => (int) $row->in_app_notifications,
                 'read_notifications' => (int) $row->read_notifications,
                 'push_attempts' => (int) $row->push_attempts,
-                'push_delivered' => (int) $row->push_delivered,
+                'push_provider_accepted' => (int) $row->push_provider_accepted,
             ]]);
     }
 
@@ -276,7 +276,7 @@ final readonly class PlatformCommercialReportService
             'in_app_notifications' => 0,
             'read_notifications' => 0,
             'push_attempts' => 0,
-            'push_delivered' => 0,
+            'push_provider_accepted' => 0,
         ];
     }
 }

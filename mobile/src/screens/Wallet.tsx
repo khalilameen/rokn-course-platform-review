@@ -76,22 +76,8 @@ export default function Wallet() {
   const navigation = useNavigation<RootNavigation>();
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
-  const {contentWidth, fontScale, gutter, width} = useResponsiveLayout();
-  const packageColumns =
-    fontScale > 1.18
-      ? 1
-      : contentWidth >= 820
-      ? 3
-      : contentWidth >= 560
-      ? 2
-      : 1;
-  const packageCardWidth = Math.max(
-    0,
-    Math.floor(
-      (contentWidth - gutter * 2 - Spacing.sm * (packageColumns - 1)) /
-        packageColumns,
-    ),
-  );
+  const {fontScale, gutter, railCardWidth, width} = useResponsiveLayout();
+  const packageCardWidth = Math.floor(railCardWidth);
   const stackTaskActions = width < 420 || fontScale > 1.18;
   const balanceArtworkSize =
     fontScale > 1.18 ? 82 : Math.min(104, Math.max(84, width * 0.26));
@@ -267,6 +253,24 @@ export default function Wallet() {
   const isWhatsAppTask = (task: DemoCoinTask | CoinTask): task is CoinTask =>
     isRemoteTask(task) && task.actionKey === 'link_whatsapp';
 
+  const isSocialTask = (task: DemoCoinTask | CoinTask) => {
+    const value = `${isRemoteTask(task) ? task.actionKey : task.id} ${
+      task.title
+    }`.toLowerCase();
+    return ['instagram', 'tiktok', 'facebook', 'youtube'].some(channel =>
+      value.includes(channel),
+    );
+  };
+
+  const taskActionLabel = (task: DemoCoinTask | CoinTask) => {
+    if (task.status === 'claimed') return 'تم الاستلام';
+    if (task.status === 'started') return 'استلام';
+    if (isCoinGuideTask(task)) return 'اعرف أكثر';
+    if (isWhatsAppTask(task)) return 'اربط';
+    if (isSocialTask(task)) return 'تابع';
+    return 'ابدأ';
+  };
+
   const runTaskAction = async (task: DemoCoinTask | CoinTask) => {
     if (isWhatsAppTask(task)) {
       try {
@@ -398,6 +402,11 @@ export default function Wallet() {
           'تم شحن الرصيد',
           `أضفنا ${formatArabicNumber(result.coinsAdded)} عملة ركن إلى رصيدك`,
         );
+      } else if (result.cancelled) {
+        Alert.alert(
+          'أُغلقت صفحة الدفع',
+          'إن أكملت الدفع فسيظهر الرصيد تلقائيًا',
+        );
       } else if (result.pending) {
         Alert.alert('العملية قيد التأكيد', 'سنحدّث رصيدك فور تأكيد الدفع');
       }
@@ -494,12 +503,16 @@ export default function Wallet() {
         </ResponsiveFrame>
         {CAN_START_COIN_CHECKOUT && displayedPackages.length ? (
           <ScrollView
+            accessibilityLabel="باقات شحن الرصيد"
             contentContainerStyle={[
               styles.packages,
               {gap: Spacing.sm, paddingHorizontal: gutter},
             ]}
+            decelerationRate="fast"
             horizontal
             nestedScrollEnabled
+            snapToInterval={packageCardWidth + Spacing.sm}
+            snapToAlignment="start"
             showsHorizontalScrollIndicator={false}>
             {displayedPackages.map(item => (
               <Package
@@ -570,9 +583,11 @@ export default function Wallet() {
                           <Text style={styles.taskTitle}>
                             {formatArabicDisplayText(task.title)}
                           </Text>
-                          <Text style={styles.taskDescription}>
-                            {formatArabicDisplayText(task.description)}
-                          </Text>
+                          {!!task.description && (
+                            <Text style={styles.taskDescription}>
+                              {formatArabicDisplayText(task.description)}
+                            </Text>
+                          )}
                           <View style={styles.taskReward}>
                             <Text style={styles.rewardPlus}>+</Text>
                             <CoinAmount size={15} value={task.reward} />
@@ -605,13 +620,7 @@ export default function Wallet() {
                               task.status === 'claimed' &&
                                 styles.taskActionLabelDone,
                             ]}>
-                            {task.status === 'available'
-                              ? isCoinGuideTask(task)
-                                ? 'اعرف أكثر'
-                                : 'اذهب'
-                              : task.status === 'started'
-                              ? 'استلام'
-                              : 'تم الاستلام'}
+                            {taskActionLabel(task)}
                           </Text>
                         )}
                       </Pressable>

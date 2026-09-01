@@ -145,6 +145,18 @@ final class CourseRewardContributionCapTest extends TestCase
             ->assertJsonPath('data.reward_contribution_used_for_course', 40)
             ->assertJsonPath('data.reward_contribution_remaining_for_course', 60);
 
+        $this->actingAs($user, 'api')
+            ->postJson('/api/v1/courses/authorize', [
+                'course_id' => $course->id,
+                'access_plan_code' => CourseAccessPlan::BASIC,
+                'idempotency_key' => $baseKey,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.idempotent_replay', true)
+            ->assertJsonPath('data.amount_deducted', 0)
+            ->assertJsonPath('data.reward_contribution_used_for_course', 40)
+            ->assertJsonPath('data.reward_contribution_remaining_for_course', 60);
+
         $this->creditReward($user, 40);
         $guidedKey = 'test-course-guided-upgrade-0001';
         $this->actingAs($user, 'api')
@@ -159,6 +171,12 @@ final class CourseRewardContributionCapTest extends TestCase
             ->assertJsonPath('data.reward_contribution_remaining_for_course', 21);
 
         $this->creditReward($user, 40);
+        Package::query()->firstOrFail()->update([
+            'google_enabled' => true,
+            'apple_enabled' => true,
+            'google_product_id' => 'rokn.coins.100.google',
+            'apple_product_id' => 'rokn.coins.100.apple',
+        ]);
         $this->actingAs($user, 'api')
             ->getJson("/api/v1/courses/{$course->id}/full-track-upgrade")
             ->assertOk()
@@ -177,7 +195,14 @@ final class CourseRewardContributionCapTest extends TestCase
             ->assertJsonPath('data.estimated_allocation.reward_coins', 21)
             ->assertJsonPath('data.estimated_allocation.paid_coins', 99)
             ->assertJsonPath('data.spendable_balance', 120)
-            ->assertJsonPath('data.deficit', 30);
+            ->assertJsonPath('data.deficit', 30)
+            ->assertJsonPath('data.recommended_packages.0.price', 100)
+            ->assertJsonPath('data.recommended_packages.0.direct_price', 90)
+            ->assertJsonPath('data.recommended_packages.0.channels.google', true)
+            ->assertJsonPath(
+                'data.recommended_packages.0.store_products.apple',
+                'rokn.coins.100.apple'
+            );
 
         $this->creditPaid($user, 30);
         $mentorKey = 'test-course-mentor-upgrade-0001';

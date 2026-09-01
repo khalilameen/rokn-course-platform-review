@@ -6,6 +6,9 @@ jest.mock('../src/services/productFeatures', () => ({
   isProductFeatureEnabled: jest.fn(),
 }));
 
+import fs from 'fs';
+import path from 'path';
+
 import {publicRequest} from '../src/constants/api';
 import {isProductFeatureEnabled} from '../src/services/productFeatures';
 import {askCourseAssistant} from '../src/components/VideoPlayer/courseLearning/assistant';
@@ -81,5 +84,26 @@ describe('course assistant waiting experience', () => {
     expect(result.code).toBe('ai_feature_unavailable');
     expect(onRequestStart).not.toHaveBeenCalled();
     expect(publicRequest.post).not.toHaveBeenCalled();
+  });
+
+  it('copies through an explicit action and freezes the reels behind overlays', () => {
+    const overlay = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        '../src/components/VideoPlayer/CourseChatOverlay.tsx',
+      ),
+      'utf8',
+    );
+    const reels = fs.readFileSync(
+      path.resolve(__dirname, '../src/screens/Reels.tsx'),
+      'utf8',
+    );
+
+    expect(overlay).toContain("Clipboard.setString(text)");
+    expect(overlay).toContain('accessibilityLabel="نسخ الرسالة"');
+    expect(overlay).toContain("hardwareAccelerated={Platform.OS === 'android'}");
+    expect(reels).toMatch(
+      /scrollEnabled=\{\s*!chatVisible\s*&&\s*!reminderNudgeVisible\s*&&\s*!previewGateVisible\s*\}/,
+    );
   });
 });

@@ -6,6 +6,7 @@ import {CourseAttachment} from './types';
 import {loadCourseLearningData} from './courseLearning/mapping';
 import {remainingServerMilliseconds} from '../../utils/serverClock';
 import {safeFilenameStem} from '../../utils/unicodeText';
+import {nativeAttachmentRecovery} from './attachmentDownloadPolicy';
 
 const downloadFlights = new Map<
   string,
@@ -169,7 +170,10 @@ const downloadPrivateFile = (fromUrl: string, toFile: string) => {
   };
 };
 
-const openCourseAttachmentInternal = async (attachment: CourseAttachment) => {
+const openCourseAttachmentInternal = async (
+  attachment: CourseAttachment,
+  signedUrlRefreshAttempted = false,
+) => {
   const generation = privateDownloadGeneration;
   let currentAttachment: CourseAttachment;
   try {
@@ -265,21 +269,32 @@ const openCourseAttachmentInternal = async (attachment: CourseAttachment) => {
         error && typeof error === 'object' && 'code' in error
           ? String((error as {code?: unknown}).code || '')
           : '';
-      if (code === 'INSUFFICIENT_STORAGE') {
+      const recovery = nativeAttachmentRecovery(
+        code,
+        signedUrlRefreshAttempted,
+      );
+      if (recovery === 'storage') {
         Alert.alert('المساحة لا تكفي', 'وفّر مساحة على الهاتف ثم حاول مرة أخرى');
         return {copied: false, downloaded: false};
       }
-      if (code === 'DOWNLOAD_RETRY_REQUIRES_REFRESH') {
+      if (recovery === 'refresh') {
         try {
           const refreshed = await usableAttachment(currentAttachment, true);
           if (generation !== privateDownloadGeneration) {
             return {copied: false, downloaded: false};
           }
-          return openCourseAttachmentInternal(refreshed);
+          return openCourseAttachmentInternal(refreshed, true);
         } catch {
           Alert.alert('تعذّر تنزيل الملف', 'تحقق من الاتصال ثم حاول مرة أخرى');
           return {copied: false, downloaded: false};
         }
+      }
+      if (
+        code === 'DOWNLOAD_RETRY_REQUIRES_REFRESH' &&
+        signedUrlRefreshAttempted
+      ) {
+        Alert.alert('تعذّر تنزيل الملف', 'تحقق من الاتصال ثم حاول مرة أخرى');
+        return {copied: false, downloaded: false};
       }
       // Fall through to the direct URL so a native integration issue never blocks the learner.
     }

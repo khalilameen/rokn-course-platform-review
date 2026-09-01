@@ -37,6 +37,11 @@ class AuthEndpointTest extends ApiTestCase
             'services.tiktok.client_secret' => null,
             'services.apple.client_id' => null,
         ]);
+        $expectedAuthorizationApiUrl = rtrim(
+            (string) (config('social_auth.public_api_url')
+                ?: rtrim((string) config('app.url'), '/') . '/api/v1'),
+            '/'
+        );
 
         $this->getJson('/api/v1/auth-methods')
             ->assertOk()
@@ -45,10 +50,29 @@ class AuthEndpointTest extends ApiTestCase
             ->assertJsonPath('data.password_login_visible', false)
             ->assertJsonPath('data.welcome_bonus_coins', 20)
             ->assertJsonPath('data.providers', ['google'])
+            ->assertJsonPath('data.authorization_api_url', $expectedAuthorizationApiUrl)
             ->assertJsonPath('data.recommended_provider', 'google')
             ->assertJsonStructure([
-                'data' => ['providers', 'authorization_urls', 'recommendation_badge'],
+                'data' => ['providers', 'authorization_api_url', 'authorization_urls', 'recommendation_badge'],
             ]);
+    }
+
+    public function test_auth_methods_declare_the_independent_social_auth_api_base(): void
+    {
+        config()->set([
+            'social_auth.providers' => ['google'],
+            'social_auth.public_api_url' => 'https://identity.rokn.test/api/v1',
+            'services.google.client_id' => 'configured',
+            'services.google.client_secret' => 'configured',
+        ]);
+
+        $this->getJson('/api/v1/auth-methods')
+            ->assertOk()
+            ->assertJsonPath('data.authorization_api_url', 'https://identity.rokn.test/api/v1')
+            ->assertJsonPath(
+                'data.authorization_urls.google',
+                'https://identity.rokn.test/api/v1/social-auth/google/start'
+            );
     }
 
     public function test_every_api_response_has_a_safe_support_request_id(): void

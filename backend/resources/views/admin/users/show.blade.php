@@ -67,7 +67,7 @@
                                 {{ $user->active ? 'تعطيل الحساب' : 'تفعيل الحساب' }}
                             </button>
                         </form>
-                        @if($user->locked_device_id && optional($settings)->device_login_policy === 'single_device_permanent')
+                        @if($user->locked_device_id && $deviceLoginPolicy === \App\Services\DeviceLoginService::POLICY_SINGLE_PERMANENT)
                             <form action="{{ route('admin.users.reset-device', $user->id) }}" method="POST" class="admin-inline-form" onsubmit="return confirm('هل أنت متأكد من إعادة تعيين جهاز الطالب؟ سيتمكن الطالب من تسجيل الدخول من جهاز آخر.')">
                                 @csrf
                                 <button type="submit" class="btn-action-modern btn-reset-device">

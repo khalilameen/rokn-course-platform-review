@@ -68,6 +68,7 @@ describe('browser social auth launch', () => {
         authorizationUrls: {
           google: 'https://rokn.app/api/v1/social-auth/google/start',
         },
+        authorizationApiUrl: 'https://rokn.app/api/v1',
         welcomeBonus: 20,
         recommendedProvider: 'google',
         recommendationText: null,

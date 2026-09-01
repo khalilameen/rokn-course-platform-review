@@ -2,6 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {publicRequest} from '../../../constants/api';
 import {
   accountScopedStorageKey,
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
   getCurrentAccountStorageScope,
 } from '../../../constants/helpers';
 import {hasSession} from '../../../services/roknApi';
@@ -268,9 +270,12 @@ export const migrateGuestSavedCollections = async (
 };
 
 export const getSavedFolderOptions = async (): Promise<SavedFolderOption[]> => {
-  const accountScope = await getCurrentAccountStorageScope();
+  const accountBoundary = await captureAccountSessionBoundary();
+  const accountScope = accountBoundary.scope;
   if (!(await hasSession())) {
-    return readLocalSavedFolders(accountScope);
+    const folders = await readLocalSavedFolders(accountScope);
+    assertAccountSessionBoundary(accountBoundary);
+    return folders;
   }
   try {
     const response = await publicRequest.get('saved-folders');
@@ -280,19 +285,25 @@ export const getSavedFolderOptions = async (): Promise<SavedFolderOption[]> => {
     )
       .filter(item => item?.id && item?.name)
       .map(mapSavedFolder);
-    await assertCurrentScope(accountScope);
+    assertAccountSessionBoundary(accountBoundary);
     await writeLocalSavedFolders(
       folders,
       `${SAVED_FOLDERS_KEY}:${accountScope}`,
     );
     return folders;
-  } catch {
+  } catch (error) {
+    // ACCOUNT_CHANGED_DURING_REQUEST must never fall through to the previous
+    // owner's offline folder list.
+    assertAccountSessionBoundary(accountBoundary);
     // Offline accounts may use cached server folders, not local-only ids.
     const cached = (await readLocalSavedFolders(accountScope)).filter(
       folder => !folder.id.startsWith('local-'),
     );
+    assertAccountSessionBoundary(accountBoundary);
     if (cached.length) return cached;
-    throw new Error('SAVED_FOLDERS_UNAVAILABLE');
+    throw error instanceof Error
+      ? error
+      : new Error('SAVED_FOLDERS_UNAVAILABLE');
   }
 };
 

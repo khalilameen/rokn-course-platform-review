@@ -90,7 +90,7 @@ describe('social auth cold-start recovery', () => {
         device_os: 'android',
         device_type: 'android',
       },
-      {timeout: 10_000},
+      {timeout: 10_000, skipAuthorization: true},
     );
     expect(mockDelete).toHaveBeenCalledTimes(1);
   });

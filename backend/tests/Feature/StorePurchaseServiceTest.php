@@ -19,6 +19,7 @@ use App\Services\StoreBillingAccountIdentity;
 use App\Services\StorePurchaseService;
 use App\Services\StudentNotificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -206,6 +207,138 @@ final class StorePurchaseServiceTest extends TestCase
         self::assertSame(0, $apple['live_count']);
         self::assertSame(1, $apple['test_count']);
         self::assertSame(0.0, $apple['gross_amount']);
+    }
+
+    public function test_paid_receipt_survives_package_and_channel_retirement(): void
+    {
+        Queue::fake();
+        $this->mock(StudentNotificationService::class, function ($mock): void {
+            $mock->shouldReceive('notifyUser')->andReturnNull()->byDefault();
+        });
+        $user = $this->user('retired-store-product@rokn.test');
+        $package = Package::query()->create([
+            'name_ar' => 'باقة منشورة',
+            'name_en' => 'Published package',
+            'price' => 120,
+            'coins' => 600,
+            'is_active' => true,
+            'google_product_id' => 'rokn.coins.retired.600',
+            'google_enabled' => true,
+        ]);
+
+        // The learner has already left the app for the provider sheet. These
+        // flags may stop future sheets, but cannot revoke that paid contract.
+        $package->forceFill([
+            'is_active' => false,
+            'google_enabled' => false,
+        ])->save();
+        $binding = app(StoreBillingAccountIdentity::class)->google($user);
+        $gateway = $this->mock(StorePurchaseProviderGateway::class);
+        $gateway->shouldReceive('verify')
+            ->once()
+            ->with(
+                'google',
+                'rokn.coins.retired.600',
+                'paid-before-retirement',
+                null,
+                $binding
+            )
+            ->andReturn(new VerifiedStorePurchase(
+                provider: StorePurchase::PROVIDER_GOOGLE,
+                productId: 'rokn.coins.retired.600',
+                externalTransactionId: 'GPA.RETIRED.600',
+                environment: 'production',
+                currency: 'EGP',
+                grossAmount: 120
+            ));
+
+        $result = app(StorePurchaseService::class)->verifyAndCredit(
+            $user,
+            StorePurchase::PROVIDER_GOOGLE,
+            'rokn.coins.retired.600',
+            'paid-before-retirement',
+            null
+        );
+
+        self::assertSame(600, $result['coins_added']);
+        self::assertTrue($result['finalize_transaction']);
+        self::assertSame(600, (int) $user->fresh()->wallet_purchased_coins);
+        $this->assertDatabaseHas('orders', [
+            'package_id' => $package->id,
+            'package_coins' => 600,
+            'status' => Order::STATUS_APPROVED,
+        ]);
+    }
+
+    public function test_store_catalog_coin_change_during_verification_is_rejected(): void
+    {
+        Queue::fake();
+        $this->mock(StudentNotificationService::class, function ($mock): void {
+            $mock->shouldReceive('notifyUser')->andReturnNull()->byDefault();
+        });
+        $user = $this->user('mutated-store-product@rokn.test');
+        $package = Package::query()->create([
+            'name_ar' => 'باقة ثابتة',
+            'name_en' => 'Immutable package',
+            'price' => 120,
+            'coins' => 600,
+            'google_product_id' => 'rokn.coins.immutable.600',
+            'google_enabled' => true,
+        ]);
+        $gateway = $this->mock(StorePurchaseProviderGateway::class);
+        $gateway->shouldReceive('verify')
+            ->once()
+            ->andReturnUsing(function () use ($package): VerifiedStorePurchase {
+                // Simulate an unsafe out-of-band catalogue write racing the
+                // provider call. Normal model writes are rejected as well.
+                DB::table('packages')->where('id', $package->id)->update(['coins' => 999]);
+
+                return new VerifiedStorePurchase(
+                    provider: StorePurchase::PROVIDER_GOOGLE,
+                    productId: 'rokn.coins.immutable.600',
+                    externalTransactionId: 'GPA.MUTATED.600',
+                    environment: 'production'
+                );
+            });
+
+        try {
+            app(StorePurchaseService::class)->verifyAndCredit(
+                $user,
+                StorePurchase::PROVIDER_GOOGLE,
+                'rokn.coins.immutable.600',
+                'mutated-catalog-token',
+                null
+            );
+            self::fail('A changed coin fulfilment contract must not be guessed.');
+        } catch (StorePurchaseVerificationException $exception) {
+            self::assertSame('store_product_catalog_changed', $exception->errorCode);
+        }
+
+        self::assertSame(0, (int) $user->fresh()->wallet_purchased_coins);
+        self::assertSame(0, StorePurchase::query()->count());
+    }
+
+    public function test_unknown_store_product_never_creates_credit(): void
+    {
+        $user = $this->user('unknown-store-product@rokn.test');
+        $gateway = $this->mock(StorePurchaseProviderGateway::class);
+        $gateway->shouldNotReceive('verify');
+
+        try {
+            app(StorePurchaseService::class)->verifyAndCredit(
+                $user,
+                StorePurchase::PROVIDER_GOOGLE,
+                'rokn.coins.unknown',
+                'unknown-product-token',
+                null
+            );
+            self::fail('An unknown store product must not be fulfilled.');
+        } catch (StorePurchaseVerificationException $exception) {
+            self::assertSame('store_product_not_configured', $exception->errorCode);
+        }
+
+        self::assertSame(0, (int) $user->fresh()->wallet_purchased_coins);
+        self::assertSame(0, StorePurchase::query()->count());
     }
 
     public function test_google_voided_purchase_is_reversed_once_from_authenticated_rtdn(): void

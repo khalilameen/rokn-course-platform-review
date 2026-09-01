@@ -134,7 +134,22 @@ final class CourseChatTurnService
 
     public function markStreaming(?CourseChatTurn $turn): void
     {
-        $this->transition($turn, CourseChatTurn::STREAMING, null, null);
+        if (!$turn || !$this->available()) {
+            return;
+        }
+
+        // Only the worker that starts a queued turn establishes its lease.
+        // Client polling of an already-streaming turn must not keep an
+        // abandoned request alive forever by refreshing updated_at.
+        CourseChatTurn::query()
+            ->whereKey($turn->id)
+            ->where('status', CourseChatTurn::QUEUED)
+            ->update([
+                'status' => CourseChatTurn::STREAMING,
+                'error_code' => null,
+                'completed_at' => null,
+                'updated_at' => now(),
+            ]);
     }
 
     public function complete(?CourseChatTurn $turn, string $answer, ?AiUsageEvent $usage = null): void
@@ -201,6 +216,98 @@ final class CourseChatTurnService
             ->pluck('id');
 
         return $ids->isEmpty() ? 0 : CourseChatTurn::query()->whereIn('id', $ids)->delete();
+    }
+
+    public function failStalled(int $limit = 500): int
+    {
+        if (!$this->available()) {
+            return 0;
+        }
+
+        $staleAfterSeconds = max(
+            120,
+            (int) config('course_plans.ai_reservation_ttl_seconds', 120) + 60,
+            ((int) config('openrouter.timeout_seconds', 45) * 2) + 60
+        );
+        $cutoff = now()->subSeconds($staleAfterSeconds);
+        $ids = CourseChatTurn::query()
+            ->whereIn('status', [CourseChatTurn::QUEUED, CourseChatTurn::STREAMING])
+            ->where('updated_at', '<=', $cutoff)
+            ->orderBy('id')
+            ->limit(max(1, min(5000, $limit)))
+            ->pluck('id');
+        if ($ids->isEmpty()) {
+            return 0;
+        }
+
+        $closed = 0;
+        foreach ($ids as $id) {
+            $closed += DB::transaction(function () use ($id, $cutoff): int {
+                $turn = CourseChatTurn::query()->lockForUpdate()->find($id);
+                if (
+                    !$turn
+                    || !in_array($turn->status, [
+                        CourseChatTurn::QUEUED,
+                        CourseChatTurn::STREAMING,
+                    ], true)
+                    || $turn->updated_at->isAfter($cutoff)
+                ) {
+                    return 0;
+                }
+
+                $usage = Schema::hasTable('ai_usage_events')
+                    ? AiUsageEvent::query()
+                        ->where('request_id', $turn->client_request_id)
+                        ->where('user_id', $turn->user_id)
+                        ->where('course_id', $turn->course_id)
+                        ->where('feature', 'course_chat')
+                        ->lockForUpdate()
+                        ->first()
+                    : null;
+                $accepted = trim((string) data_get(
+                    is_array($usage?->metadata) ? $usage->metadata : [],
+                    'accepted_response',
+                    ''
+                ));
+
+                // Settlement is the durable source of truth. A worker may
+                // have paid and stored the answer before its HTTP response was
+                // interrupted, so recover that answer instead of inviting a
+                // second paid request under a fresh client id.
+                if ($usage?->status === 'completed' && $accepted !== '') {
+                    $turn->forceFill([
+                        'status' => CourseChatTurn::COMPLETED,
+                        'answer' => mb_substr($accepted, 0, 12000),
+                        'error_code' => null,
+                        'usage_event_id' => $usage->id,
+                        'completed_at' => $usage->completed_at ?? now(),
+                    ])->save();
+
+                    return 1;
+                }
+
+                // The entitlement lease is newer and more precise than the
+                // presentation row. Never close a request that can still be
+                // inside the configured provider timeout.
+                if (
+                    $usage?->status === 'reserved'
+                    && $usage->reservation_expires_at
+                    && $usage->reservation_expires_at->isFuture()
+                ) {
+                    return 0;
+                }
+
+                $turn->forceFill([
+                    'status' => CourseChatTurn::FAILED,
+                    'error_code' => 'chat_request_abandoned',
+                    'completed_at' => now(),
+                ])->save();
+
+                return 1;
+            }, 3);
+        }
+
+        return $closed;
     }
 
     private function transition(

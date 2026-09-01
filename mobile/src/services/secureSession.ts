@@ -422,6 +422,17 @@ let sessionLoadPromise: Promise<unknown> | null = null;
 let sessionCacheEpoch = 0;
 let sessionMutationTail: Promise<unknown> = Promise.resolve();
 
+/**
+ * Read the in-memory bootstrap result without starting or waiting for a native
+ * keychain operation. Public guest journeys use this so a locked keychain
+ * cannot hold catalogue or authentication discovery requests.
+ */
+export const peekSecureSession = () => ({
+  ready: sessionCacheReady,
+  session: sessionCacheReady ? cachedSession : null,
+  epoch: sessionCacheEpoch,
+});
+
 const serializeSessionMutation = <T>(operation: () => Promise<T>) => {
   const result = sessionMutationTail.then(operation, operation);
   sessionMutationTail = result.then(
@@ -632,6 +643,7 @@ export const loadSecureSession = async () => {
     }
     cachedSession = restoredSession;
     sessionCacheReady = true;
+    sessionCacheEpoch += 1;
     return restoredSession;
   });
   let trackedLoad: Promise<unknown>;

@@ -43,21 +43,27 @@ export type NativeCoinCheckoutResult = {
 type ActivePurchase = {
   productId: string;
   accountScope: string;
+  accountBinding: string;
   resolve: (value: NativeCoinCheckoutResult) => void;
   reject: (reason?: unknown) => void;
   timer: ReturnType<typeof setTimeout>;
 };
 
+type StoreBillingOwner = {
+  accountScope: string;
+  accountBinding: string;
+};
+
 let connectionPromise: Promise<void> | null = null;
 let listenersReady = false;
-let activePurchase: ActivePurchase | null = null;
+const activePurchases = new Map<string, ActivePurchase>();
 const processing = new Map<
   string,
   {accountScope: string; promise: Promise<NativeCoinCheckoutResult>}
 >();
 const reconciliationFlights = new Map<
   string,
-  Promise<{pending: boolean; reconciled: number}>
+  Promise<{pending: boolean; pendingProductIds: string[]; reconciled: number}>
 >();
 const emittedCredits = new Set<string>();
 const MAX_EMITTED_CREDIT_KEYS = 128;
@@ -94,6 +100,64 @@ const provider = () => {
   throw new Error('NATIVE_STORE_UNAVAILABLE_FOR_DISTRIBUTION');
 };
 
+const normalizedBinding = (value: unknown) =>
+  String(value || '').trim().toLowerCase();
+
+const contextBinding = (context: StoreBillingContext) =>
+  normalizedBinding(
+    IS_PLAY_DISTRIBUTION
+      ? context.google_obfuscated_account_id
+      : context.apple_app_account_token,
+  );
+
+const purchaseBinding = (purchase: Purchase) =>
+  normalizedBinding(
+    IS_PLAY_DISTRIBUTION && 'obfuscatedAccountIdAndroid' in purchase
+      ? purchase.obfuscatedAccountIdAndroid
+      : IS_APP_STORE_DISTRIBUTION && 'appAccountToken' in purchase
+      ? purchase.appAccountToken
+      : '',
+  );
+
+const currentStoreBillingOwner = async (): Promise<StoreBillingOwner | null> => {
+  const accountScope = await accountScopedStorageKey(
+    '@rokn/native-store-reconciliation/v1',
+  );
+  try {
+    const context = payload<StoreBillingContext>(
+      await publicRequest.get('store-billing/context'),
+    );
+    const accountBinding = contextBinding(context);
+    const confirmedAccountScope = await accountScopedStorageKey(
+      '@rokn/native-store-reconciliation/v1',
+    );
+    return accountBinding && confirmedAccountScope === accountScope
+      ? {accountScope, accountBinding}
+      : null;
+  } catch {
+    // Guests and interrupted sessions do not own an authenticated store
+    // receipt. Leave it in the provider queue for its bound Rokn account.
+    return null;
+  }
+};
+
+const purchaseBelongsTo = (
+  purchase: Purchase,
+  owner: StoreBillingOwner,
+) => {
+  const receiptBinding = purchaseBinding(purchase);
+  if (receiptBinding) return receiptBinding === owner.accountBinding;
+
+  // Some listener bridges omit the binding from the live callback even though
+  // the provider receipt carries it. Only the still-active request for this
+  // exact Rokn account may use that narrow compatibility path.
+  const active = activePurchases.get(owner.accountScope);
+  return (
+    active?.productId === purchase.productId &&
+    active.accountBinding === owner.accountBinding
+  );
+};
+
 const packageProductId = (coinPackage: DemoCoinPackage) =>
   IS_PLAY_DISTRIBUTION
     ? coinPackage.storeProductIds?.google
@@ -123,14 +187,9 @@ const settleActive = (
   accountScope: string,
   action: (active: ActivePurchase) => void,
 ) => {
-  if (
-    !activePurchase ||
-    activePurchase.productId !== productId ||
-    activePurchase.accountScope !== accountScope
-  )
-    return;
-  const current = activePurchase;
-  activePurchase = null;
+  const current = activePurchases.get(accountScope);
+  if (!current || current.productId !== productId) return;
+  activePurchases.delete(accountScope);
   clearTimeout(current.timer);
   action(current);
 };
@@ -165,6 +224,12 @@ const verifyAndFinish = async (
   }
 
   const operation: Promise<NativeCoinCheckoutResult> = (async () => {
+    const currentScope = await accountScopedStorageKey(
+      '@rokn/native-store-reconciliation/v1',
+    );
+    if (currentScope !== accountScope) {
+      throw new Error('STORE_PURCHASE_ACCOUNT_CHANGED');
+    }
     const response = await publicRequest.post('store-purchases/verify', {
       provider: provider(),
       product_id: purchase.productId,
@@ -203,13 +268,12 @@ const verifyAndFinish = async (
 };
 
 const handlePurchaseUpdate = async (purchase: Purchase) => {
-  const accountScope = await accountScopedStorageKey(
-    '@rokn/native-store-reconciliation/v1',
-  );
+  const owner = await currentStoreBillingOwner();
+  if (!owner || !purchaseBelongsTo(purchase, owner)) return;
   try {
-    const result = await verifyAndFinish(purchase, accountScope);
-    emitPurchaseCredit(purchase, result, accountScope);
-    settleActive(purchase.productId, accountScope, active =>
+    const result = await verifyAndFinish(purchase, owner.accountScope);
+    emitPurchaseCredit(purchase, result, owner.accountScope);
+    settleActive(purchase.productId, owner.accountScope, active =>
       active.resolve(result),
     );
   } catch (error: unknown) {
@@ -219,7 +283,7 @@ const handlePurchaseUpdate = async (purchase: Purchase) => {
         : new Error('native_store_verification_failed'),
       {source: 'native_store_billing'},
     );
-    settleActive(purchase.productId, accountScope, active =>
+    settleActive(purchase.productId, owner.accountScope, active =>
       active.reject(error),
     );
   }
@@ -232,9 +296,21 @@ const installListeners = () => {
     void handlePurchaseUpdate(purchase);
   });
   purchaseErrorListener(error => {
-    if (!activePurchase) return;
-    const current = activePurchase;
-    activePurchase = null;
+    const productId =
+      'productId' in error && error.productId
+        ? String(error.productId)
+        : undefined;
+    const candidates = [...activePurchases.values()].filter(
+      active => !productId || active.productId === productId,
+    );
+
+    // Store error callbacks do not carry our account binding. When two Rokn
+    // accounts have an in-flight request for the same product, attributing an
+    // unbound error would let an old sheet close the new account's checkout.
+    // The scoped requestPurchase rejection or timeout will settle each request.
+    if (candidates.length !== 1) return;
+    const [current] = candidates;
+    activePurchases.delete(current.accountScope);
     clearTimeout(current.timer);
     if (cancelledError(error)) {
       current.resolve({
@@ -269,11 +345,14 @@ const ensureConnection = async () => {
   await connectionPromise;
 };
 
-const reconcileOutstandingPurchases = async () => {
-  const scope = await accountScopedStorageKey(
-    '@rokn/native-store-reconciliation/v1',
-  );
-  const existing = reconciliationFlights.get(scope);
+const reconcileOutstandingPurchases = async (
+  suppliedOwner?: StoreBillingOwner | null,
+) => {
+  const owner = suppliedOwner ?? (await currentStoreBillingOwner());
+  if (!owner) {
+    return {pending: false, pendingProductIds: [], reconciled: 0};
+  }
+  const existing = reconciliationFlights.get(owner.accountScope);
   if (existing) return existing;
 
   const operation = (async () => {
@@ -281,19 +360,20 @@ const reconcileOutstandingPurchases = async () => {
       alsoPublishToEventListenerIOS: false,
       onlyIncludeActiveItemsIOS: false,
     });
-    let pending = false;
+    const pendingProductIds = new Set<string>();
     let reconciled = 0;
     for (const purchase of purchases) {
+      if (!purchaseBelongsTo(purchase, owner)) continue;
       if (purchase.purchaseState === 'pending') {
-        pending = true;
+        pendingProductIds.add(purchase.productId);
         continue;
       }
       if (purchase.purchaseState !== 'purchased') continue;
 
       try {
-        const result = await verifyAndFinish(purchase, scope);
-        emitPurchaseCredit(purchase, result, scope);
-        settleActive(purchase.productId, scope, active =>
+        const result = await verifyAndFinish(purchase, owner.accountScope);
+        emitPurchaseCredit(purchase, result, owner.accountScope);
+        settleActive(purchase.productId, owner.accountScope, active =>
           active.resolve(result),
         );
         reconciled += result.success ? 1 : 0;
@@ -301,23 +381,31 @@ const reconcileOutstandingPurchases = async () => {
         // One unresolved receipt must not hide later receipts in the queue.
         // It still blocks a second purchase until it can be verified, because
         // finishing or ignoring it locally could lose a paid transaction.
-        pending = true;
+        pendingProductIds.add(purchase.productId);
         reportClientError(
           error instanceof Error
             ? error
             : new Error('native_store_reconciliation_failed'),
           {source: 'native_store_reconciliation'},
         );
-        settleActive(purchase.productId, scope, active => active.reject(error));
+        settleActive(purchase.productId, owner.accountScope, active =>
+          active.reject(error),
+        );
       }
     }
-    return {pending, reconciled};
+    return {
+      pending: pendingProductIds.size > 0,
+      pendingProductIds: [...pendingProductIds],
+      reconciled,
+    };
   })();
-  reconciliationFlights.set(scope, operation);
+  reconciliationFlights.set(owner.accountScope, operation);
   try {
     return await operation;
   } finally {
-    reconciliationFlights.delete(scope);
+    if (reconciliationFlights.get(owner.accountScope) === operation) {
+      reconciliationFlights.delete(owner.accountScope);
+    }
   }
 };
 
@@ -368,26 +456,22 @@ export const purchaseNativeCoinPackage = async (
 ): Promise<NativeCoinCheckoutResult> => {
   const productId = packageProductId(coinPackage);
   if (!productId) throw new Error('STORE_PRODUCT_NOT_CONFIGURED');
-  if (activePurchase) throw new Error('STORE_PURCHASE_ALREADY_IN_PROGRESS');
 
   await ensureConnection();
-  const accountScope = await accountScopedStorageKey(
+  const owner = await currentStoreBillingOwner();
+  if (!owner) throw new Error('STORE_ACCOUNT_BINDING_UNAVAILABLE');
+  if (activePurchases.has(owner.accountScope)) {
+    throw new Error('STORE_PURCHASE_ALREADY_IN_PROGRESS');
+  }
+  const outstanding = await reconcileOutstandingPurchases(owner);
+  if (outstanding.pendingProductIds.includes(productId)) {
+    throw new Error('STORE_PURCHASE_PENDING');
+  }
+  const confirmedAccountScope = await accountScopedStorageKey(
     '@rokn/native-store-reconciliation/v1',
   );
-  const outstanding = await reconcileOutstandingPurchases();
-  if (outstanding.pending) throw new Error('STORE_PURCHASE_PENDING');
-  const context = payload<StoreBillingContext>(
-    await publicRequest.get('store-billing/context'),
-  );
-  const googleAccount = String(
-    context.google_obfuscated_account_id || '',
-  ).trim();
-  const appleAccount = String(context.apple_app_account_token || '').trim();
-  if (IS_PLAY_DISTRIBUTION && !googleAccount) {
-    throw new Error('STORE_ACCOUNT_BINDING_UNAVAILABLE');
-  }
-  if (IS_APP_STORE_DISTRIBUTION && !appleAccount) {
-    throw new Error('STORE_ACCOUNT_BINDING_UNAVAILABLE');
+  if (confirmedAccountScope !== owner.accountScope) {
+    throw new Error('STORE_PURCHASE_ACCOUNT_CHANGED');
   }
 
   let resolvePurchase!: (value: NativeCoinCheckoutResult) => void;
@@ -397,7 +481,7 @@ export const purchaseNativeCoinPackage = async (
     rejectPurchase = reject;
   });
   const timer = setTimeout(() => {
-    settleActive(productId, accountScope, active =>
+    settleActive(productId, owner.accountScope, active =>
       active.resolve({
         success: false,
         pending: true,
@@ -407,13 +491,14 @@ export const purchaseNativeCoinPackage = async (
       }),
     );
   }, 5 * 60 * 1000);
-  activePurchase = {
+  activePurchases.set(owner.accountScope, {
     productId,
-    accountScope,
+    accountScope: owner.accountScope,
+    accountBinding: owner.accountBinding,
     resolve: resolvePurchase,
     reject: rejectPurchase,
     timer,
-  };
+  });
 
   try {
     await requestPurchase({
@@ -421,20 +506,32 @@ export const purchaseNativeCoinPackage = async (
         ? {
             google: {
               skus: [productId],
-              obfuscatedAccountId: googleAccount,
+              obfuscatedAccountId: owner.accountBinding,
             },
           }
         : {
             apple: {
               sku: productId,
-              appAccountToken: appleAccount,
+              appAccountToken: owner.accountBinding,
               andDangerouslyFinishTransactionAutomatically: false,
             },
           },
       type: 'in-app',
     });
   } catch (error: unknown) {
-    settleActive(productId, accountScope, active => active.reject(error));
+    settleActive(productId, owner.accountScope, active => {
+      if (cancelledError(error as {code?: unknown})) {
+        active.resolve({
+          success: false,
+          pending: false,
+          cancelled: true,
+          coinsAdded: 0,
+          demo: false,
+        });
+        return;
+      }
+      active.reject(error);
+    });
   }
 
   return outcome;

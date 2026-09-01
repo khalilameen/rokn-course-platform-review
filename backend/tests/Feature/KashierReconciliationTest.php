@@ -9,6 +9,7 @@ use App\Models\Package;
 use App\Models\PaymentReconciliationCheckpoint;
 use App\Models\PaymentReconciliationFinding;
 use App\Models\User;
+use App\Services\KashierPaymentService;
 use App\Services\KashierReconciliationService;
 use App\Services\StudentNotificationService;
 use Illuminate\Console\Command;
@@ -21,6 +22,32 @@ use Tests\TestCase;
 
 final class KashierReconciliationTest extends TestCase
 {
+    public function test_reconciliation_uses_the_payment_transaction_not_the_3ds_check(): void
+    {
+        $response = [
+            'response' => [
+                'status' => 'CAPTURED',
+                'transactions' => [
+                    [
+                        'status' => 'SUCCESS',
+                        'operation' => '3dsecure_verify',
+                        'transactionId' => 'TX-3DS-CHECK',
+                    ],
+                    [
+                        'status' => 'SUCCESS',
+                        'operation' => 'pay',
+                        'transactionId' => 'TX-ACTUAL-PAYMENT',
+                    ],
+                ],
+            ],
+        ];
+
+        self::assertSame(
+            'TX-ACTUAL-PAYMENT',
+            app(KashierPaymentService::class)->extractTransactionId($response)
+        );
+    }
+
     use RefreshDatabase;
 
     private User $user;
@@ -111,6 +138,31 @@ final class KashierReconciliationTest extends TestCase
             'transaction_id' => null,
         ]);
         self::assertSame(0, (int) $this->user->fresh()->wallet_coins);
+        self::assertSame(0, DB::table('wallet_transactions')->count());
+    }
+
+    public function test_provider_pending_checkout_remains_open_after_local_expiry(): void
+    {
+        $order = $this->pendingOrder('PKG-RECON-PROVIDER-PENDING');
+        DB::table('orders')->where('id', $order->id)->update([
+            'checkout_expires_at' => now()->subMinute(),
+        ]);
+        $order->refresh();
+        Http::fake($this->providerResponse($order, 'PENDING', 'TXN-PENDING'));
+
+        $result = app(KashierReconciliationService::class)->reconcile(100);
+
+        self::assertSame(1, $result['findings']);
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'status' => Order::STATUS_PENDING,
+            'financial_status' => Order::FINANCIAL_PENDING,
+        ]);
+        $this->assertDatabaseHas('payment_reconciliation_findings', [
+            'order_id' => $order->id,
+            'kind' => 'provider_pending_after_local_expiry',
+            'state' => PaymentReconciliationFinding::STATE_OPEN,
+        ]);
         self::assertSame(0, DB::table('wallet_transactions')->count());
     }
 

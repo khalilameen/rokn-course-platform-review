@@ -7,6 +7,7 @@ import {
   extractApiToken,
   extractUserProfile,
   migrateLegacySession,
+  peekSecureSession,
   resetSecureSessionMigrationForTests,
   restoreSecureAuthState,
   sanitizeSessionForStorage,
@@ -243,5 +244,18 @@ describe('secure mobile session persistence', () => {
     expect(first.session).toEqual(second.session);
     expect(readsAfterHydration).toBeGreaterThan(0);
     expect(secureGet).toHaveBeenCalledTimes(readsAfterHydration);
+  });
+
+  it('lets public journeys inspect bootstrap without starting a keychain read', async () => {
+    expect(peekSecureSession()).toEqual({ready: false, session: null, epoch: 0});
+    expect(secureGet).not.toHaveBeenCalled();
+
+    await saveSecureSession({api_token: 'ready-token', user: {id: 21}});
+
+    expect(peekSecureSession()).toEqual({
+      ready: true,
+      session: expect.objectContaining({api_token: 'ready-token'}),
+      epoch: 1,
+    });
   });
 });

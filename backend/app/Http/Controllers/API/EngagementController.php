@@ -53,7 +53,7 @@ final class EngagementController extends Controller
         }
 
         $message = $messages->publicMessage('coin_offer', [
-            'task' => (string) ($method->title_ar ?: $method->title_en),
+            'task' => $method->learnerTitleAr(),
             'coins' => (int) $method->coins_amount,
         ]);
         if (!$message) {

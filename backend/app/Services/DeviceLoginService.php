@@ -9,6 +9,17 @@ use Throwable;
 
 class DeviceLoginService
 {
+    public const POLICY_MULTIPLE = 'multiple_devices';
+    public const POLICY_SINGLE = 'single_device';
+    public const POLICY_SINGLE_PERMANENT = 'single_device_permanent';
+
+    /**
+     * A missing/corrupt setting must not silently remove the device boundary.
+     * The rotating single-device policy contains concurrent variable-cost use
+     * while still letting a legitimate learner move to a replacement phone.
+     */
+    public const SAFE_FALLBACK_POLICY = self::POLICY_SINGLE;
+
     /**
      * Check if user can login from the given device based on device login policy
      *
@@ -18,20 +29,22 @@ class DeviceLoginService
      */
     public function checkDeviceAccess(User $user, ?string $deviceId): array
     {
-        // Get device login policy from settings
-        try {
-            $settings = Setting::first();
-            $policy = $settings?->device_login_policy ?? 'multiple_devices';
-        } catch (Throwable $exception) {
-            // Optional dashboard settings must not take authentication down
-            // during a rolling migration.
-            report($exception);
-            $policy = 'multiple_devices';
-        }
-
+        $policy = $this->configuredPolicy();
         $deviceId = trim((string) $deviceId);
 
-        if ($policy !== 'multiple_devices' && $deviceId === '') {
+        if (
+            $policy !== self::POLICY_MULTIPLE
+            && !$this->deviceLockStorageAvailable()
+        ) {
+            return [
+                'allowed' => false,
+                'message' => "تعذّر التحقق من الجهاز\nحاول مرة أخرى بعد قليل",
+                'action' => 'deny',
+                'device_id' => $deviceId,
+            ];
+        }
+
+        if ($policy !== self::POLICY_MULTIPLE && $deviceId === '') {
             return [
                 'allowed' => false,
                 'message' => "حدّث التطبيق\nثم حاول تسجيل الدخول",
@@ -41,22 +54,59 @@ class DeviceLoginService
         }
 
         switch ($policy) {
-            case 'multiple_devices':
+            case self::POLICY_MULTIPLE:
                 return $this->handleMultipleDevices($user, $deviceId);
 
-            case 'single_device':
+            case self::POLICY_SINGLE:
                 return $this->handleSingleDevice($user, $deviceId);
 
-            case 'single_device_permanent':
+            case self::POLICY_SINGLE_PERMANENT:
                 return $this->handleSingleDevicePermanent($user, $deviceId);
+        }
 
-            default:
-                return [
-                    'allowed' => true,
-                    'message' => '',
-                    'action' => 'allow',
-                    'device_id' => $deviceId
-                ];
+        // normalizePolicy() is exhaustive. Keep this closed if a future edit
+        // adds a value without adding its enforcement branch here.
+        return [
+            'allowed' => false,
+            'message' => "تعذّر التحقق من الجهاز\nحاول مرة أخرى",
+            'action' => 'deny',
+            'device_id' => $deviceId,
+        ];
+    }
+
+    public function configuredPolicy(): string
+    {
+        try {
+            $rawPolicy = Setting::query()->value('device_login_policy');
+        } catch (Throwable $exception) {
+            report($exception);
+            return self::SAFE_FALLBACK_POLICY;
+        }
+
+        return self::normalizePolicy($rawPolicy);
+    }
+
+    public static function normalizePolicy(mixed $policy): string
+    {
+        $normalized = strtolower(trim((string) $policy));
+
+        return in_array($normalized, [
+            self::POLICY_MULTIPLE,
+            self::POLICY_SINGLE,
+            self::POLICY_SINGLE_PERMANENT,
+        ], true)
+            ? $normalized
+            : self::SAFE_FALLBACK_POLICY;
+    }
+
+    private function deviceLockStorageAvailable(): bool
+    {
+        try {
+            return Schema::hasColumn('users', 'locked_device_id');
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return false;
         }
     }
 
@@ -90,7 +140,9 @@ class DeviceLoginService
             return [
                 'allowed' => true,
                 'message' => 'تم تسجيل الدخول بنجاح',
-                'action' => 'lock_device',
+                // A null lock can be left over from an earlier multiple-device
+                // policy. Retire those bearers before issuing the new one.
+                'action' => 'logout_others',
                 'device_id' => $deviceId,
             ];
         }
@@ -102,7 +154,9 @@ class DeviceLoginService
             'message' => $isDifferentDevice
                 ? 'تم تسجيل الدخول بنجاح. تم تسجيل الخروج من الأجهزة الأخرى.'
                 : 'تم تسجيل الدخول بنجاح',
-            'action' => $isDifferentDevice ? 'logout_others' : 'allow',
+            // Reissuing a bearer on the same phone must still retire any
+            // historical bearer that predates the device lock.
+            'action' => 'logout_others',
             'device_id' => $deviceId
         ];
     }
@@ -121,7 +175,7 @@ class DeviceLoginService
             return [
                 'allowed' => true,
                 'message' => 'تم تسجيل الدخول بنجاح. تم ربط حسابك بهذا الجهاز.',
-                'action' => 'lock_device',
+                'action' => 'logout_others',
                 'device_id' => $deviceId
             ];
         }
@@ -131,7 +185,7 @@ class DeviceLoginService
             return [
                 'allowed' => true,
                 'message' => 'تم تسجيل الدخول بنجاح',
-                'action' => 'allow',
+                'action' => 'logout_others',
                 'device_id' => $deviceId
             ];
         }

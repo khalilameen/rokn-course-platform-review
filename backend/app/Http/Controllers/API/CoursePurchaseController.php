@@ -20,6 +20,7 @@ use App\Services\CourseAccessPlanService;
 use App\Services\CourseCouponService;
 use App\Services\FinancialAnomalyService;
 use App\Services\FinancialProvenanceService;
+use App\Services\PackageChannelPricingService;
 use App\Services\StudentNotificationService;
 use App\Services\WalletService;
 use Illuminate\Http\JsonResponse;
@@ -29,6 +30,10 @@ use Illuminate\Validation\ValidationException;
 
 final class CoursePurchaseController extends Controller
 {
+    public function __construct(private readonly PackageChannelPricingService $packagePricing)
+    {
+    }
+
     public function quote(
         CourseAuthorizationRequest $request,
         CourseAccessPlanService $planService,
@@ -395,7 +400,8 @@ final class CoursePurchaseController extends Controller
                 ->where('price', '>', 0)
                 ->orderBy('coins')
                 ->limit(3)
-                ->get(['id', 'name_ar', 'name_en', 'price', 'coins']);
+                ->get()
+                ->map(fn (Package $package): array => $this->packagePricing->packagePayload($package));
 
             return response()->json([
                 'status' => 400,
@@ -592,7 +598,6 @@ final class CoursePurchaseController extends Controller
             || $order->package_id !== null
             || $order->payment_method !== Order::PAYMENT_METHOD_WALLET_COINS
             || $order->status !== Order::STATUS_APPROVED
-            || !str_starts_with((string) $order->notes, 'Idempotency: ')
         ) {
             return false;
         }

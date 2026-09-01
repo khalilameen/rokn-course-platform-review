@@ -441,7 +441,7 @@ final class FinancialProvenanceTest extends ApiTestCase
         ]);
 
         try {
-            app(OrderLifecycleService::class)->approve($order);
+            app(OrderLifecycleService::class)->approve($order, null, null, true);
             self::fail('Approval should fail closed when provenance storage is missing.');
         } catch (FinancialProvenanceException) {
             // Expected: the surrounding transaction must roll back every side effect.
@@ -451,6 +451,32 @@ final class FinancialProvenanceTest extends ApiTestCase
         self::assertSame(0, (int) $this->user->fresh()->wallet_coins);
         self::assertSame(0, WalletTransaction::query()->count());
         self::assertSame(0, DB::table('package_user')->count());
+    }
+
+    public function test_provider_controlled_order_cannot_be_approved_without_provider_evidence(): void
+    {
+        $packageId = $this->packageRecord(500);
+        $order = Order::query()->create([
+            'user_id' => $this->user->id,
+            'package_id' => $packageId,
+            'package_coins' => 500,
+            'payment_method' => Order::PAYMENT_METHOD_KASHIER,
+            'amount' => 100,
+            'final_amount' => 100,
+            'status' => Order::STATUS_PENDING,
+            'financial_status' => Order::FINANCIAL_PENDING,
+        ]);
+
+        try {
+            app(OrderLifecycleService::class)->approve($order, $this->user->id);
+            self::fail('A dashboard actor must not approve a provider-controlled order.');
+        } catch (\DomainException $exception) {
+            self::assertStringContainsString('verified provider evidence', $exception->getMessage());
+        }
+
+        self::assertSame(Order::STATUS_PENDING, $order->fresh()->status);
+        self::assertSame(0, (int) $this->user->fresh()->wallet_coins);
+        self::assertSame(0, WalletTransaction::query()->count());
     }
 
     public function test_backfill_reconstructs_fifo_and_preflight_blocks_unreconciled_history(): void

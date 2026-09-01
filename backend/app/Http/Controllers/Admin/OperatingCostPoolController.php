@@ -132,8 +132,8 @@ final class OperatingCostPoolController extends Controller
                 'طلبات AI ناجحة', 'طلبات AI فاشلة', 'نسبة فشل AI',
                 'طلبات AI بتكلفة تقديرية', 'حالة تكلفة AI',
                 'توكنات AI', 'دقائق الفيديو', 'GB مشاهدة مقدرة',
-                'إشعارات داخل التطبيق', 'إشعارات مقروءة', 'محاولات Push', 'Push وصل',
-                'نسبة وصول Push',
+                'إشعارات داخل التطبيق', 'إشعارات مقروءة', 'محاولات Push', 'قبله مزود Push',
+                'نسبة قبول مزود Push',
             ], array_map(fn (string $label): string => "تكلفة {$label}", $labels)), ',', '"', '');
             foreach ($report['student_rows'] as $row) {
                 $serviceCosts = collect($labels)->keys()->map(
@@ -160,8 +160,8 @@ final class OperatingCostPoolController extends Controller
                     $row['in_app_notifications'],
                     $row['read_notifications'],
                     $row['push_attempts'],
-                    $row['push_delivered'],
-                    $row['push_delivery_rate_percentage'],
+                    $row['push_provider_accepted'],
+                    $row['push_provider_acceptance_rate_percentage'],
                 ], $serviceCosts)), ',', '"', '');
             }
             fclose($output);

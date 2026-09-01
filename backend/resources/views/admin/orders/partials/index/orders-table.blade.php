@@ -124,7 +124,7 @@
                                                 <a class="dropdown-item" href="{{ route('admin.orders.show', $order) }}">
                                                     <i class="fa fa-eye"></i> مشاهدة
                                                 </a>
-                                                @if($order->status === 'pending')
+                                                @if($order->status === 'pending' && !$order->requiresProviderVerification())
                                                     <a class="dropdown-item" href="#" onclick="updateOrderStatus({{ $order->id }}, 'approved'); return false;">
                                                         <i class="fa fa-check text-success"></i> اعتماد
                                                     </a>
@@ -132,14 +132,9 @@
                                                         <i class="fa fa-times text-danger"></i> رفض
                                                     </a>
                                                 @endif
-                                                @if($order->status === 'rejected')
+                                                @if($order->status === 'rejected' && !$order->requiresProviderVerification())
                                                     <a class="dropdown-item" href="#" onclick="updateOrderStatus({{ $order->id }}, 'approved'); return false;">
                                                         <i class="fa fa-check text-success"></i> اعتماد
-                                                    </a>
-                                                @endif
-                                                @if($order->status === 'approved')
-                                                    <a class="dropdown-item" href="#" onclick="updateOrderStatus({{ $order->id }}, 'rejected'); return false;">
-                                                        <i class="fa fa-times text-danger"></i> رفض
                                                     </a>
                                                 @endif
                                             </div>

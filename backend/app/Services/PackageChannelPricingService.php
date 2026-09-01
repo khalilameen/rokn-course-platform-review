@@ -42,4 +42,36 @@ final class PackageChannelPricingService
 
         return round(max(0.01, $discounted), 2);
     }
+
+    /** @return array<string, mixed> */
+    public function packagePayload(Package $package, ?float $discountPercent = null): array
+    {
+        $discountPercent ??= $this->directDiscountPercent();
+
+        return [
+            'id' => $package->id,
+            'name' => $package->name_ar,
+            'name_ar' => $package->name_ar,
+            'name_en' => $package->name_en,
+            'price' => (float) $package->price,
+            'direct_price' => $package->direct_enabled
+                ? $this->directPrice($package, $discountPercent)
+                : null,
+            'direct_discount_percent' => $discountPercent,
+            'coins' => (int) $package->coins,
+            'store_products' => [
+                'google' => $package->google_enabled
+                    ? $package->google_product_id
+                    : null,
+                'apple' => $package->apple_enabled
+                    ? $package->apple_product_id
+                    : null,
+            ],
+            'channels' => [
+                'direct' => (bool) $package->direct_enabled,
+                'google' => (bool) $package->google_enabled,
+                'apple' => (bool) $package->apple_enabled,
+            ],
+        ];
+    }
 }

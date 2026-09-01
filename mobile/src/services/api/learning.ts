@@ -1,5 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {accountScopedStorageKey} from '../../constants/helpers';
+import {
+  accountScopedStorageKey,
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+} from '../../constants/helpers';
 import {publicRequest} from '../../constants/api';
 import type {DemoCourse} from '../../data/demoContent';
 import {getLearningCourses} from './courses';
@@ -107,6 +111,8 @@ export type LearningDashboard = {
   }>;
   activityDays: string[];
   currentStreakDays: number;
+  /** Present when fresh courses arrived but a secondary panel stayed cached. */
+  partialError?: string;
 };
 
 export type LearningPathLevel = {
@@ -272,9 +278,13 @@ const normalizeCachedLearningDashboard = (
 };
 
 export const getCachedLearningDashboard = async () => {
+  const accountBoundary = await captureAccountSessionBoundary();
   try {
     const raw = await AsyncStorage.getItem(
-      await accountScopedStorageKey(LEARNING_DASHBOARD_CACHE),
+      await accountScopedStorageKey(
+        LEARNING_DASHBOARD_CACHE,
+        accountBoundary,
+      ),
     );
     if (!raw) return null;
     const cached = JSON.parse(raw) as Partial<LearningDashboardCache>;
@@ -287,16 +297,22 @@ export const getCachedLearningDashboard = async () => {
     ) {
       return null;
     }
-    return normalizeCachedLearningDashboard(cached.dashboard);
+    const dashboard = normalizeCachedLearningDashboard(cached.dashboard);
+    assertAccountSessionBoundary(accountBoundary);
+    return dashboard;
   } catch {
+    assertAccountSessionBoundary(accountBoundary);
     return null;
   }
 };
 
 export const getLearningDashboard = async (): Promise<LearningDashboard> => {
+  const accountBoundary = await captureAccountSessionBoundary();
   const dashboardCacheKey = await accountScopedStorageKey(
     LEARNING_DASHBOARD_CACHE,
+    accountBoundary,
   );
+  const cachedDashboard = await getCachedLearningDashboard();
   const [profileResult, streakResult, learningResult, pathsResult] =
     await Promise.allSettled([
       publicRequest.get('user/profile'),
@@ -304,7 +320,11 @@ export const getLearningDashboard = async (): Promise<LearningDashboard> => {
       getLearningCourses(),
       getLearningPaths(),
     ]);
+  assertAccountSessionBoundary(accountBoundary);
   if (learningResult.status === 'rejected') throw learningResult.reason;
+  const partialFailure = [profileResult, streakResult, pathsResult].some(
+    result => result.status === 'rejected',
+  );
   const profile =
     profileResult.status === 'fulfilled'
       ? payload<ProfileLearningDto>(profileResult.value)
@@ -315,8 +335,13 @@ export const getLearningDashboard = async (): Promise<LearningDashboard> => {
       : {};
   const dashboard: LearningDashboard = {
     courses: learningResult.value,
-    paths: pathsResult.status === 'fulfilled' ? pathsResult.value : [],
-    badges: resourceList<EarnedBadgeDto>(profile.earned_badges).flatMap(
+    paths:
+      pathsResult.status === 'fulfilled'
+        ? pathsResult.value
+        : cachedDashboard?.paths || [],
+    badges:
+      profileResult.status === 'fulfilled'
+        ? resourceList<EarnedBadgeDto>(profile.earned_badges).flatMap(
       badge => {
         const id = String(badge.id ?? '').trim();
         if (!id) return [];
@@ -336,31 +361,44 @@ export const getLearningDashboard = async (): Promise<LearningDashboard> => {
           },
         ];
       },
-    ),
-    activityDays: resourceList<StreakDayDto>(streak.week?.days)
-      .filter(
-        day =>
-          firstBoolean(day?.has_streak) === true &&
-          typeof day?.date === 'string',
-      )
-      .map(day => String(day.date)),
-    currentStreakDays: Math.max(
-      0,
-      Number(
-        streak.current_streak ?? streak.last_streak_before_gap ?? 0,
-      ) || 0,
-    ),
+    )
+        : cachedDashboard?.badges || [],
+    activityDays:
+      streakResult.status === 'fulfilled'
+        ? resourceList<StreakDayDto>(streak.week?.days)
+            .filter(
+              day =>
+                firstBoolean(day?.has_streak) === true &&
+                typeof day?.date === 'string',
+            )
+            .map(day => String(day.date))
+        : cachedDashboard?.activityDays || [],
+    currentStreakDays:
+      streakResult.status === 'fulfilled'
+        ? Math.max(
+            0,
+            Number(
+              streak.current_streak ?? streak.last_streak_before_gap ?? 0,
+            ) || 0,
+          )
+        : cachedDashboard?.currentStreakDays || 0,
+    ...(partialFailure
+      ? {partialError: 'تعذّر تحديث بعض بيانات تقدمك\nنعرض آخر نسخة متاحة'}
+      : {}),
   };
   // The backend already caps active courses at 100. Keeping the complete
   // metadata set prevents older active courses from disappearing offline.
-  await AsyncStorage.setItem(
-    dashboardCacheKey,
-    JSON.stringify({
-      version: 2,
-      savedAt: serverNowMs(),
-      dashboard: {...dashboard, courses: dashboard.courses.slice(0, 100)},
-    } satisfies LearningDashboardCache),
-  ).catch(() => undefined);
+  if (!partialFailure) {
+    await AsyncStorage.setItem(
+      dashboardCacheKey,
+      JSON.stringify({
+        version: 2,
+        savedAt: serverNowMs(),
+        dashboard: {...dashboard, courses: dashboard.courses.slice(0, 100)},
+      } satisfies LearningDashboardCache),
+    ).catch(() => undefined);
+  }
+  assertAccountSessionBoundary(accountBoundary);
   return dashboard;
 };
 
@@ -435,13 +473,18 @@ export const getSavedLessonsPage = async (
 ): Promise<SavedLessonsPage> => {
   const safePage = Math.max(1, Math.floor(page));
   const safePerPage = Math.min(50, Math.max(1, Math.floor(perPage)));
-  const capturedCacheKey = await savedLessonsCacheKey();
+  const accountBoundary = await captureAccountSessionBoundary();
+  const capturedCacheKey = await accountScopedStorageKey(
+    SAVED_LESSONS_CACHE_KEY,
+    accountBoundary,
+  );
   try {
     const rawData = payload<unknown>(
       await publicRequest.get('saved-lessons', {
         params: {page: safePage, per_page: safePerPage},
       }),
     );
+    assertAccountSessionBoundary(accountBoundary);
     if (!isRecord(rawData) || !Array.isArray(rawData.lessons)) {
       throw new Error('SAVED_LESSONS_CONTRACT_INVALID');
     }
@@ -492,6 +535,7 @@ export const getSavedLessonsPage = async (
       Number(pagination.last_page ?? currentPage) || currentPage,
     );
     if (currentPage === 1) {
+      assertAccountSessionBoundary(accountBoundary);
       await AsyncStorage.setItem(
         capturedCacheKey,
         JSON.stringify({
@@ -501,6 +545,7 @@ export const getSavedLessonsPage = async (
         }),
       ).catch(() => undefined);
     }
+    assertAccountSessionBoundary(accountBoundary);
     return {
       lessons,
       page: currentPage,
@@ -509,6 +554,7 @@ export const getSavedLessonsPage = async (
       fromCache: false,
     };
   } catch (error) {
+    assertAccountSessionBoundary(accountBoundary);
     // Only page one has an offline snapshot; later-page failures remain errors.
     const cached =
       safePage === 1
@@ -537,12 +583,18 @@ export const deleteSavedLesson = async (folderId: string, lessonId: string) => {
   if (!/^\d+$/.test(normalizedFolderId) || !/^\d+$/.test(normalizedLessonId)) {
     throw new Error('INVALID_SAVED_LESSON_ROUTE');
   }
-  const capturedCacheKey = await savedLessonsCacheKey();
+  const accountBoundary = await captureAccountSessionBoundary();
+  const capturedCacheKey = await accountScopedStorageKey(
+    SAVED_LESSONS_CACHE_KEY,
+    accountBoundary,
+  );
   const response = await publicRequest.delete(
     `saved-folders/${normalizedFolderId}/lessons/${normalizedLessonId}`,
   );
+  assertAccountSessionBoundary(accountBoundary);
   const cached = await readSavedLessonsCache(capturedCacheKey);
   if (cached) {
+    assertAccountSessionBoundary(accountBoundary);
     await AsyncStorage.setItem(
       capturedCacheKey,
       JSON.stringify({
@@ -556,6 +608,7 @@ export const deleteSavedLesson = async (folderId: string, lessonId: string) => {
       }),
     ).catch(() => undefined);
   }
+  assertAccountSessionBoundary(accountBoundary);
   return response;
 };
 

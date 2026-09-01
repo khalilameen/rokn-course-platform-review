@@ -132,6 +132,20 @@ class CoinEarningMethod extends Model
         return self::isTrustedActionUrl($url) ? $url : null;
     }
 
+    public function learnerTitleAr(): string
+    {
+        $key = strtolower(trim((string) $this->action_key));
+
+        if (str_contains($key, 'coin_guide')) return 'تعرّف إلى رصيد ركن';
+        if (str_contains($key, 'instagram')) return 'تابع ركن على Instagram';
+        if (str_contains($key, 'tiktok')) return 'تابع ركن على TikTok';
+        if (str_contains($key, 'facebook')) return 'تابع ركن على Facebook';
+        if (str_contains($key, 'youtube')) return 'تابع ركن على YouTube';
+        if ($key === 'link_whatsapp') return 'اربط واتسابك بركن';
+
+        return trim((string) ($this->title_ar ?: $this->title_en)) ?: 'مهمة مكافأة';
+    }
+
     public function hasUsableDestination(): bool
     {
         return $this->action_key === 'link_whatsapp'

@@ -49,10 +49,10 @@ class FcmNotificationService
             $messageEn,
             $link,
             $extraData
-        )['delivered'];
+        )['accepted'];
     }
 
-    /** @return array{delivered:bool,retryable:bool} */
+    /** @return array{accepted:bool,retryable:bool} */
     public static function sendToUserDetailed(
         User $user,
         string $titleAr,
@@ -70,7 +70,7 @@ class FcmNotificationService
         // A user can still see their in-app inbox after opting out, but we must
         // never wake their device with a push notification once they turn it off.
         if (!(bool) $user->notifications_status) {
-            return ['delivered' => false, 'retryable' => false];
+            return ['accepted' => false, 'retryable' => false];
         }
 
         $tokens = $user->relationLoaded('deviceTokens')
@@ -78,10 +78,10 @@ class FcmNotificationService
             : UserDeviceToken::where('user_id', $user->id)->get();
 
         if ($tokens->isEmpty()) {
-            return ['delivered' => false, 'retryable' => false];
+            return ['accepted' => false, 'retryable' => false];
         }
         if (self::circuitIsOpen()) {
-            return ['delivered' => false, 'retryable' => true];
+            return ['accepted' => false, 'retryable' => true];
         }
 
         try {
@@ -91,7 +91,7 @@ class FcmNotificationService
             Log::warning('FCM messaging service unavailable', [
                 'exception' => $e::class,
             ]);
-            return ['delivered' => false, 'retryable' => true];
+            return ['accepted' => false, 'retryable' => true];
         }
 
         $attempted = false;
@@ -158,7 +158,7 @@ class FcmNotificationService
         }
 
         return [
-            'delivered' => $attempted,
+            'accepted' => $attempted,
             'retryable' => !$attempted && $retryableFailure,
         ];
     }

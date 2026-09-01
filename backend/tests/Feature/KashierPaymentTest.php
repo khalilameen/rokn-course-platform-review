@@ -549,12 +549,110 @@ class KashierPaymentTest extends TestCase
         $this->assertSame(1, Order::query()->where('user_id', $this->user->id)->count());
     }
 
-    public function test_an_active_checkout_can_be_resumed_after_local_payment_state_is_lost(): void
+    public function test_a_new_package_does_not_rewrite_an_unrelated_older_checkout(): void
     {
         $pending = $this->createPendingOrder('PKG-RESUME-AFTER-REINSTALL');
         $pending->forceFill([
             'checkout_request_key' => 'server-original-checkout-key',
             'checkout_expires_at' => now()->addMinutes(20),
+        ])->save();
+        $otherPackage = Package::create([
+            'name_ar' => 'باقة أخرى',
+            'name_en' => 'Another package',
+            'price' => 250,
+            'coins' => 900,
+        ]);
+        $response = $this->actingAs($this->user, 'api')
+            ->withHeader('Idempotency-Key', '96e07193-d6a9-4b62-9976-b652b4e4f8a7')
+            ->postJson('/api/v1/payment/initiate', [
+                'package_id' => $otherPackage->id,
+                'idempotency_key' => '96e07193-d6a9-4b62-9976-b652b4e4f8a7',
+            ]);
+
+        $response->assertOk()
+            ->assertJsonPath('package.id', $otherPackage->id);
+        self::assertNotSame($pending->order_ref, $response->json('order_ref'));
+        self::assertStringContainsString(
+            'checkout.kashier.io',
+            (string) $response->json('payment_url')
+        );
+        self::assertStringContainsString(
+            rawurlencode((string) $response->json('order_ref')),
+            (string) $response->json('payment_url')
+        );
+        self::assertSame(2, Order::query()->where('user_id', $this->user->id)->count());
+        self::assertSame(
+            1,
+            Order::query()
+                ->where('user_id', $this->user->id)
+                ->where('package_id', $otherPackage->id)
+                ->where('status', Order::STATUS_PENDING)
+                ->count()
+        );
+        self::assertSame(Order::STATUS_PENDING, $pending->fresh()->status);
+    }
+
+    public function test_an_expired_provider_pending_checkout_does_not_monopolize_the_same_package(): void
+    {
+        $pending = $this->createPendingOrder('PKG-PROVIDER-STILL-PENDING');
+        $pending->forceFill([
+            'checkout_request_key' => 'server-original-checkout-key',
+            'checkout_expires_at' => now()->subMinute(),
+        ])->save();
+        Http::fake([
+            'https://test-api.kashier.io/*' => Http::response([
+                'response' => [
+                    'status' => 'PENDING',
+                    'merchantOrderId' => $pending->order_ref,
+                ],
+            ], 200),
+        ]);
+
+        $response = $this->actingAs($this->user, 'api')
+            ->withHeader('Idempotency-Key', '96e07193-d6a9-4b62-9976-b652b4e4f8a7')
+            ->postJson('/api/v1/payment/initiate', [
+                'package_id' => $this->package->id,
+                'idempotency_key' => '96e07193-d6a9-4b62-9976-b652b4e4f8a7',
+            ]);
+
+        $response->assertOk()
+            ->assertJsonPath('package.id', $this->package->id);
+        self::assertSame(Order::STATUS_PENDING, $pending->fresh()->status);
+        self::assertNotSame($pending->order_ref, $response->json('order_ref'));
+        self::assertSame(2, Order::query()->where('user_id', $this->user->id)->count());
+    }
+
+    public function test_an_expired_same_package_checkout_is_preserved_while_a_fresh_one_starts(): void
+    {
+        $pending = $this->createPendingOrder('PKG-SAME-PACKAGE-ABANDONED');
+        $pending->forceFill([
+            'checkout_request_key' => 'server-original-checkout-key',
+            'checkout_expires_at' => now()->subMinute(),
+        ])->save();
+        Http::fake([
+            'https://test-api.kashier.io/*' => Http::response([], 404),
+        ]);
+
+        $response = $this->actingAs($this->user, 'api')
+            ->withHeader('Idempotency-Key', '96e07193-d6a9-4b62-9976-b652b4e4f8a7')
+            ->postJson('/api/v1/payment/initiate', [
+                'package_id' => $this->package->id,
+                'idempotency_key' => '96e07193-d6a9-4b62-9976-b652b4e4f8a7',
+            ]);
+
+        $response->assertOk()
+            ->assertJsonPath('package.id', $this->package->id);
+        self::assertSame(Order::STATUS_PENDING, $pending->fresh()->status);
+        self::assertNotSame($pending->order_ref, $response->json('order_ref'));
+        self::assertSame(2, Order::query()->where('user_id', $this->user->id)->count());
+    }
+
+    public function test_a_different_package_can_start_while_the_old_package_is_provider_pending(): void
+    {
+        $pending = $this->createPendingOrder('PKG-OTHER-PROVIDER-PENDING');
+        $pending->forceFill([
+            'checkout_request_key' => 'server-original-checkout-key',
+            'checkout_expires_at' => now()->subMinute(),
         ])->save();
         $otherPackage = Package::create([
             'name_ar' => 'باقة أخرى',
@@ -570,18 +668,10 @@ class KashierPaymentTest extends TestCase
                 'idempotency_key' => '96e07193-d6a9-4b62-9976-b652b4e4f8a7',
             ]);
 
-        $response->assertStatus(409)
-            ->assertJsonPath('code', 'pending_checkout_exists')
-            ->assertJsonPath('order_ref', $pending->order_ref);
-        self::assertStringContainsString(
-            'checkout.kashier.io',
-            (string) $response->json('payment_url')
-        );
-        self::assertStringContainsString(
-            rawurlencode((string) $pending->order_ref),
-            (string) $response->json('payment_url')
-        );
-        self::assertSame(1, Order::query()->where('user_id', $this->user->id)->count());
+        $response->assertOk()
+            ->assertJsonPath('package.id', $otherPackage->id);
+        self::assertSame(Order::STATUS_PENDING, $pending->fresh()->status);
+        self::assertSame(2, Order::query()->where('user_id', $this->user->id)->count());
     }
 
     public function test_explicit_idempotency_key_replay_returns_the_same_checkout(): void
@@ -1048,6 +1138,40 @@ class KashierPaymentTest extends TestCase
             'order_ref'      => $this->orderRef,
             'transaction_id' => 'TXN-FIRST',
         ]);
+    }
+
+    public function test_provider_credentials_and_card_tokens_are_not_stored_with_the_order(): void
+    {
+        $order = $this->createPendingOrder('PKG-SANITIZED-EVIDENCE');
+
+        $settled = app(KashierPaymentService::class)->fulfillOrder(
+            $order,
+            'TX-SANITIZED-EVIDENCE',
+            [
+                'merchantOrderId' => 'PKG-SANITIZED-EVIDENCE',
+                'amount' => (float) $order->final_amount,
+                'currency' => 'EGP',
+                'requestCredentials' => [
+                    'credentials' => [
+                        'apiPassword' => 'provider-password',
+                        'secretKey' => 'provider-secret',
+                    ],
+                ],
+                'sourceOfFunds' => [
+                    'cardInfo' => [
+                        'ccvToken' => 'ccv-token-value',
+                        'cardDataToken' => 'card-data-token-value',
+                    ],
+                ],
+            ]
+        );
+
+        $stored = json_encode($settled->payment_gateway_response, JSON_THROW_ON_ERROR);
+        self::assertStringNotContainsString('provider-password', $stored);
+        self::assertStringNotContainsString('provider-secret', $stored);
+        self::assertStringNotContainsString('ccv-token-value', $stored);
+        self::assertStringNotContainsString('card-data-token-value', $stored);
+        self::assertStringContainsString('[redacted]', $stored);
     }
 
    public function test_callback_and_webhook_replay_credit_the_wallet_exactly_once(): void

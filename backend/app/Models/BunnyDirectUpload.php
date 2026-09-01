@@ -15,6 +15,7 @@ final class BunnyDirectUpload extends Model
         'idempotency_key',
         'request_hash',
         'video_guid',
+        'allocation_token',
         'status',
         'expires_at',
         'attached_at',

@@ -246,7 +246,8 @@ $registerCourseApiRoutes = function () {
                     ->middleware('throttle:payment-read')
                     ->name('api.payment.status');
                 Route::post('payment/reconcile/{orderRef}', [\App\Http\Controllers\API\PaymentController::class, 'reconcile'])
-                    ->middleware(['recovery.write', 'throttle:payment-write']);
+                    ->middleware(['recovery.write', 'throttle:payment-reconcile'])
+                    ->name('api.payment.reconcile');
                 Route::get('store-billing/context', [\App\Http\Controllers\API\StorePurchaseController::class, 'context'])
                     ->middleware(['product.feature:checkout', 'throttle:payment-read']);
                 Route::post('store-purchases/verify', [\App\Http\Controllers\API\StorePurchaseController::class, 'verify'])

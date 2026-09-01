@@ -94,13 +94,8 @@ final readonly class KashierPaymentService
                     );
                 }
                 if ($existing->isCheckoutExpired()) {
-                    $existing->update([
-                        'status' => Order::STATUS_CANCELLED,
-                        'financial_status' => Order::FINANCIAL_CANCELLED,
-                    ]);
-
                     return [
-                        'order' => $existing->fresh(),
+                        'order' => $existing,
                         'reused' => true,
                         'closed' => 'expired',
                     ];
@@ -130,6 +125,7 @@ final readonly class KashierPaymentService
 
             $otherPendingCheckout = Order::query()
                 ->where('user_id', $user->id)
+                ->where('package_id', $package->id)
                 ->where('payment_method', Order::PAYMENT_METHOD_KASHIER)
                 ->where('status', Order::STATUS_PENDING)
                 ->where(function ($query): void {
@@ -147,16 +143,6 @@ final readonly class KashierPaymentService
                     'A previous payment is still pending confirmation.'
                 );
             }
-
-            Order::query()
-                ->where('user_id', $user->id)
-                ->where('package_id', $package->id)
-                ->where('status', Order::STATUS_PENDING)
-                ->where('payment_method', Order::PAYMENT_METHOD_KASHIER)
-                ->update([
-                    'status' => Order::STATUS_CANCELLED,
-                    'financial_status' => Order::FINANCIAL_CANCELLED,
-                ]);
 
             $baseAmount = (float) $package->price;
             $finalAmount = $this->pricing->directPrice($package);
@@ -415,17 +401,94 @@ final readonly class KashierPaymentService
     /**
      * @param array<string, mixed>|null $apiResponse
      */
+    public function providerOrderStatus(?array $apiResponse): ?string
+    {
+        if (!$apiResponse) {
+            return null;
+        }
+
+        $status = $apiResponse['response']['status']
+            ?? $apiResponse['response']['paymentStatus']
+            ?? $apiResponse['data']['status']
+            ?? $apiResponse['status']
+            ?? null;
+        $status = strtoupper(trim((string) $status));
+
+        return $status !== '' && preg_match('/\A[A-Z0-9_-]{1,32}\z/D', $status) === 1
+            ? $status
+            : null;
+    }
+
+    public function isProviderPendingStatus(?string $status): bool
+    {
+        return in_array($status, ['PENDING', 'INITIATED', 'AUTHORIZED', 'PROCESSING'], true);
+    }
+
+    public function isProviderFailureStatus(?string $status): bool
+    {
+        return in_array($status, [
+            'NOT_FOUND', 'FAILED', 'DECLINED', 'CANCELLED', 'CANCELED',
+            'VOIDED', 'EXPIRED',
+        ], true);
+    }
+
+    /**
+     * @param array<string, mixed>|null $apiResponse
+     */
     public function extractTransactionId(?array $apiResponse): ?string
     {
         if (!$apiResponse) {
             return null;
         }
 
-        return $this->normalizeTransactionId(
+        $direct = $this->normalizeTransactionId(
             $apiResponse['response']['transactionId']
             ?? $apiResponse['transactionId']
-            ?? ($apiResponse['response']['transactions'][0]['transactionId'] ?? null)
+            ?? ($apiResponse['data']['transactionId'] ?? null)
         );
+        if ($direct !== null) {
+            return $direct;
+        }
+
+        $transactions = $apiResponse['response']['transactions']
+            ?? $apiResponse['data']['transactions']
+            ?? $apiResponse['transactions']
+            ?? [];
+        if (!is_array($transactions)) {
+            return null;
+        }
+
+        $successful = array_values(array_filter(
+            $transactions,
+            static fn (mixed $transaction): bool => is_array($transaction)
+                && in_array(strtoupper(trim((string) ($transaction['status'] ?? ''))), [
+                    'SUCCESS',
+                    'CAPTURED',
+                ], true)
+        ));
+        foreach (array_reverse($successful) as $transaction) {
+            $operation = strtolower(trim((string) ($transaction['operation'] ?? '')));
+            if (!in_array($operation, ['pay', 'capture', 'sale', 'purchase'], true)) {
+                continue;
+            }
+            $transactionId = $this->normalizeTransactionId(
+                $transaction['transactionId'] ?? $transaction['transaction_id'] ?? null
+            );
+            if ($transactionId !== null) {
+                return $transactionId;
+            }
+        }
+
+        foreach (array_reverse($successful) as $transaction) {
+            $transactionId = $this->normalizeTransactionId(
+                $transaction['transactionId'] ?? $transaction['transaction_id'] ?? null
+            );
+            if ($transactionId !== null) {
+                return $transactionId;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -851,10 +914,14 @@ final readonly class KashierPaymentService
     {
         $secretKeys = [
             'signature', 'hash', 'signaturekeys', 'token', 'cardtoken',
-            'authorization', 'api_key', 'apikey',
+            'ccvtoken', 'carddatatoken', 'accesstoken', 'refreshtoken',
+            'authorization', 'api_key', 'apikey', 'apipassword', 'password',
+            'secret', 'secretkey', 'securitycode',
         ];
         $privateContainers = [
-            'card', 'carddata', 'customer', 'customerdata', 'paymentsource',
+            'card', 'cardinfo', 'carddata', 'customer', 'customerdata',
+            'paymentsource', 'sourceoffunds', 'requestcredentials',
+            'credentials', 'auth',
         ];
 
         foreach ($payload as $key => $value) {
@@ -915,7 +982,7 @@ final readonly class KashierPaymentService
         ]) ?? 'EGP'));
         $providerStatus = strtolower(trim((string) ($this->firstGatewayValue($payload, [
             'settlementStatus', 'settlement_status', 'response.settlement.status',
-            'data.settlementStatus', 'paymentStatus', 'status',
+            'data.settlementStatus', 'response.status', 'paymentStatus', 'status',
         ]) ?? 'captured')));
 
         $facts = [];

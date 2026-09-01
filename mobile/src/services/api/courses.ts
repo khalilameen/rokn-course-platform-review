@@ -1,12 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   accountScopedStorageKey,
-  AsyncKeys,
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
   extractApiToken,
-  getItem,
   normalizeText,
 } from '../../constants/helpers';
-import {publicRequest} from '../../constants/api';
+import {publicRequest, type RoknRequestConfig} from '../../constants/api';
+import {peekSecureSession} from '../secureSession';
 import type {DemoCourse} from '../../data/demoContent';
 import {normalizeCourseDurationMinutes} from '../../utils/courseDetailsPresentation';
 import {isServerTimestampFresh, serverNowMs} from '../../utils/serverClock';
@@ -823,29 +824,36 @@ export const getPublishedCoursesPage = async ({
   );
   // The network response belongs to the account that started the request.
   // Never resolve its cache destination after a logout/account switch.
+  const accountBoundary = await captureAccountSessionBoundary();
   const scopedCatalogueCacheKey = await accountScopedStorageKey(
     CATALOGUE_CACHE_KEY,
+    accountBoundary,
   );
   try {
     const sessionAvailable = await hasSession();
     const [catalogueResponse, learningSnapshot] = await Promise.all([
-      publicRequest.get(normalizedSearch ? 'search/courses' : 'courses/list', {
-        signal,
-        params: {
-          page: safePage,
-          per_page: safePerPage,
-          ...(normalizedSearch ? {q: normalizedSearch} : {}),
-          ...(safePage > 1 && expectedRevision
-            ? {catalogue_revision: expectedRevision}
-            : {}),
-        },
-      }),
+      publicRequest.get(
+        normalizedSearch ? 'search/courses' : 'courses/list',
+        {
+          optionalAuthorization: true,
+          signal,
+          params: {
+            page: safePage,
+            per_page: safePerPage,
+            ...(normalizedSearch ? {q: normalizedSearch} : {}),
+            ...(safePage > 1 && expectedRevision
+              ? {catalogue_revision: expectedRevision}
+              : {}),
+          },
+        } as RoknRequestConfig,
+      ),
       sessionAvailable
         ? getLearningCatalogueSnapshot()
             .then(courses => ({available: true, courses}))
             .catch(() => ({available: false, courses: [] as CourseProgress[]}))
         : Promise.resolve({available: true, courses: [] as CourseProgress[]}),
     ]);
+    assertAccountSessionBoundary(accountBoundary);
     const data = payload(catalogueResponse);
     const responseRevision = Math.max(1, Number(data?.catalogue_revision) || 1);
     if (
@@ -911,6 +919,7 @@ export const getPublishedCoursesPage = async ({
     };
     // Keep the device cache bounded to catalogue pages.
     if (!normalizedSearch) {
+      assertAccountSessionBoundary(accountBoundary);
       if (result.page === 1) {
         await removeCatalogueCachePages(2, scopedCatalogueCacheKey).catch(
           () => undefined,
@@ -925,8 +934,12 @@ export const getPublishedCoursesPage = async ({
         () => undefined,
       );
     }
+    assertAccountSessionBoundary(accountBoundary);
     return {...result, fromCache: false};
   } catch (error) {
+    // Never turn an old owner's cancelled response into that owner's cached
+    // ownership/progress on the newly active account.
+    assertAccountSessionBoundary(accountBoundary);
     const candidate = error as {
       code?: unknown;
       response?: {status?: unknown; data?: {code?: unknown}};
@@ -962,7 +975,15 @@ export const getPublishedCourses = async (): Promise<DemoCourse[]> =>
 
 /** Read the latest small catalogue snapshot without network or new storage. */
 export const getCachedPublishedCourses = async (): Promise<DemoCourse[]> =>
-  (await readCatalogueCache(1))?.courses ?? [];
+  (async () => {
+    const boundary = await captureAccountSessionBoundary();
+    const cached = await readCatalogueCache(
+      1,
+      await accountScopedStorageKey(CATALOGUE_CACHE_KEY, boundary),
+    );
+    assertAccountSessionBoundary(boundary);
+    return cached?.courses ?? [];
+  })();
 
 const courseDetailsCacheKey = async (
   courseId: string,
@@ -1139,15 +1160,19 @@ export const getCourseDetails = async (
   options: {signal?: AbortSignal} = {},
 ): Promise<CourseDetails> => {
   const normalizedCourseId = numericRouteId(courseId, 'COURSE');
+  const accountBoundary = await captureAccountSessionBoundary();
   const scopedDetailsCacheKey = await accountScopedStorageKey(
     COURSE_DETAILS_CACHE_KEY,
+    accountBoundary,
   );
   try {
     const data = payload(
       await publicRequest.get(`courses/${normalizedCourseId}/details`, {
+        optionalAuthorization: true,
         signal: options.signal,
-      }),
+      } as RoknRequestConfig),
     );
+    assertAccountSessionBoundary(accountBoundary);
     const course = {...mapCourseDetails(data), fromCache: false};
     if (!course.id || course.id !== normalizedCourseId) {
       throw new Error('API_CONTRACT_INVALID_COURSE_DETAILS_ID');
@@ -1162,8 +1187,10 @@ export const getCourseDetails = async (
       record,
       scopedDetailsCacheKey,
     ).catch(() => undefined);
+    assertAccountSessionBoundary(accountBoundary);
     return course;
   } catch (error) {
+    assertAccountSessionBoundary(accountBoundary);
     if (isCourseUnavailableError(error)) {
       await removeCourseDetailsCache(
         normalizedCourseId,
@@ -1172,6 +1199,7 @@ export const getCourseDetails = async (
       if ([404, 410].includes(errorStatus(error))) {
         const scopedCatalogueBaseKey = await accountScopedStorageKey(
           CATALOGUE_CACHE_KEY,
+          accountBoundary,
         );
         await removeCatalogueCachePages(1, scopedCatalogueBaseKey).catch(
           () => undefined,
@@ -1189,6 +1217,7 @@ export const getCourseDetails = async (
         normalizedCourseId,
         scopedDetailsCacheKey,
       ).catch(() => undefined);
+      assertAccountSessionBoundary(accountBoundary);
       return cached;
     }
     throw error;
@@ -1253,8 +1282,8 @@ export const deleteCourseRating = async (
 
 /** Demo sessions have no bearer token and cannot call authenticated APIs. */
 export const hasSession = async () => {
-  const user = await getItem(AsyncKeys.USER_DATA);
-  return Boolean(extractApiToken(user));
+  const snapshot = peekSecureSession();
+  return snapshot.ready && Boolean(extractApiToken(snapshot.session));
 };
 
 export const getOwnedCourseIds = async (): Promise<Set<string>> => {

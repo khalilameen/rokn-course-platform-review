@@ -731,6 +731,9 @@ const Reels = () => {
             keyExtractor={item => item.key}
             renderItem={renderItem}
             pagingEnabled
+            scrollEnabled={
+              !chatVisible && !reminderNudgeVisible && !previewGateVisible
+            }
             bounces={false}
             decelerationRate="fast"
             snapToInterval={layout.height}

@@ -21,7 +21,7 @@ final readonly class KashierCheckoutFlowService
     ) {
     }
 
-    public function initiate(Request $request): JsonResponse
+    public function initiate(Request $request, bool $allowPendingRecovery = true): JsonResponse
     {
         $bodyHasKey = array_key_exists('idempotency_key', $request->all());
         $headerHasKey = $request->hasHeader('Idempotency-Key');
@@ -121,7 +121,14 @@ final readonly class KashierCheckoutFlowService
             $orderRef = (string) $order->order_ref;
 
             if ($checkout['closed'] !== null) {
-                $expired = $checkout['closed'] === 'expired';
+                if ($checkout['closed'] === 'expired' && $order->status === Order::STATUS_PENDING) {
+                    $order = $this->reconcileProviderOrder($order);
+                    if ($order->status === Order::STATUS_PENDING) {
+                        return $this->pendingCheckoutResponse($order);
+                    }
+                }
+                $expired = $checkout['closed'] === 'expired'
+                    && $order->status !== Order::STATUS_APPROVED;
 
                 return $this->responses->make(
                     false,
@@ -157,30 +164,27 @@ final readonly class KashierCheckoutFlowService
             $pendingOrder = $pendingCheckout
                 ? Order::query()
                     ->where('user_id', $user->id)
+                    ->where('package_id', $package->id)
                     ->where('payment_method', Order::PAYMENT_METHOD_KASHIER)
                     ->where('status', Order::STATUS_PENDING)
                     ->where(function ($query): void {
                         $query->where('checkout_expires_at', '>', now())
                             ->orWhere(function ($legacy): void {
                                 $legacy->whereNull('checkout_expires_at')
-                                    ->where('created_at', '>', now()->subMinutes(10));
+                                    ->where('created_at', '>', now()->subMinutes(30));
                             });
                     })
                     ->with('package')
                     ->latest('id')
                     ->first()
                 : null;
-            $pendingPaymentUrl = null;
             if ($pendingOrder) {
-                try {
-                    $pendingPaymentUrl = $this->kashier->getHppUrl(
-                        (string) $pendingOrder->order_ref,
-                        number_format((float) $pendingOrder->final_amount, 2, '.', ''),
-                        'EGP',
-                        route('payment.callback')
-                    );
-                } catch (\Throwable $resumeException) {
-                    report($resumeException);
+                $pendingOrder = $this->reconcileProviderOrder($pendingOrder);
+                if ($pendingOrder->status !== Order::STATUS_PENDING && $allowPendingRecovery) {
+                    return $this->initiate($request, false);
+                }
+                if ($pendingOrder->status === Order::STATUS_PENDING) {
+                    return $this->pendingCheckoutResponse($pendingOrder);
                 }
             }
             return $this->responses->make(
@@ -192,16 +196,7 @@ final readonly class KashierCheckoutFlowService
                         : ($packageTermsChanged
                             ? "تغيّرت تفاصيل الباقة\nراجعها قبل الدفع"
                             : "تغيّر طلب الدفع أثناء التنفيذ\nأعد المحاولة")),
-                $pendingOrder ? [
-                    'order_ref' => (string) $pendingOrder->order_ref,
-                    'status' => (string) $pendingOrder->status,
-                    'payment_url' => $pendingPaymentUrl,
-                    'checkout_expires_at' => $pendingOrder->checkout_expires_at?->toIso8601String(),
-                    'package' => [
-                        'id' => (int) $pendingOrder->package_id,
-                        'coins' => $this->payments->coinAmount($pendingOrder),
-                    ],
-                ] : [],
+                [],
                 409,
                 $pendingCheckout
                     ? 'pending_checkout_exists'
@@ -291,38 +286,7 @@ final readonly class KashierCheckoutFlowService
         }
 
         if ($reconcile && $order->status === Order::STATUS_PENDING) {
-            $checkoutExpired = $order->isCheckoutExpired();
-            $apiResponse = $this->payments->verifyOrderViaApi((string) $order->order_ref);
-            if ($this->payments->isOrderCaptured($apiResponse)) {
-                try {
-                    $transactionId = $this->payments->extractTransactionId($apiResponse);
-                    $order = $this->payments->fulfillOrder($order, $transactionId, [
-                        'verified_via' => 'kashier_api_status_poll',
-                        'kashier_api_response' => $apiResponse,
-                    ]);
-
-                    if ($order->status === Order::STATUS_APPROVED) {
-                        Log::info('Kashier status poll reconciled captured payment', [
-                            'order_ref' => $order->order_ref,
-                            'order_id' => $order->id,
-                            'user_id' => $user->id,
-                            'transaction_id' => $order->transaction_id,
-                        ]);
-                    }
-                } catch (\Throwable $exception) {
-                    Log::error('Kashier status reconciliation failed', [
-                        'order_ref' => $order->order_ref,
-                        'order_id' => $order->id,
-                        'user_id' => $user->id,
-                        'exception' => $exception::class,
-                        'error_fingerprint' => hash('sha256', $exception->getMessage()),
-                    ]);
-                    $order->refresh();
-                    $order->loadMissing('package');
-                }
-            } elseif ($checkoutExpired && $apiResponse !== null) {
-                $order = $this->payments->cancelPendingOrder($order);
-            }
+            $order = $this->reconcileProviderOrder($order);
         }
 
         Log::info('Kashier status poll', [
@@ -349,5 +313,71 @@ final readonly class KashierCheckoutFlowService
             ] : null,
             'approved_at' => $order->approved_at,
         ]);
+    }
+
+    private function reconcileProviderOrder(Order $order): Order
+    {
+        $apiResponse = $this->payments->verifyOrderViaApi((string) $order->order_ref);
+        if ($this->payments->isOrderCaptured($apiResponse)) {
+            try {
+                return $this->payments->fulfillOrder(
+                    $order,
+                    $this->payments->extractTransactionId($apiResponse),
+                    [
+                        'verified_via' => 'kashier_api_status_poll',
+                        'kashier_api_response' => $apiResponse,
+                    ]
+                );
+            } catch (\Throwable $exception) {
+                Log::error('Kashier status reconciliation failed', [
+                    'order_ref' => $order->order_ref,
+                    'order_id' => $order->id,
+                    'user_id' => $order->user_id,
+                    'exception' => $exception::class,
+                    'error_fingerprint' => hash('sha256', $exception->getMessage()),
+                ]);
+
+                return $order->fresh(['package']);
+            }
+        }
+
+        $providerStatus = $this->payments->providerOrderStatus($apiResponse);
+        if ($this->payments->isProviderFailureStatus($providerStatus)) {
+            return $this->payments->cancelPendingOrder($order, $apiResponse);
+        }
+
+        return $order->fresh(['package']);
+    }
+
+    private function pendingCheckoutResponse(Order $order): JsonResponse
+    {
+        $paymentUrl = null;
+        try {
+            $paymentUrl = $this->kashier->getHppUrl(
+                (string) $order->order_ref,
+                number_format((float) $order->final_amount, 2, '.', ''),
+                'EGP',
+                route('payment.callback')
+            );
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
+
+        return $this->responses->make(
+            false,
+            'لديك عملية دفع قيد التأكيد',
+            [
+                'order_ref' => (string) $order->order_ref,
+                'status' => (string) $order->status,
+                'payment_url' => $paymentUrl,
+                'checkout_expires_at' => $order->checkout_expires_at?->toIso8601String(),
+                'package' => [
+                    'id' => (int) $order->package_id,
+                    'coins' => $this->payments->coinAmount($order),
+                ],
+            ],
+            409,
+            'pending_checkout_exists'
+        );
     }
 }

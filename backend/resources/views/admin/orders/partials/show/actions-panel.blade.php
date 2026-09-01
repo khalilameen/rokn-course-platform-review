@@ -106,7 +106,7 @@
                         </form>
                         <hr class="order-action-separator">
                     @endif
-                    @if($order->status === 'pending')
+                    @if($order->status === 'pending' && !$order->requiresProviderVerification())
                         <button type="button" class="btn btn-success btn-block action-btn" onclick="updateOrderStatus('approved')">
                             <i class="fa fa-check-circle"></i> اعتماد الطلب
                         </button>
@@ -115,15 +115,9 @@
                         </button>
                     @endif
 
-                    @if($order->status === 'rejected')
+                    @if($order->status === 'rejected' && !$order->requiresProviderVerification())
                         <button type="button" class="btn btn-success btn-block action-btn" onclick="updateOrderStatus('approved')">
                             <i class="fa fa-check-circle"></i> اعتماد الطلب
-                        </button>
-                    @endif
-
-                    @if($order->status === 'approved')
-                        <button type="button" class="btn btn-danger btn-block action-btn" onclick="updateOrderStatus('rejected')">
-                            <i class="fa fa-times-circle"></i> رفض الطلب
                         </button>
                     @endif
 

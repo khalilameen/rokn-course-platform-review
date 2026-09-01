@@ -8,6 +8,7 @@ import {
   extractApiToken,
   extractUserProfile,
   loadSecureSession,
+  peekSecureSession,
   saveSecureSession,
 } from '../services/secureSession';
 
@@ -164,10 +165,14 @@ const migrateProviderScopedAccountKeys = (
 
 /**
  * Account-scoped local data uses separate AsyncStorage keys derived from the
- * persisted session, including before Redux hydration and while offline.
+ * bootstrap session snapshot, including before Redux hydration and offline.
+ * Before that snapshot is ready, public journeys remain in the guest scope.
  */
-export const getCurrentAccountStorageScope = async (): Promise<string> => {
-  const session = await getItem(AsyncKeys.USER_DATA);
+const accountStorageScopeForSession = async (
+  session: unknown,
+): Promise<string> => {
+  // Bootstrap owns the native keychain read. Storage consumers must not start
+  // a second read that can hold guest screens indefinitely on a locked device.
   const profile = extractUserProfile(session);
   const stableIdentity =
     profile?.id ?? profile?.user_id ?? profile?.social_id ?? profile?.email;
@@ -186,6 +191,42 @@ export const getCurrentAccountStorageScope = async (): Promise<string> => {
   return stableScope;
 };
 
+export const getCurrentAccountStorageScope = async (): Promise<string> => {
+  const cachedSession = peekSecureSession();
+  return accountStorageScopeForSession(
+    cachedSession.ready ? cachedSession.session : null,
+  );
+};
+
+export type AccountSessionBoundary = Readonly<{
+  epoch: number;
+  scope: string;
+}>;
+
+/**
+ * Capture one owner for a complete async read/write operation. The epoch also
+ * covers guest-to-user bootstrap where comparing storage keys alone is too
+ * late: a response already in flight must not render into the new session.
+ */
+export const captureAccountSessionBoundary = async (): Promise<AccountSessionBoundary> => {
+  const snapshot = peekSecureSession();
+  const scope = await accountStorageScopeForSession(
+    snapshot.ready ? snapshot.session : null,
+  );
+  if (peekSecureSession().epoch !== snapshot.epoch) {
+    throw new Error('ACCOUNT_CHANGED_DURING_REQUEST');
+  }
+  return {epoch: snapshot.epoch, scope};
+};
+
+export const assertAccountSessionBoundary = (
+  boundary: AccountSessionBoundary,
+) => {
+  if (peekSecureSession().epoch !== boundary.epoch) {
+    throw new Error('ACCOUNT_CHANGED_DURING_REQUEST');
+  }
+};
+
 /** Start a clean anonymous journey when a learner leaves the device. */
 export const rotateGuestStorageScope = async () => {
   const previousIdentity = await getGuestStorageIdentity();
@@ -199,8 +240,10 @@ export const rotateGuestStorageScope = async () => {
   return previousScope;
 };
 
-export const accountScopedStorageKey = async (baseKey: string) =>
-  `${baseKey}:${await getCurrentAccountStorageScope()}`;
+export const accountScopedStorageKey = async (
+  baseKey: string,
+  boundary?: AccountSessionBoundary,
+) => `${baseKey}:${boundary?.scope ?? (await getCurrentAccountStorageScope())}`;
 
 const belongsToAccountScope = (key: string, accountScope: string) =>
   key.endsWith(`:${accountScope}`) || key.includes(`:${accountScope}:`);

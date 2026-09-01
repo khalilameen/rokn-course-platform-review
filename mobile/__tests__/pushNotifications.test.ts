@@ -19,6 +19,7 @@ const mockFirebaseOnTokenRefresh = jest.fn(
   (_messaging?: unknown, _listener?: (token: string) => void) => jest.fn(),
 );
 const mockOpenUrl = jest.fn(async (_url?: unknown) => true);
+let mockAccountScope = 'account-1';
 
 jest.mock('react-native', () => ({
   Platform: {OS: 'android'},
@@ -56,7 +57,7 @@ jest.mock('../src/constants/helpers', () => ({
   AsyncKeys: {USER_DATA: 'USER_DATA'},
   accountScopedStorageKey: jest.fn(async (key: string) => `${key}:account-1`),
   extractApiToken: (session: any) => session?.api_token || null,
-  getCurrentAccountStorageScope: jest.fn(async () => 'account-1'),
+  getCurrentAccountStorageScope: jest.fn(async () => mockAccountScope),
   getItem: (key: string) => mockGetItem(key),
   saveItem: (key: string, value: unknown) => mockSaveItem(key, value),
   removeItem: (key: string) => mockRemoveItem(key),
@@ -94,6 +95,7 @@ import {
 describe('push notification opt-in', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockAccountScope = 'account-1';
     (jest.requireMock('react-native').Platform as {OS: string}).OS = 'android';
     mockGetPermissions.mockResolvedValue({
       granted: true,
@@ -274,5 +276,23 @@ describe('push notification opt-in', () => {
 
     expect(mockNavigate).toHaveBeenCalledWith('Home', undefined);
     expect(mockOpenUrl).not.toHaveBeenCalled();
+  });
+
+  it('does not deduplicate a notification tap across two accounts', async () => {
+    const response = {
+      actionIdentifier: 'default',
+      notification: {
+        request: {
+          identifier: 'same-native-id',
+          content: {data: {link: '/courses/42'}},
+        },
+      },
+    } as any;
+
+    await openNotificationLink(response);
+    mockAccountScope = 'account-2';
+    await openNotificationLink(response);
+
+    expect(mockNavigate).toHaveBeenCalledTimes(2);
   });
 });

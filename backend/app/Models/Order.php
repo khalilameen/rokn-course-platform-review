@@ -93,6 +93,15 @@ class Order extends Model
     const PAYMENT_METHOD_GOOGLE_PLAY = 'google_play';
     const PAYMENT_METHOD_APP_STORE = 'app_store';
 
+    public function requiresProviderVerification(): bool
+    {
+        return $this->package_id !== null && in_array($this->payment_method, [
+            self::PAYMENT_METHOD_KASHIER,
+            self::PAYMENT_METHOD_GOOGLE_PLAY,
+            self::PAYMENT_METHOD_APP_STORE,
+        ], true);
+    }
+
     // Order statuses
     const STATUS_PENDING = 'pending';
     const STATUS_APPROVED = 'approved';

@@ -13,6 +13,7 @@ use App\Models\User;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
 
@@ -86,7 +87,7 @@ final readonly class BunnyDirectUploadService
         ], JSON_THROW_ON_ERROR));
         $lockName = sprintf('bunny-direct-upload:%d:%d:%s', $admin->id, $course->id, $idempotencyKey);
 
-        return Cache::lock($lockName, 30)->block(10, function () use (
+        return Cache::lock($lockName, 180)->block(10, function () use (
             $course,
             $admin,
             $section,
@@ -105,10 +106,7 @@ final readonly class BunnyDirectUploadService
             if ($session) {
                 if (!hash_equals((string) $session->request_hash, $requestHash)
                     && !hash_equals((string) $session->request_hash, $legacyRequestHash)) {
-                    throw ValidationException::withMessages([
-                        'idempotency_key' => 'تغيرت بيانات الملف
-اختره مرة أخرى',
-                    ]);
+                    throw $this->terminalOperation("تغيرت بيانات الملف\nاختره مرة أخرى");
                 }
                 if ($session->status === 'pending'
                     && $session->expires_at->isFuture()
@@ -117,31 +115,45 @@ final readonly class BunnyDirectUploadService
                 }
                 if ($session->expires_at->isPast()) {
                     $session->forceFill(['status' => 'failed'])->save();
+                    throw $this->terminalOperation("انتهت عملية الرفع\nاختر الملف مرة أخرى");
+                }
+
+                if ($session->status !== 'allocating') {
+                    throw $this->terminalOperation("انتهت عملية الرفع\nاختر الملف مرة أخرى");
+                }
+
+                $allocationLease = max(60, (int) config('bunny.direct_upload_allocation_lease_seconds', 120));
+                if ($session->updated_at && $session->updated_at->gt(now()->subSeconds($allocationLease))) {
                     throw ValidationException::withMessages([
-                        'idempotency_key' => 'انتهت عملية الرفع
-اختر الملف مرة أخرى',
+                        'idempotency_key' => "ما زال تجهيز الرفع جاريًا\nحاول بعد لحظات",
                     ]);
                 }
 
-                throw ValidationException::withMessages([
-                    'idempotency_key' => $session->status === 'allocating'
-                        ? 'ما زال تجهيز الرفع جاريًا
-حاول بعد لحظات'
-                        : 'انتهت عملية الرفع
-اختر الملف مرة أخرى',
-                ]);
+                $this->retireStaleAllocation($session, $admin);
             }
 
             $expiresAt = now()->addHours(max(2, (int) config('bunny.direct_upload_claim_ttl_hours', 24)));
-            $session = BunnyDirectUpload::query()->create([
-                'user_id' => $admin->id,
-                'course_id' => $course->id,
-                'section_id' => $section?->id,
-                'idempotency_key' => strtolower($idempotencyKey),
-                'request_hash' => $requestHash,
-                'status' => 'allocating',
-                'expires_at' => $expiresAt,
-            ]);
+            $allocationToken = (string) Str::uuid();
+            if ($session) {
+                $session->forceFill([
+                    'video_guid' => null,
+                    'allocation_token' => $allocationToken,
+                    'status' => 'allocating',
+                    'expires_at' => $expiresAt,
+                    'attached_at' => null,
+                ])->save();
+            } else {
+                $session = BunnyDirectUpload::query()->create([
+                    'user_id' => $admin->id,
+                    'course_id' => $course->id,
+                    'section_id' => $section?->id,
+                    'idempotency_key' => strtolower($idempotencyKey),
+                    'request_hash' => $requestHash,
+                    'allocation_token' => $allocationToken,
+                    'status' => 'allocating',
+                    'expires_at' => $expiresAt,
+                ]);
+            }
 
             $videoId = null;
             try {
@@ -151,6 +163,16 @@ final readonly class BunnyDirectUploadService
                 if (!$this->validGuid($videoId)) {
                     throw new RuntimeException('تعذر تجهيز مساحة رفع الفيديو');
                 }
+                $claimed = BunnyDirectUpload::query()
+                    ->whereKey($session->id)
+                    ->where('status', 'allocating')
+                    ->where('allocation_token', $allocationToken)
+                    ->update(['video_guid' => $videoId, 'updated_at' => now()]);
+                if ($claimed !== 1) {
+                    $this->queueAbandonedAllocation($videoId, $admin, 'direct_upload_superseded_allocation');
+                    throw $this->terminalOperation("انتهت محاولة تجهيز الرفع\nحاول مرة أخرى");
+                }
+                $session->refresh();
                 $candidate = $this->bunny->queueVideoCleanup(
                     $videoId,
                     $section?->sectionable instanceof Lesson ? $section->sectionable : null,
@@ -168,11 +190,26 @@ final readonly class BunnyDirectUploadService
                     'reviewed_at' => now(),
                     'reviewed_by' => $admin->id,
                 ])->save();
-                $session->forceFill(['video_guid' => $videoId, 'status' => 'pending'])->save();
+                $advanced = BunnyDirectUpload::query()
+                    ->whereKey($session->id)
+                    ->where('status', 'allocating')
+                    ->where('allocation_token', $allocationToken)
+                    ->update([
+                        'status' => 'pending',
+                        'allocation_token' => null,
+                        'updated_at' => now(),
+                    ]);
+                if ($advanced !== 1) {
+                    throw $this->terminalOperation("انتهت محاولة تجهيز الرفع\nحاول مرة أخرى");
+                }
+                $session->refresh();
 
                 return $this->payload($session, $course, $admin, $title, $size, $mime, $section);
             } catch (\Throwable $exception) {
-                $session->forceFill(['status' => 'failed'])->save();
+                BunnyDirectUpload::query()
+                    ->whereKey($session->id)
+                    ->where('allocation_token', $allocationToken)
+                    ->update(['status' => 'failed', 'allocation_token' => null, 'updated_at' => now()]);
                 if ($videoId && $this->validGuid($videoId)) {
                     $failedCandidate = $this->bunny->queueVideoCleanup(
                         $videoId,
@@ -191,6 +228,27 @@ final readonly class BunnyDirectUploadService
         });
     }
 
+    private function retireStaleAllocation(BunnyDirectUpload $session, User $admin): void
+    {
+        $videoId = strtolower(trim((string) $session->video_guid));
+        if ($this->validGuid($videoId)) {
+            $this->queueAbandonedAllocation($videoId, $admin, 'direct_upload_stale_allocation');
+        }
+    }
+
+    private function queueAbandonedAllocation(string $videoId, User $admin, string $reason): void
+    {
+        $candidate = $this->bunny->queueVideoCleanup($videoId, null, $reason, 1);
+        if (!$candidate) {
+            throw new RuntimeException('تعذر تسجيل الفيديو غير المكتمل بأمان');
+        }
+        $candidate->forceFill([
+            'requires_review' => false,
+            'reviewed_at' => now(),
+            'reviewed_by' => $admin->id,
+        ])->save();
+    }
+
     /** @return array<string, mixed> */
     public function authorization(Course $course, User $admin, string $claim): array
     {
@@ -201,13 +259,12 @@ final readonly class BunnyDirectUploadService
             ->whereNull('remote_deleted_at')
             ->whereNull('last_attempt_at')
             ->exists()) {
-            throw ValidationException::withMessages([
-                'claim' => 'انتهت عملية الرفع أو تم استخدامها من قبل',
-            ]);
+            throw $this->terminalClaim('انتهت عملية الرفع أو تم استخدامها من قبل', 'claim');
         }
 
         return array_merge([
             'video_id' => $payload['video_id'],
+            'claim_expires_at' => gmdate(DATE_ATOM, (int) $payload['expires_at']),
         ], $this->bunny->directUploadAuthorization((string) $payload['video_id']));
     }
 
@@ -224,18 +281,14 @@ final readonly class BunnyDirectUploadService
         $actualSectionId = $section?->id;
         if (($claimedSectionId === null) !== ($actualSectionId === null)
             || ($actualSectionId !== null && (int) $claimedSectionId !== (int) $actualSectionId)) {
-            throw ValidationException::withMessages([
-                'bunny_video_claim' => 'هذا الرفع لا يخص المقطع الحالي',
-            ]);
+            throw $this->terminalClaim('هذا الرفع لا يخص المقطع الحالي');
         }
         if (!BunnyVideoCleanupCandidate::query()
             ->where('video_guid', $payload['video_id'])
             ->whereNull('remote_deleted_at')
             ->whereNull('last_attempt_at')
             ->exists()) {
-            throw ValidationException::withMessages([
-                'bunny_video_claim' => 'تم استخدام هذا الرفع من قبل أو انتهت صلاحيته',
-            ]);
+            throw $this->terminalClaim('تم استخدام هذا الرفع من قبل أو انتهت صلاحيته');
         }
         if (!$this->bunny->verifyDirectUpload((string) $payload['video_id'], (int) $payload['size'])) {
             throw ValidationException::withMessages([
@@ -259,9 +312,7 @@ final readonly class BunnyDirectUploadService
             ->lockForUpdate()
             ->first();
         if (!$candidate) {
-            throw ValidationException::withMessages([
-                'bunny_video_claim' => 'تم استخدام هذا الرفع من قبل',
-            ]);
+            throw $this->terminalClaim('تم استخدام هذا الرفع من قبل');
         }
         BunnyDirectUpload::query()
             ->where('video_guid', $videoId)
@@ -278,7 +329,7 @@ final readonly class BunnyDirectUploadService
         try {
             $payload = json_decode(Crypt::decryptString($claim), true, 16, JSON_THROW_ON_ERROR);
         } catch (DecryptException|\JsonException) {
-            throw ValidationException::withMessages(['bunny_video_claim' => 'بيانات الرفع غير صالحة']);
+            throw $this->terminalClaim('بيانات الرفع غير صالحة');
         }
         if (!is_array($payload)
             || !in_array((int) ($payload['v'] ?? 0), [1, 2], true)
@@ -290,7 +341,7 @@ final readonly class BunnyDirectUploadService
             || (int) ($payload['size'] ?? 0) > self::MAX_BYTES
             || !in_array((string) ($payload['mime'] ?? ''), self::MIMES, true)
             || trim((string) ($payload['title'] ?? '')) === '') {
-            throw ValidationException::withMessages(['bunny_video_claim' => 'انتهت صلاحية الرفع أو لا يخص هذا الكورس']);
+            throw $this->terminalClaim('انتهت صلاحية الرفع أو لا يخص هذا الكورس');
         }
 
         return $payload;
@@ -338,10 +389,24 @@ final readonly class BunnyDirectUploadService
             || $session->status !== 'pending'
             || $session->expires_at->isPast()
             || !hash_equals((string) $session->video_guid, (string) $payload['video_id'])) {
-            throw ValidationException::withMessages([
-                'bunny_video_claim' => 'تم استخدام هذا الرفع من قبل أو انتهت صلاحيته',
-            ]);
+            throw $this->terminalClaim('تم استخدام هذا الرفع من قبل أو انتهت صلاحيته');
         }
+    }
+
+    private function terminalClaim(string $message, string $field = 'bunny_video_claim'): ValidationException
+    {
+        return ValidationException::withMessages([
+            $field => $message,
+            'bunny_video_claim_terminal' => 'claim_unavailable',
+        ]);
+    }
+
+    private function terminalOperation(string $message): ValidationException
+    {
+        return ValidationException::withMessages([
+            'idempotency_key' => $message,
+            'bunny_upload_operation_terminal' => 'operation_unavailable',
+        ]);
     }
 
     private function assertAuthoringContext(Course $course, User $admin, ?CourseSection $section): void

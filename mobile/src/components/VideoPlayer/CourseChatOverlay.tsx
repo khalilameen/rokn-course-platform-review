@@ -1,5 +1,6 @@
-import React, {useEffect, useRef} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {useNavigation} from '@react-navigation/native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import {
   ActivityIndicator,
   Animated,
@@ -123,6 +124,8 @@ const CourseChatOverlay = ({
   const reducedMotion = useReducedMotion();
   const {height: windowHeight, fontScale} = useWindowDimensions();
   const navigation = useNavigation<CourseChatNavigation>();
+  const [copiedMessageId, setCopiedMessageId] = useState<string>();
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const {
     assistantPresence,
     assistantIncluded,
@@ -151,12 +154,31 @@ const CourseChatOverlay = ({
   });
   const hasSendableInput = cleanUnicodeText(input).length > 0;
 
+  useEffect(
+    () => () => {
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    },
+    [],
+  );
+
+  const copyMessage = (messageId: string, text: string) => {
+    Clipboard.setString(text);
+    setCopiedMessageId(messageId);
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = setTimeout(() => {
+      setCopiedMessageId(current =>
+        current === messageId ? undefined : current,
+      );
+    }, 1400);
+  };
+
   return (
     <Modal
       visible={visible}
       transparent
       animationType={reducedMotion ? 'none' : 'slide'}
       presentationStyle="overFullScreen"
+      hardwareAccelerated={Platform.OS === 'android'}
       statusBarTranslucent
       onRequestClose={onClose}>
       <KeyboardAvoidingView
@@ -317,7 +339,22 @@ const CourseChatOverlay = ({
                       )
                     ) : (
                       <>
-                        <Text style={styles.bubbleText}>{message.text}</Text>
+                        <Text selectable={false} style={styles.bubbleText}>
+                          {message.text}
+                        </Text>
+                        {!!message.text && (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="نسخ الرسالة"
+                            hitSlop={6}
+                            onPress={() =>
+                              copyMessage(message.id, message.text)
+                            }>
+                            <Text style={styles.copyText}>
+                              {copiedMessageId === message.id ? 'تم' : 'نسخ'}
+                            </Text>
+                          </Pressable>
+                        )}
                         {message.role === 'assistant' &&
                           message.deliveryStatus === 'failed' &&
                           message.clientRequestId &&
@@ -510,6 +547,12 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.bold,
     fontSize: 12,
     marginTop: 8,
+  },
+  copyText: {
+    color: 'rgba(255,255,255,.58)',
+    fontFamily: Fonts.medium,
+    fontSize: 11,
+    marginTop: 7,
   },
   workingIndicator: {
     minWidth: 42,

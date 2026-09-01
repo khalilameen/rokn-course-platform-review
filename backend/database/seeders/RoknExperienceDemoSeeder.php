@@ -296,9 +296,9 @@ class RoknExperienceDemoSeeder extends Seeder
 
             foreach ([
                 ['title_ar' => 'اعرف كيف يعمل رصيد ركن', 'title_en' => 'Learn how Rokn balance works', 'coins' => 50, 'key' => 'demo_coin_guide', 'url' => null, 'external' => false],
-                ['title_ar' => 'افتح حساب ركن على Instagram', 'title_en' => 'Open Rokn on Instagram', 'coins' => 75, 'key' => 'demo_instagram', 'url' => 'https://www.instagram.com/rokn.app', 'external' => true],
-                ['title_ar' => 'افتح حساب ركن على TikTok', 'title_en' => 'Open Rokn on TikTok', 'coins' => 75, 'key' => 'demo_tiktok', 'url' => 'https://www.tiktok.com/@rokn.app', 'external' => true],
-                ['title_ar' => 'افتح قناة ركن على YouTube', 'title_en' => 'Open Rokn on YouTube', 'coins' => 75, 'key' => 'demo_youtube', 'url' => 'https://www.youtube.com/@rokn', 'external' => true],
+                ['title_ar' => 'تابع ركن على Instagram', 'title_en' => 'Follow Rokn on Instagram', 'coins' => 75, 'key' => 'demo_instagram', 'url' => 'https://www.instagram.com/rokn.app', 'external' => true],
+                ['title_ar' => 'تابع ركن على TikTok', 'title_en' => 'Follow Rokn on TikTok', 'coins' => 75, 'key' => 'demo_tiktok', 'url' => 'https://www.tiktok.com/@rokn.app', 'external' => true],
+                ['title_ar' => 'تابع ركن على YouTube', 'title_en' => 'Follow Rokn on YouTube', 'coins' => 75, 'key' => 'demo_youtube', 'url' => 'https://www.youtube.com/@rokn', 'external' => true],
             ] as $task) {
                 CoinEarningMethod::updateOrCreate(
                     ['action_key' => $task['key']],

@@ -14,11 +14,15 @@ final class KashierEndpointHardeningTest extends TestCase
     {
         $callback = Route::getRoutes()->getByName('payment.callback');
         $webhook = Route::getRoutes()->getByName('payment.webhook');
+        $reconcile = Route::getRoutes()->getByName('api.payment.reconcile');
 
         self::assertNotNull($callback);
         self::assertNotNull($webhook);
+        self::assertNotNull($reconcile);
         self::assertContains('throttle:kashier-callback', $callback->gatherMiddleware());
         self::assertContains('throttle:kashier-webhook', $webhook->gatherMiddleware());
+        self::assertContains('throttle:payment-reconcile', $reconcile->gatherMiddleware());
+        self::assertNotContains('throttle:payment-write', $reconcile->gatherMiddleware());
     }
 
     public function test_webhook_limiter_preserves_signature_input_and_limits_per_order(): void

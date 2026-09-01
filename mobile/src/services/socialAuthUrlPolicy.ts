@@ -1,68 +1,65 @@
 export type BrowserSocialProvider = 'google' | 'tiktok' | 'facebook';
 
-const expectedPathSuffix = (provider: BrowserSocialProvider) =>
-  `/social-auth/${provider}/start`;
-
-const normalizedPath = (pathname: string) =>
-  pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
-
-type ParsedUrl = URL & {
-  protocol: string;
+type AbsoluteUrl = {
   origin: string;
-  username: string;
-  password: string;
-  hash: string;
-  pathname: string;
+  path: string;
+  query: string;
+  value: string;
 };
 
-const parseUrl = (value: string, base?: URL) =>
-  new URL(value, base) as unknown as ParsedUrl;
+const normalizedPath = (path: string) =>
+  path.length > 1 ? path.replace(/\/+$/, '') : path;
 
-const trustedHttpsBase = (apiBaseUrl: string) => {
-  const base = parseUrl(apiBaseUrl);
-  if (
-    base.protocol !== 'https:' ||
-    base.username ||
-    base.password ||
-    base.hash
-  ) {
-    throw new Error('AUTH_ORIGIN_INVALID');
-  }
-  return base;
+// Avoid relying on URL in Hermes. The OAuth contract only permits an absolute
+// HTTPS origin, a fixed path and an optional backend-authored query.
+const absoluteHttpsUrl = (raw: string): AbsoluteUrl | null => {
+  const value = raw.trim();
+  const match = value.match(/^(https):\/\/([^/?#]+)(\/[^?#]*)(\?[^#]*)?$/i);
+  if (!match || match[2].includes('@') || /\s/.test(value)) return null;
+  return {
+    origin: `https://${match[2].toLowerCase()}`,
+    path: normalizedPath(match[3]),
+    query: match[4] || '',
+    value,
+  };
+};
+
+const trustedApiBase = (value: unknown, errorCode: string) => {
+  if (typeof value !== 'string') throw new Error(errorCode);
+  const parsed = absoluteHttpsUrl(value);
+  if (!parsed || parsed.query) throw new Error(errorCode);
+  return parsed;
 };
 
 /**
- * Accept backend-provided OAuth starts only when they remain on the configured
- * API origin and name the endpoint for the provider the learner selected.
- * An invalid response falls back to our own deterministic API endpoint.
+ * The discovery response may advertise an OAuth API host different from the
+ * APK's active API. It is trusted only as an explicit base declaration, then
+ * the start URL must stay on that exact origin and fixed provider route.
  */
 export const resolveSocialAuthStartUrl = (
   configuredUrl: unknown,
-  apiBaseUrl: string,
+  activeApiBaseUrl: string,
   provider: BrowserSocialProvider,
-) => {
-  const base = trustedHttpsBase(apiBaseUrl);
-  const fallback = parseUrl(`social-auth/${provider}/start`, base).toString();
-  if (typeof configuredUrl !== 'string' || !configuredUrl.trim()) {
-    return fallback;
+  advertisedApiBaseUrl?: unknown,
+): string => {
+  const activeBase = trustedApiBase(activeApiBaseUrl, 'AUTH_ORIGIN_INVALID');
+  const advertisedBase =
+    typeof advertisedApiBaseUrl === 'string' && advertisedApiBaseUrl.trim()
+      ? trustedApiBase(
+          advertisedApiBaseUrl,
+          'AUTH_DISCOVERY_ORIGIN_INVALID',
+        )
+      : activeBase;
+  if (advertisedBase.path !== activeBase.path) {
+    throw new Error('AUTH_DISCOVERY_PATH_INVALID');
   }
+  if (typeof configuredUrl !== 'string' || !configuredUrl.trim()) return '';
 
-  try {
-    const candidate = parseUrl(configuredUrl.trim());
-    const path = normalizedPath(candidate.pathname);
-    if (
-      candidate.protocol === 'https:' &&
-      candidate.origin === base.origin &&
-      !candidate.username &&
-      !candidate.password &&
-      !candidate.hash &&
-      path.endsWith(expectedPathSuffix(provider))
-    ) {
-      return candidate.toString();
-    }
-  } catch {
-    // A malformed backend value is untrusted and uses the known-safe fallback.
-  }
-
-  return fallback;
+  const candidate = absoluteHttpsUrl(configuredUrl);
+  const expectedPath = `${advertisedBase.path}/social-auth/${provider}/start`;
+  return candidate &&
+    candidate.origin === advertisedBase.origin &&
+    candidate.path === expectedPath
+    ? candidate.value
+    : '';
 };

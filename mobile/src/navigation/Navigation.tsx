@@ -46,6 +46,7 @@ import {
   claimPendingCheckoutReturn,
 } from './checkoutReturn';
 import {useReducedMotion} from '../hooks/useReducedMotion';
+import {extractUserProfile} from '../services/secureSession';
 // import WalletWithdrawalRequest from '../screens/WalletWithdrawalRequest';
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -194,6 +195,13 @@ const Stacks = () => {
 
 const Navigation = () => {
   const isLogin = useSelector((state: RootState) => state.auth.isLogin);
+  const sessionData = useSelector((state: RootState) => state.auth.userData);
+  const sessionProfile = extractUserProfile(sessionData);
+  const navigationSessionKey = isLogin
+    ? `user:${String(
+        sessionProfile.id ?? sessionProfile.user_id ?? 'authenticated',
+      )}`
+    : 'guest';
   const restoreFlightRef = React.useRef<Promise<boolean> | null>(null);
   React.useEffect(() => {
     setNotificationNavigationReady(false);
@@ -290,7 +298,7 @@ const Navigation = () => {
         });
       }}
       ref={navigationRef}>
-      <Stacks />
+      <Stacks key={navigationSessionKey} />
     </NavigationContainer>
   );
 };

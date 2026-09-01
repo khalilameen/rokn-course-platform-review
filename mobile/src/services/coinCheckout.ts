@@ -49,7 +49,12 @@ type PersistedCheckoutAttempt = {
   orderRef?: string;
 };
 
+type PersistedCheckoutLedger = {
+  attempts: PersistedCheckoutAttempt[];
+};
+
 const CHECKOUT_ATTEMPT_KEY = '@rokn/coin-checkout-attempt/v2';
+const CHECKOUT_ATTEMPT_TTL_MS = 30 * 60 * 1000;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let checkoutAttemptStorageTail: Promise<void> = Promise.resolve();
@@ -106,10 +111,47 @@ const normalizeCheckoutAttempt = (
   };
 };
 
-const readCheckoutAttempt = async () =>
-  normalizeCheckoutAttempt(
-    await getItem<PersistedCheckoutAttempt>(await checkoutAttemptStorageKey()),
+const normalizeCheckoutLedger = (
+  value: PersistedCheckoutAttempt | PersistedCheckoutLedger | null,
+): PersistedCheckoutAttempt[] => {
+  const rawAttempts =
+    value && Array.isArray((value as PersistedCheckoutLedger).attempts)
+      ? (value as PersistedCheckoutLedger).attempts
+      : value
+        ? [value as PersistedCheckoutAttempt]
+        : [];
+  const byPackage = new Map<number, PersistedCheckoutAttempt>();
+  rawAttempts.forEach(raw => {
+    const attempt = normalizeCheckoutAttempt(raw);
+    if (attempt) byPackage.set(attempt.packageId, attempt);
+  });
+  return [...byPackage.values()];
+};
+
+const readCheckoutAttempts = async () =>
+  normalizeCheckoutLedger(
+    await getItem<PersistedCheckoutAttempt | PersistedCheckoutLedger>(
+      await checkoutAttemptStorageKey(),
+    ),
   );
+
+const readCheckoutAttempt = async (packageId?: number) => {
+  const attempts = await readCheckoutAttempts();
+  return packageId === undefined
+    ? attempts[0] ?? null
+    : attempts.find(attempt => attempt.packageId === packageId) ?? null;
+};
+
+const saveCheckoutAttempts = async (
+  storageKey: string,
+  attempts: PersistedCheckoutAttempt[],
+) => {
+  if (attempts.length === 0) {
+    await removeItem(storageKey);
+    return true;
+  }
+  return saveItem(storageKey, {attempts} satisfies PersistedCheckoutLedger);
+};
 
 const getOrCreateCheckoutAttempt = async (
   packageId: number,
@@ -118,18 +160,11 @@ const getOrCreateCheckoutAttempt = async (
 ): Promise<PersistedCheckoutAttempt> =>
   withCheckoutAttemptStorageLock(async () => {
     const storageKey = await checkoutAttemptStorageKey();
-    const stored = normalizeCheckoutAttempt(
-      await getItem<PersistedCheckoutAttempt>(storageKey),
+    const attempts = normalizeCheckoutLedger(
+      await getItem<PersistedCheckoutAttempt | PersistedCheckoutLedger>(storageKey),
     );
-    if (stored?.packageId === packageId) {
-      return stored;
-    }
-    if (stored) {
-      // One account can have one external checkout recovery intent at a time.
-      // Never overwrite an uncertain older payment merely because the learner
-      // selected a different package after updating the app.
-      throw new Error('CHECKOUT_PENDING_DIFFERENT_PACKAGE');
-    }
+    const stored = attempts.find(attempt => attempt.packageId === packageId);
+    if (stored) return stored;
 
     const idempotencyKey = Crypto.randomUUID().toLowerCase();
     const attempt = {
@@ -139,7 +174,7 @@ const getOrCreateCheckoutAttempt = async (
       expectedCoins,
       createdAt: new Date().toISOString(),
     } satisfies PersistedCheckoutAttempt;
-    const persisted = await saveItem(storageKey, attempt);
+    const persisted = await saveCheckoutAttempts(storageKey, [...attempts, attempt]);
     if (!persisted) {
       // Starting without durable intent identity would make a timeout unsafe to
       // retry: the server may already have created a payable order.
@@ -155,7 +190,26 @@ const rememberCheckoutOrder = async (
 ) =>
   withCheckoutAttemptStorageLock(async () => {
     const storageKey = await checkoutAttemptStorageKey();
-    return saveItem(storageKey, {...attempt, orderRef});
+    const attempts = normalizeCheckoutLedger(
+      await getItem<PersistedCheckoutAttempt | PersistedCheckoutLedger>(storageKey),
+    );
+    const current = attempts.find(
+      candidate => candidate.idempotencyKey === attempt.idempotencyKey,
+    );
+    if (!current) {
+      return saveCheckoutAttempts(storageKey, [
+        ...attempts.filter(candidate => candidate.packageId !== attempt.packageId),
+        {...attempt, orderRef},
+      ]);
+    }
+    return saveCheckoutAttempts(
+      storageKey,
+      attempts.map(candidate =>
+        candidate.idempotencyKey === attempt.idempotencyKey
+          ? {...candidate, orderRef}
+          : candidate,
+      ),
+    );
   });
 
 const clearCheckoutAttempt = async (
@@ -163,12 +217,15 @@ const clearCheckoutAttempt = async (
 ) =>
   withCheckoutAttemptStorageLock(async () => {
     const storageKey = await checkoutAttemptStorageKey();
-    const stored = normalizeCheckoutAttempt(
-      await getItem<PersistedCheckoutAttempt>(storageKey),
+    const attempts = normalizeCheckoutLedger(
+      await getItem<PersistedCheckoutAttempt | PersistedCheckoutLedger>(storageKey),
     );
-    if (stored?.idempotencyKey === expectedIdempotencyKey) {
-      await removeItem(storageKey);
-    }
+    await saveCheckoutAttempts(
+      storageKey,
+      attempts.filter(
+        attempt => attempt.idempotencyKey !== expectedIdempotencyKey,
+      ),
+    );
   });
 
 const resultFromUrl = (value: string) => {
@@ -285,12 +342,9 @@ const pollOrder = async (orderRef: string, attempts = 4) => {
   return {approved: false, pending: true, coinsAdded: 0};
 };
 
-const reconcilePendingCoinCheckoutOnce = async (): Promise<
-  CoinCheckoutResult | null
-> => {
-  if (!CAN_START_EXTERNAL_CHECKOUT) return null;
-  const attempt = await readCheckoutAttempt();
-  if (!attempt) return null;
+const reconcileCheckoutAttempt = async (
+  attempt: PersistedCheckoutAttempt,
+): Promise<CoinCheckoutResult> => {
   if (!attempt.orderRef) {
     // The server may have accepted initiation while the response was lost.
     // Replay the same account/package/key to recover the one authoritative
@@ -366,6 +420,30 @@ const reconcilePendingCoinCheckoutOnce = async (): Promise<
   };
 };
 
+const reconcilePendingCoinCheckoutOnce = async (): Promise<
+  CoinCheckoutResult | null
+> => {
+  if (!CAN_START_EXTERNAL_CHECKOUT) return null;
+  const attempts = await readCheckoutAttempts();
+  if (attempts.length === 0) return null;
+
+  let pending: CoinCheckoutResult | null = null;
+  let approved: CoinCheckoutResult | null = null;
+  for (const attempt of attempts) {
+    const result = await reconcileCheckoutAttempt(attempt);
+    if (result.success) approved = result;
+    else if (result.pending && !pending) pending = result;
+  }
+
+  return approved ?? pending ?? {
+    success: false,
+    pending: false,
+    cancelled: false,
+    coinsAdded: 0,
+    demo: false,
+  };
+};
+
 export const reconcilePendingCoinCheckout = async (): Promise<
   CoinCheckoutResult | null
 > => {
@@ -384,6 +462,7 @@ export const reconcilePendingCoinCheckout = async (): Promise<
 
 const runCoinCheckout = async (
   coinPackage: DemoCoinPackage,
+  allowFreshRetry = true,
 ): Promise<CoinCheckoutResult> => {
   const demoShaped = String(coinPackage.id || '').startsWith('demo');
   const isDemo = isLocalDemoId(coinPackage.id);
@@ -421,7 +500,7 @@ const runCoinCheckout = async (
   let idempotencyKey = '';
 
   const packageId = validatedPackageId;
-  let attempt = await readCheckoutAttempt();
+  let attempt = await readCheckoutAttempt(packageId);
   if (attempt?.orderRef) {
     const previous = await pollOrder(attempt.orderRef, 1);
     if (previous.approved) {
@@ -438,16 +517,15 @@ const runCoinCheckout = async (
     if (!previous.pending) {
       await clearCheckoutAttempt(attempt.idempotencyKey);
       attempt = null;
+    } else if (
+      Date.now() - Date.parse(attempt.createdAt) >= CHECKOUT_ATTEMPT_TTL_MS
+    ) {
+      // The provider may still settle the old order, so do not cancel it.
+      // Stop making an abandoned local intent monopolize this package after
+      // its checkout window; a new explicit tap gets a new idempotency key.
+      await clearCheckoutAttempt(attempt.idempotencyKey);
+      attempt = null;
     }
-  }
-  if (attempt && attempt.packageId !== packageId) {
-    return {
-      success: false,
-      pending: true,
-      cancelled: false,
-      coinsAdded: 0,
-      demo: false,
-    };
   }
   attempt =
     attempt ||
@@ -518,6 +596,16 @@ const runCoinCheckout = async (
         orderRef: String(closed?.order_ref || attempt.orderRef || ''),
         demo: false,
       };
+    }
+    const closedStatus = String(closed?.status || '').toLowerCase();
+    if (
+      allowFreshRetry &&
+      (code === 'checkout_attempt_expired' ||
+        (code === 'checkout_attempt_closed' &&
+          ['cancelled', 'rejected', 'failed'].includes(closedStatus)))
+    ) {
+      await clearCheckoutAttempt(idempotencyKey);
+      return runCoinCheckout(coinPackage, false);
     }
     if (code === 'pending_checkout_exists') {
       const pendingOrderRef = String(closed?.order_ref || '').trim();
@@ -612,7 +700,8 @@ export const openCoinCheckout = async (
   options: {returnTo?: LoginReturnTo} = {},
 ): Promise<CoinCheckoutResult> => {
   const scope = await checkoutAttemptStorageKey();
-  const current = checkoutFlights.get(scope);
+  const flightKey = `${scope}:${String(coinPackage.id)}:${coinPackage.price}:${coinPackage.coins}`;
+  const current = checkoutFlights.get(flightKey);
   if (current) return current;
 
   // Keep navigation recovery separate from the financial attempt: the latter
@@ -623,8 +712,8 @@ export const openCoinCheckout = async (
     ? await savePendingCheckoutReturn(options.returnTo).catch(() => undefined)
     : undefined;
   const operation = runCoinCheckout(coinPackage).finally(async () => {
-    if (checkoutFlights.get(scope) === operation) {
-      checkoutFlights.delete(scope);
+    if (checkoutFlights.get(flightKey) === operation) {
+      checkoutFlights.delete(flightKey);
     }
     if (returnClaim) {
       await acknowledgePendingCheckoutReturn(returnClaim).catch(
@@ -632,6 +721,6 @@ export const openCoinCheckout = async (
       );
     }
   });
-  checkoutFlights.set(scope, operation);
+  checkoutFlights.set(flightKey, operation);
   return operation;
 };

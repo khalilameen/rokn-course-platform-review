@@ -156,7 +156,7 @@ final class SendUserPushNotification implements ShouldQueue, ShouldBeUnique
             ]
         );
 
-        if ($result['delivered']) {
+        if ($result['accepted']) {
             $notification->forceFill([
                 'push_sent_at' => now(),
                 'push_failed_at' => null,

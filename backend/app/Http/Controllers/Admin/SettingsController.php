@@ -10,6 +10,7 @@ use App\Models\Lesson;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\BunnyService;
+use App\Services\DeviceLoginService;
 use App\Services\PublicAppSettingsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -259,12 +260,14 @@ class SettingsController extends Controller
 
         DB::transaction(function () use ($validated, $secretUpdates, $designUpdates): void {
             $settings = Setting::query()->firstOrCreate([]);
-            $previousDevicePolicy = (string) ($settings->device_login_policy ?? 'multiple_devices');
+            $previousDevicePolicy = DeviceLoginService::normalizePolicy(
+                $settings->device_login_policy
+            );
             $settings->update($validated + $secretUpdates);
             if (
                 array_key_exists('device_login_policy', $validated)
-                && $validated['device_login_policy'] === 'multiple_devices'
-                && $previousDevicePolicy !== 'multiple_devices'
+                && $validated['device_login_policy'] === DeviceLoginService::POLICY_MULTIPLE
+                && $previousDevicePolicy !== DeviceLoginService::POLICY_MULTIPLE
                 && Schema::hasColumn('users', 'locked_device_id')
             ) {
                 User::query()->whereNotNull('locked_device_id')->update(['locked_device_id' => null]);

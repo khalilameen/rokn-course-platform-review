@@ -2,13 +2,17 @@ import {Platform} from 'react-native';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
-import {publicRequest} from '../constants/api';
+import {publicRequest, type RoknRequestConfig} from '../constants/api';
 import {sha256Base64Url, sha256Hex} from '../utils/sha256';
 import {serverNow, serverNowMs} from '../utils/serverClock';
 import {openAndroidAuthSession} from './androidAuthSession';
 import {getInstallationId} from './installationIdentity';
 import {savePendingWelcomeBonus} from './pendingWelcomeBonus';
 import {roknApiUrl} from '../constants/apiBaseUrl';
+import {
+  resolveSocialAuthStartUrl,
+  type BrowserSocialProvider,
+} from './socialAuthUrlPolicy';
 import {
   deletePendingSocialAuthAttempt,
   loadPendingSocialAuthAttempt,
@@ -21,6 +25,7 @@ export type SocialProvider = 'google' | 'tiktok' | 'facebook' | 'apple';
 export type SocialAuthMethods = {
   providers: SocialProvider[];
   authorizationUrls: Partial<Record<SocialProvider, string>>;
+  authorizationApiUrl: string;
   welcomeBonus: number | null;
   recommendedProvider: SocialProvider | null;
   recommendationText: string | null;
@@ -63,55 +68,43 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
     ? (value as Record<string, unknown>)
     : null;
 
-const absoluteHttpUrl = (value: string) => {
-  const match = value
-    .trim()
-    .match(/^(https?):\/\/([^/?#]+)(\/[^?#]*)$/i);
-  if (!match || match[2].includes('@')) return null;
-  return {
-    protocol: match[1].toLowerCase(),
-    authority: match[2].toLowerCase(),
-    origin: `${match[1].toLowerCase()}://${match[2].toLowerCase()}`,
-    path: match[3].replace(/\/$/, ''),
-  };
-};
-
-const safeAuthorizationUrl = (provider: SocialProvider, value: string) => {
-  // Do not depend on the browser URL implementation here. Some Hermes builds
-  // expose an incomplete constructor and used to hide every valid provider at
-  // runtime even though auth-methods had loaded correctly.
-  const activeApi = absoluteHttpUrl(roknApiUrl);
-  const candidate = absoluteHttpUrl(value);
-  if (!activeApi || !candidate) return false;
-  const trustedProductionAuthority = [
-    'rokn.app',
-    'www.rokn.app',
-    'rokn-course-platform-review-production-b7gpy1.laravel.cloud',
-  ].includes(candidate.authority);
-  const sameActiveOrigin = candidate.origin === activeApi.origin;
-  const expectedPath = `${activeApi.path}/social-auth/${provider}/start`;
-  const versionedPath = `/api/v1/social-auth/${provider}/start`;
-  return (
-    (sameActiveOrigin ||
-      (candidate.protocol === 'https' && trustedProductionAuthority)) &&
-    [expectedPath, versionedPath].includes(candidate.path)
-  );
-};
+const safeAuthorizationUrl = (
+  provider: SocialProvider,
+  value: unknown,
+  advertisedApiUrl?: unknown,
+) =>
+  provider === 'apple'
+    ? ''
+    : resolveSocialAuthStartUrl(
+        value,
+        roknApiUrl,
+        provider as BrowserSocialProvider,
+        advertisedApiUrl,
+      );
 
 const authorizationUrls = (
   value: unknown,
+  advertisedApiUrl?: unknown,
 ): Partial<Record<SocialProvider, string>> => {
   const record = asRecord(value);
   if (!record) return {};
   return Object.fromEntries(
-    Object.entries(record).filter(
-      ([provider, url]) => {
-        if (!isSocialProvider(provider) || typeof url !== 'string') {
-          return false;
-        }
-        return safeAuthorizationUrl(provider, url);
-      },
-    ),
+    Object.entries(record).flatMap(([provider, url]) => {
+      if (
+        !isSocialProvider(provider) ||
+        provider === 'apple' ||
+        typeof url !== 'string'
+      ) {
+        return [];
+      }
+      let resolved = '';
+      try {
+        resolved = safeAuthorizationUrl(provider, url, advertisedApiUrl);
+      } catch {
+        return [];
+      }
+      return resolved ? [[provider, resolved]] : [];
+    }),
   ) as Partial<Record<SocialProvider, string>>;
 };
 
@@ -246,7 +239,8 @@ const completeSocialAttempt = async (
         // independently so one dead socket cannot hold the branded launch
         // screen for the global request timeout across every retry.
         timeout: 10_000,
-      });
+        skipAuthorization: true,
+      } as RoknRequestConfig);
     } catch (error) {
       const status = responseStatus(error);
       const retryable =
@@ -403,20 +397,29 @@ export const resumePendingSocialAuth = async (
 };
 
 export const getSocialAuthMethods = async (): Promise<SocialAuthMethods> => {
-  const methodsResponse = await publicRequest.get<unknown>('auth-methods');
+  const methodsResponse = await publicRequest.get<unknown>('auth-methods', {
+    skipAuthorization: true,
+  } as RoknRequestConfig);
   const envelope = asRecord(methodsResponse.data) ?? {};
   const methods = asRecord(envelope.data) ?? envelope;
-  const urls = authorizationUrls(methods.authorization_urls);
-  const configuredProviders = Array.isArray(methods.providers)
+  const authorizationApiUrl =
+    nonEmptyString(methods.authorization_api_url) || roknApiUrl;
+  const urls = authorizationUrls(
+    methods.authorization_urls,
+    authorizationApiUrl,
+  );
+  const declaredProviders = Array.isArray(methods.providers)
     ? Array.from(
         new Set(
           methods.providers
             .map(String)
-            .filter(isSocialProvider)
-            .filter(provider => provider === 'apple' || Boolean(urls[provider])),
+            .filter(isSocialProvider),
         ),
       )
     : ([] as SocialProvider[]);
+  const configuredProviders = declaredProviders.filter(
+    provider => provider === 'apple' || Boolean(urls[provider]),
+  );
   const requestedRecommendation = nonEmptyString(
     methods.recommended_provider ?? methods.recommendedProvider,
   );
@@ -431,6 +434,7 @@ export const getSocialAuthMethods = async (): Promise<SocialAuthMethods> => {
   return {
     providers: configuredProviders,
     authorizationUrls: urls,
+    authorizationApiUrl,
     welcomeBonus:
       Number.isSafeInteger(Number(methods.welcome_bonus_coins)) &&
       Number(methods.welcome_bonus_coins) > 0
@@ -482,15 +486,19 @@ export const signInWithSocialProvider = async (
         .join(' ')
         .trim();
       const installationId = await getInstallationId();
-      const response = await publicRequest.post('social-login', {
-        provider,
-        token: credential.identityToken,
-        nonce: nonce.raw,
-        provider_name: providerName || undefined,
-        device_os: Platform.OS,
-        device_type: Platform.OS,
-        ...(installationId ? {device_id: installationId} : {}),
-      });
+      const response = await publicRequest.post(
+        'social-login',
+        {
+          provider,
+          token: credential.identityToken,
+          nonce: nonce.raw,
+          provider_name: providerName || undefined,
+          device_os: Platform.OS,
+          device_type: Platform.OS,
+          ...(installationId ? {device_id: installationId} : {}),
+        },
+        {skipAuthorization: true} as RoknRequestConfig,
+      );
       const session = normalizeSocialSession(response?.data, provider);
       if ((options.purpose ?? 'login') === 'login') {
         await saveSecureSession(session);
@@ -509,7 +517,10 @@ export const signInWithSocialProvider = async (
   // environment. Using its advertised URL avoids mixing a production methods
   // response with a stale API base bundled into an older APK.
   const startUrl = methods.authorizationUrls[provider];
-  if (!startUrl || !safeAuthorizationUrl(provider, startUrl)) {
+  const resolvedStartUrl = startUrl
+    ? safeAuthorizationUrl(provider, startUrl, methods.authorizationApiUrl)
+    : '';
+  if (!resolvedStartUrl) {
     throw new Error('PROVIDER_NOT_CONFIGURED');
   }
   const returnUrl = 'rokn://auth';
@@ -519,8 +530,8 @@ export const signInWithSocialProvider = async (
   } catch {
     throw new Error('LOGIN_SECURE_FLOW_UNAVAILABLE');
   }
-  const separator = startUrl.includes('?') ? '&' : '?';
-  const authorizationUrl = `${startUrl}${separator}${encodeQuery({
+  const separator = resolvedStartUrl.includes('?') ? '&' : '?';
+  const authorizationUrl = `${resolvedStartUrl}${separator}${encodeQuery({
     return_to: returnUrl,
     code_challenge: pkce.challenge,
     code_challenge_method: 'S256',

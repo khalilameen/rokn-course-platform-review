@@ -14,7 +14,7 @@ jest.mock('../src/constants/api', () => ({
 import {publicRequest} from '../src/constants/api';
 import {purchaseCourse} from '../src/services/api/access';
 import {getCourseDetails} from '../src/services/api/courses';
-import {getWallet} from '../src/services/api/economy';
+import {getCoinTasks, getWallet} from '../src/services/api/economy';
 
 const mockGet = publicRequest.get as jest.Mock;
 const mockPost = publicRequest.post as jest.Mock;
@@ -79,6 +79,59 @@ describe('commerce API contracts', () => {
     expect(mockGet).toHaveBeenCalledWith('wallet');
   });
 
+  it('presents reward goals without exposing the visit-and-claim implementation', async () => {
+    mockGet.mockResolvedValue({
+      data: {
+        data: [
+          {
+            id: 11,
+            action_key: 'follow_instagram',
+            title_ar: 'افتح الصفحة ثم عد',
+            coins_amount: 75,
+            action_url: 'https://instagram.com/rokn.app',
+            requires_external_visit: true,
+          },
+          {
+            id: 12,
+            action_key: 'link_whatsapp',
+            title_ar: 'أرسل الرسالة الجاهزة',
+            coins_amount: 15,
+            requires_external_visit: true,
+          },
+        ],
+      },
+    });
+
+    await expect(getCoinTasks()).resolves.toEqual([
+      expect.objectContaining({
+        title: 'تابع ركن على Instagram',
+        description: '',
+      }),
+      expect.objectContaining({
+        title: 'اربط واتسابك بركن',
+        description: 'تواصل مع ركن من واتساب',
+      }),
+    ]);
+  });
+
+  it('renders coin packages as a horizontal rail with another card visible', () => {
+    const wallet = fs.readFileSync(
+      path.resolve(__dirname, '../src/screens/Wallet.tsx'),
+      'utf8',
+    );
+    const coin = fs.readFileSync(
+      path.resolve(__dirname, '../src/components/ui/RoknCoin.tsx'),
+      'utf8',
+    );
+
+    expect(wallet).toContain('width={packageCardWidth}');
+    expect(wallet).toContain('snapToInterval={packageCardWidth + Spacing.sm}');
+    expect(wallet).toContain('const packageCardWidth = Math.floor(railCardWidth)');
+    expect(wallet).not.toContain('packageColumns');
+    expect(coin).toContain('id="coinMark"');
+    expect(coin).not.toContain('#FFF1A9');
+  });
+
   it('maps the three server plans in product order with their benefits', async () => {
     mockGet.mockResolvedValue({
       data: {
@@ -124,6 +177,7 @@ describe('commerce API contracts', () => {
     const details = await getCourseDetails('64');
 
     expect(mockGet).toHaveBeenCalledWith('courses/64/details', {
+      optionalAuthorization: true,
       signal: undefined,
     });
     expect(details.owned).toBe(true);
@@ -198,7 +252,18 @@ describe('commerce API contracts', () => {
             reward_balance: 40,
             deficit: 520,
             recommended_packages: [
-              {id: 7, coins: 600, price: 49, name_ar: 'باقة مناسبة'},
+              {
+                id: 7,
+                coins: 600,
+                price: 49,
+                direct_price: 44.1,
+                name_ar: 'باقة مناسبة',
+                channels: {direct: true, google: true, apple: true},
+                store_products: {
+                  google: 'rokn.coins.600',
+                  apple: 'rokn.coins.600',
+                },
+              },
             ],
           },
         },
@@ -213,7 +278,17 @@ describe('commerce API contracts', () => {
       rewardBalance: 40,
       deficit: 520,
       packages: [
-        {id: '7', coins: 600, price: 49, label: 'باقة مناسبة'},
+        {
+          id: '7',
+          coins: 600,
+          price: 49,
+          label: 'باقة مناسبة',
+          recommended: false,
+          storeProductIds: {
+            google: 'rokn.coins.600',
+            apple: 'rokn.coins.600',
+          },
+        },
       ],
     });
   });

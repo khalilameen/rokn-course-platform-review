@@ -418,11 +418,13 @@ final readonly class AiEntitlementBudgetService
             return 0;
         }
 
+        $leaseStartedBefore = now()->subSeconds($this->reservationTtlSeconds());
         $pairs = DB::table('ai_usage_events')
             ->select(['enrollment_id', 'feature'])
             ->where('status', 'reserved')
             ->whereNotNull('reservation_expires_at')
             ->where('reservation_expires_at', '<=', now())
+            ->where('created_at', '<=', $leaseStartedBefore)
             ->distinct()
             ->orderBy('enrollment_id')
             ->limit(max(1, min(5000, $limit)))
@@ -459,12 +461,14 @@ final readonly class AiEntitlementBudgetService
 
     private function reclaimExpiredReservations(AiEntitlementUsage $usage): int
     {
+        $leaseStartedBefore = now()->subSeconds($this->reservationTtlSeconds());
         $expired = AiUsageEvent::query()
             ->where('enrollment_id', $usage->enrollment_id)
             ->where('feature', $usage->feature)
             ->where('status', 'reserved')
             ->whereNotNull('reservation_expires_at')
             ->where('reservation_expires_at', '<=', now())
+            ->where('created_at', '<=', $leaseStartedBefore)
             ->lockForUpdate()
             ->get();
         if ($expired->isEmpty()) {
@@ -510,6 +514,13 @@ final readonly class AiEntitlementBudgetService
 
     private function reservationTtlSeconds(): int
     {
-        return max(60, (int) config('course_plans.ai_reservation_ttl_seconds', 120));
+        return max(
+            60,
+            (int) config('course_plans.ai_reservation_ttl_seconds', 120),
+            // Expiry is a recovery lease, not a provider deadline. Keep a
+            // full minute for settlement after the longest permitted request
+            // so the sweeper cannot release a request that is still billable.
+            (int) config('openrouter.timeout_seconds', 45) + 60
+        );
     }
 }

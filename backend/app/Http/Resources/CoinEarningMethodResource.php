@@ -16,7 +16,7 @@ class CoinEarningMethodResource extends JsonResource
     {
         return [
             'id' => $this->id,
-            'title_ar' => $this->title_ar,
+            'title_ar' => $this->learnerTitleAr(),
             'title_en' => $this->title_en,
             'coins_amount' => $this->coins_amount,
             'action_key' => $this->action_key,

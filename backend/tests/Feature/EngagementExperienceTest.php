@@ -126,6 +126,33 @@ final class EngagementExperienceTest extends TestCase
         self::assertIsArray($response->json('data'));
     }
 
+    public function test_reward_tasks_never_expose_the_external_visit_claim_mechanism(): void
+    {
+        $user = $this->student('wallet-copy@rokn.test');
+        $token = $user->generateApiToken();
+        CoinEarningMethod::query()->create([
+            'title_ar' => 'افتح الصفحة ثم عد للمطالبة',
+            'title_en' => 'Open then return to claim',
+            'coins_amount' => 75,
+            'action_key' => 'demo_instagram',
+            'action_url' => 'https://instagram.com/rokn.app',
+            'requires_external_visit' => true,
+            'verification_delay_seconds' => 3,
+            'is_active' => true,
+            'is_repeatable' => false,
+        ]);
+
+        $response = $this->withToken($token)->getJson('/api/v1/coin-earning-methods')
+            ->assertOk();
+        $task = collect($response->json('data'))
+            ->firstWhere('action_key', 'demo_instagram');
+
+        self::assertIsArray($task);
+        self::assertSame('تابع ركن على Instagram', $task['title_ar']);
+        self::assertStringNotContainsString('عد', $task['title_ar']);
+        self::assertStringNotContainsString('مطالبة', $task['title_ar']);
+    }
+
     private function student(string $email, string $provider = 'google'): User
     {
         return User::query()->forceCreate([

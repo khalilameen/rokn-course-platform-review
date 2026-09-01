@@ -179,6 +179,15 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(60)->by('payment-read:'.$identity);
         });
 
+        RateLimiter::for('payment-reconcile', function (Request $request) {
+            $identity = $this->rateLimitIdentity($request);
+
+            return Limit::perMinute(max(
+                4,
+                (int) config('rate_limits.payment_reconcile_identity_per_minute', 20)
+            ))->by('payment-reconcile:'.$identity);
+        });
+
         RateLimiter::for('client-events', function (Request $request) {
             $identity = 'client-events:'.$this->rateLimitIdentity($request);
             $ip = $request->ip() ?: 'unknown';

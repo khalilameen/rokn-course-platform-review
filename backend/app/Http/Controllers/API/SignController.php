@@ -485,6 +485,9 @@ class SignController extends Controller
             'message' => 'تم تحميل طرق الدخول',
             'data' => [
                 'providers' => $providers,
+                'authorization_api_url' => $publicApiUrl !== ''
+                    ? $publicApiUrl
+                    : rtrim((string) config('app.url'), '/') . '/api/v1',
                 'authorization_urls' => $providers
                     ->reject(fn (string $provider) => $provider === 'apple')
                     ->mapWithKeys(fn (string $provider) => [

@@ -8,24 +8,15 @@ import {
   saveItem,
 } from '../../constants/helpers';
 import type {DemoCoinPackage} from '../demoExperience';
+import {mapCoinPackages} from './coinPackageMapper';
 import {
   ApiRecord,
   firstBoolean,
   isApiRecord,
-  nonNegativeNumber,
   payload,
-  resourceList,
   requireNonNegativeNumber,
   valueAsBoolean,
 } from './common';
-
-type CoinPackageDto = {
-  id?: unknown;
-  coins?: unknown;
-  price?: unknown;
-  name_ar?: unknown;
-  name_en?: unknown;
-};
 
 type CourseAuthorizationDto = {
   total_balance?: unknown;
@@ -33,7 +24,7 @@ type CourseAuthorizationDto = {
   spendable_balance?: unknown;
   current_coins?: unknown;
   deficit?: unknown;
-  recommended_packages?: CoinPackageDto[];
+  recommended_packages?: unknown;
   purchased_balance?: unknown;
   reward_balance?: unknown;
   original_price?: unknown;
@@ -222,27 +213,7 @@ const numericCourseId = (courseId: string): number => {
 };
 
 const mapFinancialPackages = (value: unknown): DemoCoinPackage[] => {
-  const candidates = resourceList<CoinPackageDto>(value);
-  const packages = candidates.flatMap(item => {
-    const id = String(item.id ?? '').trim();
-    const coins = nonNegativeNumber(item.coins);
-    const price = nonNegativeNumber(item.price);
-    if (!id || coins === null || coins <= 0 || price === null || price <= 0) {
-      return [];
-    }
-    return [
-      {
-        id,
-        coins,
-        price,
-        label: String(item.name_ar || item.name_en || 'باقة عملات'),
-      },
-    ];
-  });
-  if (candidates.length > 0 && packages.length === 0) {
-    throw new Error('API_CONTRACT_INVALID_RECOMMENDED_PACKAGES');
-  }
-  return packages;
+  return mapCoinPackages(value, 'API_CONTRACT_INVALID_RECOMMENDED_PACKAGES');
 };
 
 const mapBalanceBreakdown = (data: CourseAuthorizationDto) => {

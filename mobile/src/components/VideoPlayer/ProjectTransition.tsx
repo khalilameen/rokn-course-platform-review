@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {useNavigation} from '@react-navigation/native';
 import type {RootNavigation} from '../../navigation/types';
 import {
@@ -149,6 +149,7 @@ const ProjectTransition = ({
   const normalizedFeedbackDraft = cleanUnicodeText(feedbackDraft);
   const [feedbackSending, setFeedbackSending] = useState(false);
   const [feedbackError, setFeedbackError] = useState('');
+  const [submissionSending, setSubmissionSending] = useState(false);
   const feedbackPending = Boolean(
     feedbackThread?.messages.some(message =>
       ['queued', 'sent', 'streaming'].includes(message.status),
@@ -159,6 +160,8 @@ const ProjectTransition = ({
   const feedbackSendFlightRef = useRef<symbol | null>(null);
   const feedbackGenerationRef = useRef(0);
   const draftGenerationRef = useRef(0);
+  const projectGenerationRef = useRef(0);
+  const activeProjectIdRef = useRef(project.id);
   const submissionDraftSnapshotRef = useRef({
     file: selectedFile,
     note: submissionNote,
@@ -168,17 +171,34 @@ const ProjectTransition = ({
     note: submissionNote,
   };
 
+  if (activeProjectIdRef.current !== project.id) {
+    activeProjectIdRef.current = project.id;
+    projectGenerationRef.current += 1;
+  }
+
+  const ownsProject = useCallback(
+    (projectId: string, generation: number) =>
+      activeProjectIdRef.current === projectId &&
+      projectGenerationRef.current === generation,
+    [],
+  );
+
   useEffect(() => {
     setStatus(project.status);
     if (project.status !== 'reviewing') {
       setSyncNote('');
     }
-  }, [project.status]);
+  }, [project.id, project.status]);
 
   useEffect(() => {
     const generation = ++draftGenerationRef.current;
     setSubmissionDraftReady(false);
     setSubmissionDraftSaveError(false);
+    setSelectedFile(null);
+    setSubmissionNote('');
+    setSubmissionSending(false);
+    submissionInFlightRef.current = false;
+    pickerFlightRef.current = false;
     if (project.status === 'passed') {
       setSelectedFile(null);
       setSubmissionNote('');
@@ -209,14 +229,24 @@ const ProjectTransition = ({
 
   useEffect(() => {
     if (project.status === 'passed' || !submissionDraftReady) return;
+    const projectId = project.id;
+    const projectGeneration = projectGenerationRef.current;
     const timer = setTimeout(() => {
-      void saveProjectSubmissionDraft(project.id, {
+      void saveProjectSubmissionDraft(projectId, {
         file: selectedFile,
         note: submissionNote,
         updatedAt: Date.now(),
       })
-        .then(() => setSubmissionDraftSaveError(false))
-        .catch(() => setSubmissionDraftSaveError(true));
+        .then(() => {
+          if (ownsProject(projectId, projectGeneration)) {
+            setSubmissionDraftSaveError(false);
+          }
+        })
+        .catch(() => {
+          if (ownsProject(projectId, projectGeneration)) {
+            setSubmissionDraftSaveError(true);
+          }
+        });
     }, 250);
     return () => clearTimeout(timer);
   }, [
@@ -225,6 +255,7 @@ const ProjectTransition = ({
     selectedFile,
     submissionDraftReady,
     submissionNote,
+    ownsProject,
   ]);
 
   useEffect(() => {
@@ -235,11 +266,23 @@ const ProjectTransition = ({
     ) {
       return;
     }
-    void saveProjectSubmissionDraft(project.id, {
+    const projectId = project.id;
+    const projectGeneration = projectGenerationRef.current;
+    void saveProjectSubmissionDraft(projectId, {
       ...submissionDraftSnapshotRef.current,
       updatedAt: Date.now(),
-    }).catch(() => setSubmissionDraftSaveError(true));
-  }, [appIsActive, project.id, project.status, submissionDraftReady]);
+    }).catch(() => {
+      if (ownsProject(projectId, projectGeneration)) {
+        setSubmissionDraftSaveError(true);
+      }
+    });
+  }, [
+    appIsActive,
+    ownsProject,
+    project.id,
+    project.status,
+    submissionDraftReady,
+  ]);
 
   useEffect(() => {
     feedbackGenerationRef.current += 1;
@@ -247,6 +290,7 @@ const ProjectTransition = ({
     feedbackSendFlightRef.current = null;
     setFeedbackSending(false);
     setFeedbackError('');
+    setFeedbackDraft('');
   }, [project.id]);
 
   useEffect(() => {
@@ -349,12 +393,16 @@ const ProjectTransition = ({
   };
 
   const submitSelectedFile = async (file: SelectedProjectFile) => {
+    const projectId = project.id;
+    const projectGeneration = projectGenerationRef.current;
     try {
       const size = await validateProjectFile(file);
+      if (!ownsProject(projectId, projectGeneration)) return;
       if (size !== file.size) {
         setSelectedFile({...file, size});
       }
     } catch (error: unknown) {
+      if (!ownsProject(projectId, projectGeneration)) return;
       const code = error instanceof Error ? error.message : '';
       Alert.alert(
         code === 'PROJECT_FILE_TOO_LARGE'
@@ -390,6 +438,7 @@ const ProjectTransition = ({
         // Inspection is a guardrail, never a reason to block a sincere learner.
       }
     }
+    if (!ownsProject(projectId, projectGeneration)) return;
     setStatus('reviewing');
     setSyncNote('');
     const provisionalFallback: ProjectSubmissionOutcome = {
@@ -401,10 +450,12 @@ const ProjectTransition = ({
     let result = provisionalFallback;
     try {
       result = await onSubmit(file, normalizedSubmissionNote);
-      await clearProjectSubmissionDraft(project.id, file);
+      await clearProjectSubmissionDraft(projectId, file);
+      if (!ownsProject(projectId, projectGeneration)) return;
       setSelectedFile(null);
       setSubmissionNote('');
     } catch (error: unknown) {
+      if (!ownsProject(projectId, projectGeneration)) return;
       if (
         error instanceof Error &&
         error.message === 'PROJECT_PENDING_CACHE_FULL'
@@ -452,6 +503,7 @@ const ProjectTransition = ({
       );
       return;
     }
+    if (!ownsProject(projectId, projectGeneration)) return;
     setStatus(
       result.passed
         ? 'passed'
@@ -481,27 +533,40 @@ const ProjectTransition = ({
       );
       return;
     }
-    if (submissionInFlightRef.current) return;
+    if (!submissionDraftReady || submissionInFlightRef.current) return;
+    const projectId = project.id;
+    const projectGeneration = projectGenerationRef.current;
     submissionInFlightRef.current = true;
+    setSubmissionSending(true);
     try {
       await submitSelectedFile(selectedFile);
     } finally {
-      submissionInFlightRef.current = false;
+      if (ownsProject(projectId, projectGeneration)) {
+        submissionInFlightRef.current = false;
+        setSubmissionSending(false);
+      }
     }
   };
 
   const chooseProjectFile = async () => {
     if (pickerFlightRef.current || submissionInFlightRef.current) return;
+    const projectId = project.id;
+    const projectGeneration = projectGenerationRef.current;
     pickerFlightRef.current = true;
     try {
       const file = await pickMedia();
-      if (!file) return;
+      if (!file || !ownsProject(projectId, projectGeneration)) return;
       const size = await validateProjectFile(file);
       const cached = await cacheProjectDraftFile({...file, size});
+      if (!ownsProject(projectId, projectGeneration)) {
+        await removeLearnerDraftFile(cached);
+        return;
+      }
       const previous = selectedFile;
       setSelectedFile(cached);
       await removeLearnerDraftFile(previous);
     } catch (error: unknown) {
+      if (!ownsProject(projectId, projectGeneration)) return;
       const code = error instanceof Error ? error.message : '';
       Alert.alert(
         code === 'PROJECT_FILE_TOO_LARGE'
@@ -516,7 +581,9 @@ const ProjectTransition = ({
           : 'اختر الملف مرة أخرى أو نسخة أصغر',
       );
     } finally {
-      pickerFlightRef.current = false;
+      if (ownsProject(projectId, projectGeneration)) {
+        pickerFlightRef.current = false;
+      }
     }
   };
 
@@ -727,6 +794,7 @@ const ProjectTransition = ({
             <View style={styles.uploadBlock}>
               <Pressable
                 accessibilityRole="button"
+                disabled={!submissionDraftReady || submissionSending}
                 style={styles.uploadTarget}
                 onPress={() => void chooseProjectFile()}>
                 <View style={styles.uploadIcon}>
@@ -764,18 +832,26 @@ const ProjectTransition = ({
               <Pressable
                 accessibilityRole="button"
                 disabled={
+                  !submissionDraftReady ||
+                  submissionSending ||
                   !selectedFile ||
                   (project.reportEnabled && normalizedSubmissionNote.length < 10)
                 }
                 style={[
                   styles.primaryButton,
                   (!selectedFile ||
+                    !submissionDraftReady ||
+                    submissionSending ||
                     (project.reportEnabled &&
                       normalizedSubmissionNote.length < 10)) &&
                     styles.disabledButton,
                 ]}
                 onPress={submit}>
-                <Text style={styles.primaryButtonText}>سلّم المشروع</Text>
+                {submissionSending ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={styles.primaryButtonText}>سلّم المشروع</Text>
+                )}
               </Pressable>
             </View>
           )}

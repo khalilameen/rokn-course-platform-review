@@ -203,9 +203,7 @@ final readonly class KashierReconciliationService
         }
 
         if ($providerStatus === 'NOT_FOUND' && $order->status === Order::STATUS_PENDING) {
-            if ($order->isCheckoutExpired()) {
-                $this->payments->cancelPendingOrder($order, $evidence);
-            }
+            $this->payments->cancelPendingOrder($order, $evidence);
             $this->resolveOpenFindings($order->fresh());
 
             return 'consistent';
@@ -268,9 +266,8 @@ final readonly class KashierReconciliationService
 
         if ($this->isProviderPending($providerStatus) && $order->status === Order::STATUS_PENDING) {
             if ($order->isCheckoutExpired()) {
-                $this->payments->cancelPendingOrder($order, $evidence);
                 $this->recordFinding(
-                    $order->fresh(),
+                    $order,
                     'provider_pending_after_local_expiry',
                     $providerStatus,
                     $transactionId,

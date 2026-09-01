@@ -30,6 +30,7 @@ import {roknApiUrl} from './apiBaseUrl';
 import {secureRandomUuid} from '../utils/secureRandom';
 import {observeServerTime} from '../utils/serverClock';
 import {getInstallationId} from '../services/installationIdentity';
+import {peekSecureSession} from '../services/secureSession';
 // Expo inlines EXPO_PUBLIC_* values at build time; each release channel uses
 // its configured Rokn host and has no hidden fallback origin.
 export const mainUrl = roknApiUrl;
@@ -62,10 +63,14 @@ export type APIData<DataType = unknown> = {
 export type RoknRequestConfig = AxiosRequestConfig & {
   skipPersistedSessionInvalidation?: boolean;
   skipAuthorization?: boolean;
+  /** Attach a bearer only when bootstrap has already restored it in memory. */
+  optionalAuthorization?: boolean;
   /** Internal guard for the one safe retry after an adapter/network hand-off. */
   roknNetworkRetryCount?: number;
   /** Bearer captured when this request crossed the account boundary. */
   roknSessionToken?: string;
+  /** Covers guest and authenticated responses, including account switches. */
+  roknSessionEpoch?: number;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -80,6 +85,13 @@ export const InternalError = {
 const assertResponseStillBelongsToSession = async (
   config?: Record<string, unknown>,
 ) => {
+  const requestEpoch = Number(config?.roknSessionEpoch);
+  if (
+    Number.isSafeInteger(requestEpoch) &&
+    peekSecureSession().epoch !== requestEpoch
+  ) {
+    throw new Error('ACCOUNT_CHANGED_DURING_REQUEST');
+  }
   const requestToken =
     typeof config?.roknSessionToken === 'string'
       ? config.roknSessionToken.trim()
@@ -165,9 +177,12 @@ export const onRejectedResponse = async (error: unknown): Promise<never> => {
     response?.status === 401 &&
     config?.skipPersistedSessionInvalidation !== true
   ) {
+    const rejectedToken = bearerTokenUsedByRequest(config);
+    // A public guest request has no session to invalidate. Do not turn an
+    // unexpected gateway 401 into a keychain read or Login navigation.
+    if (!rejectedToken) return Promise.reject(response ?? error);
     const session = await getItem(AsyncKeys.USER_DATA);
     const expiredToken = extractApiToken(session);
-    const rejectedToken = bearerTokenUsedByRequest(config);
     // Several requests can fail together. Handle this bearer once so the
     // learner gets one Login screen instead of a stack of duplicates. A late
     // 401 from a request sent before reauthentication must never erase the
@@ -277,7 +292,17 @@ export const useAPIData = <DataType>(
 };
 export const responseConfig = async (config: InternalAxiosRequestConfig) => {
   const language = await getItem<string>(AsyncKeys.LANGUAGE);
-  const userData = (await getItem(AsyncKeys.USER_DATA)) || '';
+  const requestConfig = config as RoknRequestConfig;
+  requestConfig.roknSessionEpoch = peekSecureSession().epoch;
+  let userData: unknown = '';
+  if (requestConfig.skipAuthorization !== true) {
+    if (requestConfig.optionalAuthorization === true) {
+      const snapshot = peekSecureSession();
+      userData = snapshot.ready ? snapshot.session : '';
+    } else {
+      userData = (await getItem(AsyncKeys.USER_DATA)) || '';
+    }
+  }
 
   if (config?.method === 'post') {
     if (!config?.data) {
@@ -316,11 +341,11 @@ export const responseConfig = async (config: InternalAxiosRequestConfig) => {
   const apiToken = extractApiToken(userData);
   if (
     apiToken &&
-    (config as RoknRequestConfig).skipAuthorization !== true &&
+    requestConfig.skipAuthorization !== true &&
     !config.headers.has('Authorization')
   ) {
     config.headers.set('Authorization', `Bearer ${apiToken}`);
-    (config as RoknRequestConfig).roknSessionToken = apiToken;
+    requestConfig.roknSessionToken = apiToken;
   }
 
   return config;

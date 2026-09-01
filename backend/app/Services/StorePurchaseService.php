@@ -56,7 +56,12 @@ final readonly class StorePurchaseService
             return $this->replay($existing, $user, $existing->package, $productId);
         }
 
-        $package = $this->packageForProduct($provider, $productId);
+        // Product ids and their coin value form the immutable fulfilment
+        // contract. Availability flags only control whether a new sheet may
+        // be opened; they must not invalidate a receipt already paid in the
+        // provider UI.
+        $package = $this->packageContractForProduct($provider, $productId);
+        $contractCoins = (int) $package->coins;
 
         $binding = $provider === StorePurchase::PROVIDER_GOOGLE
             ? $this->identities->google($user)
@@ -85,22 +90,18 @@ final readonly class StorePurchaseService
                 $productId,
                 $purchaseToken,
                 $tokenHash,
-                $verified
+                $verified,
+                $contractCoins
             ): StorePurchase {
                 /** @var Package $lockedPackage */
                 $lockedPackage = Package::query()->lockForUpdate()->findOrFail($package->id);
                 $providerProductColumn = $provider === StorePurchase::PROVIDER_GOOGLE
                     ? 'google_product_id'
                     : 'apple_product_id';
-                $providerEnabledColumn = $provider === StorePurchase::PROVIDER_GOOGLE
-                    ? 'google_enabled'
-                    : 'apple_enabled';
                 if (
                     !hash_equals((string) $lockedPackage->{$providerProductColumn}, $productId)
-                    || !$lockedPackage->is_active
-                    || !$lockedPackage->{$providerEnabledColumn}
-                    || (float) $lockedPackage->price <= 0
-                    || (int) $lockedPackage->coins <= 0
+                    || $contractCoins <= 0
+                    || (int) $lockedPackage->coins !== $contractCoins
                 ) {
                     throw new StorePurchaseVerificationException(
                         'store_product_catalog_changed',
@@ -177,7 +178,7 @@ final readonly class StorePurchaseService
                     'verified_at' => now(),
                 ]);
 
-                $approved = $this->orders->approve($order);
+                $approved = $this->orders->approve($order, null, null, true);
                 $purchase->forceFill([
                     'status' => $approved->status === Order::STATUS_APPROVED
                         ? 'credited'
@@ -240,7 +241,7 @@ final readonly class StorePurchaseService
             && $order->financial_status === Order::FINANCIAL_PENDING
             && !$order->reversed_at
         ) {
-            $this->orders->approve($purchase->order);
+            $this->orders->approve($purchase->order, null, null, true);
             $purchase->forceFill(['status' => 'credited'])->save();
         }
         $this->reconcilePendingStoreNotifications($purchase);
@@ -365,22 +366,15 @@ final readonly class StorePurchaseService
         }
     }
 
-    private function packageForProduct(string $provider, string $productId): Package
+    private function packageContractForProduct(string $provider, string $productId): Package
     {
         $idColumn = match ($provider) {
             StorePurchase::PROVIDER_GOOGLE => 'google_product_id',
             StorePurchase::PROVIDER_APPLE => 'apple_product_id',
             default => throw new StorePurchaseVerificationException('unsupported_store_provider'),
         };
-        $enabledColumn = $provider === StorePurchase::PROVIDER_GOOGLE
-            ? 'google_enabled'
-            : 'apple_enabled';
-
         $package = Package::query()
             ->where($idColumn, $productId)
-            ->where('is_active', true)
-            ->where($enabledColumn, true)
-            ->where('price', '>', 0)
             ->where('coins', '>', 0)
             ->first();
         if (!$package) {

@@ -94,6 +94,7 @@ export const useCourseChat = ({
   const visibleRef = useRef(interactive);
   const sendFlightRef = useRef<symbol | null>(null);
   const upgradeFlightRef = useRef<symbol | null>(null);
+  const upgradeGenerationRef = useRef(0);
   const resumeInterruptedTurnRef = useRef(false);
   const messagesRef = useRef(messages);
   const runTurnRef = useRef<
@@ -213,6 +214,7 @@ export const useCourseChat = ({
   }, [messages.length]);
 
   useEffect(() => {
+    upgradeGenerationRef.current += 1;
     upgradeFlightRef.current = null;
     setServerBlocked(false);
     setUpgraded(false);
@@ -222,7 +224,7 @@ export const useCourseChat = ({
     return () => {
       upgradeFlightRef.current = null;
     };
-  }, [courseId]);
+  }, [accountEpoch, course.accessType, course.chatAvailable, courseId]);
 
   useEffect(() => {
     const scrollTimers = scrollTimersRef.current;
@@ -514,12 +516,17 @@ export const useCourseChat = ({
   const loadUpgradeQuote = async () => {
     if (upgradeLoading || upgradeFlightRef.current) return;
     const flight = Symbol('course-chat-upgrade-quote');
+    const upgradeGeneration = upgradeGenerationRef.current;
     upgradeFlightRef.current = flight;
     setUpgradeLoading(true);
     setUpgradeError('');
     try {
       const quote = await getCourseChatUpgradeQuote(courseId);
-      if (activeCourseIdRef.current !== courseId) return;
+      if (
+        activeCourseIdRef.current !== courseId ||
+        upgradeGenerationRef.current !== upgradeGeneration
+      )
+        return;
       if (quote.alreadyUpgraded || quote.chatAvailable) {
         setUpgraded(true);
         setServerBlocked(false);
@@ -528,7 +535,11 @@ export const useCourseChat = ({
       }
       setUpgradeQuote(quote);
     } catch (error: unknown) {
-      if (activeCourseIdRef.current !== courseId) return;
+      if (
+        activeCourseIdRef.current !== courseId ||
+        upgradeGenerationRef.current !== upgradeGeneration
+      )
+        return;
       const code = courseChatErrorCode(error);
       setUpgradeError(
         code === 'chat_upgrade_not_priced' ||
@@ -539,7 +550,10 @@ export const useCourseChat = ({
           : 'تعذّر تحميل تفاصيل الترقية\nحاول مرة أخرى',
       );
     } finally {
-      if (upgradeFlightRef.current === flight) {
+      if (
+        upgradeGenerationRef.current === upgradeGeneration &&
+        upgradeFlightRef.current === flight
+      ) {
         upgradeFlightRef.current = null;
         setUpgradeLoading(false);
       }
@@ -553,6 +567,7 @@ export const useCourseChat = ({
       return;
     }
     const flight = Symbol('course-chat-upgrade-purchase');
+    const upgradeGeneration = upgradeGenerationRef.current;
     upgradeFlightRef.current = flight;
     setUpgradeLoading(true);
     setUpgradeError('');
@@ -562,7 +577,11 @@ export const useCourseChat = ({
         upgradeQuote.targetPlanCode,
         upgradeQuote.price,
       );
-      if (activeCourseIdRef.current !== courseId) return;
+      if (
+        activeCourseIdRef.current !== courseId ||
+        upgradeGenerationRef.current !== upgradeGeneration
+      )
+        return;
       if (result.alreadyUpgraded || result.chatAvailable) {
         setUpgraded(true);
         setServerBlocked(false);
@@ -571,12 +590,19 @@ export const useCourseChat = ({
       }
       setUpgradeQuote(result);
     } catch (error: unknown) {
-      if (activeCourseIdRef.current !== courseId) return;
+      if (
+        activeCourseIdRef.current !== courseId ||
+        upgradeGenerationRef.current !== upgradeGeneration
+      )
+        return;
       const code = courseChatErrorCode(error);
       if (code === 'insufficient_coins' || code === 'course_price_changed') {
         try {
           const refreshedQuote = await getCourseChatUpgradeQuote(courseId);
-          if (activeCourseIdRef.current === courseId) {
+          if (
+            activeCourseIdRef.current === courseId &&
+            upgradeGenerationRef.current === upgradeGeneration
+          ) {
             setUpgradeQuote(refreshedQuote);
           }
         } catch {
@@ -591,7 +617,10 @@ export const useCourseChat = ({
         setUpgradeError('لم يتم الخصم\nحاول مرة أخرى');
       }
     } finally {
-      if (upgradeFlightRef.current === flight) {
+      if (
+        upgradeGenerationRef.current === upgradeGeneration &&
+        upgradeFlightRef.current === flight
+      ) {
         upgradeFlightRef.current = null;
         setUpgradeLoading(false);
       }

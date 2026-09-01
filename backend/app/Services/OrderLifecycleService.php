@@ -21,9 +21,19 @@ final readonly class OrderLifecycleService
     }
 
     /** Approval side effects use order-scoped idempotency keys. */
-    public function approve(Order $order, ?int $actorId = null, ?string $notes = null): Order
+    public function approve(
+        Order $order,
+        ?int $actorId = null,
+        ?string $notes = null,
+        bool $providerVerified = false
+    ): Order
     {
-        return DB::transaction(function () use ($order, $actorId, $notes): Order {
+        return DB::transaction(function () use (
+            $order,
+            $actorId,
+            $notes,
+            $providerVerified
+        ): Order {
             // Financial callbacks may arrive after the user has deleted their account.
             // Keep the anonymized aggregate lockable without reopening account access.
             User::withTrashed()->lockForUpdate()->findOrFail($order->user_id);
@@ -41,6 +51,14 @@ final readonly class OrderLifecycleService
             }
 
             if ($locked->status !== Order::STATUS_APPROVED) {
+                if (
+                    $locked->requiresProviderVerification()
+                    && !$providerVerified
+                ) {
+                    throw new \DomainException(
+                        'Provider-controlled orders require verified provider evidence.'
+                    );
+                }
                 if (
                     $locked->course_id
                     && $locked->payment_method === Order::PAYMENT_METHOD_WALLET_COINS
@@ -81,6 +99,11 @@ final readonly class OrderLifecycleService
         return DB::transaction(function () use ($order, $actorId, $reason): Order {
             /** @var Order $locked */
             $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
+            if ($actorId !== null && $locked->requiresProviderVerification()) {
+                throw new \DomainException(
+                    'Provider-controlled orders cannot be changed manually.'
+                );
+            }
             if ($locked->status === Order::STATUS_APPROVED) {
                 throw new \DomainException(
                     'A settled order cannot be rejected. Register a refund or chargeback for finance review.'
@@ -108,6 +131,11 @@ final readonly class OrderLifecycleService
         return DB::transaction(function () use ($order, $actorId, $reason): Order {
             /** @var Order $locked */
             $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
+            if ($actorId !== null && $locked->requiresProviderVerification()) {
+                throw new \DomainException(
+                    'Provider-controlled orders cannot be changed manually.'
+                );
+            }
             if ($locked->status === Order::STATUS_APPROVED) {
                 throw new \DomainException(
                     'A settled order cannot be cancelled. Register a refund or chargeback for finance review.'

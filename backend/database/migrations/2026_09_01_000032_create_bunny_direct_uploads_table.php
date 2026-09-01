@@ -20,6 +20,7 @@ return new class extends Migration
             $table->uuid('idempotency_key');
             $table->char('request_hash', 64);
             $table->uuid('video_guid')->nullable()->unique();
+            $table->uuid('allocation_token')->nullable()->index();
             $table->string('status', 24)->default('allocating');
             $table->timestamp('expires_at');
             $table->timestamp('attached_at')->nullable();

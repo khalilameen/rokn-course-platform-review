@@ -180,8 +180,8 @@ final class CourseCommercialReportServiceTest extends TestCase
         self::assertSame(3, $platform['in_app_notifications']);
         self::assertSame(1, $platform['read_notifications']);
         self::assertSame(2, $platform['push_attempts']);
-        self::assertSame(1, $platform['push_delivered']);
-        self::assertSame(50.0, $platform['push_delivery_rate_percentage']);
+        self::assertSame(1, $platform['push_provider_accepted']);
+        self::assertSame(50.0, $platform['push_provider_acceptance_rate_percentage']);
         self::assertSame(2, $platform['student_rows']->firstWhere('user.id', 1)['in_app_notifications']);
         self::assertCount(2, $platform['student_rows']);
     }
@@ -222,7 +222,7 @@ final class CourseCommercialReportServiceTest extends TestCase
         self::assertSame(100.0, $report['service_cost_egp']);
         self::assertSame(100.0, $report['average_cost_per_student_egp']);
         self::assertSame(1, $report['push_attempts']);
-        self::assertSame(1, $report['push_delivered']);
+        self::assertSame(1, $report['push_provider_accepted']);
         $legacyPlan = $report['plan_breakdown']->get('إتاحة قديمة');
         self::assertSame(1, $legacyPlan['students']);
         self::assertSame(2, $legacyPlan['enrollments']);

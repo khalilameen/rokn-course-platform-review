@@ -1,6 +1,7 @@
 <script>
 // Existing quiz questions data
 const existingQuestions = @json($section->getSectionType() == 'quiz' && $section->sectionable ? $section->sectionable->questions : []);
+const flashedQuestions = @json(array_values(old('questions', [])));
 
 document.addEventListener('DOMContentLoaded', function() {
     const visibleTitleAr = document.getElementById('title_ar');
@@ -18,6 +19,15 @@ document.addEventListener('DOMContentLoaded', function() {
     const sectionTypeInput = document.getElementById('section_type');
     const dynamicForms = document.querySelectorAll('.dynamic-form');
     const currentSectionType = '{{ $section->getSectionType() }}';
+    let questionCount = 0;
+    let questionsLoaded = false;
+    const questionsContainer = document.getElementById('questionsContainer');
+    const addQuestionBtn = document.getElementById('addQuestionBtn');
+    const initialQuestions = (flashedQuestions.length > 0 ? flashedQuestions : existingQuestions).map(question => ({
+        ...question,
+        question: question.question_text ?? question.question ?? '',
+        right_answer: question.correct_answer ?? question.right_answer ?? '',
+    }));
 
     // Function to update required fields
     function updateRequiredFields(selectedType) {
@@ -79,15 +89,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     form.classList.add('active');
 
                     // Load existing questions when quiz form is shown (only if not already loaded)
-                    if (type === 'quiz' && existingQuestions.length > 0 && !questionsLoaded) {
+                    if (type === 'quiz' && initialQuestions.length > 0 && !questionsLoaded) {
                         setTimeout(() => {
                             loadExistingQuestions();
                         }, 100);
                     }
-                } else if (form.id === 'quiz-form' && type !== 'quiz') {
-                    // Reset questionsLoaded flag when switching away from quiz
-                    // This allows proper reload if user switches back
-                    questionsLoaded = false;
                 }
             });
 
@@ -272,11 +278,6 @@ document.addEventListener('DOMContentLoaded', function() {
     updateVideoSourceUI();
 
     // Quiz Questions Management
-    let questionCount = 0;
-    let questionsLoaded = false; // Flag to prevent duplicate loading
-    const questionsContainer = document.getElementById('questionsContainer');
-    const addQuestionBtn = document.getElementById('addQuestionBtn');
-
     function createQuestionTemplate(index, questionData = null) {
         const questionDiv = document.createElement('div');
         questionDiv.className = 'question-item mb-4';
@@ -385,13 +386,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function loadExistingQuestions() {
         // Prevent loading questions multiple times
-        if (questionsLoaded || existingQuestions.length === 0) return;
+        if (questionsLoaded || initialQuestions.length === 0) return;
 
         // Clear any existing questions in the container
         questionsContainer.innerHTML = '';
         questionCount = 0;
 
-        existingQuestions.forEach((question, index) => {
+        initialQuestions.forEach((question, index) => {
             const questionElement = createQuestionTemplate(index, question);
             questionsContainer.appendChild(questionElement);
             setupQuestionEventListeners(questionElement, index);
@@ -544,8 +545,29 @@ document.addEventListener('DOMContentLoaded', function() {
         addQuestionBtn.addEventListener('click', addQuestion);
     }
 
+    document.addEventListener('rokn:authoring-draft-prepare', event => {
+        if (event.detail?.formId !== 'sectionForm') return;
+        const values = event.detail?.values || {};
+        const indexes = Object.keys(values)
+            .map(name => name.match(/^questions\[(\d+)\]/))
+            .filter(Boolean)
+            .map(match => Number(match[1]));
+        if (indexes.length === 0) return;
+
+        // The generic draft restorer can only apply values after their dynamic
+        // rows exist. Mark this source as loaded so the delayed database load
+        // cannot overwrite the restored, newer moderator edits.
+        if (!questionsLoaded) {
+            questionsContainer.innerHTML = '';
+            questionCount = 0;
+            questionsLoaded = true;
+        }
+        const maxIndex = Math.max(...indexes);
+        while (questionCount <= maxIndex) addQuestion();
+    });
+
     // Load existing questions if this is a quiz section
-    if (currentSectionType === 'quiz' && existingQuestions.length > 0) {
+    if (currentSectionType === 'quiz' && initialQuestions.length > 0) {
         setTimeout(() => {
             loadExistingQuestions();
         }, 100);

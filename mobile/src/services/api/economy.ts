@@ -9,10 +9,8 @@ import {
   resourceList,
   requireNonNegativeNumber,
 } from './common';
-import {
-  DISTRIBUTION_CHANNEL,
-  IS_STORE_DISTRIBUTION,
-} from '../../constants/distribution';
+import {IS_STORE_DISTRIBUTION} from '../../constants/distribution';
+import {mapCoinPackages} from './coinPackageMapper';
 
 type WalletBreakdownDto = {
   total_balance?: unknown;
@@ -44,26 +42,6 @@ type WalletDto = {
   coin_rules?: unknown;
   recent_transactions?: WalletTransactionDto[];
   breakdown?: WalletBreakdownDto;
-};
-
-type CoinPackageDto = {
-  id?: unknown;
-  coins?: unknown;
-  price?: unknown;
-  direct_price?: unknown;
-  name?: unknown;
-  name_ar?: unknown;
-  name_en?: unknown;
-  recommended?: unknown;
-  store_products?: {
-    google?: unknown;
-    apple?: unknown;
-  };
-  channels?: {
-    direct?: unknown;
-    google?: unknown;
-    apple?: unknown;
-  };
 };
 
 type CoinTaskDto = {
@@ -222,56 +200,11 @@ export const getCoinPackages = async (): Promise<DemoCoinPackage[]> => {
   const items = Array.isArray(data)
     ? data
     : isApiRecord(data)
-    ? resourceList<CoinPackageDto>(data.packages)
+    ? data.packages
     : (() => {
         throw new Error('API_CONTRACT_INVALID_COIN_PACKAGES');
       })();
-  const eligibleItems = items
-    .filter(item => {
-      if (item.id === null || item.id === undefined) return false;
-      if (DISTRIBUTION_CHANNEL === 'direct') {
-        return item.channels?.direct !== false && item.direct_price != null;
-      }
-      if (DISTRIBUTION_CHANNEL === 'play') {
-        return item.channels?.google !== false && Boolean(item.store_products?.google);
-      }
-      return item.channels?.apple !== false && Boolean(item.store_products?.apple);
-    });
-  const packages = eligibleItems.flatMap(item => {
-    const id = String(item.id ?? '').trim();
-    const coins = nonNegativeNumber(item.coins);
-    const price = nonNegativeNumber(
-      DISTRIBUTION_CHANNEL === 'direct'
-        ? item.direct_price ?? item.price
-        : item.price,
-    );
-    if (!id || coins === null || coins <= 0 || price === null || price <= 0) {
-      return [];
-    }
-    return [
-      {
-        id,
-        coins,
-        price,
-        label: learnerFacingText(
-          item.name || item.name_ar || item.name_en,
-          'باقة عملات ركن',
-        ),
-        recommended: firstBoolean(item.recommended) ?? false,
-        storeProductIds: {
-          google: item.store_products?.google
-            ? String(item.store_products.google)
-            : undefined,
-          apple: item.store_products?.apple
-            ? String(item.store_products.apple)
-            : undefined,
-        },
-      },
-    ];
-  });
-  if (eligibleItems.length > 0 && packages.length === 0) {
-    throw new Error('API_CONTRACT_INVALID_COIN_PACKAGES');
-  }
+  const packages = mapCoinPackages(items, 'API_CONTRACT_INVALID_COIN_PACKAGES');
 
   if (!IS_STORE_DISTRIBUTION) return packages;
   const {hydrateNativeStorePackages} = await import('../nativeStoreBilling');
@@ -290,25 +223,24 @@ export type CoinTask = {
   requiresExternalVisit: boolean;
 };
 
-const taskDescription = (requiresExternalVisit: boolean, actionKey: string) => {
+const taskDescription = (actionKey: string) => {
   if (actionKey === 'link_whatsapp') {
-    return 'أرسل الرسالة الجاهزة\nستصل العملات بعد الربط';
+    return 'تواصل مع ركن من واتساب';
   }
   if (actionKey.toLowerCase().includes('coin_guide')) {
-    return 'اطّلع على قواعد الرصيد\nثم استلم مكافأتك';
+    return 'اعرف كيف تستخدم عملاتك';
   }
-  return requiresExternalVisit
-    ? 'افتح الصفحة\nثم عد إلى ركن لاستلام المكافأة'
-    : 'أكمل المهمة مرة واحدة\nثم استلم مكافأتك';
+  return '';
 };
 
 const truthfulTaskTitle = (title: string, actionKey: string) => {
   const key = actionKey.toLowerCase();
   if (key.includes('coin_guide')) return 'تعرّف إلى رصيد ركن';
-  if (key.includes('instagram')) return 'افتح حساب ركن على Instagram';
-  if (key.includes('tiktok')) return 'افتح حساب ركن على TikTok';
-  if (key.includes('youtube')) return 'افتح قناة ركن على YouTube';
-  if (key === 'link_whatsapp') return 'اربط واتسابك بحساب ركن';
+  if (key.includes('instagram')) return 'تابع ركن على Instagram';
+  if (key.includes('tiktok')) return 'تابع ركن على TikTok';
+  if (key.includes('facebook')) return 'تابع ركن على Facebook';
+  if (key.includes('youtube')) return 'تابع ركن على YouTube';
+  if (key === 'link_whatsapp') return 'اربط واتسابك بركن';
   return title;
 };
 
@@ -343,7 +275,7 @@ export const getCoinTasks = async (): Promise<CoinTask[]> => {
         id: `production-${serverId}`,
         serverId,
         title: truthfulTaskTitle(rawTitle, actionKey),
-        description: taskDescription(requiresExternalVisit, actionKey),
+        description: taskDescription(actionKey),
         reward,
         url:
           !replacesNotificationReward && item.action_url

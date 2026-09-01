@@ -161,8 +161,8 @@ const normalizeRewardLedger = (
 
 const COIN_GUIDE_TASK = {
   id: 'coin-guide',
-  title: 'اعرف كيف يعمل رصيد ركن',
-  description: 'راجع القواعد مرة واحدة ثم استلم مكافأتك',
+  title: 'تعرّف إلى رصيد ركن',
+  description: 'اعرف كيف تستخدم عملاتك',
   reward: ECONOMY_CONFIG.rewards.coinGuide,
 };
 
@@ -177,24 +177,24 @@ const normalizeDemoTasks = (tasks: DemoCoinTask[]): DemoCoinTask[] =>
       return {
         ...task,
         reward: ECONOMY_CONFIG.rewards.externalTask,
-        title: 'افتح حساب ركن على Instagram',
-        description: 'افتح الصفحة ثم ارجع لاستلام المكافأة',
+        title: 'تابع ركن على Instagram',
+        description: '',
       };
     }
     if (task.id === 'tiktok') {
       return {
         ...task,
         reward: ECONOMY_CONFIG.rewards.externalTask,
-        title: 'افتح حساب ركن على TikTok',
-        description: 'افتح الصفحة ثم ارجع لاستلام المكافأة',
+        title: 'تابع ركن على TikTok',
+        description: '',
       };
     }
     if (task.id === 'youtube') {
       return {
         ...task,
         reward: ECONOMY_CONFIG.rewards.externalTask,
-        title: 'افتح قناة ركن على YouTube',
-        description: 'افتح القناة ثم ارجع لاستلام المكافأة',
+        title: 'تابع ركن على YouTube',
+        description: '',
       };
     }
     return task;
@@ -214,24 +214,24 @@ const initialState = (): DemoExperienceState => ({
     },
     {
       id: 'instagram',
-      title: 'افتح حساب ركن على Instagram',
-      description: 'افتح الصفحة ثم ارجع لاستلام المكافأة',
+      title: 'تابع ركن على Instagram',
+      description: '',
       reward: ECONOMY_CONFIG.rewards.externalTask,
       url: 'https://www.instagram.com/rokn.learn/',
       status: 'available',
     },
     {
       id: 'tiktok',
-      title: 'افتح حساب ركن على TikTok',
-      description: 'افتح الصفحة ثم ارجع لاستلام المكافأة',
+      title: 'تابع ركن على TikTok',
+      description: '',
       reward: ECONOMY_CONFIG.rewards.externalTask,
       url: 'https://www.tiktok.com/@rokn.learn',
       status: 'available',
     },
     {
       id: 'youtube',
-      title: 'افتح قناة ركن على YouTube',
-      description: 'افتح القناة ثم ارجع لاستلام المكافأة',
+      title: 'تابع ركن على YouTube',
+      description: '',
       reward: ECONOMY_CONFIG.rewards.externalTask,
       url: 'https://www.youtube.com/@roknlearn',
       status: 'available',

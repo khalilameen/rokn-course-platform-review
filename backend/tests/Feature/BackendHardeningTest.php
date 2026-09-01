@@ -807,6 +807,158 @@ final class BackendHardeningTest extends TestCase
         ));
     }
 
+    public function test_stalled_course_chat_turns_are_closed_without_touching_live_turns(): void
+    {
+        $user = $this->user();
+        $course = $this->course();
+        $turns = app(CourseChatTurnService::class);
+        $stalled = $turns->begin(
+            $user->id,
+            $course->id,
+            null,
+            null,
+            '4bb3c73d-2e28-4f0c-8ca6-c5dc244944f0',
+            'طلب انقطع أثناء الإجابة',
+            'ar',
+            'prompt-v1'
+        );
+        $live = $turns->begin(
+            $user->id,
+            $course->id,
+            null,
+            null,
+            '7fbde4e9-2252-49f1-a791-b00308163be9',
+            'طلب جارٍ الآن',
+            'ar',
+            'prompt-v1'
+        );
+        $turns->markStreaming($stalled);
+        $stalled->forceFill(['updated_at' => now()->subMinutes(10)])->save();
+        $stalledAt = $stalled->fresh()->updated_at;
+
+        // A recovery poll observes the lease; it is not worker progress and
+        // must not refresh an abandoned turn forever.
+        $turns->markStreaming($stalled);
+        self::assertTrue($stalledAt->equalTo($stalled->fresh()->updated_at));
+
+        self::assertSame(1, $turns->failStalled());
+        self::assertSame('failed', $stalled->fresh()->status);
+        self::assertSame('chat_request_abandoned', $stalled->fresh()->error_code);
+        self::assertSame('queued', $live->fresh()->status);
+    }
+
+    public function test_stalled_course_chat_recovers_an_already_settled_answer(): void
+    {
+        $user = $this->user();
+        $course = $this->course();
+        $order = $this->order($user, $course, Order::PAYMENT_METHOD_WALLET_COINS, 4000, 4000);
+        $enrollmentId = DB::table('course_enrollments')->insertGetId([
+            'user_id' => $user->id,
+            'course_id' => $course->id,
+            'order_id' => $order->id,
+            'is_active' => true,
+            'access_granted_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $requestId = 'b1644f1f-21ff-4a52-bfc3-cf98fd87a388';
+        $turns = app(CourseChatTurnService::class);
+        $turn = $turns->begin(
+            $user->id,
+            $course->id,
+            $enrollmentId,
+            null,
+            $requestId,
+            'هل اكتملت الإجابة؟',
+            'ar',
+            'prompt-v1'
+        );
+        $turns->markStreaming($turn);
+        $usageId = DB::table('ai_usage_events')->insertGetId([
+            'request_id' => $requestId,
+            'enrollment_id' => $enrollmentId,
+            'user_id' => $user->id,
+            'course_id' => $course->id,
+            'feature' => 'course_chat',
+            'status' => 'completed',
+            'metadata' => json_encode([
+                'accepted_response' => 'الإجابة محفوظة بالفعل',
+            ], JSON_THROW_ON_ERROR),
+            'completed_at' => now()->subMinutes(5),
+            'created_at' => now()->subMinutes(6),
+            'updated_at' => now()->subMinutes(5),
+        ]);
+        $turn->forceFill(['updated_at' => now()->subMinutes(10)])->save();
+
+        self::assertSame(1, $turns->failStalled());
+        $recovered = $turn->fresh();
+        self::assertSame('completed', $recovered->status);
+        self::assertSame('الإجابة محفوظة بالفعل', $recovered->answer);
+        self::assertSame($usageId, (int) $recovered->usage_event_id);
+        self::assertNull($recovered->error_code);
+        self::assertSame(
+            'completed',
+            $turns->begin(
+                $user->id,
+                $course->id,
+                $enrollmentId,
+                null,
+                $requestId,
+                'هل اكتملت الإجابة؟',
+                'ar',
+                'prompt-v1'
+            )->status
+        );
+        self::assertSame(
+            'الإجابة محفوظة بالفعل',
+            $turns->page($user->id, $course->id, null)->items()[0]->answer
+        );
+    }
+
+    public function test_stalled_course_chat_does_not_close_a_live_entitlement_lease(): void
+    {
+        $user = $this->user();
+        $course = $this->course();
+        $order = $this->order($user, $course, Order::PAYMENT_METHOD_WALLET_COINS, 4000, 4000);
+        $enrollmentId = DB::table('course_enrollments')->insertGetId([
+            'user_id' => $user->id,
+            'course_id' => $course->id,
+            'order_id' => $order->id,
+            'is_active' => true,
+            'access_granted_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $requestId = '0354f9a0-f2b4-4670-9bf7-e30430374097';
+        $turns = app(CourseChatTurnService::class);
+        $turn = $turns->begin(
+            $user->id,
+            $course->id,
+            $enrollmentId,
+            null,
+            $requestId,
+            'طلب ما زال داخل مهلة المزود',
+            'ar',
+            'prompt-v1'
+        );
+        $turns->markStreaming($turn);
+        DB::table('ai_usage_events')->insert([
+            'request_id' => $requestId,
+            'enrollment_id' => $enrollmentId,
+            'user_id' => $user->id,
+            'course_id' => $course->id,
+            'feature' => 'course_chat',
+            'status' => 'reserved',
+            'reservation_expires_at' => now()->addMinute(),
+            'created_at' => now()->subMinutes(10),
+            'updated_at' => now()->subMinutes(10),
+        ]);
+        $turn->forceFill(['updated_at' => now()->subMinutes(10)])->save();
+
+        self::assertSame(0, $turns->failStalled());
+        self::assertSame('streaming', $turn->fresh()->status);
+    }
+
     public function test_social_completion_rejects_untrusted_provider_and_consumes_code_once(): void
     {
         $code = str_repeat('a', 64);

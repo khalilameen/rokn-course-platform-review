@@ -87,6 +87,7 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
     const sameSourceRetryUsedRef = useRef(false);
     const deferredPreloadFailureRef = useRef(false);
     const diagnosticRequestRef = useRef(0);
+    const playbackLifecycleGenerationRef = useRef(0);
     const previousVisibleRef = useRef(isVisible);
     const previousManifestIdentityRef = useRef(
       `${data.playbackSessionId || 'local'}:${
@@ -126,6 +127,7 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
 
     if (reelIdentityRef.current !== data.id) {
       reelIdentityRef.current = data.id;
+      playbackLifecycleGenerationRef.current += 1;
       reelInitialPositionRef.current = initialPosition;
       declaredDurationRef.current = Number.isFinite(
         Number(data.durationSeconds),
@@ -164,6 +166,10 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
       setIsBuffering(true);
       setPausedByUser(false);
       setPausedForInterruption(false);
+      if (recoveryTimerRef.current) {
+        clearTimeout(recoveryTimerRef.current);
+        recoveryTimerRef.current = null;
+      }
       setUsingFallback(false);
       setEffectiveQuality(preferredQualityRef.current);
       recoveryAttemptsRef.current = 0;
@@ -251,6 +257,7 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
           clearTimeout(recoveryTimerRef.current);
         }
         diagnosticRequestRef.current += 1;
+        playbackLifecycleGenerationRef.current += 1;
       },
       [],
     );
@@ -387,6 +394,7 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
     }, [effectiveQuality, publishRuntimeMetrics, selectedVariantUri]);
 
     const restartPlayback = useCallback((message: string, delayMs = 650) => {
+      const lifecycleGeneration = playbackLifecycleGenerationRef.current;
       retryPositionRef.current = lastPositionRef.current;
       hasRestoredRef.current = false;
       setError(false);
@@ -398,6 +406,11 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
         clearTimeout(recoveryTimerRef.current);
       }
       recoveryTimerRef.current = setTimeout(() => {
+        if (
+          lifecycleGeneration !== playbackLifecycleGenerationRef.current
+        ) {
+          return;
+        }
         recoveryTimerRef.current = null;
         setRetryKey(value => value + 1);
       }, delayMs);
@@ -459,12 +472,24 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
           recoveryAttemptsRef.current += 1;
           publishRuntimeMetrics({});
           setRecoveryMessage('نحاول الوصول إلى الفيديو');
+          const lifecycleGeneration =
+            playbackLifecycleGenerationRef.current;
+          const reelId = data.id;
           // A network switch or expired signature can make the old source
           // fail immediately. Wait for the manifest refresh attempt before
           // rebuilding the native player instead of replaying that stale URL.
           void Promise.resolve(onRefreshSource?.())
             .catch(() => undefined)
-            .then(() => restartPlayback('نحاول الوصول إلى الفيديو', 120));
+            .then(() => {
+              if (
+                lifecycleGeneration !==
+                  playbackLifecycleGenerationRef.current ||
+                reelIdentityRef.current !== reelId
+              ) {
+                return;
+              }
+              restartPlayback('نحاول الوصول إلى الفيديو', 120);
+            });
           return true;
         }
 
@@ -474,6 +499,7 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
       [
         adaptiveSource,
         data.availableQualities,
+        data.id,
         effectiveQuality,
         selectedVariantUri,
         hasSupportedFallback,
@@ -554,6 +580,8 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
     };
 
     const retryPlayback = () => {
+      const lifecycleGeneration = playbackLifecycleGenerationRef.current;
+      const reelId = data.id;
       retryPositionRef.current = lastPositionRef.current;
       hasRestoredRef.current = false;
       recoveryAttemptsRef.current = 0;
@@ -567,7 +595,15 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
       setEffectiveQuality(selectedQuality);
       void Promise.resolve(onRefreshSource?.())
         .catch(() => undefined)
-        .then(() => setRetryKey(value => value + 1));
+        .then(() => {
+          if (
+            lifecycleGeneration !== playbackLifecycleGenerationRef.current ||
+            reelIdentityRef.current !== reelId
+          ) {
+            return;
+          }
+          setRetryKey(value => value + 1);
+        });
     };
 
     const videoEventHandlers = createVideoEventHandlers({
