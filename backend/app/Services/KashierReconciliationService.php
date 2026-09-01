@@ -202,6 +202,15 @@ final readonly class KashierReconciliationService
             return $order->status === Order::STATUS_APPROVED ? 'consistent' : 'fulfilled';
         }
 
+        if ($providerStatus === 'NOT_FOUND' && $order->status === Order::STATUS_PENDING) {
+            if ($order->isCheckoutExpired()) {
+                $this->payments->cancelPendingOrder($order, $evidence);
+            }
+            $this->resolveOpenFindings($order->fresh());
+
+            return 'consistent';
+        }
+
         $reversalType = $this->payments->financialReversalType($providerStatus);
         if ($reversalType !== null) {
             $this->payments->recordFinancialReversal(

@@ -73,7 +73,10 @@ final class KashierReconciliationTest extends TestCase
         self::assertSame(1, $first['fulfilled']);
         self::assertSame(1, $second['consistent']);
         Http::assertSent(static fn ($request): bool =>
-            $request->hasHeader('Authorization', 'test-dashboard-key-not-a-secret')
+            $request->hasHeader(
+                'Authorization',
+                'test-api-key-not-a-secret$test-dashboard-key-not-a-secret'
+            )
         );
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
@@ -85,6 +88,30 @@ final class KashierReconciliationTest extends TestCase
         self::assertSame(1, DB::table('wallet_transactions')->where('category', 'package_purchase')->count());
         self::assertSame(0, PaymentReconciliationFinding::query()->count());
         self::assertSame($order->id, PaymentReconciliationCheckpoint::query()->value('cursor_order_id'));
+    }
+
+    public function test_expired_checkout_missing_at_provider_is_closed_without_credit(): void
+    {
+        $order = $this->pendingOrder('PKG-RECON-ABANDONED');
+        DB::table('orders')->where('id', $order->id)->update([
+            'checkout_expires_at' => now()->subMinute(),
+        ]);
+        $order->refresh();
+        Http::fake([
+            'https://test-api.kashier.io/*' => Http::response([], 404),
+        ]);
+
+        $result = app(KashierReconciliationService::class)->reconcile(100);
+
+        self::assertSame(1, $result['consistent']);
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'status' => Order::STATUS_CANCELLED,
+            'financial_status' => Order::FINANCIAL_CANCELLED,
+            'transaction_id' => null,
+        ]);
+        self::assertSame(0, (int) $this->user->fresh()->wallet_coins);
+        self::assertSame(0, DB::table('wallet_transactions')->count());
     }
 
     public function test_provider_reversal_recovers_paid_coins_idempotently(): void

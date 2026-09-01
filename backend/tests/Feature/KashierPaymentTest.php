@@ -525,7 +525,7 @@ class KashierPaymentTest extends TestCase
             ->assertJsonValidationErrors(['package_id']);
     }
 
-   public function test_repeated_initiate_resumes_the_same_recent_pending_checkout(): void
+    public function test_repeated_initiate_resumes_the_same_recent_pending_checkout(): void
     {
         // First initiation
         $first = $this->actingAs($this->user, 'api')
@@ -549,7 +549,42 @@ class KashierPaymentTest extends TestCase
         $this->assertSame(1, Order::query()->where('user_id', $this->user->id)->count());
     }
 
-   public function test_explicit_idempotency_key_replay_returns_the_same_checkout(): void
+    public function test_an_active_checkout_can_be_resumed_after_local_payment_state_is_lost(): void
+    {
+        $pending = $this->createPendingOrder('PKG-RESUME-AFTER-REINSTALL');
+        $pending->forceFill([
+            'checkout_request_key' => 'server-original-checkout-key',
+            'checkout_expires_at' => now()->addMinutes(20),
+        ])->save();
+        $otherPackage = Package::create([
+            'name_ar' => 'باقة أخرى',
+            'name_en' => 'Another package',
+            'price' => 250,
+            'coins' => 900,
+        ]);
+
+        $response = $this->actingAs($this->user, 'api')
+            ->withHeader('Idempotency-Key', '96e07193-d6a9-4b62-9976-b652b4e4f8a7')
+            ->postJson('/api/v1/payment/initiate', [
+                'package_id' => $otherPackage->id,
+                'idempotency_key' => '96e07193-d6a9-4b62-9976-b652b4e4f8a7',
+            ]);
+
+        $response->assertStatus(409)
+            ->assertJsonPath('code', 'pending_checkout_exists')
+            ->assertJsonPath('order_ref', $pending->order_ref);
+        self::assertStringContainsString(
+            'checkout.kashier.io',
+            (string) $response->json('payment_url')
+        );
+        self::assertStringContainsString(
+            rawurlencode((string) $pending->order_ref),
+            (string) $response->json('payment_url')
+        );
+        self::assertSame(1, Order::query()->where('user_id', $this->user->id)->count());
+    }
+
+    public function test_explicit_idempotency_key_replay_returns_the_same_checkout(): void
     {
         $key = '96e07193-d6a9-4b62-9976-b652b4e4f8a7';
         $payload = [

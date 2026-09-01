@@ -354,11 +354,27 @@ final readonly class KashierPaymentService
 
         try {
             $response = Http::withHeaders([
-                'Authorization' => $configuration['secret_key'],
+                // Kashier's reconciliation API does not accept either
+                // credential on its own. Its documented merchant
+                // authorization value is "API key$secret key".
+                'Authorization' => $configuration['api_key'] . '$' . $configuration['secret_key'],
             ])
                 ->connectTimeout(5)
                 ->timeout(10)
                 ->get("{$apiHost}/payments/orders/" . rawurlencode($orderRef));
+
+            if ($response->status() === 404) {
+                // An HPP link can be opened and abandoned before Kashier
+                // creates a provider-side order. Preserve that distinction so
+                // an expired local checkout can close without pretending the
+                // provider was unavailable.
+                return [
+                    'response' => [
+                        'status' => 'NOT_FOUND',
+                        'merchantOrderId' => $orderRef,
+                    ],
+                ];
+            }
 
             if (!$response->successful()) {
                 Log::warning('Kashier order verification API failed', [

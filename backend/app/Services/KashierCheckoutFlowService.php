@@ -170,6 +170,19 @@ final readonly class KashierCheckoutFlowService
                     ->latest('id')
                     ->first()
                 : null;
+            $pendingPaymentUrl = null;
+            if ($pendingOrder) {
+                try {
+                    $pendingPaymentUrl = $this->kashier->getHppUrl(
+                        (string) $pendingOrder->order_ref,
+                        number_format((float) $pendingOrder->final_amount, 2, '.', ''),
+                        'EGP',
+                        route('payment.callback')
+                    );
+                } catch (\Throwable $resumeException) {
+                    report($resumeException);
+                }
+            }
             return $this->responses->make(
                 false,
                 $pendingCheckout
@@ -182,6 +195,7 @@ final readonly class KashierCheckoutFlowService
                 $pendingOrder ? [
                     'order_ref' => (string) $pendingOrder->order_ref,
                     'status' => (string) $pendingOrder->status,
+                    'payment_url' => $pendingPaymentUrl,
                     'checkout_expires_at' => $pendingOrder->checkout_expires_at?->toIso8601String(),
                     'package' => [
                         'id' => (int) $pendingOrder->package_id,
@@ -326,6 +340,7 @@ final readonly class KashierCheckoutFlowService
             'reversed_at' => $order->reversed_at?->toIso8601String(),
             'transaction_id' => $order->transaction_id,
             'amount' => $order->final_amount,
+            'checkout_expires_at' => $order->checkout_expires_at?->toIso8601String(),
             'package' => $order->package ? [
                 'id' => $order->package->id,
                 'name_ar' => $order->package->name_ar,

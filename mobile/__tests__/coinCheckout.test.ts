@@ -171,6 +171,116 @@ describe('coin checkout boundary', () => {
     expect(helpers.removeItem).toHaveBeenCalled();
   });
 
+  it('reopens the same pending checkout instead of trapping the learner', async () => {
+    process.env.EXPO_PUBLIC_BUILD_PROFILE = 'production';
+    process.env.EXPO_PUBLIC_ENABLE_LOCAL_DEMO = '0';
+    jest.resetModules();
+
+    const WebBrowser = require('expo-web-browser') as {
+      openAuthSessionAsync: jest.Mock;
+    };
+    const {publicRequest} = require('../src/constants/api') as {
+      publicRequest: {post: jest.Mock};
+    };
+    const helpers = require('../src/constants/helpers') as {
+      getItem: jest.Mock;
+    };
+    helpers.getItem.mockResolvedValue({
+      idempotencyKey: '11111111-1111-4111-8111-111111111111',
+      packageId: 7,
+      expectedPrice: 49,
+      expectedCoins: 600,
+      createdAt: '2026-09-01T11:55:43.000Z',
+      orderRef: 'PKG-PENDING-RETRY',
+    });
+    publicRequest.post
+      .mockResolvedValueOnce({
+        data: {
+          data: {
+            status: 'pending',
+            financial_status: 'pending',
+            package: {coins: 600},
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          payment_url: 'https://checkout.kashier.io/resume',
+          order_ref: 'PKG-PENDING-RETRY',
+          idempotency_key: '11111111-1111-4111-8111-111111111111',
+        },
+      });
+    WebBrowser.openAuthSessionAsync.mockResolvedValueOnce({type: 'cancel'});
+
+    const {openCoinCheckout} = require('../src/services/coinCheckout') as {
+      openCoinCheckout: (coinPackage: {
+        id: string;
+        coins: number;
+        price: number;
+        label: string;
+      }) => Promise<{cancelled: boolean; orderRef?: string}>;
+    };
+
+    await expect(
+      openCoinCheckout({id: '7', coins: 600, price: 49, label: 'باقة'}),
+    ).resolves.toMatchObject({
+      cancelled: true,
+      orderRef: 'PKG-PENDING-RETRY',
+    });
+    expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledWith(
+      'https://checkout.kashier.io/resume',
+      'rokn://payment-result',
+      {showInRecents: true},
+    );
+  });
+
+  it('resumes the server checkout after app payment state was lost', async () => {
+    process.env.EXPO_PUBLIC_BUILD_PROFILE = 'production';
+    process.env.EXPO_PUBLIC_ENABLE_LOCAL_DEMO = '0';
+    jest.resetModules();
+
+    const WebBrowser = require('expo-web-browser') as {
+      openAuthSessionAsync: jest.Mock;
+    };
+    const {publicRequest} = require('../src/constants/api') as {
+      publicRequest: {post: jest.Mock};
+    };
+    publicRequest.post.mockRejectedValueOnce({
+      response: {
+        data: {
+          code: 'pending_checkout_exists',
+          data: {
+            order_ref: 'PKG-SERVER-PENDING',
+            status: 'pending',
+            payment_url: 'https://checkout.kashier.io/server-resume',
+          },
+        },
+      },
+    });
+    WebBrowser.openAuthSessionAsync.mockResolvedValueOnce({type: 'cancel'});
+
+    const {openCoinCheckout} = require('../src/services/coinCheckout') as {
+      openCoinCheckout: (coinPackage: {
+        id: string;
+        coins: number;
+        price: number;
+        label: string;
+      }) => Promise<{cancelled: boolean; orderRef?: string}>;
+    };
+
+    await expect(
+      openCoinCheckout({id: '7', coins: 600, price: 49, label: 'باقة'}),
+    ).resolves.toMatchObject({
+      cancelled: true,
+      orderRef: 'PKG-SERVER-PENDING',
+    });
+    expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledWith(
+      'https://checkout.kashier.io/server-resume',
+      'rokn://payment-result',
+      {showInRecents: true},
+    );
+  });
+
   it('accepts an approved idempotent replay instead of showing a false error', async () => {
     process.env.EXPO_PUBLIC_BUILD_PROFILE = 'production';
     process.env.EXPO_PUBLIC_ENABLE_LOCAL_DEMO = '0';

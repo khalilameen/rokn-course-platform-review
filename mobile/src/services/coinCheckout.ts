@@ -422,117 +422,118 @@ const runCoinCheckout = async (
 
   const packageId = validatedPackageId;
   let attempt = await readCheckoutAttempt();
-    if (attempt?.orderRef) {
-      const previous = await pollOrder(attempt.orderRef, 1);
-      if (previous.approved) {
-        await clearCheckoutAttempt(attempt.idempotencyKey);
-        return {
-          success: true,
-          pending: false,
-          cancelled: false,
-          coinsAdded: previous.coinsAdded,
-          orderRef: attempt.orderRef,
-          demo: false,
-        };
-      }
-      if (previous.pending) {
-        return {
-          success: false,
-          pending: true,
-          cancelled: false,
-          coinsAdded: 0,
-          orderRef: attempt.orderRef,
-          demo: false,
-        };
-      }
+  if (attempt?.orderRef) {
+    const previous = await pollOrder(attempt.orderRef, 1);
+    if (previous.approved) {
       await clearCheckoutAttempt(attempt.idempotencyKey);
-      attempt = null;
-    }
-    if (attempt && attempt.packageId !== packageId) {
       return {
-        success: false,
-        pending: true,
+        success: true,
+        pending: false,
         cancelled: false,
-        coinsAdded: 0,
+        coinsAdded: previous.coinsAdded,
+        orderRef: attempt.orderRef,
         demo: false,
       };
     }
-    attempt =
-      attempt ||
-      (await getOrCreateCheckoutAttempt(
-        packageId,
-        coinPackage.price,
-        coinPackage.coins,
-      ));
-    idempotencyKey = attempt.idempotencyKey;
-    try {
-      const response = await publicRequest.post(
-        'payment/initiate',
-        {
-          package_id: packageId,
-          expected_amount: attempt.expectedPrice,
-          expected_coins: attempt.expectedCoins,
-          idempotency_key: idempotencyKey,
-        },
-        {headers: {'Idempotency-Key': idempotencyKey}},
+    if (!previous.pending) {
+      await clearCheckoutAttempt(attempt.idempotencyKey);
+      attempt = null;
+    }
+  }
+  if (attempt && attempt.packageId !== packageId) {
+    return {
+      success: false,
+      pending: true,
+      cancelled: false,
+      coinsAdded: 0,
+      demo: false,
+    };
+  }
+  attempt =
+    attempt ||
+    (await getOrCreateCheckoutAttempt(
+      packageId,
+      coinPackage.price,
+      coinPackage.coins,
+    ));
+  idempotencyKey = attempt.idempotencyKey;
+  try {
+    const response = await publicRequest.post(
+      'payment/initiate',
+      {
+        package_id: packageId,
+        expected_amount: attempt.expectedPrice,
+        expected_coins: attempt.expectedCoins,
+        idempotency_key: idempotencyKey,
+      },
+      {headers: {'Idempotency-Key': idempotencyKey}},
+    );
+    paymentUrl = String(response?.data?.payment_url || '');
+    orderRef = String(response?.data?.order_ref || '');
+    const echoedIdempotencyKey = String(response?.data?.idempotency_key || '');
+    if (
+      !paymentUrl ||
+      !orderRef ||
+      (echoedIdempotencyKey && echoedIdempotencyKey !== idempotencyKey)
+    ) {
+      throw new Error('PAYMENT_SESSION_UNAVAILABLE');
+    }
+    const remembered = await rememberCheckoutOrder(attempt, orderRef);
+    if (!remembered) {
+      // The server has created a payable order. Losing its reference here
+      // would make a restart unsafe to reconcile.
+      throw new Error('CHECKOUT_ORDER_REFERENCE_UNAVAILABLE');
+    }
+  } catch (error: unknown) {
+    const code = errorCode(error);
+    // The shared Axios interceptor rejects with the response itself while
+    // unit/native adapters may reject with an AxiosError. Read both through
+    // the common envelope so an already-approved idempotent replay can never
+    // be mistaken for a failed checkout and replaced with a second order.
+    const responsePayload = errorPayload(error);
+    const responseData = responsePayload.data;
+    const closed =
+      typeof responseData === 'object' && responseData !== null
+        ? (responseData as {
+            order_ref?: unknown;
+            status?: unknown;
+            payment_url?: unknown;
+          })
+        : undefined;
+    if (
+      code === 'checkout_attempt_closed' &&
+      String(closed?.status || '').toLowerCase() === 'approved'
+    ) {
+      const approved = await pollOrder(
+        String(closed?.order_ref || attempt.orderRef || ''),
+        1,
       );
-      paymentUrl = String(response?.data?.payment_url || '');
-      orderRef = String(response?.data?.order_ref || '');
-      const echoedIdempotencyKey = String(
-        response?.data?.idempotency_key || '',
-      );
-      if (
-        !paymentUrl ||
-        !orderRef ||
-        (echoedIdempotencyKey && echoedIdempotencyKey !== idempotencyKey)
-      ) {
-        throw new Error('PAYMENT_SESSION_UNAVAILABLE');
-      }
-      const remembered = await rememberCheckoutOrder(
-        attempt,
-        orderRef,
-      );
-      if (!remembered) {
-        // The server has created a payable order. Losing its reference here
-        // would make a restart unsafe to reconcile.
-        throw new Error('CHECKOUT_ORDER_REFERENCE_UNAVAILABLE');
-      }
-    } catch (error: unknown) {
-      const code = errorCode(error);
-      // The shared Axios interceptor rejects with the response itself while
-      // unit/native adapters may reject with an AxiosError. Read both through
-      // the common envelope so an already-approved idempotent replay can never
-      // be mistaken for a failed checkout and replaced with a second order.
-      const responsePayload = errorPayload(error);
-      const responseData = responsePayload.data;
-      const closed =
-        typeof responseData === 'object' && responseData !== null
-          ? (responseData as {order_ref?: unknown; status?: unknown})
-          : undefined;
-      if (
-        code === 'checkout_attempt_closed' &&
-        String(closed?.status || '').toLowerCase() === 'approved'
-      ) {
-        const approved = await pollOrder(
-          String(closed?.order_ref || attempt.orderRef || ''),
-          1,
+      if (!approved.approved) throw error;
+      await clearCheckoutAttempt(idempotencyKey);
+      return {
+        success: true,
+        pending: false,
+        cancelled: false,
+        coinsAdded: approved.coinsAdded,
+        orderRef: String(closed?.order_ref || attempt.orderRef || ''),
+        demo: false,
+      };
+    }
+    if (code === 'pending_checkout_exists') {
+      const pendingOrderRef = String(closed?.order_ref || '').trim();
+      const resumablePaymentUrl = String(closed?.payment_url || '').trim();
+      if (pendingOrderRef) {
+        const remembered = await rememberCheckoutOrder(
+          attempt,
+          pendingOrderRef,
         );
-        if (!approved.approved) throw error;
-        await clearCheckoutAttempt(idempotencyKey);
-        return {
-          success: true,
-          pending: false,
-          cancelled: false,
-          coinsAdded: approved.coinsAdded,
-          orderRef: String(closed?.order_ref || attempt.orderRef || ''),
-          demo: false,
-        };
-      }
-      if (code === 'pending_checkout_exists') {
-        const pendingOrderRef = String(closed?.order_ref || '').trim();
-        if (pendingOrderRef) {
-          const remembered = await rememberCheckoutOrder(attempt, pendingOrderRef);
-          if (!remembered) throw new Error('CHECKOUT_ORDER_REFERENCE_UNAVAILABLE');
+        if (!remembered) {
+          throw new Error('CHECKOUT_ORDER_REFERENCE_UNAVAILABLE');
+        }
+        if (resumablePaymentUrl) {
+          paymentUrl = resumablePaymentUrl;
+          orderRef = pendingOrderRef;
+        } else {
           return {
             success: false,
             pending: true,
@@ -543,6 +544,8 @@ const runCoinCheckout = async (
           };
         }
       }
+    }
+    if (!paymentUrl || !orderRef) {
       if (
         [
           'checkout_idempotency_conflict',
@@ -555,6 +558,7 @@ const runCoinCheckout = async (
       }
       throw error;
     }
+  }
   try {
     const callbackUrl = await openCheckoutSurface(paymentUrl);
     const callback = resultFromUrl(callbackUrl);
