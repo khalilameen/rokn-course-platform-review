@@ -8,12 +8,14 @@ use App\Models\CourseSection;
 use App\Models\DesignSetting;
 use App\Models\Lesson;
 use App\Models\Setting;
+use App\Models\User;
 use App\Services\BunnyService;
+use App\Services\PublicAppSettingsService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Arr;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -37,6 +39,7 @@ class SettingsController extends Controller
         // Keep page reads idempotent. Database defaults are persisted only by
         // the explicit POST below, not by opening the settings screen.
         $settings = Setting::query()->first() ?? new Setting();
+        $designSettings = DesignSetting::getDefaultSettings();
         $bunnyCleanupCandidates = collect();
         $bunnyCleanupStats = ['pending_review' => 0, 'approved' => 0, 'deleted' => 0];
         if (Schema::hasTable('bunny_video_cleanup_candidates')) {
@@ -62,6 +65,7 @@ class SettingsController extends Controller
 
         return view('admin.settings.index', compact(
             'settings',
+            'designSettings',
             'bunnyCleanupCandidates',
             'bunnyCleanupStats',
             'cleanupFilter'
@@ -160,7 +164,7 @@ class SettingsController extends Controller
      * @param Request $request
      * @return \Illuminate\Http\RedirectResponse
      */
-    public function update(Request $request)
+    public function update(Request $request, PublicAppSettingsService $publicSettings)
     {
         try {
             $validated = $request->validate([
@@ -177,20 +181,23 @@ class SettingsController extends Controller
             'seo_meta_title_en' => 'nullable|string|max:255',
             'seo_meta_description_en' => 'nullable|string|max:500',
             'english_translation' => 'nullable|boolean',
-            'device_login_policy' => 'nullable|string',
+            'device_login_policy' => 'nullable|in:multiple_devices,single_device,single_device_permanent',
             'enforce_course_section_order' => 'nullable|boolean',
             'bunny_enabled' => 'nullable|boolean',
             'bunny_api_key' => 'nullable|string|max:4096',
-            'bunny_library_id' => 'nullable|string',
-            'bunny_cdn_hostname' => 'nullable|string',
+            'bunny_library_id' => ['nullable', 'string', 'max:40', 'regex:/^\d+$/'],
+            'bunny_cdn_hostname' => ['nullable', 'string', 'max:253', 'regex:/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i'],
             'bunny_storage_zone_name' => 'nullable|string',
             'bunny_storage_password' => 'nullable|string|max:4096',
             'bunny_security_key' => 'nullable|string|max:4096',
-            'android_app_url' => 'nullable|url|max:500',
-            'ios_app_url' => 'nullable|url|max:500',
-            'about_us_url' => 'nullable|string',
-            'privacy_policy_url' => 'nullable|string',
+            'about_us_url' => 'nullable|url|starts_with:https://|max:500',
+            'privacy_policy_url' => 'nullable|url|starts_with:https://|max:500',
             'support_whatsapp_url' => 'nullable|string|max:255',
+            'facebook_url' => 'nullable|url|starts_with:https://|max:2048',
+            'youtube_url' => 'nullable|url|starts_with:https://|max:2048',
+            'instagram_url' => 'nullable|url|starts_with:https://|max:2048',
+            'tiktok_url' => 'nullable|url|starts_with:https://|max:2048',
+            'telegram_url' => 'nullable|url|starts_with:https://|max:2048',
             'ai_daily_user_limit' => 'sometimes|required|integer|min:1|max:1000',
             'ai_global_daily_request_limit' => 'sometimes|required|integer|min:1|max:10000000',
             'ai_global_daily_token_budget' => 'sometimes|required|integer|min:1000|max:1000000000',
@@ -200,6 +207,31 @@ class SettingsController extends Controller
         } catch (ValidationException $exception) {
             $this->forgetBunnySecretInputs($request);
             throw $exception;
+        }
+
+        $designFields = [
+            'facebook_url',
+            'youtube_url',
+            'instagram_url',
+            'tiktok_url',
+            'telegram_url',
+        ];
+        $designUpdates = Arr::only($validated, $designFields);
+        $validated = Arr::except($validated, $designFields);
+
+        foreach ($designUpdates as $field => $url) {
+            if ($url === null || trim((string) $url) === '') {
+                $designUpdates[$field] = null;
+                continue;
+            }
+            $channel = str_replace('_url', '', $field);
+            $normalized = $publicSettings->socialUrl($channel, $url);
+            if ($normalized === null) {
+                throw ValidationException::withMessages([
+                    $field => ['أدخل رابط الحساب الصحيح لهذه المنصة يبدأ بـ https'],
+                ]);
+            }
+            $designUpdates[$field] = $normalized;
         }
 
         $secretUpdates = [];
@@ -216,7 +248,7 @@ class SettingsController extends Controller
         $this->forgetBunnySecretInputs($request);
 
         if (!empty($validated['support_whatsapp_url'])) {
-            $normalizedWhatsAppUrl = $this->normalizeWhatsAppUrl($validated['support_whatsapp_url']);
+            $normalizedWhatsAppUrl = $publicSettings->whatsAppUrl($validated['support_whatsapp_url']);
             if ($normalizedWhatsAppUrl === null) {
                 throw ValidationException::withMessages([
                     'support_whatsapp_url' => ['أدخل رقمًا دوليًا مثل +201001234567 أو رابطًا يبدأ بـ https://wa.me/.'],
@@ -225,35 +257,22 @@ class SettingsController extends Controller
             $validated['support_whatsapp_url'] = $normalizedWhatsAppUrl;
         }
 
-        $settings = Setting::firstOrCreate([]);
-
-        $settings->update($validated + $secretUpdates);
-        Cache::forget('home:general-settings:v1');
-
-        return redirect()->route('admin.settings')->with('success', 'تم التحديث بنجاح');
-    }
-
-    private function normalizeWhatsAppUrl(string $value): ?string
-    {
-        $value = trim($value);
-        if (filter_var($value, FILTER_VALIDATE_URL)) {
-            $parts = parse_url($value);
+        DB::transaction(function () use ($validated, $secretUpdates, $designUpdates): void {
+            $settings = Setting::query()->firstOrCreate([]);
+            $previousDevicePolicy = (string) ($settings->device_login_policy ?? 'multiple_devices');
+            $settings->update($validated + $secretUpdates);
             if (
-                strtolower((string) ($parts['scheme'] ?? '')) !== 'https'
-                || !in_array(strtolower((string) ($parts['host'] ?? '')), ['wa.me', 'www.wa.me'], true)
+                array_key_exists('device_login_policy', $validated)
+                && $validated['device_login_policy'] === 'multiple_devices'
+                && $previousDevicePolicy !== 'multiple_devices'
+                && Schema::hasColumn('users', 'locked_device_id')
             ) {
-                return null;
+                User::query()->whereNotNull('locked_device_id')->update(['locked_device_id' => null]);
             }
-            $digits = trim((string) ($parts['path'] ?? ''), '/');
-        } else {
-            $digits = preg_replace('/[\s()+.-]+/', '', $value) ?? '';
-        }
-
-        if (preg_match('/^[1-9][0-9]{7,14}$/', $digits) !== 1) {
-            return null;
-        }
-
-        return 'https://wa.me/' . $digits;
+            $design = DesignSetting::query()->first() ?? DesignSetting::getDefaultSettings();
+            $design->fill($designUpdates)->save();
+        });
+        return redirect()->route('admin.settings')->with('success', 'تم التحديث بنجاح');
     }
 
     private function forgetBunnySecretInputs(Request $request): void
@@ -321,7 +340,7 @@ class SettingsController extends Controller
         try {
             $request->validate([
                 'api_key' => 'nullable|string|max:4096',
-                'library_id' => 'nullable|string',
+                'library_id' => ['nullable', 'string', 'max:40', 'regex:/^\d+$/'],
             ]);
         } catch (ValidationException $exception) {
             $this->forgetBunnySecretInputs($request);

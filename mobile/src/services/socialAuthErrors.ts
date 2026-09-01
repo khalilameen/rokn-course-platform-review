@@ -62,11 +62,31 @@ export const socialAuthMessage = (code: string): string => {
   if (code === 'PROVIDER_NOT_CONFIGURED') {
     return 'طريقة الدخول غير متاحة الآن\nاختر طريقة أخرى';
   }
-  if (code === 'PROVIDER_UNAVAILABLE' || code === 'LOGIN_UNAVAILABLE') {
+  if (
+    code === 'PROVIDER_UNAVAILABLE' ||
+    code === 'SOCIAL_PROVIDER_UNAVAILABLE' ||
+    code === 'LOGIN_UNAVAILABLE' ||
+    code === 'SOCIAL_LOGIN_UNAVAILABLE'
+  ) {
     return 'تعذّر الوصول إلى الحساب\nحاول مرة أخرى';
   }
   if (code === 'LOGIN_BROWSER_UNAVAILABLE') {
     return 'تعذّر فتح صفحة الدخول\nحاول مرة أخرى';
+  }
+  if (code === 'SOCIAL_LOGIN_IN_PROGRESS') {
+    return 'جارٍ إكمال تسجيل الدخول\nحاول بعد قليل';
+  }
+  if (code === 'SOCIAL_ACCOUNT_CONFLICT') {
+    return 'الحساب مرتبط بطريقة دخول أخرى\nتواصل مع الدعم';
+  }
+  if (code === 'SOCIAL_IDENTITY_VERIFICATION_FAILED') {
+    return 'تعذّر التحقق من الحساب\nحاول مرة أخرى';
+  }
+  if (code === 'DEVICE_LOGIN_DENIED') {
+    return 'الحساب مرتبط بجهاز آخر\nتواصل مع الدعم';
+  }
+  if (code === 'ACCOUNT_DISABLED') {
+    return 'الحساب متوقف\nتواصل مع الدعم';
   }
   if (
     code === 'LOGIN_CODE_MISSING' ||

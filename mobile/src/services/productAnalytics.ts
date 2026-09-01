@@ -1,10 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {AppState} from 'react-native';
 import {publicRequest} from '../constants/api';
 import {accountScopedStorageKey} from '../constants/helpers';
-import {
-  enqueueDurableOutbox,
-  flushDurableOutbox,
-} from './durableOutbox';
+import {enqueueDurableOutbox, flushDurableOutbox} from './durableOutbox';
 
 export type ProductEventName =
   | 'app_opened'
@@ -33,7 +31,7 @@ export type ProductEventName =
 
 export type ProductEvent = {
   event_name: ProductEventName;
-  source?: 'app' | 'web' | 'dashboard' | 'system' | 'notification';
+  source?: 'app' | 'web' | 'notification';
   screen_key?: string;
   campaign_key?: string;
   course_id?: string | number;
@@ -53,6 +51,7 @@ type QueuedEvent = ProductEvent & {
 const QUEUE_KEY = '@rokn/product-events/v1';
 const MAX_QUEUE_SIZE = 50;
 const MAX_BATCH_SIZE = 12;
+const FLUSH_DEBOUNCE_MS = 1_200;
 
 const uuid = (): string => {
   const seed = `${Date.now()}-${Math.random()}-${Math.random()}`;
@@ -64,28 +63,31 @@ const uuid = (): string => {
   });
 };
 
-const sessionKey = uuid();
 const queueKey = () => accountScopedStorageKey(QUEUE_KEY);
+const sessionKeys = new Map<string, string>();
+const sessionKeyForQueue = (storageKey: string) => {
+  const current = sessionKeys.get(storageKey);
+  if (current) return current;
+  const created = uuid();
+  sessionKeys.set(storageKey, created);
+  while (sessionKeys.size > 4) {
+    const oldest = sessionKeys.keys().next().value;
+    if (typeof oldest !== 'string') break;
+    sessionKeys.delete(oldest);
+  }
+  return created;
+};
 let legacyMigration: Promise<void> | null = null;
+const scheduledFlushes = new Map<string, ReturnType<typeof setTimeout>>();
 
 const migrateLegacyQueue = (targetKey: string) => {
   if (legacyMigration) return legacyMigration;
   legacyMigration = (async () => {
     try {
-      const raw = await AsyncStorage.getItem(QUEUE_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      if (Array.isArray(parsed)) {
-        for (const value of parsed.slice(-MAX_QUEUE_SIZE)) {
-          const event = value as QueuedEvent;
-          if (!event?.event_id || !event?.event_name) continue;
-          await enqueueDurableOutbox({
-            storageKey: targetKey,
-            id: event.event_id,
-            payload: event,
-            maxItems: MAX_QUEUE_SIZE,
-          });
-        }
-      }
+      // The retired global queue has no trustworthy account owner. Importing
+      // it after an account switch would attribute another learner's actions
+      // to the current account, so discard it instead of guessing ownership.
+      void targetKey;
       await AsyncStorage.removeItem(QUEUE_KEY);
     } catch {
       // A malformed legacy queue is non-critical and remains for a later retry.
@@ -96,46 +98,94 @@ const migrateLegacyQueue = (targetKey: string) => {
   return legacyMigration;
 };
 
-const deliver = async (event: QueuedEvent): Promise<'ack' | 'retry'> => {
+const deliver = async (
+  event: QueuedEvent,
+): Promise<'ack' | 'retry' | 'drop'> => {
   try {
     await publicRequest.post('product-events', event, {timeout: 6000});
     return 'ack';
-  } catch {
-    return 'retry';
+  } catch (error) {
+    const status = Number(
+      (error as {response?: {status?: unknown}})?.response?.status || 0,
+    );
+    return status >= 400 && status < 500 ? 'drop' : 'retry';
+  }
+};
+
+const deliverBatch = async (
+  events: QueuedEvent[],
+): Promise<'ack' | 'retry' | 'drop'> => {
+  try {
+    await publicRequest.post('product-events', {events}, {timeout: 6000});
+    return 'ack';
+  } catch (error) {
+    const status = Number(
+      (error as {response?: {status?: unknown}})?.response?.status || 0,
+    );
+    return status >= 400 && status < 500 ? 'drop' : 'retry';
   }
 };
 
 const flushQueue = (storageKey: string) =>
   flushDurableOutbox<QueuedEvent>({
     storageKey,
-    deliver,
+    deliver: async event =>
+      (await queueKey()) === storageKey ? deliver(event) : 'drop',
+    deliverBatch: async events =>
+      (await queueKey()) === storageKey ? deliverBatch(events) : 'drop',
     maxBatch: MAX_BATCH_SIZE,
     maxItems: MAX_QUEUE_SIZE,
   });
 
+const scheduleQueueFlush = (storageKey: string) => {
+  const existing = scheduledFlushes.get(storageKey);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(() => {
+    scheduledFlushes.delete(storageKey);
+    if (AppState.currentState !== 'active') return;
+    void flushQueue(storageKey).catch(() => undefined);
+  }, FLUSH_DEBOUNCE_MS);
+  scheduledFlushes.set(storageKey, timer);
+  while (scheduledFlushes.size > 4) {
+    const oldestKey = scheduledFlushes.keys().next().value;
+    if (typeof oldestKey !== 'string') break;
+    const oldestTimer = scheduledFlushes.get(oldestKey);
+    if (oldestTimer) clearTimeout(oldestTimer);
+    scheduledFlushes.delete(oldestKey);
+  }
+};
+
 export const flushProductEvents = async (): Promise<void> => {
   const storageKey = await queueKey();
+  const scheduled = scheduledFlushes.get(storageKey);
+  if (scheduled) clearTimeout(scheduled);
+  scheduledFlushes.delete(storageKey);
   await migrateLegacyQueue(storageKey);
   await flushQueue(storageKey);
 };
 
 export const trackProductEvent = async (event: ProductEvent): Promise<void> => {
-  const queued: QueuedEvent = {
-    ...event,
-    event_id: uuid(),
-    session_key: sessionKey,
-    occurred_at: new Date().toISOString(),
-  };
+  try {
+    const storageKey = await queueKey();
+    const queued: QueuedEvent = {
+      ...event,
+      event_id: uuid(),
+      session_key: sessionKeyForQueue(storageKey),
+      occurred_at: new Date().toISOString(),
+    };
 
-  const storageKey = await queueKey();
-  await migrateLegacyQueue(storageKey);
-  await enqueueDurableOutbox({
-    storageKey,
-    id: queued.event_id,
-    payload: queued,
-    maxItems: MAX_QUEUE_SIZE,
-  });
-  await flushQueue(storageKey);
+    await migrateLegacyQueue(storageKey);
+    await enqueueDurableOutbox({
+      storageKey,
+      id: queued.event_id,
+      payload: queued,
+      maxItems: MAX_QUEUE_SIZE,
+    });
+    scheduleQueueFlush(storageKey);
+  } catch {
+    // Analytics must never surface an unhandled rejection or block the
+    // learner when storage is full or temporarily unavailable.
+  }
 };
 
 export const productAnalyticsQueueBaseKey = QUEUE_KEY;

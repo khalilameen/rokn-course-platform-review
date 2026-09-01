@@ -7,7 +7,7 @@
             <h6 class="alert-title">حدثت أخطاء في النموذج</h6>
             <ul class="alert-list">
                 @foreach ($errors->all() as $error)
-                    <li>{!! $error !!}</li>
+                    <li>{{ $error }}</li>
                 @endforeach
             </ul>
         </div>

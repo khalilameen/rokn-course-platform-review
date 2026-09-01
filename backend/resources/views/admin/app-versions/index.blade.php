@@ -15,6 +15,25 @@
         </a>
     </div>
     <div class="card-body">
+        @php($channelLabels = ['play' => 'Google Play', 'direct' => 'Android مباشر', 'appstore' => 'App Store'])
+        <div class="row mb-3">
+            @foreach($releaseReadiness['channels'] as $channel => $status)
+                <div class="col-md-4 mb-2">
+                    <div class="alert mb-0 {{ $status['ready'] ? 'alert-success' : 'alert-warning' }}">
+                        <strong>{{ $channelLabels[$channel] ?? $channel }}</strong>
+                        <div>
+                            @if($status['ready'])
+                                رابط التحديث جاهز
+                            @elseif($status['reason'] === 'invalid_download_url')
+                                رابط الإصدار النشط لا يطابق القناة
+                            @else
+                                لا يوجد إصدار نشط صالح
+                            @endif
+                        </div>
+                    </div>
+                </div>
+            @endforeach
+        </div>
         <div class="table-responsive">
             <table class="table table-striped">
                 <thead>
@@ -62,9 +81,13 @@
                         </td>
                         <td>{{ $version->created_at->format('Y-m-d') }}</td>
                         <td>
-                            <a href="{{ route('admin.app-versions.edit', $version->id) }}" class="btn btn-warning btn-sm">
-                                <i class="fa fa-edit"></i>
-                            </a>
+                            @if($version->distribution_channel)
+                                <a href="{{ route('admin.app-versions.edit', $version->id) }}" class="btn btn-warning btn-sm" aria-label="تعديل الإصدار">
+                                    <i class="fa fa-edit"></i>
+                                </a>
+                            @else
+                                <span class="text-muted small">سجل قديم</span>
+                            @endif
                             <form action="{{ route('admin.app-versions.destroy', $version->id) }}" method="POST" class="d-inline-block" onsubmit="return confirm('هل أنت متأكد؟');">
                                 @csrf
                                 @method('DELETE')

@@ -1,5 +1,5 @@
 @extends('admin.layouts.app')
-@section('page.title', 'إرسال إشعار لجميع الطلاب')
+@section('page.title', 'إرسال إشعار للطلاب')
 @section('styles')
     <link rel="stylesheet" href="{{ asset('admin/assets/css/notifications-dashboard.css') }}">
 @endsection
@@ -18,7 +18,7 @@
             <div class="card">
                 <div class="card-header">
                     <i class="fa fa-bell-o"></i>
-                    <strong class="card-title pr-2">إرسال إشعار لجميع الطلاب</strong>
+                    <strong class="card-title pr-2">إرسال إشعار للطلاب</strong>
                 </div>
                 <div class="card-body card-block">
                     @if(session('success'))
@@ -33,7 +33,7 @@
                             </ul>
                         </div>
                     @endif
-                    {!! Form::open(['method' => 'POST', 'route' => ['admin.notifications.store']]) !!}
+                    {!! Form::open(['method' => 'POST', 'route' => ['admin.notifications.store'], 'files' => true]) !!}
                         <div class="form-group">
                             <label for="notification-course">الكورس (اختياري)</label>
                             <select name="course_id" id="notification-course" class="form-control">
@@ -44,31 +44,44 @@
                                     </option>
                                 @endforeach
                             </select>
-                            <small class="form-text text-muted">اختيار كورس مطلوب عند استهداف المشتركين أو غير المشتركين ويجعل الضغط يفتح صفحة الكورس.</small>
+                            <small class="form-text text-muted">اختيار كورس مطلوب عند استهداف المسجلين أو غير المسجلين ويجعل الضغط يفتح صفحة الكورس.</small>
                         </div>
                         <div class="form-group">
                             <label for="notification-audience">الجمهور</label>
                             <select name="audience" id="notification-audience" class="form-control" required>
-                                <option value="not_enrolled" {{ old('audience') === 'not_enrolled' ? 'selected' : '' }}>غير المشتركين في الكورس</option>
-                                <option value="enrolled" {{ old('audience') === 'enrolled' ? 'selected' : '' }}>المشتركون في الكورس</option>
+                                <option value="not_enrolled" {{ old('audience') === 'not_enrolled' ? 'selected' : '' }}>غير المسجلين في الكورس</option>
+                                <option value="enrolled" {{ old('audience') === 'enrolled' ? 'selected' : '' }}>المسجلون في الكورس</option>
                                 <option value="all" {{ old('audience', 'all') === 'all' ? 'selected' : '' }}>كل الطلاب</option>
                             </select>
                         </div>
                         <div class="form-group">
+                            <label for="notification-kind">نوع الإشعار العام</label>
+                            <select name="notification_kind" id="notification-kind" class="form-control">
+                                <option value="marketing" {{ old('notification_kind', 'marketing') === 'marketing' ? 'selected' : '' }}>جديد وعروض — لمن فعّلها</option>
+                                <option value="service" {{ old('notification_kind') === 'service' ? 'selected' : '' }}>خدمة أو حساب — يصل للجميع</option>
+                            </select>
+                            <small class="form-text text-muted">يُستخدم عند اختيار إشعار عام فقط</small>
+                        </div>
+                        <div class="form-group">
                             <label for="notification-title">عنوان الإشعار <span class="text-danger">*</span></label>
-                            <input name="title" id="notification-title" placeholder="عنوان الإشعار..." class="form-control" type="text" required value="{{ old('title') }}">
+                            <input name="title" id="notification-title" maxlength="80" placeholder="عنوان قصير" class="form-control" type="text" required value="{{ old('title') }}">
                         </div>
                         <div class="form-group">
                             <label for="notification-message">نص الإشعار <span class="text-danger">*</span></label>
-                            <textarea name="message" id="notification-message" placeholder="اكتب نص الإشعار هنا..." class="form-control" rows="4" required>{{ old('message') }}</textarea>
+                            <textarea name="message" id="notification-message" maxlength="240" placeholder="اكتب المطلوب مباشرة" class="form-control" rows="4" required>{{ old('message') }}</textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="notification-image">الصورة <small class="text-muted">اختيارية</small></label>
+                            <input accept="image/jpeg,image/png,image/webp" class="form-control-file" id="notification-image" name="image" type="file">
+                            <small class="form-text text-muted">تظهر داخل التطبيق وفي إشعار الهاتف عندما يدعم الجهاز ذلك</small>
                         </div>
                         <div class="form-group">
                             <label for="notification-title-en">English title <small class="text-muted">(optional)</small></label>
-                            <input name="title_en" id="notification-title-en" class="form-control" type="text" value="{{ old('title_en') }}" dir="ltr">
+                            <input name="title_en" id="notification-title-en" maxlength="80" class="form-control" type="text" value="{{ old('title_en') }}" dir="ltr">
                         </div>
                         <div class="form-group">
                             <label for="notification-message-en">English message <small class="text-muted">(optional)</small></label>
-                            <textarea name="message_en" id="notification-message-en" class="form-control" rows="3" dir="ltr">{{ old('message_en') }}</textarea>
+                            <textarea name="message_en" id="notification-message-en" maxlength="240" class="form-control" rows="3" dir="ltr">{{ old('message_en') }}</textarea>
                         </div>
                         <div class="form-group">
                             <button type="submit" class="btn btn-primary btn-block">

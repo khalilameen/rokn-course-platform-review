@@ -6,6 +6,7 @@ namespace App\Services;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\JsonResource;
+use App\Support\BusinessClock;
 
 final readonly class ApiResponseService
 {
@@ -20,6 +21,7 @@ final readonly class ApiResponseService
             'success' => true,
             'data' => $data,
             'message' => $message,
+            'server_time' => BusinessClock::utcNow()->toIso8601String(),
         ] + $additional, $httpStatus);
     }
 
@@ -35,6 +37,7 @@ final readonly class ApiResponseService
             'success' => false,
             'data' => $data,
             'message' => $message,
+            'server_time' => BusinessClock::utcNow()->toIso8601String(),
         ] + $additional, $httpStatus, $headers);
     }
 
@@ -47,6 +50,7 @@ final readonly class ApiResponseService
             'status' => $httpStatus,
             'success' => true,
             'message' => $message,
+            'server_time' => BusinessClock::utcNow()->toIso8601String(),
         ]);
     }
 }

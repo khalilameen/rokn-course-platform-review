@@ -1,4 +1,5 @@
 import type {VideoQuality} from './types';
+import {serverNowMs} from '../../utils/serverClock';
 
 export type PlaybackLifecycleEventType =
   | 'start'
@@ -123,7 +124,7 @@ const expiryMilliseconds = (expiresAt?: string): number | null => {
  */
 export const manifestRefreshDelayMs = (
   expiresAt?: string,
-  now = Date.now(),
+  now = serverNowMs(),
 ): number | null => {
   const expiry = expiryMilliseconds(expiresAt);
   if (!expiry) return null;
@@ -136,7 +137,7 @@ export const manifestRefreshDelayMs = (
 export const scheduledManifestRefreshDelayMs = (
   refreshAfter?: string,
   expiresAt?: string,
-  now = Date.now(),
+  now = serverNowMs(),
 ) => {
   const scheduled = expiryMilliseconds(refreshAfter);
   if (scheduled) return Math.max(0, Math.floor(scheduled - now));

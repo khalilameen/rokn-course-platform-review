@@ -102,7 +102,7 @@
                                                 {{ $course->created_at->format('Y-m-d') }}
                                             </div>
                                             <div class="urgent-date-meta">
-                                                {{ $course->created_at->diffForHumans() }}
+                                                {{ \App\Support\BusinessClock::relative($course->created_at) }}
                                             </div>
                                         </td>
                                         <td>

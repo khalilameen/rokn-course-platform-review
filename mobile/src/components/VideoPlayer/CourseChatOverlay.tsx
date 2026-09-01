@@ -16,12 +16,18 @@ import {
 } from 'react-native';
 import Svg, {Path} from 'react-native-svg';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {Palette, rtlRowStyle, textDirection} from '../../constants/designSystem';
+import {
+  Palette,
+  rtlRowStyle,
+  textDirection,
+} from '../../constants/designSystem';
 import {formatArabicNumber} from '../../constants/arabicFormatting';
 import {Fonts} from '../../constants/styleConstants';
 import {useCourseChat} from './courseChat/useCourseChat';
 import type {CourseLearningData, CourseReel} from './types';
 import type {AssistantPresence} from './courseChat/useCourseChat';
+import {useReducedMotion} from '../../hooks/useReducedMotion';
+import {cleanUnicodeText, truncateGraphemes} from '../../utils/unicodeText';
 
 interface CourseChatOverlayProps {
   visible: boolean;
@@ -54,14 +60,16 @@ const SendIcon = () => (
   </Svg>
 );
 
-const TypingIndicator = () => {
+const WorkingIndicator = () => {
   const dots = useRef([
     new Animated.Value(0.32),
     new Animated.Value(0.32),
     new Animated.Value(0.32),
   ]).current;
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
+    if (reduceMotion) return undefined;
     const animation = Animated.loop(
       Animated.stagger(
         140,
@@ -83,18 +91,19 @@ const TypingIndicator = () => {
     );
     animation.start();
     return () => animation.stop();
-  }, [dots]);
+  }, [dots, reduceMotion]);
 
   return (
     <View
       accessible
+      accessibilityLiveRegion="polite"
       accessibilityRole="text"
-      accessibilityLabel="Rokn AI يكتب الآن"
-      style={styles.typingIndicator}>
+      accessibilityLabel="ركن يكتب الآن"
+      style={styles.workingIndicator}>
       {dots.map((opacity, index) => (
         <Animated.View
           key={index}
-          style={[styles.typingDot, {opacity}]}
+          style={[styles.workingDot, {opacity: reduceMotion ? 0.72 : opacity}]}
         />
       ))}
     </View>
@@ -102,11 +111,7 @@ const TypingIndicator = () => {
 };
 
 const presenceLabel = (presence: AssistantPresence): string =>
-  presence === 'typing'
-    ? 'يكتب الآن'
-    : presence === 'connecting'
-    ? 'جاري الاتصال'
-    : 'متصل الآن';
+  presence === 'working' ? 'يكتب الآن' : 'متصل الآن';
 
 const CourseChatOverlay = ({
   visible,
@@ -115,6 +120,7 @@ const CourseChatOverlay = ({
   onClose,
 }: CourseChatOverlayProps) => {
   const insets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
   const {height: windowHeight, fontScale} = useWindowDimensions();
   const navigation = useNavigation<CourseChatNavigation>();
   const {
@@ -125,6 +131,7 @@ const CourseChatOverlay = ({
     loadUpgradeQuote,
     messages,
     planLimitReached,
+    retry,
     scholarshipAccess,
     scrollRef,
     send,
@@ -142,12 +149,13 @@ const CourseChatOverlay = ({
       navigation.navigate('Wallet');
     },
   });
+  const hasSendableInput = cleanUnicodeText(input).length > 0;
 
   return (
     <Modal
       visible={visible}
       transparent
-      animationType="slide"
+      animationType={reducedMotion ? 'none' : 'slide'}
       presentationStyle="overFullScreen"
       statusBarTranslucent
       onRequestClose={onClose}>
@@ -155,12 +163,13 @@ const CourseChatOverlay = ({
         style={styles.modal}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="إغلاق الشات"
+          accessible={false}
+          importantForAccessibility="no-hide-descendants"
           style={styles.backdrop}
           onPress={onClose}
         />
         <View
+          accessibilityViewIsModal
           style={[
             styles.sheet,
             {
@@ -176,7 +185,7 @@ const CourseChatOverlay = ({
                 <View
                   style={[
                     styles.presenceDot,
-                    assistantPresence === 'connecting' &&
+                    assistantPresence === 'working' &&
                       styles.presenceDotConnecting,
                   ]}
                 />
@@ -186,16 +195,6 @@ const CourseChatOverlay = ({
                   {presenceLabel(assistantPresence)}
                 </Text>
               </View>
-            </View>
-            <View style={styles.playingPill}>
-              <View style={styles.liveDot} />
-              <Text
-                adjustsFontSizeToFit
-                minimumFontScale={0.8}
-                numberOfLines={1}
-                style={styles.playingText}>
-                الفيديو مستمر
-              </Text>
             </View>
             <Pressable
               accessibilityRole="button"
@@ -218,15 +217,15 @@ const CourseChatOverlay = ({
                 {planLimitReached
                   ? 'استخدمت مساحة الأسئلة في اختيارك الحالي'
                   : scholarshipAccess
-                  ? 'كل الكورس مفتوح لك بالمنحة'
+                  ? 'الكورس كامل متاح بمنحتك'
                   : 'Rokn AI غير متاح مع هذا الوصول'}
               </Text>
               <Text style={styles.entitlementText}>
                 {planLimitReached
-                  ? 'مكانك وإجاباتك الحالية كما هما. لو محتاج تسأل أكتر تقدر تنتقل للاختيار التالي وتدفع فرق السعر فقط.'
+                  ? 'تقدمك وإجاباتك محفوظة\nانتقل إلى الفئة التالية وادفع فرق السعر فقط'
                   : scholarshipAccess
-                  ? 'اتفرج وطبّق كل المشاريع من أول الكورس لآخره مجانًا. لو احتجت Rokn AI أو الشهادة تقدر تضيف اختيارًا مدفوعًا من غير ما تخسر منحتك.'
-                  : 'محتوى الكورس متاح لك كالمعتاد. لو محتاج Rokn AI شوف خيارات الوصول المتاحة للكورس.'}
+                  ? 'محتوى الكورس متاح لك كاملًا\nيمكنك إضافة Rokn AI أو الشهادة دون أن تخسر منحتك'
+                  : 'محتوى الكورس متاح لك\nراجع فئات الكورس لإضافة Rokn AI'}
               </Text>
               {upgradeQuote && (
                 <View style={styles.upgradeCard}>
@@ -247,7 +246,7 @@ const CourseChatOverlay = ({
                   </View>
                   {upgradeQuote.deficit > 0 && (
                     <Text style={styles.upgradeDeficit}>
-                      ناقصك {formatArabicNumber(upgradeQuote.deficit)} رصيد
+                      ينقصك {formatArabicNumber(upgradeQuote.deficit)} رصيد
                     </Text>
                   )}
                   {!!upgradeQuote.targetMessageLimit && (
@@ -284,7 +283,7 @@ const CourseChatOverlay = ({
                         : `انتقل إلى ${
                             upgradeQuote.targetPlanName || 'الاختيار التالي'
                           }`
-                      : 'شوف اختيارات Rokn AI'}
+                      : 'راجع خيارات Rokn AI'}
                   </Text>
                 )}
               </Pressable>
@@ -292,6 +291,7 @@ const CourseChatOverlay = ({
           ) : (
             <>
               <ScrollView
+                accessibilityLabel="محادثة Rokn AI"
                 ref={scrollRef}
                 style={styles.messages}
                 contentContainerStyle={styles.messagesContent}
@@ -310,13 +310,34 @@ const CourseChatOverlay = ({
                         : styles.assistantBubble,
                     ]}>
                     {message.pending ? (
-                      assistantPresence === 'typing' ? (
-                        <TypingIndicator />
+                      assistantPresence === 'working' ? (
+                        <WorkingIndicator />
                       ) : (
                         <ActivityIndicator color="#FFFFFF" size="small" />
                       )
                     ) : (
-                      <Text style={styles.bubbleText}>{message.text}</Text>
+                      <>
+                        <Text style={styles.bubbleText}>{message.text}</Text>
+                        {message.role === 'assistant' &&
+                          message.deliveryStatus === 'failed' &&
+                          message.clientRequestId &&
+                          message.errorCode !== 'chat_daily_limit_reached' && (
+                            <Pressable
+                              accessibilityRole="button"
+                              disabled={sending}
+                              onPress={() => retry(message.clientRequestId!)}>
+                              <Text style={styles.retryText}>
+                                {[
+                                  'chat_answer_in_progress',
+                                  'client_timeout',
+                                  'interrupted_turn',
+                                ].includes(message.errorCode || '')
+                                  ? 'استعد الرد'
+                                  : 'حاول مرة أخرى'}
+                              </Text>
+                            </Pressable>
+                          )}
+                      </>
                     )}
                   </View>
                 ))}
@@ -328,23 +349,29 @@ const CourseChatOverlay = ({
                   {paddingBottom: Math.max(10, insets.bottom + 6)},
                 ]}>
                 <TextInput
+                  accessibilityLabel="اكتب سؤالك إلى Rokn AI"
                   value={input}
-                  onChangeText={setInput}
+                  onChangeText={value =>
+                    setInput(truncateGraphemes(value, 1600))
+                  }
                   placeholder="اكتب سؤالك"
                   placeholderTextColor="rgba(255,255,255,.42)"
                   multiline
-                  maxLength={1200}
                   style={styles.input}
-                  onSubmitEditing={send}
+                  onSubmitEditing={() => send()}
                   blurOnSubmit={false}
                 />
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="إرسال"
-                  disabled={!input.trim() || sending}
+                  accessibilityState={{
+                    busy: sending,
+                    disabled: !hasSendableInput || sending,
+                  }}
+                  disabled={!hasSendableInput || sending}
                   style={[
                     styles.sendButton,
-                    (!input.trim() || sending) && styles.sendButtonDisabled,
+                    (!hasSendableInput || sending) && styles.sendButtonDisabled,
                   ]}
                   onPress={send}>
                   <SendIcon />
@@ -429,32 +456,10 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.medium,
     fontSize: 10,
   },
-  playingPill: {
-    minHeight: 28,
-    maxWidth: '44%',
-    paddingHorizontal: 9,
-    borderRadius: 14,
-    ...rtlRowStyle,
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(255,255,255,.06)',
-  },
-  liveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#52D795',
-  },
-  playingText: {
-    color: 'rgba(255,255,255,.72)',
-    fontFamily: Fonts.medium,
-    fontSize: 10,
-    flexShrink: 1,
-  },
   closeButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,.06)',
@@ -500,7 +505,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 22,
   },
-  typingIndicator: {
+  retryText: {
+    color: '#9FC0FF',
+    fontFamily: Fonts.bold,
+    fontSize: 12,
+    marginTop: 8,
+  },
+  workingIndicator: {
     minWidth: 42,
     minHeight: 20,
     ...rtlRowStyle,
@@ -508,7 +519,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 5,
   },
-  typingDot: {
+  workingDot: {
     width: 7,
     height: 7,
     borderRadius: 4,

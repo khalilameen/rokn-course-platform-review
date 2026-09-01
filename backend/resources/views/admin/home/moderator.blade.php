@@ -73,7 +73,7 @@
                         <div class="moderator-course-row__meta">
                             <span><i class="fa fa-list-alt" aria-hidden="true"></i> {{ $course->modules_count }} وحدات</span>
                             <span><i class="fa fa-play-circle" aria-hidden="true"></i> {{ $course->sections_count }} عناصر</span>
-                            <span><i class="fa fa-clock-o" aria-hidden="true"></i> عُدّل {{ $course->updated_at->diffForHumans() }}</span>
+                            <span><i class="fa fa-clock-o" aria-hidden="true"></i> عُدّل {{ \App\Support\BusinessClock::relative($course->updated_at) }}</span>
                         </div>
                         @if($course->is_coming_soon && $audit && !$audit['ready'])
                             <div class="moderator-course-row__readiness">

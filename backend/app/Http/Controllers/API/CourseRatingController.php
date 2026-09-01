@@ -5,106 +5,188 @@ declare(strict_types=1);
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\API\CourseRatingDeleteRequest;
 use App\Http\Requests\API\CourseRatingRequest;
 use App\Models\Course;
-use App\Models\CourseEnrollment;
 use App\Models\CourseRating;
-use App\Models\CourseSection;
+use App\Models\User;
 use App\Services\ApiResponseService;
+use App\Services\CourseRatingEligibilityService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 
 final class CourseRatingController extends Controller
 {
-    public function __construct(private readonly ApiResponseService $responses)
-    {
+    public function __construct(
+        private readonly ApiResponseService $responses,
+        private readonly CourseRatingEligibilityService $eligibility
+    ) {
     }
 
-    /**
-     * Store or update a course rating.
-     *
-     * @param CourseRatingRequest $request
-     * @param int $courseId
-     * @return \Illuminate\Http\JsonResponse
-     */
     public function store(CourseRatingRequest $request, int|string $courseId): JsonResponse
     {
-        try {
-            $user = auth('api')->user();
-            $course = Course::findOrFail($courseId);
+        /** @var User $user */
+        $user = auth('api')->user();
+        $course = Course::query()->findOrFail($courseId);
+        $eligibility = $this->eligibility->for($user, $course);
+        if (!$eligibility['can_rate']) {
+            $message = $eligibility['reason'] === 'watch_required'
+                ? 'شاهد مقطعًا كاملًا قبل التقييم'
+                : 'التقييم متاح لطلاب الكورس';
 
-            // Check if user has access to the course (direct or parent access)
-            if (!$this->checkCourseAccess((int) $user->id, (int) $courseId)) {
-                return $this->responses->error(
-                    'You must be enrolled in the course to rate it.',
-                    403
-                );
+            return $this->responses->error($message, 403, [
+                'code' => strtoupper($eligibility['reason']),
+            ]);
+        }
+
+        $expectedVersion = $request->integer('version');
+        $nextRating = $request->integer('rating');
+        $nextComment = $request->input('comment');
+
+        $result = DB::transaction(function () use (
+            $user,
+            $course,
+            $expectedVersion,
+            $nextRating,
+            $nextComment
+        ): array {
+            $inserted = 0;
+            if ($expectedVersion === 0) {
+                $inserted = DB::table('course_ratings')->insertOrIgnore([
+                    'user_id' => $user->id,
+                    'course_id' => $course->id,
+                    'rating' => $nextRating,
+                    'comment' => $nextComment,
+                    'version' => 1,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
             }
 
-            // Create or update the rating
-            $rating = CourseRating::updateOrCreate(
-                [
-                    'user_id' => $user->id,
-                    'course_id' => $courseId,
-                ],
-                [
-                    'rating' => $request->rating,
-                    'comment' => $request->comment,
-                ]
+            /** @var CourseRating|null $rating */
+            $rating = CourseRating::withTrashed()
+                ->where('user_id', $user->id)
+                ->where('course_id', $course->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$rating) {
+                return ['conflict' => true, 'rating' => null];
+            }
+            if ($inserted > 0) {
+                // insertOrIgnore closes the first-write race. Emit the model's
+                // catalogue invalidation event after the winning insert.
+                $rating->save();
+
+                return ['conflict' => false, 'rating' => $rating];
+            }
+
+            $sameValue = !$rating->trashed()
+                && (int) $rating->rating === $nextRating
+                && ($rating->comment ?: null) === $nextComment;
+            if ((int) $rating->version !== $expectedVersion) {
+                // A transport retry after a committed response is success,
+                // while a genuinely different edit from another device is a conflict.
+                return ['conflict' => !$sameValue, 'rating' => $rating];
+            }
+
+            if ($sameValue) {
+                return ['conflict' => false, 'rating' => $rating];
+            }
+
+            $rating->forceFill([
+                'rating' => $nextRating,
+                'comment' => $nextComment,
+                'version' => (int) $rating->version + 1,
+            ]);
+            if ($rating->trashed()) {
+                $rating->restore();
+            } else {
+                $rating->save();
+            }
+
+            return ['conflict' => false, 'rating' => $rating];
+        }, 3);
+
+        if ($result['conflict']) {
+            return $this->responses->error(
+                'تغيّر تقييمك من جهاز آخر\nحدّث الكورس ثم حاول مرة أخرى',
+                409,
+                $this->payload($course, $result['rating'])
             );
-
-            return $this->responses->success(
-                [
-                    'rating' => $rating->rating,
-                    'comment' => $rating->comment,
-                    'average_rating' => $course->average_rating,
-                    'ratings_count' => $course->ratings_count,
-                ],
-                'Rating submitted successfully'
-            );
-
-        } catch (\Exception $exception) {
-            report($exception);
-
-            return $this->responses->error('Failed to submit rating', 500);
         }
+
+        return $this->responses->success(
+            $this->payload($course, $result['rating']),
+            'تم حفظ تقييمك'
+        );
     }
 
-    /**
-     * Check if user has access to a course (direct or parent access).
-     *
-     * @param int $userId
-     * @param int $courseId
-     * @return bool
-     */
-    private function checkCourseAccess(int $userId, int $courseId): bool
-    {
-        // Check direct enrollment
-        $directEnrollment = CourseEnrollment::where('user_id', $userId)
-            ->where('course_id', $courseId)
-            ->where('is_active', true)
-            ->first();
+    public function destroy(
+        CourseRatingDeleteRequest $request,
+        int|string $courseId
+    ): JsonResponse {
+        /** @var User $user */
+        $user = auth('api')->user();
+        $course = Course::query()->findOrFail($courseId);
+        $expectedVersion = $request->integer('version');
 
-        if ($directEnrollment && $directEnrollment->isActive()) {
-            return true;
+        $result = DB::transaction(function () use ($user, $course, $expectedVersion): array {
+            /** @var CourseRating|null $rating */
+            $rating = CourseRating::withTrashed()
+                ->where('user_id', $user->id)
+                ->where('course_id', $course->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$rating || $rating->trashed()) {
+                return ['conflict' => false, 'rating' => $rating];
+            }
+            if ((int) $rating->version !== $expectedVersion) {
+                return ['conflict' => true, 'rating' => $rating];
+            }
+
+            $rating->forceFill(['version' => (int) $rating->version + 1])->save();
+            $rating->delete();
+
+            return ['conflict' => false, 'rating' => $rating];
+        }, 3);
+
+        if ($result['conflict']) {
+            return $this->responses->error(
+                'تغيّر تقييمك من جهاز آخر\nحدّث الكورس ثم حاول مرة أخرى',
+                409,
+                $this->payload($course, $result['rating'])
+            );
         }
 
-        // Check parent course access
-        // Find all parent courses that contain this course as a section
-        $parentCourseIds = CourseSection::where('sectionable_type', 'App\Models\Course')
-            ->where('sectionable_id', $courseId)
-            ->pluck('course_id')
-            ->toArray();
+        return $this->responses->success(
+            $this->payload($course, null, (int) ($result['rating']?->version ?? 0)),
+            'تم حذف تقييمك'
+        );
+    }
 
-        if (empty($parentCourseIds)) {
-            return false;
-        }
-
-        // Check if user is enrolled in any of the parent courses
-        $parentEnrollment = CourseEnrollment::where('user_id', $userId)
-            ->whereIn('course_id', $parentCourseIds)
-            ->where('is_active', true)
+    /** @return array<string, int|float|string|null> */
+    private function payload(
+        Course $course,
+        ?CourseRating $rating,
+        ?int $version = null
+    ): array {
+        $aggregate = CourseRating::query()
+            ->where('course_id', $course->id)
+            ->whereBetween('rating', [1, 5])
+            ->selectRaw('COUNT(*) AS ratings_count, AVG(rating) AS average_rating')
             ->first();
+        $count = (int) ($aggregate?->ratings_count ?? 0);
 
-        return $parentEnrollment && $parentEnrollment->isActive();
+        return [
+            'rating' => $rating && !$rating->trashed() ? (int) $rating->rating : null,
+            'comment' => $rating && !$rating->trashed() ? $rating->comment : null,
+            'version' => $version ?? (int) ($rating?->version ?? 0),
+            'average_rating' => $count > 0
+                ? round((float) $aggregate->average_rating, 1)
+                : null,
+            'ratings_count' => $count,
+        ];
     }
 }

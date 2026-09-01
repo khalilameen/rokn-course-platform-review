@@ -3,7 +3,9 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Storage;
+use App\Services\StoredFileDeletionService;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class Photo extends Model
 {
@@ -15,12 +17,18 @@ class Photo extends Model
     protected static function boot()
     {
         parent::boot();
-        static::deleting(function ($photo) {
-            // make sure no other photo uses the same file name.
-            if (static::where('path', $photo->path)->count() === 1) {
-                Storage::disk('public')->delete($photo->path);
-            }
+        static::deleted(function (Photo $photo): void {
+            $path = (string) $photo->path;
+            $delete = static function () use ($path): void {
+                // The database pointer is gone before the object is retired.
+                if (!Photo::query()->where('path', $path)->exists()) {
+                    app(StoredFileDeletionService::class)->deleteOrQueue('public', $path);
+                }
+            };
+            DB::transactionLevel() > 0 ? DB::afterCommit($delete) : $delete();
         });
+        static::saved(fn (Photo $photo) => $photo->invalidateCourseCatalogue());
+        static::deleted(fn (Photo $photo) => $photo->invalidateCourseCatalogue());
     }
 
     /**
@@ -48,5 +56,26 @@ class Photo extends Model
     public function assetPath()
     {
         return asset('storage/' . $this->path);
+    }
+
+    private function invalidateCourseCatalogue(): void
+    {
+        $owner = $this->photoable;
+        $affectsCatalogue = $owner instanceof Course
+            || ($owner instanceof User
+                && in_array(strtolower((string) $owner->role), ['teacher', 'admin'], true)
+                && $owner->teachingCourses()->exists());
+        if (!$affectsCatalogue) {
+            return;
+        }
+        $increment = static function (): void {
+            try {
+                Cache::add('courses:catalog-revision', 1, now()->addYears(10));
+                Cache::increment('courses:catalog-revision');
+            } catch (\Throwable) {
+                // Image persistence must not depend on the cache service.
+            }
+        };
+        DB::transactionLevel() > 0 ? DB::afterCommit($increment) : $increment();
     }
 }

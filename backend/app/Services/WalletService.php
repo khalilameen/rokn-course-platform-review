@@ -120,10 +120,27 @@ final readonly class WalletService
             throw new \InvalidArgumentException('Invalid wallet debit refund.');
         }
 
-        $rewardAmount = min($amount, (int) $originalDebit->reward_amount);
+        $previousRefunds = WalletTransaction::query()
+            ->where('user_id', $userId)
+            ->where('direction', WalletTransaction::DIRECTION_CREDIT)
+            ->where('metadata->refunded_transaction_id', $originalDebit->public_id)
+            ->get(['paid_amount', 'reward_amount']);
+        $remainingReward = max(
+            0,
+            (int) $originalDebit->reward_amount - (int) $previousRefunds->sum('reward_amount')
+        );
+        $remainingPaid = max(
+            0,
+            (int) $originalDebit->paid_amount - (int) $previousRefunds->sum('paid_amount')
+        );
+        if ($amount > $remainingReward + $remainingPaid) {
+            throw new \InvalidArgumentException('Wallet debit refund exceeds the remaining allocation.');
+        }
+
+        $rewardAmount = min($amount, $remainingReward);
         $paidAmount = min(
             $amount - $rewardAmount,
-            (int) $originalDebit->paid_amount
+            $remainingPaid
         );
 
         // Unattributed legacy value remains reward value.
@@ -197,7 +214,9 @@ final readonly class WalletService
             }
 
             /** @var User $user */
-            $user = User::query()->lockForUpdate()->findOrFail($userId);
+            // Retained financial orders can settle or reverse after account deletion.
+            // The user row is anonymized and soft-deleted, but its ledger must remain balanced.
+            $user = User::withTrashed()->lockForUpdate()->findOrFail($userId);
 
             // Recheck idempotency after acquiring the aggregate lock.
             $existing = WalletTransaction::query()

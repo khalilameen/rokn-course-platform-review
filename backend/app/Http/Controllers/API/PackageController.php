@@ -9,6 +9,8 @@ use App\Models\Package;
 use App\Services\PackageChannelPricingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Throwable;
 
 final class PackageController extends Controller
 {
@@ -18,17 +20,25 @@ final class PackageController extends Controller
 
     public function index(): JsonResponse
     {
-        $packages = Package::query()
+        $discountPercent = $this->pricing->directDiscountPercent();
+        $load = fn () => Package::query()
+            ->where('is_active', true)
             ->where('price', '>', 0)
             ->where('coins', '>', 0)
             ->orderBy('coins')
+            ->orderBy('id')
             ->get()
-            ->map(fn (Package $package): array => $this->payload($package));
+            ->map(fn (Package $package): array => $this->payload($package, $discountPercent));
+        try {
+            $packages = Cache::remember('public-packages:v2', 60, $load);
+        } catch (Throwable) {
+            $packages = $load();
+        }
 
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Packages retrieved successfully',
+            'message' => 'تم تحميل باقات العملات',
             'data' => $packages,
         ]);
     }
@@ -36,6 +46,7 @@ final class PackageController extends Controller
     public function show(int|string $id): JsonResponse
     {
         $package = Package::query()
+            ->where('is_active', true)
             ->where('price', '>', 0)
             ->where('coins', '>', 0)
             ->find($id);
@@ -44,7 +55,7 @@ final class PackageController extends Controller
             return response()->json([
                 'status' => 404,
                 'success' => false,
-                'message' => 'Package not found',
+                'message' => 'الباقة غير متاحة',
                 'data' => null,
             ], 404);
         }
@@ -52,8 +63,8 @@ final class PackageController extends Controller
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Package retrieved successfully',
-            'data' => $this->payload($package),
+            'message' => 'تم تحميل الباقة',
+            'data' => $this->payload($package, $this->pricing->directDiscountPercent()),
         ]);
     }
 
@@ -63,7 +74,7 @@ final class PackageController extends Controller
             'status' => 410,
             'success' => false,
             'code' => 'external_checkout_required',
-            'message' => 'Use the secure checkout inside the app to purchase Rokn coins.',
+            'message' => 'استخدم الدفع داخل التطبيق لشحن العملات',
             'data' => [
                 'package_id' => (int) $id,
                 'initiate_endpoint' => '/api/v1/payment/initiate',
@@ -72,7 +83,7 @@ final class PackageController extends Controller
     }
 
     /** @return array<string, mixed> */
-    private function payload(Package $package): array
+    private function payload(Package $package, float $discountPercent): array
     {
         return [
             'id' => $package->id,
@@ -80,8 +91,10 @@ final class PackageController extends Controller
             'name_ar' => $package->name_ar,
             'name_en' => $package->name_en,
             'price' => (float) $package->price,
-            'direct_price' => $this->pricing->directPrice($package),
-            'direct_discount_percent' => $this->pricing->directDiscountPercent(),
+            'direct_price' => $package->direct_enabled
+                ? $this->pricing->directPrice($package, $discountPercent)
+                : null,
+            'direct_discount_percent' => $discountPercent,
             'coins' => (int) $package->coins,
             'store_products' => [
                 'google' => $package->google_enabled
@@ -90,6 +103,11 @@ final class PackageController extends Controller
                 'apple' => $package->apple_enabled
                     ? $package->apple_product_id
                     : null,
+            ],
+            'channels' => [
+                'direct' => (bool) $package->direct_enabled,
+                'google' => (bool) $package->google_enabled,
+                'apple' => (bool) $package->apple_enabled,
             ],
         ];
     }

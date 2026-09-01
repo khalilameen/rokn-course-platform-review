@@ -193,9 +193,9 @@
                             'badgeTone' => $method->is_active ? 'success' : 'danger',
                         ])
                         @include('admin.partials.status-badge', [
-                            'badgeStatus' => $method->is_repeatable ? 'active' : 'unknown',
-                            'badgeLabel' => $method->is_repeatable ? 'متكرر' : 'مرة واحدة',
-                            'badgeTone' => $method->is_repeatable ? 'success' : 'muted',
+                            'badgeStatus' => 'unknown',
+                            'badgeLabel' => 'مرة واحدة',
+                            'badgeTone' => 'muted',
                         ])
                     </div>
                     <p class="text-muted mb-2">{{ $method->title_en }}</p>
@@ -219,6 +219,21 @@
                     @if($method->action_key)
                         <div class="mt-2 small text-muted">
                             <code class="bg-light px-2 py-1 rounded">{{ $method->action_key }}</code>
+                        </div>
+                    @endif
+                    <div class="mt-2 small text-muted">
+                        المطالبات: {{ number_format($method->user_earnings_count) }}
+                        من {{ $method->total_claim_limit ? number_format($method->total_claim_limit) : 'بلا سقف' }}
+                        @if($method->campaign_key)
+                            · الحملة <code>{{ $method->campaign_key }}</code>
+                        @endif
+                    </div>
+                    @if($method->starts_at || $method->ends_at)
+                        <div class="mt-1 small text-muted">
+                            {{ $method->starts_at ? \App\Support\BusinessClock::format($method->starts_at) : 'الآن' }}
+                            —
+                            {{ $method->ends_at ? \App\Support\BusinessClock::format($method->ends_at) : 'مفتوحة' }}
+                            · توقيت القاهرة
                         </div>
                     @endif
                     <div class="mt-2 small text-muted">

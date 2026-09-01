@@ -10,7 +10,12 @@ final class AiEntitlementUsage extends Model
 {
     public const FEATURE_COURSE_CHAT = 'course_chat';
     public const FEATURE_PROJECT_FEEDBACK = 'project_feedback';
-    public const FEATURES = [self::FEATURE_COURSE_CHAT, self::FEATURE_PROJECT_FEEDBACK];
+    public const FEATURE_PROJECT_FOLLOWUP = 'project_followup';
+    public const FEATURES = [
+        self::FEATURE_COURSE_CHAT,
+        self::FEATURE_PROJECT_FEEDBACK,
+        self::FEATURE_PROJECT_FOLLOWUP,
+    ];
 
     protected $fillable = [
         'enrollment_id',

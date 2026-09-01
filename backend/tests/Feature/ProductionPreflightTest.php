@@ -45,6 +45,14 @@ class ProductionPreflightTest extends TestCase
         self::assertStringContainsString('COURSE_PDF_SHARED_STORAGE=true', Artisan::output());
     }
 
+    public function test_preflight_rejects_ephemeral_feedback_storage(): void
+    {
+        config(['filesystems.disks.feedback.shared' => false]);
+
+        self::assertSame(1, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
+        self::assertStringContainsString('FEEDBACK_SHARED_STORAGE=true', Artisan::output());
+    }
+
     public function test_preflight_rejects_missing_or_malformed_app_association_identity(): void
     {
         config([
@@ -142,8 +150,14 @@ class ProductionPreflightTest extends TestCase
                 'app.key' => 'base64:' . base64_encode(random_bytes(32)),
                 'app.url' => 'https://api.rokn.academy',
                 'app.app_domain' => 'rokn.academy',
-                'app.timezone' => 'Africa/Cairo',
-                'trusted_hosts.hosts' => ['api.rokn.academy'],
+                'public_links.base_url' => 'https://rokn.academy',
+                'app.timezone' => 'UTC',
+                'app.business_timezone' => 'Africa/Cairo',
+                'trusted_hosts.hosts' => ['api.rokn.academy', 'rokn.academy'],
+                'l5-swagger.routes.middleware.api' => ['admin.only', 'admin.mfa'],
+                'l5-swagger.routes.middleware.docs' => ['admin.only', 'admin.mfa'],
+                'operations.recovery_encryption_key_id' => 'production-key-v1',
+                'operations.recovery_evidence_signing_key' => str_repeat('r', 48),
                 'app_links.android_package' => 'com.rokn',
                 'app_links.android_sha256_fingerprints' => [$androidFingerprint],
                 'app_links.apple_app_ids' => ['ABCDE12345.com.rokn.app'],
@@ -160,11 +174,11 @@ class ProductionPreflightTest extends TestCase
                 'trusted_proxies.proxies' => ['10.20.30.0/24'],
                 'bunny.stream_api_key' => 'configured',
                 'bunny.library_id' => 'configured',
-                'bunny.cdn_hostname' => 'cdn.production.test',
+                'bunny.cdn_hostname' => 'vz-rokn.b-cdn.net',
                 'bunny.token_auth_key' => 'configured',
                 'bunny.storage_zone' => 'production-assets',
                 'bunny.storage_password' => 'configured',
-                'bunny.storage_cdn_hostname' => 'assets.production.test',
+                'bunny.storage_cdn_hostname' => 'rokn-assets.b-cdn.net',
                 'bunny.storage_token_auth_key' => 'configured',
                 'kashier.mode' => 'live',
                 'kashier.live.api_key' => 'configured',
@@ -190,6 +204,12 @@ class ProductionPreflightTest extends TestCase
                 'projects.submission_disk' => 's3',
                 'certificate.disk' => 's3',
                 'course_pdfs.disk' => 's3',
+                'filesystems.disks.feedback' => [
+                    'driver' => 'local',
+                    'root' => storage_path('framework/testing/feedback'),
+                    'visibility' => 'private',
+                    'shared' => true,
+                ],
                 'mail.from.address' => 'support@production.test',
                 'firebase.credentials.file' => $credentials,
             ]);

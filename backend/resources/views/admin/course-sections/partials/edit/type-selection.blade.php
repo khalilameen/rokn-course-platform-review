@@ -40,12 +40,20 @@
                             <div class="type-description">كورس منفصل داخل الكورس الحالي</div>
                         </div>
 -->
+                        <div class="type-option" data-type="quiz">
+                            <div class="type-icon type-quiz">
+                                <i class="fa fa-list-ul"></i>
+                            </div>
+                            <div class="type-name">اختبار الوحدة</div>
+                            <div class="type-description">اختياري؛ يظهر بعد المقاطع ولا يفتح ما بعده حتى ينجح الطالب</div>
+                        </div>
+
                         <div class="type-option" data-type="project">
                             <div class="type-icon type-project">
                                 <i class="fa fa-project-diagram"></i>
                             </div>
-                            <div class="type-name">مشروع</div>
-                            <div class="type-description">مشروع تطبيقي مع تقييم AI</div>
+                            <div class="type-name">مشروع عبور</div>
+                            <div class="type-description">اختياري؛ يظهر بعد المقاطع ويمنع الانتقال حتى يجتازه الطالب</div>
                         </div>
                     </div>
 

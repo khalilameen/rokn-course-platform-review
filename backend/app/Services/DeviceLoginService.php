@@ -4,7 +4,8 @@ namespace App\Services;
 
 use App\Models\Setting;
 use App\Models\User;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
+use Throwable;
 
 class DeviceLoginService
 {
@@ -18,18 +19,26 @@ class DeviceLoginService
     public function checkDeviceAccess(User $user, ?string $deviceId): array
     {
         // Get device login policy from settings
-        $settings = Setting::first();
-        $policy = $settings->device_login_policy ?? 'multiple_devices';
-
-        // If no device_id provided, generate one from request metadata
-        if (empty($deviceId)) {
-            $deviceId = $this->generateDeviceIdFromRequest();
+        try {
+            $settings = Setting::first();
+            $policy = $settings?->device_login_policy ?? 'multiple_devices';
+        } catch (Throwable $exception) {
+            // Optional dashboard settings must not take authentication down
+            // during a rolling migration.
+            report($exception);
+            $policy = 'multiple_devices';
         }
 
-        Log::info('Device access check', [
-            'user_id' => $user->id,
-            'policy' => $policy,
-        ]);
+        $deviceId = trim((string) $deviceId);
+
+        if ($policy !== 'multiple_devices' && $deviceId === '') {
+            return [
+                'allowed' => false,
+                'message' => "حدّث التطبيق\nثم حاول تسجيل الدخول",
+                'action' => 'deny',
+                'device_id' => '',
+            ];
+        }
 
         switch ($policy) {
             case 'multiple_devices':
@@ -63,7 +72,7 @@ class DeviceLoginService
         return [
             'allowed' => true,
             'message' => 'تم تسجيل الدخول بنجاح',
-            'action' => 'allow',
+            'action' => 'allow_multiple',
             'device_id' => $deviceId
         ];
     }
@@ -77,17 +86,16 @@ class DeviceLoginService
      */
     private function handleSingleDevice(User $user, string $deviceId): array
     {
-        // Check if user is logging in from a different device
-        $isDifferentDevice = $user->locked_device_id && $user->locked_device_id !== $deviceId;
-
-        if ($isDifferentDevice) {
-            // Revoke all existing API tokens (logout from all other devices)
-            $user->purgeApiTokens();
-
-            Log::info('User switched device (single_device policy)', [
-                'user_id' => $user->id,
-            ]);
+        if (empty($user->locked_device_id)) {
+            return [
+                'allowed' => true,
+                'message' => 'تم تسجيل الدخول بنجاح',
+                'action' => 'lock_device',
+                'device_id' => $deviceId,
+            ];
         }
+
+        $isDifferentDevice = $user->locked_device_id !== $deviceId;
 
         return [
             'allowed' => true,
@@ -129,33 +137,12 @@ class DeviceLoginService
         }
 
         // Device doesn't match - deny access
-        Log::warning('Login attempt from unauthorized device', [
-            'user_id' => $user->id,
-        ]);
-
         return [
             'allowed' => false,
-            'message' => 'لا يمكنك تسجيل الدخول من هذا الجهاز. حسابك مرتبط بجهاز آخر. '
-                . 'يرجى التواصل مع المعلم لإعادة تعيين الجهاز.',
+            'message' => "الحساب مرتبط بجهاز آخر\nتواصل مع الدعم لتغييره",
             'action' => 'deny',
             'device_id' => $deviceId,
         ];
-    }
-
-    /**
-     * Generate device ID from request metadata (fallback)
-     *
-     * @return string
-     */
-    private function generateDeviceIdFromRequest(): string
-    {
-        $request = request();
-
-        // Create a hash from user agent and IP address
-        $userAgent = $request->userAgent();
-        // $ipAddress = $request->ip();
-
-        return hash('sha256', $userAgent);
     }
 
     /**
@@ -172,29 +159,41 @@ class DeviceLoginService
             case 'lock_device':
                 // Lock user to this device permanently
                 $user->forceFill(['locked_device_id' => $deviceId])->save();
-                Log::info('Device locked', [
-                    'user_id' => $user->id,
-                ]);
                 break;
 
             case 'logout_others':
-                // Update the current device
+                $user->purgeApiTokens();
+                $this->retireOtherDevicePushRegistrations($user, $deviceId);
                 $user->forceFill(['locked_device_id' => $deviceId])->save();
-                Log::info('Device updated (logout others)', [
-                    'user_id' => $user->id,
-                ]);
                 break;
 
             case 'allow':
-                // Just update the device_id for tracking (optional)
-                if ($user->locked_device_id !== $deviceId) {
-                    $user->forceFill(['locked_device_id' => $deviceId])->save();
-                }
+            case 'allow_multiple':
                 break;
 
             case 'deny':
                 // No action needed, access was denied
                 break;
         }
+    }
+
+    /**
+     * A one-device policy applies to notification delivery as well as API
+     * access. Otherwise a phone whose bearer was revoked can keep receiving
+     * private account notifications until its FCM token happens to rotate.
+     */
+    private function retireOtherDevicePushRegistrations(User $user, string $deviceId): void
+    {
+        $tokens = $user->deviceTokens();
+        if (!Schema::hasColumn('user_device_tokens', 'device_id')) {
+            $tokens->delete();
+            return;
+        }
+
+        $tokens
+            ->where(function ($query) use ($deviceId): void {
+                $query->whereNull('device_id')->orWhere('device_id', '<>', $deviceId);
+            })
+            ->delete();
     }
 }

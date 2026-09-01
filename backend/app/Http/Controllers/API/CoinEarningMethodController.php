@@ -37,7 +37,9 @@ final class CoinEarningMethodController extends Controller
             })
             ->latest()
             ->get()
-            ->filter(fn (CoinEarningMethod $method): bool => $method->hasUsableDestination())
+            ->filter(fn (CoinEarningMethod $method): bool =>
+                $method->hasUsableDestination() && $method->hasClaimCapacity()
+            )
             ->values();
         $setting = Setting::first() ?? new Setting();
         $user = auth('api')->user();
@@ -85,7 +87,7 @@ final class CoinEarningMethodController extends Controller
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Coin earning methods retrieved successfully',
+            'message' => 'تم تحميل طرق ربح العملات',
             'how_to_use_coins' => $setting->how_to_use_coins,
             'coin_rules' => $setting->how_to_use_coins,
             'data' => CoinEarningMethodResource::collection($methods),
@@ -101,16 +103,17 @@ final class CoinEarningMethodController extends Controller
         $user = auth('api')->user();
         $actionUrl = $method->resolvedActionUrl();
         if (
-            !$method->is_active
+            !$method->isAvailableNow()
+            || !$method->hasClaimCapacity()
             || $method->action_key === 'register'
         ) {
-            return $this->error('Task is not available', 404, 'task_unavailable');
+            return $this->error('المهمة غير متاحة', 404, 'task_unavailable');
         }
         if ($this->tombstones->userHasConsumedMethod($user, $method)) {
             return response()->json([
                 'status' => 200,
                 'success' => true,
-                'message' => 'تم استلام مكافأة هذه المهمة سابقًا.',
+                'message' => 'استلمت مكافأة هذه المهمة من قبل',
                 'data' => ['task_state' => 'claimed', 'action_url' => $actionUrl],
             ]);
         }
@@ -120,8 +123,8 @@ final class CoinEarningMethodController extends Controller
             } catch (\DomainException $exception) {
                 return $this->error(
                     $exception->getMessage() === 'whatsapp_bot_unavailable'
-                        ? 'ربط واتساب غير متاح مؤقتًا. جرّب بعد قليل.'
-                        : 'Task is not available',
+                        ? "ربط واتساب غير متاح الآن\nحاول لاحقًا"
+                        : 'المهمة غير متاحة',
                     $exception->getMessage() === 'whatsapp_bot_unavailable' ? 503 : 404,
                     $exception->getMessage()
                 );
@@ -131,13 +134,13 @@ final class CoinEarningMethodController extends Controller
                 'status' => 200,
                 'success' => true,
                 'message' => $data['task_state'] === 'claimed'
-                    ? 'تم استلام مكافأة هذه المهمة سابقًا.'
-                    : 'ابعت الرسالة الجاهزة في واتساب، والعملات هتوصلك تلقائيًا.',
+                    ? 'استلمت مكافأة هذه المهمة من قبل'
+                    : "أرسل الرسالة الجاهزة عبر واتساب\nتُضاف العملات عند وصولها",
                 'data' => $data,
             ]);
         }
         if ($method->requires_external_visit && $actionUrl === null) {
-            return $this->error('Task is not available', 404, 'task_unavailable');
+            return $this->error('المهمة غير متاحة', 404, 'task_unavailable');
         }
 
         [$attempt, $alreadyClaimed] = DB::transaction(function () use ($user, $method): array {
@@ -166,7 +169,7 @@ final class CoinEarningMethodController extends Controller
             return response()->json([
                 'status' => 200,
                 'success' => true,
-                'message' => 'تم استلام مكافأة هذه المهمة سابقًا.',
+                'message' => 'استلمت مكافأة هذه المهمة من قبل',
                 'data' => [
                     'task_state' => 'claimed',
                     'action_url' => $actionUrl,
@@ -177,7 +180,7 @@ final class CoinEarningMethodController extends Controller
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'تم بدء المهمة. عد إلى التطبيق للمطالبة بالمكافأة.',
+            'message' => "بدأت المهمة\nعد إلى التطبيق لاستلام المكافأة",
             'data' => [
                 'attempt_id' => $attempt->public_id,
                 'task_state' => $attempt->claim_available_at?->isFuture() ? 'started' : 'ready_to_claim',
@@ -196,13 +199,13 @@ final class CoinEarningMethodController extends Controller
         $user = auth('api')->user();
         $method = CoinEarningMethod::active()->findOrFail($request->integer('method_id'));
         if ($method->action_key === 'register') {
-            return $this->error('Task is not available', 404, 'task_unavailable');
+            return $this->error('المهمة غير متاحة', 404, 'task_unavailable');
         }
         if ($this->tombstones->userHasConsumedMethod($user, $method)) {
             return response()->json([
                 'status' => 200,
                 'success' => true,
-                'message' => 'تم استلام مكافأة هذه المهمة سابقًا.',
+                'message' => 'استلمت مكافأة هذه المهمة من قبل',
                 'data' => [
                     'already_claimed' => true,
                     'earned_amount' => 0,
@@ -219,7 +222,7 @@ final class CoinEarningMethodController extends Controller
                 ->exists()
         ) {
             return $this->error(
-                'افتح واتساب من المهمة وابعت الرسالة الجاهزة. العملات بتضاف تلقائيًا عند وصولها.',
+                "افتح واتساب من المهمة\nثم أرسل الرسالة الجاهزة",
                 409,
                 'whatsapp_not_verified'
             );
@@ -229,6 +232,12 @@ final class CoinEarningMethodController extends Controller
             $result = DB::transaction(function () use ($user, $method, $walletService): array {
                 // Serializes two rapid claim taps even before an attempt row exists.
                 \App\Models\User::query()->lockForUpdate()->findOrFail($user->id);
+                $lockedMethod = CoinEarningMethod::query()
+                    ->lockForUpdate()
+                    ->findOrFail($method->id);
+                if (!$lockedMethod->isAvailableNow()) {
+                    throw new \DomainException('task_unavailable');
+                }
 
                 $attempt = UserCoinTaskAttempt::query()
                     ->where('user_id', $user->id)
@@ -245,6 +254,9 @@ final class CoinEarningMethodController extends Controller
                         'earned_amount' => (int) ($earning?->amount ?? $method->coins_amount),
                         'new_balance' => (int) $user->fresh()->wallet_coins,
                     ];
+                }
+                if (!$lockedMethod->hasClaimCapacity()) {
+                    throw new \DomainException('task_quota_reached');
                 }
 
                 if ($method->requires_external_visit && !$attempt) {
@@ -267,17 +279,21 @@ final class CoinEarningMethodController extends Controller
 
                 $transaction = $walletService->credit(
                     $user->id,
-                    (int) $method->coins_amount,
+                    (int) $lockedMethod->coins_amount,
                     'task_reward',
-                    "coin-task:{$user->id}:{$method->id}",
-                    $method,
-                    ['action_key' => $method->action_key],
+                    "coin-task:{$user->id}:{$lockedMethod->id}",
+                    $lockedMethod,
+                    [
+                        'action_key' => $lockedMethod->action_key,
+                        'campaign_key' => $lockedMethod->campaign_key,
+                        'reward_timezone' => \App\Support\BusinessClock::timezoneName(),
+                    ],
                     WalletTransaction::BUCKET_REWARD
                 );
 
                 $user->coinEarnings()->firstOrCreate(
-                    ['coin_earning_method_id' => $method->id],
-                    ['amount' => $method->coins_amount]
+                    ['coin_earning_method_id' => $lockedMethod->id],
+                    ['amount' => $lockedMethod->coins_amount]
                 );
                 $attempt->update([
                     'status' => UserCoinTaskAttempt::STATUS_CLAIMED,
@@ -286,16 +302,19 @@ final class CoinEarningMethodController extends Controller
 
                 return [
                     'already_claimed' => false,
-                    'earned_amount' => (int) $method->coins_amount,
+                    'earned_amount' => (int) $lockedMethod->coins_amount,
                     'new_balance' => $transaction->balance_after,
                 ];
             });
         } catch (\DomainException $exception) {
             $code = $exception->getMessage();
             return $this->error(
-                $code === 'task_not_started'
-                    ? 'ابدأ المهمة أولًا ثم عد للمطالبة بالمكافأة.'
-                    : 'عد بعد إتمام المهمة للمطالبة بالمكافأة.',
+                match ($code) {
+                    'task_not_started' => "ابدأ المهمة أولًا\nثم عد لاستلام المكافأة",
+                    'task_quota_reached' => 'انتهت مكافآت هذه الحملة',
+                    'task_unavailable' => 'هذه المهمة غير متاحة الآن',
+                    default => 'أكمل المهمة ثم عد لاستلام المكافأة',
+                },
                 409,
                 $code
             );
@@ -308,12 +327,16 @@ final class CoinEarningMethodController extends Controller
                     StudentNotificationService::TYPE_COINS_CLAIMED,
                     'وصلت مكافأتك',
                     'Coins Claimed',
-                    'أضفنا ' . $method->coins_amount . " عملة إلى محفظتك\nافتح المحفظة لمعرفة التفاصيل",
-                    $method->coins_amount . ' coins have been added to your wallet',
+                    'أضفنا ' . $result['earned_amount'] . " عملة إلى محفظتك\nافتح المحفظة لمعرفة التفاصيل",
+                    $result['earned_amount'] . ' coins have been added to your wallet',
                     null,
                     CoinEarningMethod::class,
                     $method->id,
-                    'coins-claimed:' . $user->id . ':' . $method->id
+                    'coins-claimed:' . $user->id . ':' . $method->id,
+                    [
+                        'coins' => (int) $result['earned_amount'],
+                        'task' => (string) ($method->title_ar ?: $method->title_en),
+                    ]
                 );
             } catch (\Throwable $exception) {
                 // Reward delivery is complete even if the optional push service is down.
@@ -325,8 +348,8 @@ final class CoinEarningMethodController extends Controller
             'status' => 200,
             'success' => true,
             'message' => $result['already_claimed']
-                ? 'تم استلام مكافأة هذه المهمة سابقًا.'
-                : 'تم الحصول على العملات بنجاح.',
+                ? 'استلمت مكافأة هذه المهمة من قبل'
+                : 'وصلت العملات إلى محفظتك',
             'data' => $result + ['task_state' => 'claimed'],
         ]);
     }

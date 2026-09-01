@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use App\Support\DownloadFilename;
 
 class ProjectSubmissionController extends Controller
 {
@@ -26,7 +27,8 @@ class ProjectSubmissionController extends Controller
         $query = ProjectSubmission::query()
             ->with(['user', 'project.section.course', 'reviewer'])
             ->orderByRaw("CASE review_status WHEN 'pending' THEN 0 WHEN 'needs_resubmission' THEN 1 ELSE 2 END")
-            ->latest('submitted_at');
+            ->latest('submitted_at')
+            ->latest('id');
 
         if (!empty($filters['status'])) {
             $query->where('review_status', $filters['status']);
@@ -93,10 +95,16 @@ class ProjectSubmissionController extends Controller
         }
         abort_if(!$disk, 404);
 
-        $originalName = basename(str_replace('\\', '/', (string) $projectSubmission->original_file_name));
-        $downloadName = preg_replace('/[^\pL\pN._ -]+/u', '_', $originalName) ?: 'project-submission';
+        $downloadName = DownloadFilename::safe(
+            $projectSubmission->original_file_name,
+            'project-submission',
+            pathinfo($path, PATHINFO_EXTENSION)
+        );
 
-        return $disk->download($path, $downloadName);
+        return $disk->download($path, $downloadName, [
+            'Content-Disposition' => DownloadFilename::disposition($downloadName),
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
     public function pass(

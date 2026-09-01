@@ -42,10 +42,12 @@
                     </div>
                 </div>
                 <div class="pdf-actions">
+                    @if($course->is_coming_soon)
                     <a href="{{ route('admin.courses.pdfs.create', $course) }}" class="btn-modern btn-success">
                         <i class="fa fa-plus"></i>
                         إضافة ملف PDF
                     </a>
+                    @endif
                 </div>
             </div>
         </div>
@@ -53,6 +55,12 @@
 
     <!-- PDF List Container -->
     <div class="pdf-container">
+        @if(!$course->is_coming_soon)
+            <div class="alert alert-info">
+                المرفقات المعروضة للطلاب ثابتة الآن
+                <a href="{{ route('admin.courses.edit', [$course, 'return_to' => 'studio']) }}">حوّل الكورس إلى مسودة للتعديل ثم أعد نشره</a>
+            </div>
+        @endif
         <div class="pdf-header">
             <h3 class="pdf-title">
                 <div class="title-icon">
@@ -116,6 +124,7 @@
                                        class="btn-card btn-preview" target="_blank" title="معاينة">
                                         <i class="fa fa-eye"></i>
                                     </a>
+                                    @if($course->is_coming_soon)
                                     <button class="btn-card btn-toggle {{ !$pdf->is_active ? 'inactive' : '' }}" 
                                             onclick="toggleStatus({{ $pdf->id }})" title="تبديل الحالة">
                                         <i class="fa {{ $pdf->is_active ? 'fa-toggle-on' : 'fa-toggle-off' }}"></i>
@@ -129,10 +138,12 @@
                                           onsubmit="return confirm('هل أنت متأكد من حذف هذا الملف؟')">
                                         @csrf
                                         @method('DELETE')
+                                        <input type="hidden" name="authoring_version" value="{{ $course->authoring_version }}">
                                         <button type="submit" class="btn-card btn-delete" title="حذف">
                                             <i class="fa fa-trash"></i>
                                         </button>
                                     </form>
+                                    @endif
                                 </div>
                             </div>
                         </div>
@@ -145,10 +156,10 @@
                     </div>
                     <h3 class="empty-title">لا توجد ملفات PDF</h3>
                     <p class="empty-description">لم يتم إضافة أي ملفات PDF لهذا الكورس بعد</p>
-                    <a href="{{ route('admin.courses.pdfs.create', $course) }}" class="btn-add-first">
+                    @if($course->is_coming_soon)<a href="{{ route('admin.courses.pdfs.create', $course) }}" class="btn-add-first">
                         <i class="fa fa-plus"></i>
                         إضافة أول ملف PDF
-                    </a>
+                    </a>@endif
                 </div>
             @endif
         </div>
@@ -159,8 +170,18 @@
 @section('scripts')
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js" integrity="sha384-eeLEhtwdMwD3X9y+8P3Cn7Idl/M+w8H4uZqkgD/2eJVkWIN1yKzEj6XegJ9dL3q0" crossorigin="anonymous"></script>
 <script>
+let authoringVersion = Number(@json((int) $course->authoring_version));
+const csrf = @json(csrf_token());
+const mutatePdf = (key, url, payload) => window.RoknAdminRequest.serializeMutation(key, () =>
+    window.RoknAdminRequest.request(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf},
+        body: JSON.stringify({...payload, authoring_version: authoringVersion}),
+    })
+);
 // Initialize sortable
-var sortable = new Sortable(document.getElementById('sortable-pdfs'), {
+var sortableRoot = document.getElementById('sortable-pdfs');
+var sortable = @json((bool) $course->is_coming_soon) && sortableRoot ? new Sortable(sortableRoot, {
     animation: 150,
     ghostClass: 'dragging',
     onEnd: function(evt) {
@@ -169,43 +190,33 @@ var sortable = new Sortable(document.getElementById('sortable-pdfs'), {
             order.push(card.dataset.id);
         });
         
-        fetch('{{ route('admin.courses.pdfs.reorder', $course) }}', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': '{{ csrf_token() }}'
-            },
-            body: JSON.stringify({ order: order })
-        })
-        .then(response => response.json())
+        mutatePdf('course-pdf-mutation', '{{ route('admin.courses.pdfs.reorder', $course) }}', {order})
         .then(data => {
-            if (data.success) {
-                // Update order badges
-                document.querySelectorAll('.pdf-card').forEach(function(card, index) {
-                    var badge = card.querySelector('.badge-order');
-                    if (badge) {
-                        badge.innerHTML = '<i class="fa fa-sort"></i> الترتيب: ' + (index + 1);
-                    }
-                });
-            }
+            authoringVersion = Number(data.authoring_version || authoringVersion);
+            document.querySelectorAll('[name="authoring_version"]').forEach(input => input.value = authoringVersion);
+            // Update order badges
+            document.querySelectorAll('.pdf-card').forEach(function(card, index) {
+                var badge = card.querySelector('.badge-order');
+                if (badge) {
+                    badge.innerHTML = '<i class="fa fa-sort"></i> الترتيب: ' + (index + 1);
+                }
+            });
+        }).catch(error => {
+            if (error.code === 'cancelled') return;
+            alert(error.message || 'تعذّر حفظ الترتيب');
+            location.reload();
         });
     }
-});
+}) : null;
 
 // Toggle status function
 function toggleStatus(pdfId) {
-    fetch('{{ url('dashboard/courses/' . $course->id . '/pdfs') }}/' + pdfId + '/toggle-status', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-TOKEN': '{{ csrf_token() }}'
-        }
-    })
-    .then(response => response.json())
+    mutatePdf('course-pdf-mutation', '{{ url('dashboard/courses/' . $course->id . '/pdfs') }}/' + pdfId + '/toggle-status', {})
     .then(data => {
-        if (data.success) {
-            location.reload();
-        }
+        authoringVersion = Number(data.authoring_version || authoringVersion);
+        location.reload();
+    }).catch(error => {
+        if (error.code !== 'cancelled') alert(error.message || 'تعذّر تحديث الحالة');
     });
 }
 </script>

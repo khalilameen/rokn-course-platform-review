@@ -33,7 +33,7 @@
             <!-- Statistics Overview -->
             <div class="stats-overview">
                 <div class="stat-card">
-                    <span class="stat-number">{{ $courses->count() }}</span>
+                    <span class="stat-number">{{ $courses->total() }}</span>
                     <span class="stat-label">إجمالي الكورسات</span>
                 </div>
                 
@@ -42,6 +42,11 @@
     </div>
 
     @include('admin.courses.partials.index.course-grid')
+    @if ($courses->hasPages())
+        <div class="mt-4 d-flex justify-content-center">
+            {{ $courses->links() }}
+        </div>
+    @endif
 </div>
 
 @endsection

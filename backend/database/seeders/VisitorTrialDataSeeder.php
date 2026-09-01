@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use Database\Seeders\Concerns\GuardsDevelopmentFixtures;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use App\Models\Visitor;
@@ -9,6 +10,8 @@ use Carbon\Carbon;
 
 class VisitorTrialDataSeeder extends Seeder
 {
+    use GuardsDevelopmentFixtures;
+
     /**
      * Run the database seeds.
      *
@@ -16,6 +19,8 @@ class VisitorTrialDataSeeder extends Seeder
      */
     public function run()
     {
+        $this->guardDevelopmentFixtures();
+
         $browsers = [
             'Chrome 120.0.0.0',
             'Firefox 121.0',

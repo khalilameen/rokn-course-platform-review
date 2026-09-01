@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Traits\ResolvesLocalizedAttributes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SocialGroup extends Model
 {
-    use HasFactory;
+    use HasFactory, ResolvesLocalizedAttributes;
 
     public function course(): BelongsTo
     {
@@ -17,12 +18,12 @@ class SocialGroup extends Model
 
     public function getTitleAttribute()
     {
-        return app()->getLocale() == 'ar' ? $this->title_ar : $this->title_en;
+        return $this->localizedValue('title_ar', 'title_en');
     }
 
     public function getDescriptionAttribute()
     {
-        return app()->getLocale() == 'ar' ? $this->description_ar : $this->description_en;
+        return $this->localizedValue('description_ar', 'description_en');
     }
 
     public function courseSection()

@@ -22,6 +22,7 @@ class RoknDiagnosticsModule(
         return
       }
       val result = Arguments.createMap().apply {
+        putString("event_id", event.optString("event_id"))
         putString("error_code", event.optString("error_code"))
         putString("error_fingerprint", event.optString("error_fingerprint"))
         putString("occurred_at", event.optString("occurred_at"))
@@ -29,6 +30,16 @@ class RoknDiagnosticsModule(
       promise.resolve(result)
     } catch (error: Throwable) {
       promise.reject("NATIVE_DIAGNOSTICS_READ_FAILED", error)
+    }
+  }
+
+  @ReactMethod
+  fun acknowledgePendingExitEvent(eventId: String, promise: Promise) {
+    try {
+      val application = reactApplicationContext.applicationContext as MainApplication
+      promise.resolve(RoknDiagnosticsStore.acknowledge(application, eventId))
+    } catch (error: Throwable) {
+      promise.reject("NATIVE_DIAGNOSTICS_ACK_FAILED", error)
     }
   }
 }

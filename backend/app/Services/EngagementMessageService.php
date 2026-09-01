@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Models\AdminNotification;
 use App\Models\RewardRule;
 use App\Models\Setting;
+use App\Support\RoknAppLink;
 use Illuminate\Support\Facades\Schema;
 
 final class EngagementMessageService
@@ -26,6 +27,55 @@ final class EngagementMessageService
             return null;
         }
 
+        return $this->serialize($message, $variables);
+    }
+
+    /**
+     * Resolve one immutable delivery snapshot. A configured but inactive
+     * template suppresses that automated message; an unknown key keeps legacy
+     * call sites working with their explicit fallback copy.
+     *
+     * @param array<string,mixed> $variables
+     * @param array<string,mixed> $fallback
+     * @return array<string,mixed>|null
+     */
+    public function notificationPayload(string $systemKey, array $variables, array $fallback): ?array
+    {
+        if (!Schema::hasTable('admin_notifications') || !Schema::hasColumn('admin_notifications', 'system_key')) {
+            return $fallback;
+        }
+
+        $configured = AdminNotification::query()->where('system_key', $systemKey)->first();
+        if (!$configured) {
+            return $fallback;
+        }
+
+        $available = AdminNotification::query()
+            ->available()
+            ->whereKey($configured->id)
+            ->first();
+        if (!$available) {
+            return null;
+        }
+
+        $payload = $this->serialize($available, $variables);
+
+        return [
+            ...$fallback,
+            'title_ar' => $payload['title_ar'] ?: ($fallback['title_ar'] ?? ''),
+            'title_en' => $payload['title_en'] ?: ($fallback['title_en'] ?? ''),
+            'message_ar' => $payload['description_ar'] ?: ($fallback['message_ar'] ?? ''),
+            'message_en' => $payload['description_en'] ?: ($fallback['message_en'] ?? ''),
+            'action_label_ar' => $payload['action_label_ar'] ?: ($fallback['action_label_ar'] ?? null),
+            'action_label_en' => $payload['action_label_en'] ?: ($fallback['action_label_en'] ?? null),
+            'image_url' => $payload['image_url'] ?: ($fallback['image_url'] ?? null),
+            'template_link' => $payload['link'] ?: null,
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function serialize(AdminNotification $message, array $variables): array
+    {
         $coins = $variables['coins'] ?? $this->welcomeCoins();
         $variables['coins'] = max(0, (int) $coins);
 
@@ -41,28 +91,12 @@ final class EngagementMessageService
             'action_label_en' => $this->render((string) $message->action_label_en, $variables, false),
             'secondary_action_label_ar' => $this->render((string) $message->secondary_action_label_ar, $variables, true),
             'secondary_action_label_en' => $this->render((string) $message->secondary_action_label_en, $variables, false),
-            'link' => $message->link,
-            'image_url' => $message->image,
+            'link' => $this->safeTemplateLink($message->link),
+            'image_url' => $message->public_image_url,
             'coins' => (int) $variables['coins'],
             'dismissible' => (bool) $message->is_dismissible,
             'cooldown_hours' => (int) $message->cooldown_hours,
             'version' => optional($message->updated_at)->toIso8601String(),
-        ];
-    }
-
-    /** @return array{title_ar:string,title_en:string,message_ar:string,message_en:string} */
-    public function copy(string $systemKey, array $variables, array $fallback): array
-    {
-        $message = $this->publicMessage($systemKey, $variables);
-        if (!$message) {
-            return $fallback;
-        }
-
-        return [
-            'title_ar' => $message['title_ar'] ?: $fallback['title_ar'],
-            'title_en' => $message['title_en'] ?: $fallback['title_en'],
-            'message_ar' => $message['description_ar'] ?: $fallback['message_ar'],
-            'message_en' => $message['description_en'] ?: $fallback['message_en'],
         ];
     }
 
@@ -91,4 +125,15 @@ final class EngagementMessageService
 
         return trim(strtr($value, $replacements));
     }
+
+    private function safeTemplateLink(mixed $value): ?string
+    {
+        $link = trim((string) $value);
+        if ($link === '') {
+            return null;
+        }
+
+        return RoknAppLink::normalize($link);
+    }
+
 }

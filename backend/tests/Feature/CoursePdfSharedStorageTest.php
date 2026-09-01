@@ -9,6 +9,7 @@ use App\Http\Controllers\Admin\CoursePdfController as AdminCoursePdfController;
 use App\Models\Course;
 use App\Models\CoursePdf;
 use App\Models\User;
+use App\Services\CourseModuleAccessService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -27,7 +28,15 @@ final class CoursePdfSharedStorageTest extends TestCase
         Schema::create('courses', function (Blueprint $table): void {
             $table->id();
             $table->string('name_ar')->nullable();
+            $table->boolean('is_coming_soon')->default(false);
+            $table->unsignedInteger('authoring_version')->default(1);
             $table->timestamps();
+        });
+        Schema::create('users', function (Blueprint $table): void {
+            $table->id();
+            $table->boolean('active')->default(true);
+            $table->timestamps();
+            $table->softDeletes();
         });
         Schema::create('course_enrollments', function (Blueprint $table): void {
             $table->id();
@@ -56,13 +65,21 @@ final class CoursePdfSharedStorageTest extends TestCase
             $table->string('storage_disk')->nullable();
             $table->string('original_filename')->nullable();
             $table->bigInteger('file_size')->nullable();
+            $table->char('content_sha256', 64)->nullable();
             $table->integer('order')->default(0);
             $table->boolean('is_active')->default(true);
             $table->timestamps();
             $table->softDeletes();
         });
 
-        DB::table('courses')->insert(['id' => 7, 'name_ar' => 'اختبار', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('courses')->insert(['id' => 7, 'name_ar' => 'اختبار', 'is_coming_soon' => false, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('users')->insert(['id' => 42, 'active' => true, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('course_sections')->insert([
+            'id' => 1,
+            'course_id' => 7,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
         Storage::fake('course-pdfs-shared');
         config([
             'course_pdfs.disk' => 'course-pdfs-shared',
@@ -80,11 +97,12 @@ final class CoursePdfSharedStorageTest extends TestCase
         Schema::dropIfExists('course_pdfs');
         Schema::dropIfExists('course_sections');
         Schema::dropIfExists('course_enrollments');
+        Schema::dropIfExists('users');
         Schema::dropIfExists('courses');
         parent::tearDown();
     }
 
-    public function test_entitled_pdf_stream_reads_shared_disk_and_supports_bounded_ranges(): void
+    public function test_entitled_pdf_download_reads_shared_disk(): void
     {
         $pdf = CoursePdf::create([
             'course_id' => 7,
@@ -105,15 +123,14 @@ final class CoursePdfSharedStorageTest extends TestCase
         ]);
         $this->authenticate(42);
 
-        $request = Request::create('/stream', 'GET', [], [], [], ['HTTP_RANGE' => 'bytes=2-5']);
-        $response = app(CoursePdfController::class)->stream($request, 7, $pdf->id);
-
-        self::assertSame(206, $response->getStatusCode());
-        self::assertSame('bytes 2-5/10', $response->headers->get('Content-Range'));
-        ob_start();
-        $response->sendContent();
-        $content = ob_get_clean();
-        self::assertSame('2345', $content);
+        $course = Course::query()->findOrFail(7);
+        $user = User::query()->findOrFail(42);
+        $url = app(CourseModuleAccessService::class)
+            ->temporaryPdfDownloadUrl($user, $course, $pdf);
+        $response = $this->get($url)
+            ->assertOk()
+            ->assertHeader('Content-Type', 'application/pdf');
+        self::assertSame('0123456789', $response->streamedContent());
     }
 
     public function test_expired_enrollment_cannot_read_pdf(): void
@@ -137,8 +154,11 @@ final class CoursePdfSharedStorageTest extends TestCase
         ]);
         $this->authenticate(42);
 
-        $response = app(CoursePdfController::class)->stream(Request::create('/stream'), 7, $pdf->id);
-        self::assertSame(403, $response->getStatusCode());
+        $course = Course::query()->findOrFail(7);
+        $user = User::query()->findOrFail(42);
+        $url = app(CourseModuleAccessService::class)
+            ->temporaryPdfDownloadUrl($user, $course, $pdf);
+        $this->get($url)->assertForbidden();
     }
 
     public function test_migration_gives_duplicate_legacy_references_distinct_verified_keys(): void
@@ -175,19 +195,25 @@ final class CoursePdfSharedStorageTest extends TestCase
     public function test_admin_upload_persists_configured_disk_and_server_generated_unique_keys(): void
     {
         $course = Course::query()->findOrFail(7);
+        $course->forceFill(['is_coming_soon' => true])->save();
 
         foreach (['first', 'second'] as $title) {
             $request = Request::create('/admin/course-pdf', 'POST', [
                 'title' => $title,
                 'is_active' => true,
+                'authoring_version' => $course->authoring_version,
             ]);
             $request->files->set(
                 'pdf_file',
-                UploadedFile::fake()->create('same-original-name.pdf', 1, 'application/pdf')
+                UploadedFile::fake()->createWithContent(
+                    'same-original-name.pdf',
+                    "%PDF-1.4\n1 0 obj\n<< /Title ({$title}) >>\nendobj\n%%EOF"
+                )
             );
 
             $response = app(AdminCoursePdfController::class)->store($request, $course);
             self::assertTrue($response->isRedirect());
+            $course->refresh();
         }
 
         $rows = CoursePdf::query()->orderBy('id')->get();

@@ -1,10 +1,12 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Resources;
 
 use Illuminate\Http\Resources\Json\JsonResource;
 
-class CourseRatingResource extends JsonResource
+final class CourseRatingResource extends JsonResource
 {
     /**
      * Transform the resource into an array.
@@ -12,18 +14,21 @@ class CourseRatingResource extends JsonResource
      * @param  \Illuminate\Http\Request  $request
      * @return array
      */
-    public function toArray($request)
+    public function toArray($request): array
     {
         return [
-            'id' => $this->id,
-            'user' => [
-                'id' => $this->user->id,
-                'name' => $this->user->name,
-                'image' => $this->user->image,
-            ],
-            'rating' => (int)$this->rating,
+            'id' => (int) $this->id,
+            'user' => $this->when(
+                $this->relationLoaded('user') && $this->user !== null,
+                fn () => [
+                'id' => (int) $this->user->id,
+                'name' => (string) $this->user->name,
+                'image' => $this->user->profile_image_url ?: null,
+                ]
+            ),
+            'rating' => (int) $this->rating,
             'comment' => $this->comment,
-            'created_at' => (string)$this->created_at,
+            'created_at' => $this->created_at?->toIso8601String(),
         ];
     }
 }

@@ -13,6 +13,7 @@ use App\Models\CourseSection;
 use App\Models\Lesson;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\CoursePresentationService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
@@ -45,6 +46,21 @@ final class CourseContentSecurityTest extends TestCase
             $table->timestamp('access_granted_at')->nullable();
             $table->timestamps();
         });
+        Schema::create('course_modules', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('course_id');
+            $table->unsignedInteger('order');
+            $table->timestamps();
+        });
+        Schema::create('course_sections', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('course_id');
+            $table->unsignedBigInteger('module_id')->nullable();
+            $table->nullableMorphs('sectionable');
+            $table->unsignedInteger('order')->default(1);
+            $table->timestamps();
+            $table->softDeletes();
+        });
         Schema::create('student_section_progress', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('user_id');
@@ -69,14 +85,51 @@ final class CourseContentSecurityTest extends TestCase
             $table->timestamps();
             $table->softDeletes();
         });
+        Schema::create('lesson_media_states', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('lesson_id')->unique();
+            $table->string('provider', 32)->default('bunny');
+            $table->string('provider_media_id')->nullable();
+            $table->string('status', 24)->default('unknown');
+            $table->string('protocol', 16)->nullable();
+            $table->unsignedInteger('duration_seconds')->nullable();
+            $table->json('available_qualities')->nullable();
+            $table->json('manifest')->nullable();
+            $table->timestamp('last_probe_at')->nullable();
+            $table->string('last_error_code', 64)->nullable();
+            $table->text('last_error_message')->nullable();
+            $table->unsignedSmallInteger('retry_count')->default(0);
+            $table->string('integrity_status', 24)->default('unknown');
+            $table->json('integrity_issues')->nullable();
+            $table->timestamp('last_reconciled_at')->nullable();
+            $table->timestamp('quarantined_at')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('lesson_watch_evidence', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('lesson_id');
+            $table->unsignedBigInteger('course_section_id');
+            $table->unsignedInteger('duration_seconds')->nullable();
+            $table->unsignedInteger('verified_seconds')->default(0);
+            $table->unsignedInteger('last_position_seconds')->default(0);
+            $table->timestamp('last_heartbeat_at')->nullable();
+            $table->timestamp('completed_at')->nullable();
+            $table->timestamps();
+            $table->unique(['user_id', 'lesson_id']);
+        });
     }
 
     protected function tearDown(): void
     {
+        Schema::dropIfExists('lesson_watch_evidence');
+        Schema::dropIfExists('lesson_media_states');
         Schema::dropIfExists('course_ratings');
         Schema::dropIfExists('user_project_evaluations');
         Schema::dropIfExists('student_section_progress');
         Schema::dropIfExists('course_enrollments');
+        Schema::dropIfExists('course_sections');
+        Schema::dropIfExists('course_modules');
         Schema::dropIfExists('settings');
 
         parent::tearDown();
@@ -139,14 +192,32 @@ final class CourseContentSecurityTest extends TestCase
         $openModule = $this->module(201, 1, $first, 'private/open', 301);
         $lockedModule = $this->module(202, 2, $locked, 'private/locked', 302);
         $previewModule = $this->module(203, 3, $preview, 'private/preview', 303);
+        foreach ([$openModule, $lockedModule, $previewModule] as $module) {
+            \Illuminate\Support\Facades\DB::table('course_modules')->insert([
+                'id' => $module->id,
+                'course_id' => 77,
+                'order' => $module->order,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
         $course->setRelation('modules', collect([$openModule, $lockedModule, $previewModule]));
 
-        $payload = (new CourseResource($course))->resolve(request());
+        $payload = (new CourseResource($course))
+            ->withLearningContext(
+                collect(),
+                [
+                    'has_learning_access' => true,
+                    'project_feedback_level' => 'pass_only',
+                ],
+                CourseEnrollment::query()->first()
+            )
+            ->resolve(request());
 
         self::assertSame('عنوان الخطوة المقفولة', $payload['sections'][1]['title']);
         self::assertTrue($payload['sections'][1]['is_locked']);
         self::assertArrayNotHasKey('content', $payload['sections'][1]);
-        self::assertStringContainsString('open-guid', $payload['sections'][0]['content']['bunny_video_url']);
+        self::assertNull($payload['sections'][0]['content']['bunny_video_url']);
 
         // An explicit free preview is the only locked step allowed to carry a
         // playable URL.
@@ -168,6 +239,28 @@ final class CourseContentSecurityTest extends TestCase
         self::assertStringContainsString('/attachments/301/download', $payload['modules'][0]['attachments'][0]['download_url']);
         self::assertFalse($payload['modules'][2]['is_locked']);
         self::assertSame('private/preview', $payload['modules'][2]['attachments_link']);
+    }
+
+    public function test_first_step_of_later_module_does_not_bypass_previous_module(): void
+    {
+        Setting::create(['enforce_course_section_order' => true]);
+        \Illuminate\Support\Facades\DB::table('course_modules')->insert([
+            ['id' => 201, 'course_id' => 77, 'order' => 1, 'created_at' => now(), 'updated_at' => now()],
+            ['id' => 202, 'course_id' => 77, 'order' => 2, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        $first = $this->section(101, 1, 201, $this->lesson(11, false, 'first'), 'الأول');
+        $laterModuleFirst = $this->section(102, 1, 202, $this->lesson(12, false, 'later'), 'التالي');
+
+        $states = app(CoursePresentationService::class)->sectionLockStatus(
+            collect([$laterModuleFirst, $first]),
+            collect(),
+            null
+        )->keyBy('section_id');
+
+        self::assertFalse($states[101]['is_locked']);
+        self::assertTrue($states[102]['is_locked']);
+        self::assertSame('previous_section_incomplete', $states[102]['lock_reason']);
     }
 
     private function lesson(int $id, bool $isPreview, string $guid): Lesson
@@ -208,6 +301,7 @@ final class CourseContentSecurityTest extends TestCase
         ]);
         $section->exists = true;
         $section->setRelation('sectionable', $lesson);
+        $section->setRelation('attachments', collect());
 
         return $section;
     }

@@ -108,6 +108,8 @@ class KashierPaymentTest extends TestCase
             $table->string('name_en')->nullable();
             $table->decimal('price', 10, 2)->default(0);
             $table->integer('coins')->default(0);
+            $table->boolean('is_active')->default(true);
+            $table->boolean('direct_enabled')->default(true);
             $table->timestamps();
         });
 
@@ -197,6 +199,20 @@ class KashierPaymentTest extends TestCase
             $table->timestamp('frozen_at')->nullable();
             $table->timestamp('resolved_at')->nullable();
             $table->json('metadata')->nullable();
+            $table->timestamps();
+        });
+
+        // Paid mutations fail closed if the feature control-plane schema is
+        // unavailable. An empty, readable table intentionally uses the live
+        // checkout default for these integration scenarios.
+        Schema::create('product_feature_flags', function (Blueprint $table) {
+            $table->id();
+            $table->string('key', 64)->unique();
+            $table->boolean('enabled')->default(false);
+            $table->unsignedTinyInteger('rollout_percentage')->default(100);
+            $table->string('owner', 120);
+            $table->string('reason', 255);
+            $table->timestamp('expires_at')->nullable();
             $table->timestamps();
         });
 
@@ -314,6 +330,7 @@ class KashierPaymentTest extends TestCase
 
     private function tearDownSchema(): void
     {
+        Schema::dropIfExists('product_feature_flags');
         Schema::dropIfExists('financial_entitlement_holds');
         Schema::dropIfExists('wallet_debit_allocations');
         Schema::dropIfExists('wallet_credit_lots');
@@ -362,6 +379,8 @@ class KashierPaymentTest extends TestCase
             'name_en' => '500 Coins Package',
             'price'   => self::PACKAGE_PRICE,
             'coins'   => self::PACKAGE_COINS,
+            'is_active' => true,
+            'direct_enabled' => true,
         ]);
 
         $this->orderRef = 'PKG-' . strtoupper(uniqid('TEST'));
@@ -649,7 +668,7 @@ class KashierPaymentTest extends TestCase
 
         // Still returns 200 (renders a failure page) but does NOT approve the order
         $response->assertStatus(200);
-        $response->assertSee('Invalid', false);
+        $response->assertSee('تعذّر التحقق من عملية الدفع', false);
 
         $this->assertDatabaseHas('orders', [
             'order_ref' => $this->orderRef,
@@ -728,7 +747,7 @@ class KashierPaymentTest extends TestCase
         $response = $this->getJson('/payment/callback?' . http_build_query($params));
 
         $response->assertStatus(200)
-            ->assertSee('not found', false);
+            ->assertSee('عملية الدفع غير متاحة', false);
     }
 
     // =========================================================================
@@ -902,7 +921,7 @@ class KashierPaymentTest extends TestCase
         ]));
 
         $response->assertStatus(200);
-        $response->assertSee('جاري معالجة الدفع', false);
+        $response->assertSee('نعالج عملية الدفع الآن', false);
 
         $this->assertDatabaseHas('orders', [
             'order_ref' => $this->orderRef,
@@ -965,14 +984,16 @@ class KashierPaymentTest extends TestCase
         ]);
     }
 
-   public function test_webhook_is_idempotent_for_already_approved_order(): void
+    public function test_webhook_is_idempotent_for_already_approved_order(): void
     {
         $order = $this->createPendingOrder();
-        $order->update(['status' => 'approved', 'transaction_id' => 'TXN-FIRST']);
-        $this->user->forceFill([
-            'wallet_coins' => self::PACKAGE_COINS,
-            'wallet_purchased_coins' => self::PACKAGE_COINS,
-        ])->save();
+        app(KashierPaymentService::class)->fulfillOrder($order, 'TXN-FIRST', [
+            'merchantOrderId' => $this->orderRef,
+            'paymentStatus' => 'SUCCESS',
+            'transactionId' => 'TXN-FIRST',
+            'amount' => number_format(self::PACKAGE_PRICE, 2, '.', ''),
+            'currency' => 'EGP',
+        ]);
 
         $params = $this->buildKashierParams($this->orderRef, 'SUCCESS', 'TXN-FIRST');
 
@@ -1072,7 +1093,7 @@ class KashierPaymentTest extends TestCase
         self::assertSame(1, \DB::table('package_user')->count());
     }
 
-   public function test_late_success_for_cancelled_checkout_is_not_fulfilled(): void
+   public function test_late_success_for_cancelled_checkout_recovers_the_captured_payment_once(): void
     {
         $order = $this->createPendingOrder();
         $order->update([
@@ -1087,20 +1108,20 @@ class KashierPaymentTest extends TestCase
         );
         $this->postJson('/payment/webhook', $params)
             ->assertOk()
-            ->assertJsonPath('message', 'Payment capture queued for review');
+            ->assertJsonPath('message', 'Webhook processed successfully');
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
-            'status' => Order::STATUS_CANCELLED,
-            'financial_status' => Order::FINANCIAL_REVIEW_REQUIRED,
+            'status' => Order::STATUS_APPROVED,
+            'financial_status' => Order::FINANCIAL_SETTLED,
             'transaction_id' => 'TXN-LATE-CANCELLED',
         ]);
-        self::assertSame(0, (int) $this->user->fresh()->wallet_coins);
-        self::assertSame(0, \DB::table('wallet_transactions')->count());
-        self::assertSame(0, \DB::table('package_user')->count());
+        self::assertSame(self::PACKAGE_COINS, (int) $this->user->fresh()->wallet_coins);
+        self::assertSame(1, \DB::table('wallet_transactions')->count());
+        self::assertSame(1, \DB::table('package_user')->count());
     }
 
-   public function test_late_success_for_expired_checkout_is_not_fulfilled(): void
+   public function test_late_success_for_expired_checkout_recovers_the_captured_payment_once(): void
     {
         $order = $this->createPendingOrder();
         $order->forceFill(['checkout_expires_at' => now()->subMinute()])->save();
@@ -1112,16 +1133,17 @@ class KashierPaymentTest extends TestCase
         );
         $this->postJson('/payment/webhook', $params)
             ->assertOk()
-            ->assertJsonPath('message', 'Payment capture queued for review');
+            ->assertJsonPath('message', 'Webhook processed successfully');
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
-            'status' => Order::STATUS_CANCELLED,
-            'financial_status' => Order::FINANCIAL_REVIEW_REQUIRED,
+            'status' => Order::STATUS_APPROVED,
+            'financial_status' => Order::FINANCIAL_SETTLED,
             'transaction_id' => 'TXN-LATE-EXPIRED',
         ]);
-        self::assertSame(0, (int) $this->user->fresh()->wallet_coins);
-        self::assertSame(0, \DB::table('wallet_transactions')->count());
+        self::assertSame(self::PACKAGE_COINS, (int) $this->user->fresh()->wallet_coins);
+        self::assertSame(1, \DB::table('wallet_transactions')->count());
+        self::assertSame(1, \DB::table('package_user')->count());
     }
 
    public function test_success_without_a_transaction_id_is_not_fulfilled(): void

@@ -31,7 +31,7 @@ final class StorePurchaseController extends Controller
         return $this->responses->success([
             'google_obfuscated_account_id' => $identities->google($user),
             'apple_app_account_token' => $identities->apple($user),
-        ], 'Store billing context retrieved successfully');
+        ], 'تم تجهيز الدفع من المتجر');
     }
 
     public function verify(Request $request, StorePurchaseService $purchases): JsonResponse
@@ -67,7 +67,7 @@ final class StorePurchaseController extends Controller
 
         return $this->responses->success(
             $result,
-            'Store purchase verified and credited successfully'
+            'تمت إضافة العملات إلى رصيدك'
         );
     }
 }

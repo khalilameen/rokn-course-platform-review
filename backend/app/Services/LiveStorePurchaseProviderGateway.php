@@ -71,7 +71,7 @@ final class LiveStorePurchaseProviderGateway implements StorePurchaseProviderGat
             report($exception);
             throw new StorePurchaseVerificationException(
                 'google_verification_unavailable',
-                'تعذّر الاتصال بـ Google Play للتحقق من الدفع.',
+                'تعذّر التحقق من عملية الشراء الآن',
                 503
             );
         }
@@ -153,8 +153,8 @@ final class LiveStorePurchaseProviderGateway implements StorePurchaseProviderGat
                     ? 'apple_verification_unavailable'
                     : 'store_purchase_not_found',
                 $response->serverError()
-                    ? 'تعذّر الاتصال بـ App Store للتحقق من الدفع.'
-                    : 'لم يعثر App Store على عملية الشراء.',
+                    ? 'تعذّر التحقق من عملية الشراء الآن'
+                    : 'لم تكتمل عملية الشراء',
                 $response->serverError() ? 503 : 422
             );
         }
@@ -235,7 +235,7 @@ final class LiveStorePurchaseProviderGateway implements StorePurchaseProviderGat
         if ($issuer === '' || $keyId === '' || $bundleId === '') {
             throw new StorePurchaseVerificationException(
                 'apple_verification_not_configured',
-                'التحقق من App Store غير مُعد على الخادم.',
+                'تعذّر التحقق من عملية الشراء الآن',
                 503
             );
         }
@@ -268,7 +268,7 @@ final class LiveStorePurchaseProviderGateway implements StorePurchaseProviderGat
 
         throw new StorePurchaseVerificationException(
             'apple_verification_not_configured',
-            'التحقق من App Store غير مُعد على الخادم.',
+            'تعذّر التحقق من عملية الشراء الآن',
             503
         );
     }
@@ -312,7 +312,7 @@ final class LiveStorePurchaseProviderGateway implements StorePurchaseProviderGat
         if ($rootFingerprint === '' || !in_array($rootFingerprint, $trustedRoots, true)) {
             throw new StorePurchaseVerificationException(
                 'apple_certificate_root_untrusted',
-                'سلسلة توقيع App Store غير موثوقة.',
+                'تعذّر التحقق من عملية الشراء',
                 503
             );
         }

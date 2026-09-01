@@ -1,15 +1,13 @@
 import {
-  CommonActions,
   useFocusEffect,
-  useNavigation,
 } from '@react-navigation/native';
-import type {RootNavigation} from '../navigation/types';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
+  AccessibilityInfo,
+  AppState,
   FlatList,
   Image,
   ImageSourcePropType,
-  Linking,
   ListRenderItemInfo,
   Platform,
   Pressable,
@@ -18,11 +16,13 @@ import {
   View,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
+import {openExternalUrlOnce} from '../services/systemActions';
 import {NotificationIcon} from '../assets/SVG';
 import {Container} from '../components/containers/Containers';
 import {SectionHeading, StatusView} from '../components/ui/PremiumUI';
 import HeaderWithBack from '../components/view/HeaderWithBack';
 import {RoknCoinStack} from '../components/ui/RoknCoin';
+import {formatRoknRelativeDate} from '../utils/dateTime';
 import {
   Palette,
   Radius,
@@ -48,11 +48,65 @@ import {
 import {formatArabicDisplayText} from '../constants/arabicFormatting';
 import {LOCAL_DEMO_ENABLED} from '../config/runtime';
 import {isExternalWebLink, parseRoknDestination} from '../navigation/deepLinks';
+import {openRoknDestination} from '../navigation/RootNavigationHelper';
 import {
   normalizeLocalNotificationIds,
   readLocalNotificationIds,
   writeLocalNotificationIds,
 } from '../services/localUiState';
+import {accountScopedStorageKey, getItem, saveItem} from '../constants/helpers';
+import {networkFailureKind} from '../services/networkExperience';
+import {isServerTimestampFresh, serverNowMs} from '../utils/serverClock';
+
+const NOTIFICATIONS_CACHE_KEY = '@rokn/notifications-cache/v2';
+const NOTIFICATIONS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+type NotificationsCache = {
+  version: 2;
+  savedAt: number;
+  items: NotificationDto[];
+};
+
+const notificationCacheKey = () =>
+  accountScopedStorageKey(NOTIFICATIONS_CACHE_KEY);
+
+const readCachedNotifications = async (key: string) => {
+  const cached = await getItem<Partial<NotificationsCache>>(key);
+  if (
+    cached?.version !== 2 ||
+    !isServerTimestampFresh(
+      Number(cached.savedAt),
+      NOTIFICATIONS_CACHE_TTL_MS,
+    ) ||
+    !Array.isArray(cached.items)
+  ) {
+    return [];
+  }
+  return cached.items.filter(
+    (item): item is NotificationDto =>
+      typeof item === 'object' &&
+      item !== null &&
+      typeof item.id === 'string' &&
+      item.id.length > 0 &&
+      typeof item.title === 'string' &&
+      typeof item.description === 'string' &&
+      typeof item.createdAt === 'string' &&
+      typeof item.read === 'boolean' &&
+      ['learning', 'project', 'coins'].includes(item.tone),
+  );
+};
+
+const saveCachedNotifications = async (
+  key: string | null,
+  items: NotificationDto[],
+) =>
+  key
+    ? saveItem(key, {
+        version: 2,
+        savedAt: serverNowMs(),
+        items: items.slice(0, 120),
+      } satisfies NotificationsCache)
+    : false;
 
 type NotificationItem = {
   id: string;
@@ -67,7 +121,6 @@ type NotificationItem = {
 };
 
 export default function Notifications() {
-  const navigation = useNavigation<RootNavigation>();
   const {width, fontScale, contentWidth, gutter} = useResponsiveLayout();
   const compactLayout = width < 380 || fontScale > 1.2;
   const [experience, setExperience] = useState<DemoExperienceState | null>(
@@ -82,16 +135,40 @@ export default function Notifications() {
   const [notificationError, setNotificationError] = useState('');
   const [loading, setLoading] = useState(true);
   const [failedImages, setFailedImages] = useState<Record<string, true>>({});
-  const [notificationPage, setNotificationPage] = useState(1);
+  const [notificationCursor, setNotificationCursor] = useState<string | null>(
+    null,
+  );
   const [hasMoreNotifications, setHasMoreNotifications] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [screenReaderEnabled, setScreenReaderEnabled] = useState(false);
   const [courseImages, setCourseImages] = useState<
     Record<string, ImageSourcePropType>
   >({});
   const notificationGenerationRef = useRef(0);
+  const refreshControllerRef = useRef<AbortController | null>(null);
+  const loadMoreControllerRef = useRef<AbortController | null>(null);
+  const notificationCacheKeyRef = useRef<string | null>(null);
   const loadMoreFlightRef = useRef<symbol | null>(null);
   const markAllFlightRef = useRef<symbol | null>(null);
   const readFlightsRef = useRef(new Set<string>());
+  const lastRefreshAtRef = useRef(0);
+  const notificationErrorRef = useRef('');
+  notificationErrorRef.current = notificationError;
+
+  useEffect(() => {
+    let active = true;
+    void AccessibilityInfo.isScreenReaderEnabled().then(enabled => {
+      if (active) setScreenReaderEnabled(enabled);
+    });
+    const subscription = AccessibilityInfo.addEventListener(
+      'screenReaderChanged',
+      setScreenReaderEnabled,
+    );
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, []);
 
   useEffect(
     () =>
@@ -113,6 +190,11 @@ export default function Notifications() {
     };
   }, []);
   const refreshNotifications = useCallback(async () => {
+    refreshControllerRef.current?.abort();
+    loadMoreControllerRef.current?.abort();
+    const controller = new AbortController();
+    refreshControllerRef.current = controller;
+    lastRefreshAtRef.current = Date.now();
     const requestGeneration = ++notificationGenerationRef.current;
     loadMoreFlightRef.current = null;
     setLoadingMore(false);
@@ -122,16 +204,30 @@ export default function Notifications() {
       if (requestGeneration !== notificationGenerationRef.current) return;
       setServerSession(sessionAvailable);
       if (!sessionAvailable) {
+        notificationCacheKeyRef.current = null;
         setServerNotifications([]);
         setCourseImages({});
-        setNotificationPage(1);
+        setNotificationCursor(null);
         setHasMoreNotifications(false);
         setNotificationError('');
         return;
       }
+      const scopedCacheKey = await notificationCacheKey();
+      if (requestGeneration !== notificationGenerationRef.current) return;
+      notificationCacheKeyRef.current = scopedCacheKey;
+      const pageRequest = getNotificationsPage({signal: controller.signal});
+      const coursesRequest = getCachedPublishedCourses().catch(() => []);
+      const cachedNotifications = await readCachedNotifications(scopedCacheKey);
+      if (
+        requestGeneration === notificationGenerationRef.current &&
+        cachedNotifications.length
+      ) {
+        setServerNotifications(cachedNotifications);
+        setLoading(false);
+      }
       const [page, cachedCourses] = await Promise.all([
-        getNotificationsPage(),
-        getCachedPublishedCourses().catch(() => []),
+        pageRequest,
+        coursesRequest,
       ]);
       if (requestGeneration !== notificationGenerationRef.current) return;
       setServerNotifications(page.notifications);
@@ -140,15 +236,20 @@ export default function Notifications() {
           cachedCourses.map(course => [course.id, course.image]),
         ),
       );
-      setNotificationPage(page.page);
+      setNotificationCursor(page.nextCursor);
       setHasMoreNotifications(page.hasMore);
       setNotificationError('');
-    } catch {
+      void saveCachedNotifications(scopedCacheKey, page.notifications);
+    } catch (error) {
+      if (networkFailureKind(error) === 'cancelled') return;
       if (requestGeneration === notificationGenerationRef.current) {
-        setNotificationError('تعذّر تحديث الإشعارات الآن. لم نفقد أي تحديث.');
+        setNotificationError('تعذّر تحديث الإشعارات\nحاول مرة أخرى');
       }
     } finally {
       if (requestGeneration === notificationGenerationRef.current) {
+        if (refreshControllerRef.current === controller) {
+          refreshControllerRef.current = null;
+        }
         setLoading(false);
       }
     }
@@ -165,12 +266,16 @@ export default function Notifications() {
       return;
     }
     const flight = Symbol('notifications-load-more');
+    const controller = new AbortController();
+    loadMoreControllerRef.current?.abort();
+    loadMoreControllerRef.current = controller;
     const requestGeneration = notificationGenerationRef.current;
     loadMoreFlightRef.current = flight;
     setLoadingMore(true);
     try {
       const page = await getNotificationsPage({
-        page: notificationPage + 1,
+        cursor: notificationCursor,
+        signal: controller.signal,
       });
       if (
         loadMoreFlightRef.current !== flight ||
@@ -180,12 +285,15 @@ export default function Notifications() {
       setServerNotifications(current => {
         const merged = new Map(current.map(item => [item.id, item]));
         page.notifications.forEach(item => merged.set(item.id, item));
-        return Array.from(merged.values());
+        const next = Array.from(merged.values());
+        void saveCachedNotifications(notificationCacheKeyRef.current, next);
+        return next;
       });
-      setNotificationPage(page.page);
+      setNotificationCursor(page.nextCursor);
       setHasMoreNotifications(page.hasMore);
       setNotificationError('');
-    } catch {
+    } catch (error) {
+      if (networkFailureKind(error) === 'cancelled') return;
       if (
         loadMoreFlightRef.current === flight &&
         requestGeneration === notificationGenerationRef.current
@@ -194,6 +302,9 @@ export default function Notifications() {
       }
     } finally {
       if (loadMoreFlightRef.current === flight) {
+        if (loadMoreControllerRef.current === controller) {
+          loadMoreControllerRef.current = null;
+        }
         loadMoreFlightRef.current = null;
         setLoadingMore(false);
       }
@@ -202,7 +313,7 @@ export default function Notifications() {
     hasMoreNotifications,
     loading,
     loadingMore,
-    notificationPage,
+    notificationCursor,
     serverSession,
   ]);
 
@@ -224,23 +335,54 @@ export default function Notifications() {
           }
         })
         .catch(() => undefined);
+      let previousState = AppState.currentState;
+      const appStateSubscription = AppState.addEventListener(
+        'change',
+        state => {
+          const returnedToForeground =
+            state === 'active' && previousState !== 'active';
+          previousState = state;
+          if (
+            returnedToForeground &&
+            Date.now() - lastRefreshAtRef.current >= 15_000
+          ) {
+            void refreshNotifications();
+          }
+        },
+      );
+      const reconnectTimer = setInterval(() => {
+        if (
+          notificationErrorRef.current &&
+          !refreshControllerRef.current &&
+          AppState.currentState === 'active'
+        ) {
+          void refreshNotifications();
+        }
+      }, 20_000);
       return () => {
         active = false;
+        refreshControllerRef.current?.abort();
+        refreshControllerRef.current = null;
+        loadMoreControllerRef.current?.abort();
+        loadMoreControllerRef.current = null;
+        appStateSubscription.remove();
         notificationGenerationRef.current += 1;
+        notificationCacheKeyRef.current = null;
         loadMoreFlightRef.current = null;
         markAllFlightRef.current = null;
+        clearInterval(reconnectTimer);
       };
     }, [refreshNotifications]),
   );
 
   const demoNotifications = useMemo<NotificationItem[]>(() => {
     const items: NotificationItem[] = [];
-    if (learning.completed > 0 && learning.completed < 30) {
+    if (learning.completed > 0) {
       items.push({
         id: `learning-${learning.completed}`,
         title: 'مقطعك التالي جاهز',
         description: formatArabicDisplayText(
-          `أنهيت ${learning.completed} من ٣٠ مقطعًا\nأكمل من مكانك`,
+          `أنهيت ${learning.completed} مقاطع\nأكمل من مكانك`,
         ),
         time: 'الآن',
         read: false,
@@ -252,10 +394,9 @@ export default function Notifications() {
     if (learning.passed > 0) {
       items.push({
         id: `projects-${learning.passed}`,
-        title:
-          learning.passed === 3 ? 'اكتملت مشروعات الكورس' : 'تم اعتماد مشروعك',
+        title: 'تم اعتماد مشروعك',
         description: formatArabicDisplayText(
-          `اعتمدنا ${learning.passed} من ٣ مشروعات\nالمقطع التالي مفتوح`,
+          `مشروعات معتمدة ${learning.passed}\nالمحتوى التالي مفتوح`,
         ),
         time: 'آخر تقدم',
         read: false,
@@ -272,10 +413,7 @@ export default function Notifications() {
             ? formatArabicDisplayText(`زاد رصيدك ${transaction.amount}`)
             : 'تم فتح الكورس',
         description: transaction.title,
-        time: new Date(transaction.createdAt).toLocaleDateString('ar-EG', {
-          day: 'numeric',
-          month: 'short',
-        }),
+        time: formatRoknRelativeDate(transaction.createdAt),
         read: false,
         tone: 'coins',
         link: 'rokn://wallet',
@@ -295,12 +433,7 @@ export default function Notifications() {
       id: item.id,
       title: item.title,
       description: item.description,
-      time: item.createdAt
-        ? new Date(item.createdAt).toLocaleDateString('ar-EG', {
-            day: 'numeric',
-            month: 'short',
-          })
-        : '',
+      time: formatRoknRelativeDate(item.createdAt),
       read: item.read,
       tone: item.tone,
       link: item.link,
@@ -331,11 +464,18 @@ export default function Notifications() {
       const flight = Symbol('notifications-mark-all-read');
       markAllFlightRef.current = flight;
       const requestGeneration = notificationGenerationRef.current;
-      setServerNotifications(current =>
-        current.map(item => ({...item, read: true})),
-      );
       try {
         await markAllNotificationsRead();
+        if (
+          markAllFlightRef.current === flight &&
+          requestGeneration === notificationGenerationRef.current
+        ) {
+          setServerNotifications(current => {
+            const next = current.map(item => ({...item, read: true}));
+            void saveCachedNotifications(notificationCacheKeyRef.current, next);
+            return next;
+          });
+        }
       } catch {
         if (requestGeneration === notificationGenerationRef.current) {
           setNotificationError('تعذّر تحديث حالة القراءة\nحاول مرة أخرى');
@@ -354,20 +494,33 @@ export default function Notifications() {
   };
 
   const openNotification = async (item: NotificationItem, read: boolean) => {
+    const requestGeneration = notificationGenerationRef.current;
     if (!read) {
       if (serverSession === true) {
-        setServerNotifications(current =>
-          current.map(notification =>
-            notification.id === item.id
-              ? {...notification, read: true}
-              : notification,
-          ),
-        );
         if (!readFlightsRef.current.has(item.id)) {
           readFlightsRef.current.add(item.id);
           void markNotificationRead(item.id)
+            .then(() => {
+              if (requestGeneration !== notificationGenerationRef.current) {
+                return;
+              }
+              setServerNotifications(current => {
+                const next = current.map(notification =>
+                  notification.id === item.id
+                    ? {...notification, read: true}
+                    : notification,
+                );
+                void saveCachedNotifications(
+                  notificationCacheKeyRef.current,
+                  next,
+                );
+                return next;
+              });
+            })
             .catch(() => {
-              // The next refresh reconciles an optimistic read state.
+              if (requestGeneration === notificationGenerationRef.current) {
+                setNotificationError('تعذّر تحديث حالة القراءة');
+              }
             })
             .finally(() => readFlightsRef.current.delete(item.id));
         }
@@ -378,17 +531,12 @@ export default function Notifications() {
     if (item.link) {
       const destination = parseRoknDestination(item.link);
       if (destination) {
-        navigation.dispatch(
-          CommonActions.navigate(
-            destination.name,
-            'params' in destination ? destination.params : undefined,
-          ),
-        );
+        openRoknDestination(destination);
         return;
       }
       try {
         if (isExternalWebLink(item.link)) {
-          await Linking.openURL(item.link);
+          await openExternalUrlOnce(item.link);
           return;
         }
         setNotificationError(
@@ -416,6 +564,15 @@ export default function Notifications() {
           {maxWidth: contentWidth, paddingHorizontal: gutter},
         ]}>
         <Pressable
+          accessibilityHint={item.link ? 'يفتح وجهة الإشعار' : undefined}
+          accessibilityLabel={[
+            item.title,
+            item.description,
+            item.time,
+            !read ? 'غير مقروء' : '',
+          ]
+            .filter(Boolean)
+            .join('\n')}
           accessibilityRole="button"
           onPress={() => openNotification(item, read)}
           style={({pressed}) => [
@@ -445,6 +602,8 @@ export default function Notifications() {
                 <RoknCoinStack size={compactLayout ? 34 : 42} />
               ) : item.image && !failedImages[item.id] ? (
                 <Image
+                  accessibilityElementsHidden
+                  importantForAccessibility="no"
                   onError={() =>
                     setFailedImages(current => ({
                       ...current,
@@ -523,13 +682,12 @@ export default function Notifications() {
               actionLabel={hasUnread ? 'تحديد الكل كمقروء' : undefined}
               onAction={markAllRead}
               title="آخر التحديثات"
-              eyebrow="ما يساعدك على الاستمرار فقط"
             />
             {showLoading ? (
               <StatusView
                 state="loading"
-                description="نجمع آخر ما يهمك فقط"
-                title="نحدّث إشعاراتك"
+                description="جارٍ التحديث"
+                title="الإشعارات"
               />
             ) : showError ? (
               <StatusView
@@ -541,11 +699,12 @@ export default function Notifications() {
               />
             ) : !source.length ? (
               <StatusView
-                description="تذكيرات التعلم ونتائج المشروعات وحركة العملات"
+                description="ستظهر إشعاراتك هنا"
                 title="لا توجد إشعارات"
               />
             ) : notificationError && serverSession === true ? (
               <Pressable
+                accessibilityLiveRegion="polite"
                 accessibilityRole="button"
                 onPress={refreshNotifications}
                 style={styles.staleNotice}>
@@ -560,6 +719,7 @@ export default function Notifications() {
             <View style={[styles.footerFrame, frameStyle]}>
               <Pressable
                 accessibilityRole="button"
+                accessibilityState={{busy: loadingMore, disabled: loadingMore}}
                 disabled={loadingMore}
                 onPress={() => void loadMoreNotifications()}
                 style={({pressed}) => [
@@ -577,7 +737,9 @@ export default function Notifications() {
         maxToRenderPerBatch={8}
         onRefresh={() => void refreshNotifications()}
         refreshing={loading && source.length > 0}
-        removeClippedSubviews={Platform.OS === 'android'}
+        removeClippedSubviews={
+          Platform.OS === 'android' && !screenReaderEnabled
+        }
         renderItem={renderNotification}
         showsVerticalScrollIndicator={false}
         updateCellsBatchingPeriod={40}

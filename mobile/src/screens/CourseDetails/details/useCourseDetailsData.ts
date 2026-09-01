@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import type {Dispatch, SetStateAction} from 'react';
 import {
   getDemoExperience,
@@ -13,9 +13,13 @@ import {
   getCourseDetails,
   getWallet,
   hasSession,
+  isCourseUnavailableError,
 } from '../../../services/roknApi';
 import type {CourseDetails as CourseDetailsDto} from '../../../services/roknApi';
-import {friendlyNetworkMessage} from '../../../services/networkExperience';
+import {
+  friendlyNetworkMessage,
+  networkFailureKind,
+} from '../../../services/networkExperience';
 import {CAN_START_NATIVE_CHECKOUT} from '../../../constants/distribution';
 
 type UseCourseDetailsDataParams = {
@@ -45,9 +49,14 @@ export const useCourseDetailsData = ({
   const [remoteSession, setRemoteSession] = useState<boolean | null>(null);
   const [remoteCourse, setRemoteCourse] =
     useState<CourseDetailsDto | null>(null);
+  const loadedCourseRef = useRef<CourseDetailsDto | null>(null);
   const [remoteLoading, setRemoteLoading] = useState(!isDemoCourse);
   const [remoteError, setRemoteError] = useState('');
   const [remoteReload, setRemoteReload] = useState(0);
+  const reloadRemote = useCallback(
+    () => setRemoteReload(value => value + 1),
+    [],
+  );
 
   useEffect(() => {
     if (!isDemoCourse) return undefined;
@@ -57,42 +66,66 @@ export const useCourseDetailsData = ({
 
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
     if (isDemoCourse)
       return () => {
         active = false;
+        controller.abort();
       };
     if (!courseId) {
       setRemoteLoading(false);
-      setRemoteError('رابط الكورس غير مكتمل. ارجع للرئيسية وافتحه من هناك.');
+      setRemoteError('رابط الكورس غير مكتمل\nعد إلى الرئيسية وافتحه من هناك');
       return () => {
         active = false;
+        controller.abort();
       };
     }
     void (async () => {
       setRemoteLoading(true);
       setRemoteError('');
       setNotice('');
-      setRemoteCourse(null);
-      setRemoteBalance(null);
-      setRemoteSpendableBalance(null);
-      setRemotePaidBalance(null);
-      setRemoteRewardBalance(null);
-      setRemoteRewardContributionCap(null);
-      setRemotePackages([]);
-      setRemoteOwned(false);
+      if (loadedCourseRef.current?.id !== courseId) {
+        loadedCourseRef.current = null;
+        setRemoteCourse(null);
+        setRemoteBalance(null);
+        setRemoteSpendableBalance(null);
+        setRemotePaidBalance(null);
+        setRemoteRewardBalance(null);
+        setRemoteRewardContributionCap(null);
+        setRemotePackages([]);
+        setRemoteOwned(false);
+      }
       const sessionAvailable = await hasSession();
       if (active) setRemoteSession(sessionAvailable);
-      let detailsLoaded = false;
+      let detailsLoaded = loadedCourseRef.current?.id === courseId;
       try {
-        const details = await getCourseDetails(courseId);
+        const details = await getCourseDetails(courseId, {
+          signal: controller.signal,
+        });
         detailsLoaded = true;
         if (active) {
+          loadedCourseRef.current = details;
           setRemoteCourse(details);
           setRemoteOwned(details.owned);
+          if (details.fromCache) {
+            setNotice('نعرض آخر تفاصيل محفوظة\nحدّث الصفحة عند عودة الاتصال');
+          }
         }
       } catch (error) {
+        if (networkFailureKind(error) === 'cancelled') return;
         if (active) {
-          setRemoteError(friendlyNetworkMessage(error, 'تفاصيل الكورس'));
+          if (isCourseUnavailableError(error)) {
+            loadedCourseRef.current = null;
+            setRemoteCourse(null);
+            setRemoteOwned(false);
+            detailsLoaded = false;
+            setRemoteError('هذا الكورس غير متاح الآن\nعد إلى الرئيسية واختر كورسًا آخر');
+          }
+          if (!isCourseUnavailableError(error)) {
+            const message = friendlyNetworkMessage(error, 'تفاصيل الكورس');
+            if (detailsLoaded) setNotice(message);
+            else setRemoteError(message);
+          }
         }
       }
       if (!detailsLoaded) {
@@ -128,6 +161,7 @@ export const useCourseDetailsData = ({
     })();
     return () => {
       active = false;
+      controller.abort();
     };
   }, [courseId, isDemoCourse, remoteReload, setNotice]);
 
@@ -149,7 +183,7 @@ export const useCourseDetailsData = ({
 
   return {
     experience,
-    reloadRemote: () => setRemoteReload(value => value + 1),
+    reloadRemote,
     remoteBalance,
     remoteCourse,
     remoteError,
@@ -163,6 +197,7 @@ export const useCourseDetailsData = ({
     remoteSpendableBalance,
     setExperience,
     setRemoteBalance,
+    setRemoteCourse,
     setRemoteOwned,
     setRemotePaidBalance,
     setRemotePackages,

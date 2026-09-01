@@ -11,48 +11,46 @@
         </div>
 
         <!-- Filters Section -->
-        <div class="filters-section">
+        <form class="filters-section" method="GET" action="{{ route('admin.courses.index') }}">
             <div class="filters-grid">
                 <div class="filter-group">
                     <label class="filter-label">البحث في الكورسات</label>
-                    <input type="text" id="courseSearch" class="filter-input" placeholder="ابحث باسم الكورس أو الوصف...">
+                    <input type="search" name="search" value="{{ $filters['search'] ?? '' }}" id="courseSearch" class="filter-input" placeholder="ابحث باسم الكورس أو الوصف...">
                 </div>
                 
-                <div class="filter-group courses-filter--hidden">
-                    <label class="filter-label">نوع الكورس</label>
-                    <select id="typeFilter" class="filter-select">
-                        <option value="">جميع الأنواع</option>
-                        <option value="online">أونلاين</option>
-                        <option value="center">مركز</option>
-                        <option value="both">مركز وأونلاين</option>
-                    </select>
-                </div>
                 <div class="filter-group">
                     <label class="filter-label">التصنيفات </label>
-                    <select id="classificationFilter" class="filter-select">
+                    <select name="classification_id" id="classificationFilter" class="filter-select" onchange="this.form.submit()">
                         <option value="">جميع التصنيفات</option>
-                        @php
-                            $allClassifications = $courses->flatMap->classifications->unique('id');
-                        @endphp
-                        @foreach($allClassifications as $classification)
-                            <option value="{{ $classification->id }}">{{ $classification->name_ar }}</option>
+                        @foreach($classificationOptions as $classification)
+                            <option value="{{ $classification->id }}" @selected((string) ($filters['classification_id'] ?? '') === (string) $classification->id)>{{ $classification->name_ar }}</option>
                         @endforeach
                     </select>
                 </div>
+                @if($canViewFinance)
+                    <div class="filter-group">
+                        <label class="filter-label">الحالة</label>
+                        <select name="state" class="filter-select" onchange="this.form.submit()">
+                            <option value="active" @selected(($filters['state'] ?? 'active') === 'active')>الكورسات الحالية</option>
+                            <option value="archived" @selected(($filters['state'] ?? '') === 'archived')>الأرشيف</option>
+                            <option value="all" @selected(($filters['state'] ?? '') === 'all')>الكل</option>
+                        </select>
+                    </div>
+                @endif
                 <div class="filter-group">
-                    <button onclick="resetFilters()" class="btn-modern btn-primary-modern">
-                        <i class="fa fa-refresh"></i>
-                        إعادة تعيين
-                    </button>
+                    <button type="submit" class="btn-modern btn-primary-modern"><i class="fa fa-search"></i> بحث</button>
+                    @if(!empty($filters['search']) || !empty($filters['classification_id']) || (($filters['state'] ?? 'active') !== 'active'))
+                        <a href="{{ route('admin.courses.index') }}" class="btn-modern btn-secondary-modern"><i class="fa fa-refresh"></i> إعادة تعيين</a>
+                    @endif
                 </div>
             </div>
-        </div>
+        </form>
 
         <!-- Courses Grid -->
         @if($courses->count() > 0)
             <div class="courses-grid" id="coursesGrid">
                 @foreach($courses as $course)
-                    <div class="course-card" data-course-type="{{ $course->course_type }}" data-classification-ids="{{ json_encode($course->classifications->pluck('id')) }}" data-search="{{ strtolower($course->title . ' ' . $course->description) }}" data-url="{{ route('admin.courses.show', $course->id) }}" onclick="navigateToCourse(event, this)">
+                    <div class="course-card" data-url="{{ $course->trashed() ? '' : route('admin.courses.show', $course->id) }}" onclick="navigateToCourse(event, this)">
                         <!-- Course Image -->
                         <div class="course-image-container">
                             @if($course->image)
@@ -62,7 +60,11 @@
                                     <i class="fa fa-book"></i>
                                 </div>
                             @endif
-                            @if($course->is_coming_soon)
+                            @if($course->trashed())
+                                <div class="course-coming-soon-badge">
+                                    <i class="fa fa-archive course-coming-soon-badge__icon"></i> مؤرشف
+                                </div>
+                            @elseif($course->is_coming_soon)
                                 <div class="course-coming-soon-badge">
                                     <i class="fa fa-clock-o course-coming-soon-badge__icon"></i> قريباً
                                 </div>
@@ -76,8 +78,12 @@
 
                             @php($publishingAudit = $publishingAudits->get($course->id))
                             <div class="mb-3">
-                                @if(!$course->is_coming_soon)
+                                @if($course->trashed())
+                                    <span class="badge badge-dark px-3 py-2">مؤرشف · محتواه غير متاح للطلاب</span>
+                                @elseif(!$course->is_coming_soon && $course->is_catalog_visible)
                                     <span class="badge badge-success px-3 py-2">منشور</span>
+                                @elseif(!$course->is_coming_soon)
+                                    <span class="badge badge-secondary px-3 py-2">منشور للطلاب · مخفي من الاكتشاف</span>
                                 @elseif($course->is_catalog_visible)
                                     <span class="badge badge-primary px-3 py-2">مُعلن في التطبيق · قريبًا</span>
                                 @elseif($publishingAudit && $publishingAudit['ready'])
@@ -106,11 +112,29 @@
 
                                 <div class="meta-item">
                                     <i class="fa fa-money meta-icon"></i>
-                                    <span>{{ (int) $course->price === 0 ? 'مجاني' : number_format($course->price) . ' عملة' }}</span>
+                                    @php
+                                        $activePlanPrices = $course->accessPlans
+                                            ->where('is_active', true)
+                                            ->pluck('price_coins')
+                                            ->map(fn ($price) => (int) $price)
+                                            ->sort()
+                                            ->values();
+                                        $lowestPlanPrice = $activePlanPrices->first();
+                                        $highestPlanPrice = $activePlanPrices->last();
+                                    @endphp
+                                    <span>
+                                        @if($activePlanPrices->isEmpty())
+                                            لا توجد فئة متاحة
+                                        @elseif($lowestPlanPrice === $highestPlanPrice)
+                                            {{ number_format($lowestPlanPrice) }} عملة
+                                        @else
+                                            {{ number_format($lowestPlanPrice) }}–{{ number_format($highestPlanPrice) }} عملة
+                                        @endif
+                                    </span>
                                 </div>
                                 <div class="meta-item">
                                     <i class="fa fa-robot meta-icon"></i>
-                                    <span>{{ $course->ai_chat_enabled ? 'Rokn AI مفعّل للمدفوع' : 'Rokn AI متوقف' }}</span>
+                                    <span>{{ $course->accessPlans->where('is_active', true)->contains(fn ($plan) => (bool) $plan->chat_enabled) ? 'Rokn AI في فئات مختارة' : 'Rokn AI متوقف' }}</span>
                                 </div>
                             </div>
 
@@ -145,31 +169,40 @@
 
                             <!-- Course Stats -->
                             <div class="course-stats">
+                                @if($canViewFinance)
                                 <div class="stat-mini">
                                     <span class="stat-mini-number">{{ number_format((int) ($course->active_enrollments_count ?? 0)) }}</span>
-                                    <span class="stat-mini-label">اشتراكات فعلية</span>
-                                </div>
-                                <div class="stat-mini">
-                                    <span class="stat-mini-number">{{ number_format((int) ($course->students_count ?? 0)) }}</span>
-                                    <span class="stat-mini-label">رصيد طلاب سابق</span>
+                                    <span class="stat-mini-label">طلاب فعليون</span>
                                 </div>
                                 <div class="stat-mini">
                                     <span class="stat-mini-number">{{ $course->ratings_count ? number_format((float) $course->ratings_avg_rating, 1) : '—' }}</span>
                                     <span class="stat-mini-label">تقييم · {{ number_format((int) $course->ratings_count) }}</span>
                                 </div>
+                                @endif
                                 <div class="stat-mini">
                                     <span class="stat-mini-number">{{ number_format((int) ($course->preview_steps_count ?? 0)) }}</span>
                                     <span class="stat-mini-label">مقاطع مجانية</span>
                                 </div>
                             </div>
                             <div class="text-muted course-card-footnote mb-3">
-                                يظهر للطالب {{ number_format((int) ($course->active_enrollments_count ?? 0)) }} طالبًا
-                                · {{ number_format((int) $course->sections_count) }} أقسام
+                                {{ number_format((int) $course->sections_count) }} أقسام
+                                @if($canViewFinance)
+                                    · يظهر للطالب {{ number_format((int) ($course->active_enrollments_count ?? 0)) }} طالبًا
+                                @endif
                                 @if($course->is_main_course) · <strong class="text-primary">الكورس الرئيسي الوحيد</strong> @endif
                             </div>
 
                             <!-- Course Actions -->
                             <div class="course-actions">
+                                @if($course->trashed())
+                                    <form action="{{ route('admin.courses.restore', $course->id) }}" method="post">
+                                        @csrf
+                                        <button type="submit" class="btn-card btn-card-success">
+                                            <i class="fa fa-undo"></i>
+                                            استعادة كمسودة
+                                        </button>
+                                    </form>
+                                @else
                                 <a href="{{ route('admin.courses.show', $course->id) }}" class="btn-card btn-card-primary">
                                     <i class="fa fa-magic"></i>
                                     فتح الاستوديو
@@ -184,18 +217,20 @@
                                 </a>
                                 @if(strtolower((string) auth()->user()?->role) === 'admin')
                                     <button onclick="deleteCourse({{ $course->id }})" class="btn-card btn-card-danger">
-                                        <i class="fa fa-trash"></i>
-                                        حذف
+                                        <i class="fa fa-archive"></i>
+                                        أرشفة
                                     </button>
+                                @endif
                                 @endif
                             </div>
                         </div>
 
                         <!-- Hidden Delete Form -->
-                        @if(strtolower((string) auth()->user()?->role) === 'admin')
+                        @if(!$course->trashed() && strtolower((string) auth()->user()?->role) === 'admin')
                             <form class="course-delete-form" id="deleteForm{{ $course->id }}" action="{{ route('admin.courses.destroy', $course->id) }}" method="post">
                                 <input name="_method" type="hidden" value="DELETE">
                                 @csrf
+                                <input type="hidden" name="authoring_version" value="{{ $course->authoring_version }}">
                             </form>
                         @endif
                     </div>
@@ -207,14 +242,16 @@
                 <div class="empty-icon">
                     <i class="fa fa-book"></i>
                 </div>
-                <h3 class="empty-title">لا توجد كورسات حالياً</h3>
+                <h3 class="empty-title">{{ ($filters['state'] ?? 'active') === 'archived' ? 'لا توجد كورسات مؤرشفة' : 'لا توجد نتائج' }}</h3>
                 <p class="empty-description">
-                    لم يتم إنشاء أي كورسات بعد. ابدأ بإضافة أول كورس لك.
+                    {{ !empty($filters['search']) || !empty($filters['classification_id']) ? 'غيّر البحث أو الفلاتر لعرض نتائج أخرى.' : (($filters['state'] ?? 'active') === 'archived' ? 'ستظهر هنا الكورسات التي تنقلها إلى الأرشيف.' : 'لم يتم إنشاء أي كورسات بعد.') }}
                 </p>
-                <a href="{{ route('admin.courses.create') }}" class="btn-modern btn-primary-modern">
+                @if(($filters['state'] ?? 'active') !== 'archived' && empty($filters['search']) && empty($filters['classification_id']))
+                    <a href="{{ route('admin.courses.create') }}" class="btn-modern btn-primary-modern">
                     <i class="fa fa-plus"></i>
                     إضافة كورس جديد
-                </a>
+                    </a>
+                @endif
             </div>
         @endif
     </div>

@@ -92,7 +92,7 @@
                                                 {{ $order->created_at->format('Y-m-d') }}
                                             </div>
                                             <div class="urgent-date-meta">
-                                                {{ $order->created_at->format('H:i') }} - {{ $order->created_at->diffForHumans() }}
+                                                {{ \App\Support\BusinessClock::display($order->created_at, 'H:i') }} · {{ \App\Support\BusinessClock::relative($order->created_at) }}
                                             </div>
                                         </td>
                                         <td>

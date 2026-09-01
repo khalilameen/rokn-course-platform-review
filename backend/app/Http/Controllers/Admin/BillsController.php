@@ -7,6 +7,7 @@ use App\Models\Bill;
 use App\Models\PaymentMethod;
 use Illuminate\Http\Request;
 use App\Services\OrderLifecycleService;
+use App\Support\BusinessClock;
 
 class BillsController extends Controller
 {
@@ -18,6 +19,12 @@ class BillsController extends Controller
      */
     public function index(Request $request)
     {
+        $dates = $request->validate([
+            'date_from' => ['nullable', 'date_format:Y-m-d'],
+            'date_to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:date_from'],
+            'due_date_from' => ['nullable', 'date_format:Y-m-d'],
+            'due_date_to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:due_date_from'],
+        ]);
         $query = Bill::with(['user', 'course', 'order.paymentMethod']);
 
         // Apply payment status filter
@@ -48,11 +55,13 @@ class BillsController extends Controller
         }
 
         // Apply date range filter
-        if ($request->filled('date_from')) {
-            $query->whereDate('created_at', '>=', $request->date_from);
+        if (!empty($dates['date_from'])) {
+            [$from] = BusinessClock::localDayRangeUtc($dates['date_from']);
+            $query->where('created_at', '>=', $from);
         }
-        if ($request->filled('date_to')) {
-            $query->whereDate('created_at', '<=', $request->date_to);
+        if (!empty($dates['date_to'])) {
+            [, $toExclusive] = BusinessClock::localDayRangeUtc($dates['date_to']);
+            $query->where('created_at', '<', $toExclusive);
         }
 
         // Apply amount range filter
@@ -64,15 +73,15 @@ class BillsController extends Controller
         }
 
         // Apply due date filter
-        if ($request->filled('due_date_from')) {
-            $query->whereDate('due_date', '>=', $request->due_date_from);
+        if (!empty($dates['due_date_from'])) {
+            $query->whereDate('due_date', '>=', $dates['due_date_from']);
         }
-        if ($request->filled('due_date_to')) {
-            $query->whereDate('due_date', '<=', $request->due_date_to);
+        if (!empty($dates['due_date_to'])) {
+            $query->whereDate('due_date', '<=', $dates['due_date_to']);
         }
 
         // Sort by latest
-        $query->latest();
+        $query->latest()->latest('id');
 
         $bills = $query->paginate(15);
 

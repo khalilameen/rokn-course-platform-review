@@ -40,6 +40,13 @@ class PathEndpointTest extends ApiTestCase
             $table->unsignedBigInteger('classification_id');
             $table->timestamps();
         });
+
+        // Path discovery intentionally uses the same complete public-course
+        // contract as home/search; make this fixture a publishable card.
+        DB::table('courses')->where('id', $this->courseId)->update([
+            'image' => 'test-course.jpg',
+            'path_id' => $this->pathId,
+        ]);
     }
 
     protected function tearDown(): void
@@ -69,7 +76,7 @@ class PathEndpointTest extends ApiTestCase
             ->assertOk()
             ->assertJsonPath('status', 200)
             ->assertJsonPath('success', true)
-            ->assertJsonPath('message', 'Paths retrieved successfully')
+            ->assertJsonPath('message', 'تم تحميل المسارات')
             ->assertJsonPath('data.0.title', 'Test Path')
             ->assertJsonPath('data.0.levels.0.id', $levelId)
             ->assertJsonPath('data.0.levels.0.name_en', 'Beginner');
@@ -110,7 +117,7 @@ class PathEndpointTest extends ApiTestCase
             ->assertOk()
             ->assertJsonPath('status', 200)
             ->assertJsonPath('success', true)
-            ->assertJsonPath('message', 'Path retrieved successfully')
+            ->assertJsonPath('message', 'تم تحميل المسار')
             ->assertJsonPath('data.id', $this->pathId);
     }
 
@@ -165,7 +172,7 @@ class PathEndpointTest extends ApiTestCase
             ->assertOk()
             ->assertJsonPath('status', 200)
             ->assertJsonPath('success', true)
-            ->assertJsonPath('message', 'User paths retrieved successfully')
+            ->assertJsonPath('message', 'تم تحميل تقدمك في المسارات')
             ->assertJsonPath('data.0.current_level.id', $currentLevelId);
 
         self::assertSame(

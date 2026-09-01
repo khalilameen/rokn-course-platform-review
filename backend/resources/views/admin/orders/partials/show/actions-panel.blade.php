@@ -43,7 +43,7 @@
                             </div>
                             <div class="form-group">
                                 <label for="settled-at">تاريخ التسوية</label>
-                                <input id="settled-at" name="settled_at" type="datetime-local" class="form-control" value="{{ old('settled_at', now()->format('Y-m-d\\TH:i')) }}" required>
+                                <input id="settled-at" name="settled_at" type="datetime-local" class="form-control" value="{{ old('settled_at', \App\Support\BusinessClock::now()->format('Y-m-d\\TH:i')) }}" required>
                             </div>
                             <div class="form-group">
                                 <label for="provider-reference">مرجع كشف المزود</label>
@@ -51,6 +51,33 @@
                             </div>
                             <button type="submit" class="btn btn-info btn-block action-btn" onclick="return confirm('هل طابقت الإجمالي والرسوم والصافي مع كشف المزود؟ لا يمكن تعديل الأرقام بعد حفظها.')">
                                 <i class="fa fa-check-square-o"></i> توثيق التسوية
+                            </button>
+                        </form>
+                        <hr class="order-action-separator">
+                    @endif
+                    @if(
+                        $order->status === \App\Models\Order::STATUS_APPROVED
+                        && $order->financial_status === \App\Models\Order::FINANCIAL_SETTLED
+                        && $order->course_id
+                        && $order->payment_method === \App\Models\Order::PAYMENT_METHOD_WALLET_COINS
+                        && $order->wallet_transaction_id
+                    )
+                        <div class="alert alert-light">
+                            <strong>تعويض عطل من طرف ركن</strong>
+                            <div>يعيد العملات إلى مكوناتها الأصلية ولا يلغي وصول الطالب إلى الكورس.</div>
+                        </div>
+                        <form method="POST" action="{{ route('admin.orders.compensate-course', $order) }}">
+                            @csrf
+                            <div class="form-group">
+                                <label for="compensation-amount">عدد العملات</label>
+                                <input id="compensation-amount" name="amount" type="number" min="1" max="{{ (int) $order->total_coins }}" class="form-control" value="{{ old('amount') }}" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="compensation-note">رقم الشكوى وسبب التعويض</label>
+                                <textarea id="compensation-note" name="note" class="form-control" rows="3" minlength="8" maxlength="1000" required>{{ old('note') }}</textarea>
+                            </div>
+                            <button type="submit" class="btn btn-outline-warning btn-block action-btn" onclick="return confirm('هل تحققت من الشكوى والمبلغ؟')">
+                                <i class="fa fa-life-ring"></i> إضافة التعويض
                             </button>
                         </form>
                         <hr class="order-action-separator">
@@ -119,11 +146,11 @@
                         </div>
                         <div class="order-summary__row">
                             <span class="order-summary__label">تاريخ الطلب:</span>
-                            <strong class="order-summary__value">{{ $order->created_at->format('Y-m-d') }}</strong>
+                            <strong class="order-summary__value">{{ \App\Support\BusinessClock::format($order->created_at, 'Y-m-d') }}</strong>
                         </div>
                         <div class="order-summary__row order-summary__row--last">
                             <span class="order-summary__label">الوقت:</span>
-                            <strong class="order-summary__value">{{ $order->created_at->format('H:i:s') }}</strong>
+                            <strong class="order-summary__value">{{ \App\Support\BusinessClock::format($order->created_at, 'H:i:s') }}</strong>
                         </div>
                     </div>
                 </div>

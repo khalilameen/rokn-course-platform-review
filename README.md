@@ -11,8 +11,9 @@ This public repository is a clean review snapshot of the Rokn learning platform.
 
 The snapshot is intended for engineering review, not direct production deployment.
 
-- Mobile: TypeScript, ESLint, accessibility audit, 42 Jest suites / 230 tests, and 46 release-script tests passed before publication.
-- Backend: the last full PHPUnit run passed 318 tests / 1,809 assertions; the later admin/public-asset verification passed 128 tests / 2,016 assertions.
+- Mobile and backend verification commands are listed below. Treat their current
+  output and CI artifact as evidence; do not rely on a copied historical test
+  count.
 - Current files pass the repository secret scanners. The old source repositories are deliberately not included because their historical commits contained credentials that must be rotated independently.
 - iOS remains release-blocked until `Podfile.lock` is regenerated on macOS with the pinned modern Ruby/Bundler/CocoaPods toolchain.
 - Production promotion still requires staging API parity, payment reconciliation evidence, a database restore drill, and operator approval.

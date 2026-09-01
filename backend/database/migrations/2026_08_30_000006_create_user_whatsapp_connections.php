@@ -9,9 +9,18 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    public $withinTransaction = false;
+
     public function up(): void
     {
-        Schema::create('user_whatsapp_connections', function (Blueprint $table): void {
+        foreach (['users', 'coin_earning_methods'] as $table) {
+            if (! Schema::hasTable($table)) {
+                throw new RuntimeException("Required table [{$table}] is missing.");
+            }
+        }
+
+        if (! Schema::hasTable('user_whatsapp_connections')) {
+            Schema::create('user_whatsapp_connections', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('user_id')->unique()->constrained()->cascadeOnDelete();
             $table->string('phone_e164', 20)->unique();
@@ -24,9 +33,11 @@ return new class extends Migration
             $table->string('consent_version', 40)->nullable();
             $table->string('consent_source', 80)->nullable();
             $table->timestamps();
-        });
+            });
+        }
 
-        Schema::create('whatsapp_link_tokens', function (Blueprint $table): void {
+        if (! Schema::hasTable('whatsapp_link_tokens')) {
+            Schema::create('whatsapp_link_tokens', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->foreignId('coin_earning_method_id')->constrained()->cascadeOnDelete();
@@ -39,7 +50,8 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index(['user_id', 'coin_earning_method_id']);
-        });
+            });
+        }
 
         DB::table('coin_earning_methods')->insertOrIgnore([
             'title_ar' => 'اربط واتسابك بحساب ركن',
@@ -58,7 +70,9 @@ return new class extends Migration
 
     public function down(): void
     {
-        DB::table('coin_earning_methods')->where('action_key', 'link_whatsapp')->delete();
+        if (Schema::hasTable('coin_earning_methods')) {
+            DB::table('coin_earning_methods')->where('action_key', 'link_whatsapp')->delete();
+        }
         Schema::dropIfExists('whatsapp_link_tokens');
         Schema::dropIfExists('user_whatsapp_connections');
     }

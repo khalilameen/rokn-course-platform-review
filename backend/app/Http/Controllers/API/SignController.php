@@ -2,172 +2,56 @@
 
 namespace App\Http\Controllers\API;
 
+use App\Exceptions\SocialProviderUnavailableException;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\API\LoginRequest;
-use App\Http\Requests\API\RegisterRequest;
 use App\Http\Resources\StudentProfileResource;
-use App\Http\Resources\UserResource;
 use App\Models\SocialAccount;
 use App\Models\Setting;
-use App\Models\CoinEarningMethod;
 use App\Models\ApiToken;
 use App\Models\User;
-use App\Models\VerificationCode;
 use App\Models\RewardRule;
-use App\Services\WhatsAppService;
 use App\Services\FacebookService;
 use App\Services\GoogleService;
 use App\Services\TikTokService;
 use App\Services\AppleService;
 use App\Services\SocialAuthProviderRegistry;
+use App\Services\DeviceLoginService;
+use App\Services\PortfolioShareIdentityService;
+use App\Support\RoknLocale;
 use Exception;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
-use Illuminate\Hashing\BcryptHasher;
 use Illuminate\Validation\Rule;
 
 class SignController extends Controller
 {
-    private $whatsAppService;
     private $facebookService;
     private $googleService;
     private $tikTokService;
     private $appleService;
     private SocialAuthProviderRegistry $socialProviders;
+    private DeviceLoginService $deviceLogin;
+    private PortfolioShareIdentityService $portfolioShares;
 
     public function __construct(
-        WhatsAppService $whatsAppService,
         FacebookService $facebookService,
         GoogleService $googleService,
         TikTokService $tikTokService,
         AppleService $appleService,
-        SocialAuthProviderRegistry $socialProviders
+        SocialAuthProviderRegistry $socialProviders,
+        DeviceLoginService $deviceLogin,
+        PortfolioShareIdentityService $portfolioShares
     ) {
-        $this->whatsAppService = $whatsAppService;
         $this->facebookService = $facebookService;
         $this->googleService = $googleService;
         $this->tikTokService = $tikTokService;
         $this->appleService = $appleService;
         $this->socialProviders = $socialProviders;
-    }
-
-    /**
-     * Register a new user
-     *
-     * @param RegisterRequest $request
-     * @return \Illuminate\Http\JsonResponse
-     */
-    public function register(RegisterRequest $request)
-    {
-        $user = User::create([
-            'name' => $request->input('name'),
-            'phone' => $request->input('phone'),
-            'email' => $request->input('phone') . '@placeholder.com',
-            'password' => (new BcryptHasher())->make($request->input('password')),
-            'device_os' => $this->normalizeDeviceOs($request->input('device_os')),
-        ]);
-        $user->forceFill(['role' => 'client', 'active' => true])->save();
-
-        $user->generateApiToken();
-
-        // Save device token if provided
-        $this->saveDeviceToken($user, $request);
-
-        // Grant registration bonus coins and send localized FCM notification
-        $welcomeBonusGranted = \App\Services\StudentNotificationService::sendRegistrationBonus($user);
-        $user->refresh();
-
-        // Create verification code and send via WhatsApp
-       // $verificationCode = VerificationCode::createForPhone($user->phone, 'verification');
-       // $this->whatsAppService->sendVerificationCode($user->phone, $verificationCode->code);
-
-        return response()->json([
-            'status' => 200,
-            'success' => true,
-            'message' => 'تم التسجيل بنجاح!',
-            'data' => [
-                'user' => new StudentProfileResource($user),
-                'requires_verification' => true,
-                'device_token' => $request->input('device_token') ?? $user->deviceTokens()->latest()->value('device_token') ?? null,
-                'welcome_bonus_granted' => $welcomeBonusGranted,
-            ]
-        ]);
-    }
-
-    /**
-     * Login user
-     *
-     * @param LoginRequest $request
-     * @return \Illuminate\Http\JsonResponse
-     */
-    public function login(LoginRequest $request)
-    {
-        $user = User::where('phone', $request->input('phone'))->first();
-
-        if (!$user) {
-            return response()->json([
-                'status' => 422,
-                'success' => false,
-                'message' => 'لا يوجد مستخدم بهذه البيانات',
-                'errors' => ['phone' => ['لا يوجد مستخدم بهذا الرقم']]
-            ], 422);
-        }
-
-        if (!Hash::check($request->input('password'), $user->password)) {
-            return response()->json([
-                'status' => 422,
-                'success' => false,
-                'message' => 'كلمة المرور غير صحيحة',
-                'errors' => ['password' => ['كلمة المرور غير صحيحة']]
-            ], 422);
-        }
-/*
-        // Check if phone is verified
-        if (!$user->phone_verified_at) {
-            // Send a new verification code
-            $verificationCode = VerificationCode::createForPhone($user->phone, 'verification');
-            $this->whatsAppService->sendVerificationCode($user->phone, $verificationCode->code);
-
-            return response()->json([
-                'status' => 403,
-                'success' => false,
-                'message' => 'حسابك غير مفعل. تم إرسال رمز التحقق إلى واتساب الخاص بك.',
-                'data' => [
-                    'requires_verification' => true,
-                    'phone' => $user->phone,
-                ]
-            ], 403);
-        }
-*/
-        // Check if user is active
-        if (!$user->active) {
-            return response()->json([
-                'status' => 403,
-                'success' => false,
-                'message' => 'حسابك غير مفعل. يرجى التواصل مع الدعم الفني.',
-            ], 403);
-        }
-
-        Auth::login($user);
-
-        $apiToken = $user->generateApiToken();
-
-        // Save device token if provided
-        $this->saveDeviceToken($user, $request);
-
-        return response()->json([
-            'status' => 200,
-            'success' => true,
-            'message' => 'تم تسجيل الدخول بنجاح',
-            'data' => [
-                'user' => new StudentProfileResource($user),
-                'api_token' => $apiToken,
-                'device_token' => $request->input('device_token') ?? $user->deviceTokens()->latest()->value('device_token') ?? null,
-            ]
-        ]);
+        $this->deviceLogin = $deviceLogin;
+        $this->portfolioShares = $portfolioShares;
     }
 
     /**
@@ -194,6 +78,7 @@ class SignController extends Controller
             'device_os' => 'nullable|string|max:255',
             'device_token' => 'nullable|string|max:500',
             'device_type' => 'nullable|string|max:50',
+            'device_id' => ['nullable', 'uuid'],
             'preferred_locale' => 'nullable|string|in:ar,en',
         ]);
 
@@ -203,7 +88,7 @@ class SignController extends Controller
             ?? ($request->hasHeader('Accept-Language') ? $request->header('Accept-Language') : null);
         $preferredLocale = $localeInput === null
             ? null
-            : (str_starts_with(strtolower((string) $localeInput), 'en') ? 'en' : 'ar');
+            : (RoknLocale::normalize($localeInput) ?? RoknLocale::fromRequest($request));
 
         try {
             // Verify token with appropriate service
@@ -220,13 +105,19 @@ class SignController extends Controller
                 'exception' => get_class($e),
             ]);
 
+            $providerUnavailable = $this->isTransientSocialProviderFailure($e);
+
             return response()->json([
-                'status' => 422,
+                'status' => $providerUnavailable ? 503 : 422,
                 'success' => false,
-                'code' => 'social_identity_verification_failed',
-                'message' => 'تعذر التحقق من حسابك الآن. أعد المحاولة من شاشة تسجيل الدخول.',
+                'code' => $providerUnavailable
+                    ? 'social_provider_unavailable'
+                    : 'social_identity_verification_failed',
+                'message' => $providerUnavailable
+                    ? "خدمة تسجيل الدخول غير متاحة للحظات\nحاول مرة أخرى"
+                    : "تعذّر التحقق من الحساب\nابدأ تسجيل الدخول مرة أخرى",
                 'data' => null,
-            ], 422);
+            ], $providerUnavailable ? 503 : 422);
         }
 
         $providerId = trim((string) ($socialData['id'] ?? ''));
@@ -235,7 +126,7 @@ class SignController extends Controller
                 'status' => 422,
                 'success' => false,
                 'code' => 'social_identity_verification_failed',
-                'message' => 'تعذر التحقق من هوية الحساب.',
+                'message' => 'تعذّر التحقق من هوية الحساب',
                 'data' => null,
             ], 422);
         }
@@ -285,7 +176,17 @@ class SignController extends Controller
 
                 // Linking by email is allowed only when the provider itself verified that email.
                 if (!$user && $emailIsVerified) {
-                    $user = User::query()->where('email', $email)->lockForUpdate()->first();
+                    $emailOwner = User::query()
+                        ->where('email', $email)
+                        ->lockForUpdate()
+                        ->first();
+                    if ($emailOwner && !$emailOwner->email_verified_at) {
+                        // A learner may type any available address while
+                        // editing the profile. That unverified string is not
+                        // proof that a later provider identity owns this row.
+                        throw new \DomainException('social_account_email_unverified');
+                    }
+                    $user = $emailOwner;
                 }
 
                 $isNewUser = false;
@@ -318,7 +219,7 @@ class SignController extends Controller
                     ])->save();
 
                     if (empty($user->portfolio_slug)) {
-                        $user->forceFill(['portfolio_slug' => 'student-' . $user->id])->save();
+                        $this->portfolioShares->ensure($user);
                     }
                 }
 
@@ -328,7 +229,7 @@ class SignController extends Controller
                     ->where('provider_user_id', '!=', $providerId)
                     ->exists();
                 if ($conflictingAccount) {
-                    throw new Exception('This provider is already linked to another identity.');
+                    throw new \DomainException('social_account_conflict');
                 }
 
                 SocialAccount::updateOrCreate(
@@ -385,14 +286,24 @@ class SignController extends Controller
 
                 return [$user, $isNewUser];
             });
-        } catch (Exception $e) {
+        } catch (\Illuminate\Database\QueryException $e) {
+            report($e);
+
+            return response()->json([
+                'status' => 503,
+                'success' => false,
+                'code' => 'social_login_unavailable',
+                'message' => "تعذّر إكمال تسجيل الدخول\nحاول مرة أخرى",
+                'data' => null,
+            ], 503);
+        } catch (\DomainException $e) {
             report($e);
 
             return response()->json([
                 'status' => 409,
                 'success' => false,
                 'code' => 'social_account_conflict',
-                'message' => 'هذا الحساب مرتبط بهوية أخرى. تواصل مع الدعم إذا استمرت المشكلة.',
+                'message' => "هذا الحساب مرتبط بهوية أخرى\nتواصل مع الدعم إذا استمرت المشكلة",
                 'data' => null,
             ], 409);
         }
@@ -406,18 +317,54 @@ class SignController extends Controller
             return response()->json([
                 'status' => 403,
                 'success' => false,
-                'message' => 'حسابك غير مفعل. يرجى التواصل مع الدعم الفني.',
+                'code' => 'account_disabled',
+                'message' => "حسابك غير مفعّل\nتواصل مع الدعم",
                 'data' => null,
             ], 403);
         }
 
-        // API authentication is token based. Starting a web/session login here
-        // can fail on stateless API routes and can leak a previous browser
-        // session into a newly verified social identity.
-        $apiToken = $user->generateApiToken();
+        // Serialize policy evaluation with token issuance. Two first logins
+        // arriving together must not both observe an empty device lock.
+        $deviceSession = DB::transaction(function () use ($user, $validated): array {
+            $lockedUser = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $access = $this->deviceLogin->checkDeviceAccess(
+                $lockedUser,
+                $validated['device_id'] ?? null
+            );
+            if (!$access['allowed']) {
+                return ['access' => $access, 'api_token' => null];
+            }
 
-        // Save device token if provided
-        $this->saveDeviceToken($user, $request);
+            $this->deviceLogin->applyDeviceAction(
+                $lockedUser,
+                (string) $access['action'],
+                (string) $access['device_id']
+            );
+
+            return [
+                'access' => $access,
+                'api_token' => $lockedUser->generateApiToken(),
+            ];
+        });
+        $deviceAccess = $deviceSession['access'];
+        if (!$deviceAccess['allowed']) {
+            return response()->json([
+                'status' => 403,
+                'success' => false,
+                'code' => 'device_login_denied',
+                'message' => $deviceAccess['message'],
+                'data' => null,
+            ], 403);
+        }
+        $apiToken = (string) $deviceSession['api_token'];
+
+        // Push registration is recoverable on the next foreground. It must
+        // never turn a verified login into a false authentication failure.
+        try {
+            $this->saveDeviceToken($user, $request);
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
 
         // This service is ledger-idempotent, so retry it on every verified login.
         // A temporary outage during first registration must not permanently lose the welcome coins.
@@ -429,13 +376,20 @@ class SignController extends Controller
             report($exception);
         }
         $user->refresh();
+        $sessionProfile = (new StudentProfileResource($user))
+            ->withoutLearningSnapshot()
+            ->resolve($request);
+        // This bearer belongs to the provider just verified. Keep that fact in
+        // the session even when another linked provider originally created the
+        // user row.
+        $sessionProfile['social_provider'] = $provider;
 
         return response()->json([
             'status' => 200,
             'success' => true,
             'message' => 'تم تسجيل الدخول بنجاح',
             'data' => [
-                'user' => new StudentProfileResource($user),
+                'user' => $sessionProfile,
                 'api_token' => $apiToken,
                 'device_token' => $request->input('device_token') ?? $user->deviceTokens()->latest()->value('device_token') ?? null,
                 'welcome_bonus_granted' => $welcomeBonusGranted,
@@ -443,17 +397,77 @@ class SignController extends Controller
         ]);
     }
 
+    private function isTransientSocialProviderFailure(\Throwable $exception): bool
+    {
+        for ($current = $exception; $current !== null; $current = $current->getPrevious()) {
+            if (
+                $current instanceof SocialProviderUnavailableException
+                || $current instanceof \Illuminate\Http\Client\ConnectionException
+                || $current instanceof \GuzzleHttp\Exception\ConnectException
+                || $current instanceof \GuzzleHttp\Exception\ServerException
+            ) {
+                return true;
+            }
+
+            if ($current instanceof \Illuminate\Http\Client\RequestException) {
+                $status = $current->response->status();
+                if ($status === 429 || $status >= 500) {
+                    return true;
+                }
+            }
+
+            if (
+                $current instanceof \GuzzleHttp\Exception\RequestException
+                && (!$current->hasResponse() || ($current->getResponse()?->getStatusCode() ?? 0) >= 500)
+            ) {
+                return true;
+            }
+        }
+
+        $message = strtolower($exception->getMessage());
+
+        return str_contains($message, 'not configured')
+            || str_contains($message, 'public-keys response')
+            || str_contains($message, 'no matching apple signing key')
+            || str_contains($message, 'graph api version');
+    }
+
     public function authMethods()
     {
         $providers = $this->socialProviders->available();
-        $welcomeBonus = RewardRule::configuredAmount(
-            'welcome_bonus',
-            (int) (Setting::query()->value('welcome_bonus_coins')
-                ?? config('social_auth.welcome_bonus_coins', 20))
-        );
+        $settings = null;
+        $welcomeBonus = (int) config('social_auth.welcome_bonus_coins', 20);
+        try {
+            $discovery = Cache::remember('auth-methods:dynamic:v2', 60, function () use ($welcomeBonus): array {
+                $settings = Setting::query()->first();
+
+                return [
+                    'settings' => $settings,
+                    'welcome_bonus' => RewardRule::configuredAmount(
+                        'welcome_bonus',
+                        (int) ($settings?->welcome_bonus_coins ?? $welcomeBonus)
+                    ),
+                ];
+            });
+            $settings = $discovery['settings'];
+            $welcomeBonus = (int) $discovery['welcome_bonus'];
+        } catch (\Throwable $exception) {
+            // Provider discovery must stay usable during a rolling migration
+            // of optional reward/settings tables. The login transaction still
+            // fails normally if the core identity schema itself is unavailable.
+            report($exception);
+            try {
+                $settings = Setting::query()->first();
+                $welcomeBonus = RewardRule::configuredAmount(
+                    'welcome_bonus',
+                    (int) ($settings?->welcome_bonus_coins ?? $welcomeBonus)
+                );
+            } catch (\Throwable $databaseException) {
+                report($databaseException);
+            }
+        }
 
         $publicApiUrl = rtrim(trim((string) config('social_auth.public_api_url')), '/');
-        $settings = Setting::query()->first();
         $preferredProvider = (string) ($settings?->recommended_social_provider
             ?: config('social_auth.recommended_provider', 'google'));
         $recommendedProvider = $providers->contains($preferredProvider)
@@ -468,6 +482,7 @@ class SignController extends Controller
         return response()->json([
             'status' => 200,
             'success' => true,
+            'message' => 'تم تحميل طرق الدخول',
             'data' => [
                 'providers' => $providers,
                 'authorization_urls' => $providers
@@ -520,189 +535,6 @@ class SignController extends Controller
     }
 
     /**
-     * Send verification code via WhatsApp
-     *
-     * @param Request $request
-     * @return \Illuminate\Http\JsonResponse
-     */
-    public function sendVerificationCode(Request $request)
-    {
-        $request->validate([
-            'phone' => 'required|string',
-        ]);
-
-        $user = User::where('phone', $request->input('phone'))->first();
-
-        if (!$user) {
-            return response()->json([
-                'status' => 404,
-                'success' => false,
-                'message' => 'لا يوجد مستخدم بهذا الرقم',
-            ], 404);
-        }
-
-        if ($user->phone_verified_at) {
-            return response()->json([
-                'status' => 400,
-                'success' => false,
-                'message' => 'رقم الهاتف مفعل بالفعل',
-            ], 400);
-        }
-
-        $verificationCode = VerificationCode::createForPhone($user->phone, 'verification');
-        $this->whatsAppService->sendVerificationCode($user->phone, $verificationCode->code);
-
-        return response()->json([
-            'status' => 200,
-            'success' => true,
-            'message' => 'تم إرسال رمز التحقق إلى واتساب الخاص بك',
-        ]);
-    }
-
-    /**
-     * Verify phone number with code
-     *
-     * @param Request $request
-     * @return \Illuminate\Http\JsonResponse
-     */
-    public function verifyPhone(Request $request)
-    {
-        $request->validate([
-            'phone' => 'required|string',
-            'code' => 'required|string',
-            'device_token' => 'nullable|string|max:500',
-            'device_type' => 'nullable|string|max:50',
-            'device_os' => 'nullable|string|max:255',
-        ]);
-
-        $user = User::where('phone', $request->input('phone'))->first();
-
-        if (!$user) {
-            return response()->json([
-                'status' => 404,
-                'success' => false,
-                'message' => 'لا يوجد مستخدم بهذا الرقم',
-            ], 404);
-        }
-
-        $verificationCode = VerificationCode::findValidCode(
-            $request->input('phone'),
-            $request->input('code'),
-            'verification'
-        );
-
-        if (!$verificationCode) {
-            return response()->json([
-                'status' => 400,
-                'success' => false,
-                'message' => 'رمز التحقق غير صحيح أو منتهي الصلاحية',
-            ], 400);
-        }
-
-        $verificationCode->markAsUsed();
-        $user->update(['phone_verified_at' => now()]);
-
-        Auth::login($user);
-        $apiToken = $user->generateApiToken();
-
-        // Save device token if provided
-        $this->saveDeviceToken($user, $request);
-
-        return response()->json([
-            'status' => 200,
-            'success' => true,
-            'message' => 'تم تفعيل رقم الهاتف بنجاح',
-            'data' => [
-                'user' => new StudentProfileResource($user),
-                'api_token' => $apiToken,
-                'device_token' => $request->input('device_token') ?? $user->deviceTokens()->latest()->value('device_token') ?? null,
-            ]
-        ]);
-    }
-
-    /**
-     * Request password reset via WhatsApp
-     *
-     * @param Request $request
-     * @return \Illuminate\Http\JsonResponse
-     */
-    public function forgotPassword(Request $request)
-    {
-        $request->validate([
-            'phone' => 'required|string',
-        ]);
-
-        $user = User::where('phone', $request->input('phone'))->first();
-
-        if (!$user) {
-            return response()->json([
-                'status' => 404,
-                'success' => false,
-                'message' => 'لا يوجد مستخدم بهذا الرقم',
-            ], 404);
-        }
-
-        $verificationCode = VerificationCode::createForPhone($user->phone, 'password_reset');
-        $this->whatsAppService->sendPasswordResetCode($user->phone, $verificationCode->code);
-
-        return response()->json([
-            'status' => 200,
-            'success' => true,
-            'message' => 'تم إرسال رمز إعادة تعيين كلمة المرور إلى واتساب الخاص بك',
-        ]);
-    }
-
-    /**
-     * Reset password with verification code
-     *
-     * @param Request $request
-     * @return \Illuminate\Http\JsonResponse
-     */
-    public function resetPassword(Request $request)
-    {
-        $request->validate([
-            'phone' => 'required|string',
-            'code' => 'required|string',
-            'password' => 'required|confirmed|min:6',
-        ]);
-
-        $user = User::where('phone', $request->input('phone'))->first();
-
-        if (!$user) {
-            return response()->json([
-                'status' => 404,
-                'success' => false,
-                'message' => 'لا يوجد مستخدم بهذا الرقم',
-            ], 404);
-        }
-
-        $verificationCode = VerificationCode::findValidCode(
-            $request->input('phone'),
-            $request->input('code'),
-            'password_reset'
-        );
-
-        if (!$verificationCode) {
-            return response()->json([
-                'status' => 400,
-                'success' => false,
-                'message' => 'رمز التحقق غير صحيح أو منتهي الصلاحية',
-            ], 400);
-        }
-
-        $verificationCode->markAsUsed();
-        $user->update([
-            'password' => (new BcryptHasher())->make($request->input('password')),
-        ]);
-
-        return response()->json([
-            'status' => 200,
-            'success' => true,
-            'message' => 'تم تغيير كلمة المرور بنجاح. يمكنك تسجيل الدخول الآن.',
-        ]);
-    }
-
-    /**
      * Logout user
      *
      * @param Request $request
@@ -716,12 +548,23 @@ class SignController extends Controller
         $user = auth('api')->user();
 
         if ($user) {
-            \Illuminate\Support\Facades\DB::transaction(function () use ($user, $validated): void {
-                if (! empty($validated['device_token'])) {
-                    \App\Models\UserDeviceToken::where('user_id', $user->id)
-                        ->where('device_token', $validated['device_token'])
-                        ->delete();
+            /** @var ApiToken|null $currentToken */
+            $currentToken = $request->attributes->get('rokn_api_token');
+            \Illuminate\Support\Facades\DB::transaction(function () use ($user, $validated, $currentToken): void {
+                $pushTokens = \App\Models\UserDeviceToken::query()
+                    ->where('user_id', $user->id);
+                $currentDeviceId = trim((string) $currentToken?->device_id);
+                if (
+                    $currentDeviceId !== ''
+                    && \Illuminate\Support\Facades\Schema::hasColumn('user_device_tokens', 'device_id')
+                ) {
+                    $pushTokens->where('device_id', $currentDeviceId)->delete();
+                } elseif (! empty($validated['device_token'])) {
+                    $pushTokens->where('device_token', $validated['device_token'])->delete();
                 }
+                // A legacy session without a bound device or an explicit
+                // native token cannot identify one installation safely. Do
+                // not revoke the other signed-in phones by guessing.
 
                 // MultipleTokensGuard revokes only the bearer token used for
                 // this request. Other phones stay signed in.
@@ -759,7 +602,7 @@ class SignController extends Controller
                 'status' => 403,
                 'success' => false,
                 'code' => 'social_reauthentication_required',
-                'message' => 'أكد هويتك من جديد بنفس حساب تسجيل الدخول قبل حذف الحساب.',
+                'message' => "أكد هويتك من جديد\nاستخدم حساب تسجيل الدخول نفسه",
                 'data' => null,
             ], 403);
         }
@@ -781,7 +624,7 @@ class SignController extends Controller
                 'success' => true,
                 'deletion_status' => $cleanupPending ? 'cleanup_pending' : 'completed',
                 'message' => $cleanupPending
-                    ? 'تم تعطيل الحساب ومسح بياناته من التطبيق. جارٍ استكمال حذف الملفات من التخزين.'
+                    ? "تم تعطيل الحساب ومسح بياناته من التطبيق\nنستكمل حذف الملفات من التخزين"
                     : 'تم حذف الحساب وبياناته الشخصية بنجاح',
                 'data' => null,
             ], $cleanupPending ? 202 : 200);
@@ -792,7 +635,7 @@ class SignController extends Controller
         return response()->json([
             'status' => 500,
             'success' => false,
-            'message' => 'تعذر حذف الحساب الآن. حاول مرة أخرى أو تواصل مع الدعم',
+            'message' => "تعذّر حذف الحساب الآن\nحاول مرة أخرى أو تواصل مع الدعم",
             'data' => null,
         ], 500);
     }
@@ -810,29 +653,38 @@ class SignController extends Controller
         $deviceType = $request->input('device_type');
         $deviceOs = $this->normalizeDeviceOs($request->input('device_os'));
 
-        if ($deviceToken) {
-            // Update or create the token for this user
-            // We use updateOrCreate to avoid duplicate tokens for the same user
-            // If the token already exists for another user, it will be reassigned to this user
-            $tokenAttributes = [
-                'user_id' => $user->id,
-                'device_type' => $deviceType,
-            ];
-            // Older installations did not have this column. Keep sign-in
-            // working during a rolling deploy, then persist it after migrate.
-            if (\Illuminate\Support\Facades\Schema::hasColumn('user_device_tokens', 'device_os')) {
-                $tokenAttributes['device_os'] = $deviceOs;
+        DB::transaction(function () use ($user, $request, $deviceToken, $deviceType, $deviceOs): void {
+            $lockedUser = User::query()->whereKey($user->id)->lockForUpdate()->first();
+            if (!$lockedUser || !(bool) $lockedUser->active || $lockedUser->trashed()) {
+                return;
             }
 
-            \App\Models\UserDeviceToken::updateOrCreate(
-                ['device_token' => $deviceToken],
-                $tokenAttributes
-            );
-        }
+            if ($deviceToken) {
+                // A native token belongs to one account at a time. Reassigning
+                // the unique row atomically closes reinstall/account-switch
+                // delivery to its previous owner.
+                $tokenAttributes = [
+                    'user_id' => $lockedUser->id,
+                    'device_type' => $deviceType,
+                ];
+                if (\Illuminate\Support\Facades\Schema::hasColumn('user_device_tokens', 'device_os')) {
+                    $tokenAttributes['device_os'] = $deviceOs;
+                }
+                if (\Illuminate\Support\Facades\Schema::hasColumn('user_device_tokens', 'device_id')) {
+                    $deviceId = trim((string) $request->input('device_id'));
+                    $tokenAttributes['device_id'] = Str::isUuid($deviceId) ? $deviceId : null;
+                }
 
-        if ($deviceOs && $user->device_os !== $deviceOs) {
-            $user->update(['device_os' => $deviceOs]);
-        }
+                \App\Models\UserDeviceToken::updateOrCreate(
+                    ['device_token' => $deviceToken],
+                    $tokenAttributes
+                );
+            }
+
+            if ($deviceOs && $lockedUser->device_os !== $deviceOs) {
+                $lockedUser->forceFill(['device_os' => $deviceOs])->save();
+            }
+        }, 3);
     }
 
     private function hasFreshSocialReauthentication(Request $request, User $user): bool
@@ -859,10 +711,16 @@ class SignController extends Controller
         // The presented bearer must be minted in the same short window as a
         // provider verification for this exact user. A fresh generic token or
         // another account's OAuth response cannot authorize deletion.
+        $provider = strtolower(trim((string) $user->social_provider));
+        $providerUserId = trim((string) $user->social_id);
+        if ($provider === '' || $providerUserId === '') {
+            return false;
+        }
+
         return SocialAccount::query()
             ->where('user_id', $user->id)
-            ->where('provider', strtolower(trim((string) $user->social_provider)))
-            ->where('provider_user_id', trim((string) $user->social_id))
+            ->where('provider', $provider)
+            ->where('provider_user_id', $providerUserId)
             ->where('last_verified_at', '>=', now()->subSeconds($window))
             ->where('last_verified_at', '<=', $issuedAt->copy()->addSeconds(5))
             ->exists();
@@ -895,6 +753,7 @@ class SignController extends Controller
             'device_token' => 'required|string|max:500',
             'device_type' => 'nullable|string|max:50',
             'device_os' => 'nullable|string|max:255',
+            'device_id' => ['nullable', 'uuid'],
         ]);
 
         $user = auth()->user() ?? auth('api')->user();
@@ -908,7 +767,22 @@ class SignController extends Controller
             ], 401);
         }
 
-        $this->saveDeviceToken($user, $request);
+        /** @var ApiToken|null $currentToken */
+        $currentToken = $request->attributes->get('rokn_api_token');
+        $currentDeviceId = trim((string) $currentToken?->device_id);
+        if ($currentDeviceId !== '') {
+            // Bind push to the authenticated session, not to a stale or
+            // caller-supplied installation id left over after account switch.
+            $request->merge(['device_id' => $currentDeviceId]);
+        }
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($user, $request): void {
+            $this->saveDeviceToken($user, $request);
+            if (! $user->notifications_status) {
+                $user->update(['notifications_status' => true]);
+            }
+        });
+        $user->refresh();
 
         return response()->json([
             'status' => 200,
@@ -916,7 +790,7 @@ class SignController extends Controller
             'message' => 'تم حفظ رمز التنبيهات بنجاح',
             'data' => [
                 'device_token' => $request->input('device_token'),
-                'user' => new StudentProfileResource($user),
+                'user' => (new StudentProfileResource($user))->withoutLearningSnapshot(),
             ]
         ]);
     }

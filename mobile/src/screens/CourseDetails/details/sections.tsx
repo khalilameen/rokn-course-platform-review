@@ -13,11 +13,14 @@ import {CourseDetailsSkeleton} from '../../../components/ui/Skeleton';
 import {StatusView} from '../../../components/ui/PremiumUI';
 import {CourseArtwork} from '../../../components/ui/CourseArtwork';
 import {CoinAmount} from '../../../components/ui/RoknCoin';
-import {CAN_START_EXTERNAL_CHECKOUT} from '../../../constants/distribution';
+import {CAN_START_COIN_CHECKOUT} from '../../../constants/distribution';
 import {Palette, useResponsiveLayout} from '../../../constants/designSystem';
 import {
   formatArabicDisplayText,
+  formatArabicMinutes,
   formatArabicNumber,
+  formatArabicRatings,
+  formatArabicStudents,
 } from '../../../constants/arabicFormatting';
 import {createDemoCourse} from '../../../components/VideoPlayer/demoCourse';
 import type {
@@ -30,12 +33,19 @@ import styles from './styles';
 
 export const CourseAbout = ({details}: {details?: CourseDetailsDto | null}) => {
   const {isTablet} = useResponsiveLayout();
+  const isLocalDemo = !details;
+  const title = details
+    ? details.title
+    : 'نظام عملي لتحويل مهارتك إلى خدمة يشتريها عميل حقيقي';
+  const description = details
+    ? details.description
+    : 'ثلاثون مقطعًا قصيرًا من تحديد خدمتك إلى إدارة المشروع والتسليم\nتنتهي كل وحدة بمشروع عبور عند الحاجة';
+  const instructorName = details ? details.instructor : 'كريم منصور';
+  const instructorBio = details
+    ? details.instructorBio
+    : 'مصمم منتجات مستقل\nيركز على تقديم العمل وإدارة العميل وبناء مشروع يمكن عرضه';
   const outcomes = details
-    ? [
-        'تقدّم محفوظ والعودة من نفس موضع المشاهدة',
-        'خريطة واضحة للوحدات والمقاطع',
-        'مرفقات تظهر في وقتها داخل الكورس',
-      ]
+    ? []
     : [
         'عرض خدمة واضح يمكن إرساله للعميل',
         'قالب نطاق عمل وخطة تسليم تقلل التعديلات',
@@ -45,19 +55,17 @@ export const CourseAbout = ({details}: {details?: CourseDetailsDto | null}) => {
     <View style={styles.aboutWrap}>
       <View style={[styles.aboutGrid, isTablet && styles.aboutGridTablet]}>
         <View style={styles.aboutMain}>
-          <Text style={styles.sectionEyebrow}>ما الذي ستخرج به؟</Text>
-          <Text style={styles.sectionTitle}>
-            {formatArabicDisplayText(
-              details?.title ||
-                'نظام عملي لتحويل مهارتك إلى خدمة يشتريها عميل حقيقي',
-            )}
-          </Text>
-          <Text style={styles.bodyCopy}>
-            {formatArabicDisplayText(
-              details?.description ||
-                'ثلاثون مقطعًا قصيرًا من تحديد خدمتك إلى إدارة المشروع والتسليم\nتنتهي كل وحدة بمشروع عبور عند الحاجة',
-            )}
-          </Text>
+          <Text style={styles.sectionEyebrow}>عن الكورس</Text>
+          {!!title && (
+            <Text style={styles.sectionTitle}>
+              {formatArabicDisplayText(title)}
+            </Text>
+          )}
+          {!!description && (
+            <Text style={styles.bodyCopy}>
+              {formatArabicDisplayText(description)}
+            </Text>
+          )}
           <View style={styles.outcomes}>
             {outcomes.map((item, index) => (
               <View key={item} style={styles.outcomeRow}>
@@ -74,31 +82,31 @@ export const CourseAbout = ({details}: {details?: CourseDetailsDto | null}) => {
           </View>
         </View>
 
-        <View style={styles.instructorCard}>
-          <Image
-            source={
-              details?.instructorImage
-                ? {uri: details.instructorImage}
-                : details
-                ? require('../../../assets/images/default-avatar.png')
-                : require('../../../assets/images/demo-course/instructor-karim.jpg')
-            }
-            style={styles.instructorImage}
-          />
-          <View style={styles.instructorCopy}>
-            <Text style={styles.instructorLabel}>مدرب الكورس</Text>
-            <Text style={styles.instructorName}>
-              {formatArabicDisplayText(details?.instructor || 'كريم منصور')}
-            </Text>
-            <Text style={styles.instructorBio}>
-              {formatArabicDisplayText(
-                details
-                  ? details.instructorBio || 'مدرب هذا الكورس على ركن.'
-                  : 'مصمم منتجات مستقل. يركز على تقديم العمل وإدارة العميل وبناء مشروع يمكن عرضه، لا على حفظ الأدوات.',
+        {(isLocalDemo || !!instructorName) && (
+          <View style={styles.instructorCard}>
+            <Image
+              source={
+                details?.instructorImage
+                  ? {uri: details.instructorImage}
+                  : details
+                  ? require('../../../assets/images/default-avatar.png')
+                  : require('../../../assets/images/demo-course/instructor-karim.jpg')
+              }
+              style={styles.instructorImage}
+            />
+            <View style={styles.instructorCopy}>
+              <Text style={styles.instructorLabel}>مدرب الكورس</Text>
+              <Text style={styles.instructorName}>
+                {formatArabicDisplayText(instructorName)}
+              </Text>
+              {(isLocalDemo || !!instructorBio) && (
+                <Text style={styles.instructorBio}>
+                  {formatArabicDisplayText(instructorBio)}
+                </Text>
               )}
-            </Text>
+            </View>
           </View>
-        </View>
+        )}
       </View>
     </View>
   );
@@ -146,14 +154,10 @@ export const LockedOutline = ({
     <View style={styles.lockedOutline}>
       <Text style={styles.sectionEyebrow}>خريطة الكورس</Text>
       <Text style={styles.sectionTitle}>
-        {formatArabicDisplayText(
-          details
-            ? `${details.modules.length} وحدات · ${details.reelCount} مقطع · ${details.projectCount} مشروعات عبور`
-            : '٣ وحدات · ٣٠ مقطعًا · ٣ مشروعات عبور',
-        )}
+        الوحدات والمقاطع
       </Text>
       {details && !modules.length && (
-        <Text style={styles.lockedNote}>لم تُنشر خريطة هذا الكورس بعد.</Text>
+        <Text style={styles.lockedNote}>لم تُنشر خريطة هذا الكورس بعد</Text>
       )}
       {modules.map((module, index) => {
         const expanded = expandedModuleId === module.id;
@@ -218,6 +222,8 @@ export const LockedOutline = ({
                         <Text style={styles.outlineItemMeta}>
                           {item.type === 'project'
                             ? 'مشروع عبور · يُفتح بعد إكمال الوحدة'
+                            : item.type === 'quiz'
+                            ? 'اختبار قصير · يُفتح بعد إكمال المقاطع'
                             : canPreview
                             ? 'مفتوح للمشاهدة الآن'
                             : 'يُفتح مع الكورس'}
@@ -235,6 +241,8 @@ export const LockedOutline = ({
                           ]}>
                           {item.type === 'project'
                             ? 'مشروع'
+                            : item.type === 'quiz'
+                            ? 'اختبار'
                             : canPreview
                             ? 'شاهد'
                             : 'مغلق'}
@@ -285,7 +293,7 @@ export const CourseAccessPlansSection = ({
   return (
     <View style={styles.coursePlansSection}>
       <Text style={styles.sheetEyebrow}>اختر الفئة المناسبة لك</Text>
-      <Text style={styles.sheetTitle}>الكورس واحد، ومستوى الدعم باختيارك</Text>
+      <Text style={styles.sheetTitle}>الكورس واحد ومستوى الدعم باختيارك</Text>
       <Text style={styles.sheetDescription}>
         قارن الإمكانيات واختر الفئة
         {'\n'}ثم أكمل الدفع من الصفحة نفسها
@@ -296,7 +304,7 @@ export const CourseAccessPlansSection = ({
             accessibilityHint="يفتح ملخص الفئة وإتمام الشراء"
             accessibilityLabel={`${plan.name} بسعر ${formatArabicNumber(
               plan.priceCoins,
-            )} عملة`}
+            )} عملة ركن`}
             accessibilityRole="button"
             key={plan.code}
             onPress={() => onSelectPlan(plan)}
@@ -420,7 +428,7 @@ export const CourseIntro = ({
       <View style={styles.socialProofRow}>
         {durationMinutes !== null && (
           <Text style={styles.socialProofText}>
-            {formatArabicNumber(durationMinutes)} دقيقة
+            {formatArabicMinutes(durationMinutes)}
           </Text>
         )}
         {durationMinutes !== null && <View style={styles.socialProofDot} />}
@@ -433,15 +441,17 @@ export const CourseIntro = ({
                 maximumFractionDigits: 1,
               })}
             </Text>{' '}
-            {formatArabicNumber(ratingsCount)} تقييم
+            {formatArabicRatings(ratingsCount)}
           </Text>
         ) : (
           <Text style={styles.socialProofText}>جديد</Text>
         )}
-        <View style={styles.socialProofDot} />
-        <Text style={styles.socialProofText}>
-          {formatArabicNumber(studentsCount)} طالب
-        </Text>
+        {studentsCount > 0 && <View style={styles.socialProofDot} />}
+        {studentsCount > 0 && (
+          <Text style={styles.socialProofText}>
+            {formatArabicStudents(studentsCount)}
+          </Text>
+        )}
       </View>
     )}
     <View onLayout={onPrimaryActionLayout} style={styles.priceAndAction}>
@@ -462,9 +472,9 @@ export const CourseIntro = ({
           <Text style={styles.primaryButtonText}>{primaryActionLabel}</Text>
         )}
       </Pressable>
-      {!owned && hasPreview && pageReady && CAN_START_EXTERNAL_CHECKOUT && (
+      {!owned && hasPreview && pageReady && CAN_START_COIN_CHECKOUT && (
         <Pressable
-          accessibilityLabel="مشاهدة مجانية"
+          accessibilityLabel="شاهد مجانًا"
           accessibilityRole="button"
           onPress={onPreview}
           style={({pressed}) => [
@@ -479,6 +489,74 @@ export const CourseIntro = ({
     </View>
   </View>
 );
+
+type CourseRatingActionProps = {
+  busy: boolean;
+  editable: boolean;
+  onDelete: () => void;
+  onRate: (rating: number) => void;
+  rating: number | null;
+  visible: boolean;
+};
+
+export const CourseRatingAction = ({
+  busy,
+  editable,
+  onDelete,
+  onRate,
+  rating,
+  visible,
+}: CourseRatingActionProps) => {
+  if (!visible) return null;
+
+  return (
+    <View style={styles.ratingAction}>
+      <Text style={styles.ratingActionTitle}>
+        {rating ? 'تقييمك للكورس' : 'قيّم الكورس'}
+      </Text>
+      <View style={styles.ratingStars}>
+        {[1, 2, 3, 4, 5].map(value => (
+          <Pressable
+            accessibilityLabel={`${value} من 5`}
+            accessibilityRole="button"
+            accessibilityState={{
+              selected: rating === value,
+              disabled: busy || !editable,
+            }}
+            disabled={busy || !editable}
+            key={value}
+            onPress={() => onRate(value)}
+            style={({pressed}) => [
+              styles.ratingStarButton,
+              !editable && styles.disabled,
+              pressed && styles.pressed,
+            ]}>
+            <Text
+              style={[
+                styles.ratingStar,
+                value <= (rating ?? 0) && styles.ratingStarSelected,
+              ]}>
+              ★
+            </Text>
+          </Pressable>
+        ))}
+        {busy && <ActivityIndicator color={Palette.primary} size="small" />}
+      </View>
+      {rating && !busy ? (
+        <Pressable
+          accessibilityLabel="حذف تقييمي"
+          accessibilityRole="button"
+          onPress={onDelete}
+          style={({pressed}) => [
+            styles.ratingDeleteButton,
+            pressed && styles.pressed,
+          ]}>
+          <Text style={styles.ratingDeleteText}>حذف تقييمي</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+};
 
 type CourseBodyProps = {
   activeTab: 'about' | 'outline';

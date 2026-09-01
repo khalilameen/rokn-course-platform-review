@@ -43,6 +43,23 @@ abstract class ApiTestCase extends TestCase
 
     private function setUpSchema(): void
     {
+        Schema::create('social_oauth_attempts', function (Blueprint $table): void {
+            $table->id();
+            $table->char('state_hash', 64)->unique();
+            $table->char('completion_hash', 64)->nullable()->unique();
+            $table->string('provider', 24);
+            $table->string('return_to', 255);
+            $table->string('code_challenge', 128)->nullable();
+            $table->text('encrypted_token')->nullable();
+            $table->text('encrypted_session_response')->nullable();
+            $table->timestamp('state_expires_at');
+            $table->timestamp('state_consumed_at')->nullable();
+            $table->timestamp('completion_expires_at')->nullable();
+            $table->timestamp('completion_processing_at')->nullable();
+            $table->timestamp('completion_consumed_at')->nullable();
+            $table->timestamps();
+        });
+
         Schema::create('settings', function (Blueprint $table) {
             $table->id();
             $table->string('site_name_ar')->nullable();
@@ -94,15 +111,23 @@ abstract class ApiTestCase extends TestCase
             $table->string('social_provider')->nullable();
             $table->string('social_id')->nullable();
             $table->string('profile_image')->nullable();
+            $table->unsignedBigInteger('profile_revision')->default(0);
             $table->string('job_title')->nullable();
             $table->text('bio')->nullable();
             $table->text('bio_ar')->nullable();
             $table->text('bio_en')->nullable();
+            $table->string('portfolio_slug')->nullable()->unique();
+            $table->boolean('portfolio_is_public')->default(false);
+            $table->string('portfolio_headline')->nullable();
+            $table->string('portfolio_location')->nullable();
+            $table->json('portfolio_skills')->nullable();
+            $table->json('portfolio_links')->nullable();
             $table->string('type')->nullable();
             $table->string('governorate')->nullable();
             $table->boolean('active')->default(true);
             $table->boolean('is_online')->default(false);
             $table->boolean('provider_request')->default(false);
+            $table->boolean('notifications_status')->default(false);
             $table->rememberToken();
             $table->timestamps();
             $table->softDeletes();
@@ -131,16 +156,24 @@ abstract class ApiTestCase extends TestCase
 
         Schema::create('courses', function (Blueprint $table) {
             $table->id();
+            $table->unsignedBigInteger('teacher_id')->nullable();
             $table->string('name_ar')->nullable();
             $table->string('name_en')->nullable();
             $table->text('description_ar')->nullable();
             $table->text('description_en')->nullable();
+            $table->unsignedBigInteger('parent_id')->nullable();
             $table->unsignedBigInteger('grade_id')->nullable();
+            $table->string('image')->nullable();
+            $table->string('search_keywords_ar')->nullable();
+            $table->string('search_keywords_en')->nullable();
+            $table->string('search_title_normalized', 512)->nullable();
+            $table->text('search_terms_normalized')->nullable();
             $table->decimal('price', 10, 2)->default(100.00);
             $table->boolean('active')->default(true);
             $table->boolean('is_main_course')->default(true);
             $table->boolean('is_coming_soon')->default(false);
             $table->boolean('is_catalog_visible')->default(false);
+            $table->integer('home_sort_order')->default(0);
             $table->string('course_type')->default('online');
             $table->float('rate')->default(5.0);
             $table->timestamps();
@@ -153,8 +186,10 @@ abstract class ApiTestCase extends TestCase
             $table->unsignedBigInteger('course_id');
             $table->integer('rating');
             $table->text('comment')->nullable();
+            $table->unsignedBigInteger('version')->default(1);
             $table->timestamps();
             $table->softDeletes();
+            $table->unique(['user_id', 'course_id']);
         });
 
         Schema::create('course_teacher', function (Blueprint $table) {
@@ -191,6 +226,9 @@ abstract class ApiTestCase extends TestCase
             $table->unsignedBigInteger('user_id');
             $table->unsignedBigInteger('course_id');
             $table->unsignedBigInteger('order_id')->nullable();
+            $table->unsignedBigInteger('access_plan_id')->nullable();
+            $table->unsignedBigInteger('access_plan_order_id')->nullable();
+            $table->json('access_plan_snapshot')->nullable();
             $table->unsignedBigInteger('package_id')->nullable();
             $table->unsignedInteger('package_coins')->nullable();
             $table->boolean('is_active')->default(true);
@@ -198,6 +236,7 @@ abstract class ApiTestCase extends TestCase
             $table->timestamp('access_granted_at')->nullable();
             $table->float('progress')->default(0);
             $table->timestamp('completed_at')->nullable();
+            $table->timestamp('expires_at')->nullable();
             $table->timestamps();
         });
 
@@ -207,6 +246,8 @@ abstract class ApiTestCase extends TestCase
             $table->string('transaction_id')->nullable();
             $table->unsignedBigInteger('user_id');
             $table->unsignedBigInteger('course_id')->nullable();
+            $table->unsignedBigInteger('access_plan_id')->nullable();
+            $table->json('access_plan_snapshot')->nullable();
             $table->unsignedBigInteger('package_id')->nullable();
             $table->unsignedBigInteger('course_code_id')->nullable();
             $table->unsignedBigInteger('coupon_id')->nullable();
@@ -258,6 +299,8 @@ abstract class ApiTestCase extends TestCase
             $table->id();
             $table->unsignedBigInteger('user_id');
             $table->string('delivery_key', 64)->nullable();
+            $table->uuid('client_request_id')->nullable();
+            $table->char('request_fingerprint', 64)->nullable();
             $table->unsignedBigInteger('course_id')->nullable();
             $table->unsignedBigInteger('source_project_id')->nullable();
             $table->string('title')->nullable();
@@ -283,6 +326,11 @@ abstract class ApiTestCase extends TestCase
             $table->unsignedInteger('height')->nullable();
             $table->unsignedInteger('duration_seconds')->nullable();
             $table->string('file_path')->nullable();
+            $table->uuid('client_request_id')->nullable();
+            $table->char('content_sha256', 64)->nullable();
+            $table->string('mime_type', 120)->nullable();
+            $table->unsignedBigInteger('size_bytes')->nullable();
+            $table->string('original_name')->nullable();
             $table->integer('sort_order')->default(0);
             $table->timestamps();
         });
@@ -294,6 +342,31 @@ abstract class ApiTestCase extends TestCase
             $table->integer('passing_score')->default(50);
             $table->boolean('is_graduation_project')->default(false);
             $table->timestamps();
+        });
+
+        Schema::create('project_submissions', function (Blueprint $table) {
+            $table->id();
+            $table->uuid('public_id')->unique();
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('project_id');
+            $table->string('idempotency_key', 100);
+            $table->text('submission_text')->nullable();
+            $table->string('submission_file')->nullable();
+            $table->string('original_file_name')->nullable();
+            $table->string('mime_type', 120)->nullable();
+            $table->unsignedBigInteger('file_size')->nullable();
+            $table->json('submission_metadata')->nullable();
+            $table->string('effort_status', 30)->default('unknown');
+            $table->string('review_status', 30)->default('pending');
+            $table->string('review_source', 40)->nullable();
+            $table->unsignedTinyInteger('score')->nullable();
+            $table->text('feedback')->nullable();
+            $table->timestamp('submitted_at');
+            $table->timestamp('auto_pass_at')->nullable();
+            $table->timestamp('reviewed_at')->nullable();
+            $table->unsignedBigInteger('reviewed_by')->nullable();
+            $table->timestamps();
+            $table->unique(['user_id', 'project_id', 'idempotency_key']);
         });
 
         Schema::create('course_codes', function (Blueprint $table) {
@@ -329,10 +402,17 @@ abstract class ApiTestCase extends TestCase
         Schema::create('course_pdfs', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('course_id');
-            $table->string('title_ar')->nullable();
+            $table->string('title')->nullable();
             $table->string('title_en')->nullable();
+            $table->text('description')->nullable();
+            $table->text('description_en')->nullable();
             $table->string('file_path')->nullable();
-            $table->boolean('active')->default(true);
+            $table->string('storage_disk', 64)->nullable();
+            $table->string('original_filename')->nullable();
+            $table->unsignedBigInteger('file_size')->nullable();
+            $table->char('content_sha256', 64)->nullable();
+            $table->unsignedInteger('order')->default(0);
+            $table->boolean('is_active')->default(true);
             $table->timestamps();
             $table->softDeletes();
         });
@@ -383,6 +463,9 @@ abstract class ApiTestCase extends TestCase
             $table->integer('score_points')->default(0);
             $table->json('exam_data')->nullable();
             $table->json('security_summary')->nullable();
+            $table->string('quiz_title')->nullable();
+            $table->text('quiz_description')->nullable();
+            $table->string('quiz_image')->nullable();
             $table->timestamp('started_at')->nullable();
             $table->timestamp('completed_at')->nullable();
             $table->timestamps();
@@ -417,10 +500,18 @@ abstract class ApiTestCase extends TestCase
             $table->unsignedBigInteger('user_id');
             $table->unsignedBigInteger('course_id');
             $table->unsignedBigInteger('project_id')->nullable();
+            $table->string('holder_name')->nullable();
+            $table->string('course_name')->nullable();
             $table->string('image_path')->default('pending');
             $table->string('status', 20)->default('active');
+            $table->string('verification_level', 24)->default('standard');
             $table->timestamp('generated_at')->nullable();
             $table->timestamp('revoked_at')->nullable();
+            $table->unsignedTinyInteger('recovery_attempts')->default(0);
+            $table->timestamp('recovery_next_attempt_at')->nullable();
+            $table->timestamp('recovery_failed_at')->nullable();
+            $table->string('recovery_failure_code', 64)->nullable();
+            $table->timestamp('artifact_checked_at')->nullable();
             $table->timestamps();
 
             $table->unique(['user_id', 'course_id']);
@@ -480,22 +571,38 @@ abstract class ApiTestCase extends TestCase
             $table->text('message_ar')->nullable();
             $table->text('message_en')->nullable();
             $table->string('link')->nullable();
+            $table->string('image_url', 2048)->nullable();
+            $table->string('action_label_ar', 80)->nullable();
+            $table->string('action_label_en', 80)->nullable();
             $table->boolean('is_read')->default(false);
             $table->timestamp('read_at')->nullable();
             $table->timestamp('push_attempted_at')->nullable();
+            $table->unsignedSmallInteger('push_attempts')->default(0);
             $table->timestamp('push_sent_at')->nullable();
+            $table->timestamp('push_failed_at')->nullable();
+            $table->string('push_failure_code', 64)->nullable();
             $table->timestamps();
             $table->unique(['user_id', 'delivery_key']);
         });
 
         Schema::create('coin_earning_methods', function (Blueprint $table) {
             $table->id();
+            $table->string('title_ar')->default('مهمة');
+            $table->string('title_en')->default('Task');
             $table->string('action_key')->nullable()->unique();
+            $table->string('campaign_key', 80)->nullable()->unique();
             $table->integer('coins_amount')->default(20);
             $table->boolean('is_repeatable')->default(false);
             $table->boolean('is_active')->default(true);
             $table->boolean('active')->default(true);
+            $table->text('action_url')->nullable();
+            $table->boolean('requires_external_visit')->default(false);
+            $table->unsignedSmallInteger('verification_delay_seconds')->default(3);
+            $table->timestamp('starts_at')->nullable();
+            $table->timestamp('ends_at')->nullable();
+            $table->unsignedInteger('total_claim_limit')->nullable();
             $table->timestamps();
+            $table->softDeletes();
         });
 
         Schema::create('user_coin_earnings', function (Blueprint $table) {
@@ -574,7 +681,17 @@ abstract class ApiTestCase extends TestCase
             $table->id();
             $table->unsignedBigInteger('user_id');
             $table->string('name');
+            $table->string('normalized_name')->nullable();
+            $table->uuid('client_request_id')->nullable();
             $table->timestamps();
+            $table->unique(
+                ['user_id', 'normalized_name'],
+                'saved_folders_user_normalized_name_unique'
+            );
+            $table->unique(
+                ['user_id', 'client_request_id'],
+                'saved_folders_user_request_unique'
+            );
         });
 
         Schema::create('lessons', function (Blueprint $table) {
@@ -591,6 +708,56 @@ abstract class ApiTestCase extends TestCase
             $table->integer('duration_minutes')->default(10);
             $table->string('image')->nullable();
             $table->timestamps();
+        });
+
+        Schema::create('lesson_media_states', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('lesson_id')->unique();
+            $table->string('provider', 32)->default('bunny');
+            $table->string('provider_media_id')->nullable();
+            $table->string('status', 24)->default('unknown');
+            $table->string('protocol', 16)->nullable();
+            $table->unsignedInteger('duration_seconds')->nullable();
+            $table->json('available_qualities')->nullable();
+            $table->json('manifest')->nullable();
+            $table->timestamp('last_probe_at')->nullable();
+            $table->string('last_error_code', 64)->nullable();
+            $table->text('last_error_message')->nullable();
+            $table->unsignedSmallInteger('retry_count')->default(0);
+            $table->timestamps();
+        });
+
+        Schema::create('playback_sessions', function (Blueprint $table): void {
+            $table->uuid('id')->primary();
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('lesson_id');
+            $table->unsignedBigInteger('course_section_id')->nullable();
+            $table->unsignedInteger('last_sequence')->default(0);
+            $table->unsignedInteger('last_position_seconds')->default(0);
+            $table->unsignedInteger('duration_seconds')->nullable();
+            $table->timestamp('started_at');
+            $table->timestamp('last_heartbeat_at')->nullable();
+            $table->timestamp('ended_at')->nullable();
+            $table->string('event_type', 24)->default('play');
+            $table->string('end_reason', 32)->nullable();
+            $table->string('source_protocol', 16)->nullable();
+            $table->string('effective_quality', 16)->nullable();
+            $table->string('source_host', 190)->nullable();
+            $table->decimal('playback_rate', 4, 2)->default(1);
+            $table->unsignedSmallInteger('recovery_count')->default(0);
+            $table->string('last_error_code', 64)->nullable();
+            $table->json('diagnostics')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('profile_update_receipts', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->uuid('client_request_id');
+            $table->char('request_fingerprint', 64);
+            $table->unsignedBigInteger('profile_revision');
+            $table->timestamps();
+            $table->unique(['user_id', 'client_request_id']);
         });
 
         Schema::create('account_file_deletions', function (Blueprint $table) {
@@ -687,6 +854,7 @@ abstract class ApiTestCase extends TestCase
             $table->unsignedBigInteger('saved_folder_id');
             $table->unsignedBigInteger('lesson_id');
             $table->timestamps();
+            $table->unique(['saved_folder_id', 'lesson_id']);
         });
 
         Schema::create('portfolios', function (Blueprint $table) {
@@ -708,11 +876,44 @@ abstract class ApiTestCase extends TestCase
 
         Schema::create('payment_methods', function (Blueprint $table) {
             $table->id();
-            $table->string('name_ar')->nullable();
-            $table->string('name_en')->nullable();
-            $table->boolean('active')->default(true);
+            $table->string('name');
+            $table->text('account_details');
+            $table->text('description')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->boolean('is_default')->default(false);
             $table->timestamps();
             $table->softDeletes();
+        });
+
+        Schema::create('course_access_plans', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('course_id');
+            $table->string('code', 32);
+            $table->string('name_ar', 120);
+            $table->string('name_en', 120)->nullable();
+            $table->unsignedInteger('price_coins');
+            $table->unsignedInteger('minimum_paid_coins')->default(0);
+            $table->boolean('chat_enabled')->default(false);
+            $table->unsignedInteger('chat_message_limit')->default(0);
+            $table->unsignedBigInteger('chat_token_budget')->default(0);
+            $table->decimal('ai_budget_usd', 12, 6)->default(0);
+            $table->decimal('request_reserve_usd', 12, 6)->default(0);
+            $table->unsignedBigInteger('project_feedback_token_budget')->default(0);
+            $table->decimal('project_feedback_budget_usd', 12, 6)->default(0);
+            $table->decimal('project_feedback_reserve_usd', 12, 6)->default(0);
+            $table->unsignedInteger('project_followup_message_limit')->default(0);
+            $table->unsignedBigInteger('project_followup_token_budget')->default(0);
+            $table->decimal('project_followup_budget_usd', 12, 6)->default(0);
+            $table->decimal('project_followup_reserve_usd', 12, 6)->default(0);
+            $table->unsignedInteger('max_output_tokens')->default(320);
+            $table->string('model_override')->nullable();
+            $table->string('project_feedback_level', 24)->default('pass_only');
+            $table->boolean('project_output_enabled')->default(false);
+            $table->boolean('certificate_enabled')->default(true);
+            $table->boolean('is_active')->default(true);
+            $table->unsignedSmallInteger('sort_order')->default(10);
+            $table->timestamps();
+            $table->unique(['course_id', 'code']);
         });
 
         Schema::create('student_section_progress', function (Blueprint $table) {
@@ -766,11 +967,11 @@ abstract class ApiTestCase extends TestCase
     private function tearDownSchema(): void
     {
         $tables = [
-            'course_grant_claims', 'course_code_usages', 'exam_security_logs', 'exam_answers', 'student_section_progress', 'account_file_deletions', 'api_tokens', 'photos', 'verification_codes', 'user_device_tokens', 'deleted_social_reward_tombstones', 'social_accounts', 'user_coin_task_attempts', 'user_coin_earnings', 'coin_earning_methods',
-            'payment_methods', 'categories', 'portfolios', 'portfolio_media', 'portfolio_items', 'saved_folder_lessons', 'saved_sections', 'wallet_transactions', 'reward_rules', 'user_reward_checkins', 'user_daily_learning_activities', 'lesson_watch_evidence', 'lessons', 'saved_folders',
+            'social_oauth_attempts', 'course_grant_claims', 'course_code_usages', 'exam_security_logs', 'exam_answers', 'student_section_progress', 'account_file_deletions', 'api_tokens', 'photos', 'verification_codes', 'user_device_tokens', 'deleted_social_reward_tombstones', 'social_accounts', 'user_coin_task_attempts', 'user_coin_earnings', 'coin_earning_methods',
+            'payment_methods', 'categories', 'portfolios', 'portfolio_media', 'portfolio_items', 'saved_folder_lessons', 'saved_sections', 'wallet_transactions', 'reward_rules', 'user_reward_checkins', 'user_daily_learning_activities', 'playback_sessions', 'lesson_media_states', 'lesson_watch_evidence', 'lessons', 'saved_folders',
             'student_notifications', 'classification_user', 'classifications', 'paths', 'certificates', 'exam_attempts',
-            'exams', 'random_quizzes', 'quizzes', 'questions', 'lists', 'course_pdfs', 'course_codes', 'bills', 'orders',
-            'course_enrollments', 'course_sections', 'projects', 'course_ratings', 'course_teacher', 'classification_course', 'courses', 'grades', 'users', 'settings'
+            'exams', 'random_quizzes', 'quizzes', 'questions', 'lists', 'course_pdfs', 'project_submissions', 'course_codes', 'bills', 'orders',
+            'course_enrollments', 'course_access_plans', 'course_sections', 'projects', 'course_ratings', 'course_teacher', 'classification_course', 'courses', 'grades', 'profile_update_receipts', 'users', 'settings'
         ];
 
         foreach ($tables as $table) {
@@ -819,11 +1020,17 @@ abstract class ApiTestCase extends TestCase
         $this->courseId = (int) DB::table('courses')->insertGetId([
             'name_ar' => 'دورة تجريبية',
             'name_en' => 'Test Course',
+            'description_ar' => 'وصف دورة تجريبية',
+            'description_en' => 'Test course description',
+            'image' => 'courses/test-course.jpg',
+            'search_title_normalized' => 'دوره تجريبيه test course',
+            'search_terms_normalized' => 'دوره تجريبيه test course وصف دوره تجريبيه test course description',
             'grade_id' => $this->gradeId,
             'price' => 100.00,
             'active' => 1,
             'is_main_course' => 1,
             'is_coming_soon' => 0,
+            'is_catalog_visible' => 1,
             'course_type' => 'online',
             'rate' => 5.0,
             'created_at' => now(),
@@ -834,6 +1041,10 @@ abstract class ApiTestCase extends TestCase
             'course_id' => $this->courseId,
             'title_ar' => 'قسم 1',
             'title_en' => 'Section 1',
+            'section_type' => 'lesson',
+            'sectionable_type' => \App\Models\Lesson::class,
+            'sectionable_id' => 10,
+            'order' => 1,
             'sort_order' => 1,
             'is_free' => 1,
             'created_at' => now(),
@@ -855,6 +1066,24 @@ abstract class ApiTestCase extends TestCase
         $this->user->active = true;
         $this->user->wallet_coins = 1000;
         $this->user->save();
+
+        $instructorId = (int) DB::table('users')->insertGetId([
+            'name' => 'API Test Instructor',
+            'email' => 'instructor@rokn.test',
+            'role' => 'admin',
+            'active' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('courses')->where('id', $this->courseId)->update([
+            'teacher_id' => $instructorId,
+        ]);
+        DB::table('course_teacher')->insert([
+            'course_id' => $this->courseId,
+            'teacher_id' => $instructorId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
         // Base fixtures needed across various controllers so they return valid responses instead of 404
         DB::table('course_codes')->insert([
@@ -888,6 +1117,51 @@ abstract class ApiTestCase extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+        DB::table('classification_course')->insert([
+            'classification_id' => 1,
+            'course_id' => $this->courseId,
+        ]);
+
+        DB::table('course_access_plans')->insert(
+            [
+                'course_id' => $this->courseId,
+                'code' => 'basic',
+                'name_ar' => 'التعلّم',
+                'name_en' => 'Learning',
+                'price_coins' => 100,
+                'minimum_paid_coins' => 0,
+                'chat_enabled' => 0,
+                'certificate_enabled' => 1,
+                'is_active' => 1,
+                'sort_order' => 10,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]
+        );
+        DB::table('course_access_plans')->insert(
+            [
+                'course_id' => $this->courseId,
+                'code' => 'guided',
+                'name_ar' => 'التعلّم بإرشاد',
+                'name_en' => 'Guided learning',
+                'price_coins' => 200,
+                'minimum_paid_coins' => 100,
+                'chat_enabled' => 1,
+                'chat_message_limit' => 25,
+                'chat_token_budget' => 12000,
+                'ai_budget_usd' => .45,
+                'request_reserve_usd' => .015,
+                'project_feedback_level' => 'report',
+                'project_feedback_token_budget' => 6000,
+                'project_feedback_budget_usd' => .20,
+                'project_feedback_reserve_usd' => .04,
+                'certificate_enabled' => 1,
+                'is_active' => 1,
+                'sort_order' => 20,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]
+        );
 
         DB::table('portfolio_items')->insert([
             'id' => 1,

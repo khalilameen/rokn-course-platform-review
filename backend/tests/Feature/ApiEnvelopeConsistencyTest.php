@@ -23,6 +23,50 @@ final class ApiEnvelopeConsistencyTest extends TestCase
         }
     }
 
+    public function test_manual_api_json_envelopes_keep_status_success_and_message_together(): void
+    {
+        foreach (glob(app_path('Http/Controllers/API/*.php')) ?: [] as $controller) {
+            $source = file_get_contents($controller);
+            self::assertIsString($source);
+            preg_match_all(
+                '/response\(\)->json\(\[(?<body>.*?)\]\s*(?:,\s*(?<http>\d+))?\s*\)/s',
+                $source,
+                $responses,
+                PREG_SET_ORDER
+            );
+
+            foreach ($responses as $response) {
+                $body = (string) ($response['body'] ?? '');
+                if (preg_match("/['\"]success['\"]\s*=>/", $body) !== 1) {
+                    continue;
+                }
+
+                self::assertMatchesRegularExpression(
+                    "/['\"]status['\"]\s*=>/",
+                    $body,
+                    basename($controller).' has a manual API envelope without status.'
+                );
+                self::assertMatchesRegularExpression(
+                    "/['\"]message['\"]\s*=>/",
+                    $body,
+                    basename($controller).' has a manual API envelope without message.'
+                );
+
+                if (
+                    preg_match("/['\"]status['\"]\s*=>\s*(?<status>\d+)/", $body, $status) === 1
+                    && isset($response['http'])
+                    && $response['http'] !== ''
+                ) {
+                    self::assertSame(
+                        (int) $status['status'],
+                        (int) $response['http'],
+                        basename($controller).' disagrees about payload and HTTP status.'
+                    );
+                }
+            }
+        }
+    }
+
     public function test_inline_validation_uses_the_standard_api_error_envelope(): void
     {
         Route::post('/api/v1/_contract/validation', function (Request $request): void {
@@ -41,17 +85,49 @@ final class ApiEnvelopeConsistencyTest extends TestCase
         self::assertNotSame('', trim((string) $response->json('errors.name.0')));
     }
 
+    public function test_manual_success_envelopes_receive_the_shared_server_clock(): void
+    {
+        Route::get('/api/v1/_contract/manual-success', static fn () => response()->json([
+            'status' => 200,
+            'success' => true,
+            'message' => 'تم',
+            'data' => null,
+        ]))->middleware(\App\Http\Middleware\ApplyAPILocale::class);
+
+        $this->getJson('/api/v1/_contract/manual-success')
+            ->assertOk()
+            ->assertJsonPath('data', null)
+            ->assertJsonStructure(['status', 'success', 'data', 'message', 'server_time']);
+    }
+
+    public function test_etagged_envelopes_remain_byte_stable(): void
+    {
+        Route::get('/api/v1/_contract/cached-success', static fn () => response()->json([
+            'status' => 200,
+            'success' => true,
+            'message' => 'تم',
+            'data' => ['revision' => 'fixed'],
+        ])->withHeaders(['ETag' => '"fixed"']))
+            ->middleware(\App\Http\Middleware\ApplyAPILocale::class);
+
+        $this->getJson('/api/v1/_contract/cached-success')
+            ->assertOk()
+            ->assertHeader('ETag', '"fixed"')
+            ->assertJsonMissingPath('server_time');
+    }
+
     public function test_missing_api_route_uses_the_same_error_envelope(): void
     {
         $this->getJson('/api/v1/_contract/does-not-exist')
             ->assertNotFound()
-            ->assertExactJson([
+            ->assertJson([
                 'status' => 404,
                 'success' => false,
                 'data' => null,
-                'message' => 'The requested resource was not found.',
+                'message' => 'المحتوى المطلوب غير متاح',
                 'code' => 'not_found',
-            ]);
+            ])
+            ->assertJsonStructure(['server_time']);
     }
 
     public function test_unexpected_api_failure_is_normalized_without_leaking_exception_details(): void
@@ -62,12 +138,13 @@ final class ApiEnvelopeConsistencyTest extends TestCase
 
         $this->getJson('/api/v1/_contract/server-error')
             ->assertInternalServerError()
-            ->assertExactJson([
+            ->assertJson([
                 'status' => 500,
                 'success' => false,
                 'data' => null,
-                'message' => 'The service could not complete the request.',
+                'message' => 'تعذّر إكمال الطلب الآن',
                 'code' => 'server_error',
-            ]);
+            ])
+            ->assertJsonStructure(['server_time']);
     }
 }

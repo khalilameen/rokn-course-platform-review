@@ -18,7 +18,7 @@ final class LearningRewardController extends Controller
     ): JsonResponse {
         return $responses->success(
             $rewards->configuration(),
-            'Learning economy configuration retrieved successfully'
+            'تم تحميل نظام عملات ركن'
         );
     }
 
@@ -31,7 +31,7 @@ final class LearningRewardController extends Controller
 
         return $responses->success(
             $rewards->claimDaily($user),
-            'Daily learning reward processed successfully'
+            'تم تحديث مكافأة اليوم'
         );
     }
 }

@@ -20,31 +20,31 @@ describe('production notification language boundary', () => {
     expect(notification.actionLabel).toBe('افتح المحفظة');
   });
 
-  it('falls back to generic fields when Arabic copy is absent', () => {
+  it('does not leak an untranslated generic field when Arabic copy is absent', () => {
     const notification = mapProductionNotification({
       id: 'n-1',
       title: 'Fallback title',
       message: 'Fallback message',
     });
 
-    expect(notification.title).toBe('Fallback title');
-    expect(notification.description).toBe('Fallback message');
+    expect(notification.title).toBe('إشعار من ركن');
+    expect(notification.description).toBe('لديك إشعار جديد');
   });
 
   it('maps a rich course campaign without changing its destination', () => {
     const notification = mapProductionNotification({
       id: 'course-9',
       notification_type: 'enrolled_stalled',
-      title_ar: 'الكورس ده عندك بالفعل',
-      message_ar: 'كمّل من مكانك',
+      title_ar: 'الكورس متاح لك',
+      message_ar: 'أكمل من مكانك',
       link: 'rokn://course/9/watch',
       course_image: 'https://cdn.rokn.app/course-9.jpg',
-      action_label_ar: 'كمّل الكورس',
+      action_label_ar: 'أكمل الكورس',
     });
 
     expect(notification.kind).toBe('continue_course');
     expect(notification.imageUrl).toBe('https://cdn.rokn.app/course-9.jpg');
-    expect(notification.actionLabel).toBe('كمّل الكورس');
+    expect(notification.actionLabel).toBe('أكمل الكورس');
     expect(notification.link).toBe('rokn://course/9/watch');
   });
 
@@ -52,12 +52,12 @@ describe('production notification language boundary', () => {
     const notification = mapProductionNotification({
       id: 'recommended-12',
       notification_type: 'course_recommendation',
-      title_ar: 'ده ممكن يناسبك',
-      message_ar: 'شوف التفاصيل وخد قرارك',
-      course_id: 'course-12',
+      title_ar: 'قد يناسبك هذا الكورس',
+      message_ar: 'شاهد التفاصيل واختر ما يناسبك',
+      course_id: '12',
     });
 
-    expect(notification.link).toBe('rokn://course/course-12');
+    expect(notification.link).toBe('rokn://course/12');
   });
 
   it('keeps continuation campaigns pointed at the player', () => {

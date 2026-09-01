@@ -23,7 +23,7 @@ final class StreakController extends Controller
             return response()->json([
                 'status' => 401,
                 'success' => false,
-                'message' => 'Unauthenticated',
+                'message' => 'سجّل الدخول أولًا',
                 'data' => null,
             ], 401);
         }
@@ -33,7 +33,7 @@ final class StreakController extends Controller
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Learning streak retrieved successfully',
+            'message' => 'تم تحميل الاستمرارية',
             'data' => $data,
         ]);
     }

@@ -4,18 +4,23 @@ import {
   applyLocalLearningState,
   getLocalLearningState,
   loadCourseLearningData,
+  reconcileServerSavedLessons,
 } from '../../components/VideoPlayer/courseLearningApi';
 import type {CourseLearningData} from '../../components/VideoPlayer/types';
 import type {PlaybackRuntimeMetrics} from '../../components/VideoPlayer/playbackTelemetry';
-import {LOCAL_DEMO_ENABLED} from '../../config/runtime';
+import {isLocalDemoId, LOCAL_DEMO_ENABLED} from '../../config/runtime';
 import {
   DEMO_COURSE_ID,
   claimDemoCourseCompletionReward,
   claimDemoFirstProjectReward,
   hasDemoCourseAccess,
 } from '../../services/demoExperience';
-import {friendlyNetworkMessage} from '../../services/networkExperience';
+import {
+  friendlyNetworkMessage,
+  networkFailureKind,
+} from '../../services/networkExperience';
 import {hasSession} from '../../services/roknApi';
+import type {RootNavigation} from '../../navigation/types';
 import {
   buildAccessibleFeed,
   buildPreviewFeed,
@@ -26,6 +31,7 @@ type CourseLoaderRefs = {
   closedPlaybackSessions: MutableRefObject<Set<string>>;
   demoRewardsEnabled: MutableRefObject<boolean>;
   loadRequest: MutableRefObject<number>;
+  loadAbort: MutableRefObject<AbortController | null>;
   loadedCourse: MutableRefObject<CourseLearningData | null>;
   manifestVersions: MutableRefObject<Record<string, number>>;
   pendingInitialIndex: MutableRefObject<number | null>;
@@ -33,10 +39,6 @@ type CourseLoaderRefs = {
   playbackDurations: MutableRefObject<Record<string, number>>;
   playbackRuntime: MutableRefObject<Record<string, PlaybackRuntimeMetrics>>;
   positions: MutableRefObject<Record<string, number>>;
-};
-
-type CourseDetailsNavigation = {
-  replace: (screen: 'CourseDetails', params: Record<string, unknown>) => void;
 };
 
 export const useReelsCourseLoader = ({
@@ -52,7 +54,7 @@ export const useReelsCourseLoader = ({
   setSavedLessons,
   setServerSession,
 }: {
-  navigation: CourseDetailsNavigation;
+  navigation: Pick<RootNavigation, 'replace'>;
   params: ReelsRouteParams;
   previewMode: boolean;
   refs: CourseLoaderRefs;
@@ -65,6 +67,9 @@ export const useReelsCourseLoader = ({
   setServerSession: Dispatch<SetStateAction<boolean | null>>;
 }) =>
   useCallback(async () => {
+    refs.loadAbort.current?.abort();
+    const controller = new AbortController();
+    refs.loadAbort.current = controller;
     const requestId = ++refs.loadRequest.current;
     const requestedCourseId = String(
       params.courseId || (LOCAL_DEMO_ENABLED ? DEMO_COURSE_ID : ''),
@@ -82,20 +87,20 @@ export const useReelsCourseLoader = ({
       setLoadError('');
     }
     setPreviewGateVisible(false);
-    if (
-      LOCAL_DEMO_ENABLED &&
-      requestedCourseId.startsWith('demo') &&
-      !previewMode &&
-      !(await hasDemoCourseAccess(requestedCourseId))
-    ) {
-      if (requestId !== refs.loadRequest.current) return;
-      setLoading(false);
-      navigation.replace('CourseDetails', {courseId: requestedCourseId});
-      return;
-    }
     try {
+      if (
+        LOCAL_DEMO_ENABLED &&
+        isLocalDemoId(requestedCourseId) &&
+        !previewMode &&
+        !(await hasDemoCourseAccess(requestedCourseId))
+      ) {
+        if (requestId !== refs.loadRequest.current) return;
+        navigation.replace('CourseDetails', {courseId: requestedCourseId});
+        return;
+      }
       const result = await loadCourseLearningData(
         requestedCourseId || undefined,
+        {signal: controller.signal},
       );
       if (requestId !== refs.loadRequest.current) return;
       const [withLocalState, localState, sessionAvailable] = await Promise.all([
@@ -106,7 +111,7 @@ export const useReelsCourseLoader = ({
       if (requestId !== refs.loadRequest.current) return;
       setServerSession(sessionAvailable);
       refs.demoRewardsEnabled.current =
-        !sessionAvailable && withLocalState.id.startsWith('demo');
+        !sessionAvailable && isLocalDemoId(withLocalState.id);
       if (refs.demoRewardsEnabled.current) {
         const passedProjects = withLocalState.modules
           .map(module => module.project)
@@ -129,6 +134,18 @@ export const useReelsCourseLoader = ({
       setSavedLessons(new Set(localState.savedLessons));
       refs.loadedCourse.current = withLocalState;
       setCourse(withLocalState);
+      if (sessionAvailable) {
+        const lessonIds = withLocalState.modules.flatMap(module =>
+          module.reels.map(reel => reel.lessonId),
+        );
+        void reconcileServerSavedLessons(lessonIds)
+          .then(serverSaved => {
+            if (requestId === refs.loadRequest.current) {
+              setSavedLessons(new Set(serverSaved));
+            }
+          })
+          .catch(() => undefined);
+      }
       const requestedReel = params.reelId || params.lessonId;
       const requestedPosition = Number(params.initialPositionSeconds);
       if (
@@ -150,6 +167,8 @@ export const useReelsCourseLoader = ({
       const firstPendingIndex = accessibleItems.findIndex(item =>
         item.type === 'project'
           ? item.project.status !== 'passed'
+          : item.type === 'quiz'
+          ? !item.quiz.passed
           : !item.reel.isCompleted,
       );
       refs.pendingInitialIndex.current =
@@ -162,17 +181,21 @@ export const useReelsCourseLoader = ({
           : null;
     } catch (error) {
       if (requestId !== refs.loadRequest.current) return;
+      if (networkFailureKind(error) === 'cancelled') return;
       if (hasCurrentCourse) {
         setConnectionNote(friendlyNetworkMessage(error, 'الفيديو'));
       } else {
         refs.loadedCourse.current = null;
         setCourse(null);
         setLoadError(
-          'لم نتمكن من فتح محتوى الكورس الآن. مكانك محفوظ؛ تأكد من الاتصال وحاول مجددًا.',
+          'تعذّر فتح محتوى الكورس\nمكانك محفوظ\nتحقق من الاتصال ثم حاول مرة أخرى',
         );
       }
     } finally {
-      if (requestId === refs.loadRequest.current) setLoading(false);
+      if (requestId === refs.loadRequest.current) {
+        if (refs.loadAbort.current === controller) refs.loadAbort.current = null;
+        setLoading(false);
+      }
     }
   }, [
     navigation,

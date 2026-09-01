@@ -60,7 +60,7 @@
                         <thead>
                             <tr>
                                 <th>اسم الكورس</th>
-                                <th>عدد الطلاب</th>
+                                @if($canViewEnrollmentCounts)<th>عدد الطلاب</th>@endif
                                 <th>تاريخ الإنشاء</th>
                                 <th>العمليات</th>
                             </tr>
@@ -69,7 +69,7 @@
                             @forelse($courses as $course)
                             <tr>
                                 <td>{{ $course->title }}</td>
-                                <td>{{ $course->students_count }}</td>
+                                @if($canViewEnrollmentCounts)<td>{{ number_format($course->active_enrollments_count) }}</td>@endif
                                 <td>{{ $course->created_at->format('Y-m-d') }}</td>
                                 <td>
                                     <a href="{{ route('admin.courses.show', $course->id) }}" class="btn btn-primary btn-sm">
@@ -79,7 +79,7 @@
                             </tr>
                             @empty
                             <tr>
-                                <td colspan="4" class="text-center">لا يوجد كورسات حالياً</td>
+                                <td colspan="{{ $canViewEnrollmentCounts ? 4 : 3 }}" class="text-center">لا يوجد كورسات حالياً</td>
                             </tr>
                             @endforelse
                         </tbody>

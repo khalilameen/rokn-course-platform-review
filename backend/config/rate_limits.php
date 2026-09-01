@@ -18,4 +18,5 @@ return [
     'kashier_webhook_order_per_minute' => (int) env('KASHIER_WEBHOOK_ORDER_PER_MINUTE', 30),
     'kashier_webhook_ip_per_minute' => (int) env('KASHIER_WEBHOOK_IP_PER_MINUTE', 300),
     'kashier_webhook_ip_per_hour' => (int) env('KASHIER_WEBHOOK_IP_PER_HOUR', 2000),
+    'operational_spike_15m' => (int) env('RATE_LIMIT_OPERATIONAL_SPIKE_15M', 1000),
 ];

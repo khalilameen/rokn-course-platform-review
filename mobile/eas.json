@@ -40,6 +40,27 @@
         "resourceClass": "m-medium"
       }
     },
+    "production-direct": {
+      "distribution": "internal",
+      "channel": "production",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/",
+        "EXPO_PUBLIC_DISTRIBUTION_CHANNEL": "direct",
+        "EXPO_PUBLIC_BUILD_PROFILE": "production",
+        "EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS": "1",
+        "EXPO_PUBLIC_ENABLE_LOCAL_DEMO": "0",
+        "ORG_GRADLE_PROJECT_roknDistributionChannel": "direct",
+        "ORG_GRADLE_PROJECT_roknBuildProfile": "production",
+        "ORG_GRADLE_PROJECT_roknEnableMinify": "true",
+        "ORG_GRADLE_PROJECT_roknEnableResourceShrink": "true"
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "buildArtifactPaths": [
+        "artifacts/eas/**/*"
+      ]
+    },
     "preview-direct": {
       "distribution": "internal",
       "env": {
@@ -53,7 +74,10 @@
       },
       "android": {
         "buildType": "apk"
-      }
+      },
+      "buildArtifactPaths": [
+        "artifacts/eas/**/*"
+      ]
     }
   }
 }

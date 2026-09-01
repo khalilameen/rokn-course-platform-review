@@ -22,9 +22,22 @@ For a device-installable test build:
 npm run apk
 ```
 
-The output is `artifacts/Rokn-test.apk`. It is debug-signed and includes the
-local demo. Use `npm run apk:direct` only with the production API URL, Firebase
-configuration, and release signing key in place.
+The output is `artifacts/Rokn-internal-test.apk`. It is debug-signed, talks to
+the configured live API, and is only for internal devices and emulators. A new
+debug certificate can trigger an Android/Play Protect reputation warning; it
+is not a public release candidate. Use `npm run apk:direct` only with the
+production API URL, Firebase configuration, and stable application-signing key
+in place.
+
+Install or update an APK without ever uninstalling the current app:
+
+```powershell
+npm run android:install-artifact -- ./artifacts/Rokn-internal-test.apk
+```
+
+The installer refuses signer changes and downgrades, leaving the installed
+session and local progress untouched. See [RELEASE_CHANNELS.md](RELEASE_CHANNELS.md)
+for the direct/store signing and version contract.
 
 ## API configuration
 
@@ -52,7 +65,7 @@ unless it returns those routes successfully.
 
 ## Distribution channels
 
-`npm run apk` creates a debug-signed test APK with the local demo enabled.
+`npm run apk` creates a debug-signed internal APK against the configured API.
 `npm run apk:direct` creates the production direct-distribution APK, while
 `npm run aab:play` creates the consumption-only Google Play AAB. The app uses
 `EXPO_PUBLIC_DISTRIBUTION_CHANNEL` at bundle time, so always rebuild after

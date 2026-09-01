@@ -3,6 +3,7 @@
 namespace App\Traits;
 
 use App\Models\Photo;
+use App\Services\StoredFileDeletionService;
 use Illuminate\Support\Facades\Storage;
 use Intervention\Image\Facades\Image;
 
@@ -15,6 +16,15 @@ trait HasPhoto
     {
         // Delete Old Photos.
         static::deleting(function ($model) {
+            // Archiving a course must remain reversible. Its cover is part of
+            // the authoring draft and is only retired with a force delete.
+            if (
+                $model instanceof \App\Models\Course
+                && method_exists($model, 'isForceDeleting')
+                && !$model->isForceDeleting()
+            ) {
+                return;
+            }
             $model->deleteImages();
         });
     }
@@ -27,6 +37,12 @@ trait HasPhoto
     public function photos()
     {
         return $this->morphMany(Photo::class, 'photoable')->where('type', 'gallery');
+    }
+
+    /** All owned images without the historical gallery-only scope. */
+    public function allPhotos()
+    {
+        return $this->morphMany(Photo::class, 'photoable');
     }
 
     /**
@@ -124,9 +140,16 @@ trait HasPhoto
         Storage::disk('public')->put($path, (string) $image->encode());*/
         //Storage::disk('public')->put($path, Image::make($file)->encode('jpg', 50));
         $name = $file->store($path, 'public');
-        $photo =  $this->photos()
-            ->create(['path' =>$name, 'type' => $type]);
-        return $photo;
+        if (!is_string($name) || trim($name) === '') {
+            throw new \RuntimeException('Image storage failed');
+        }
+
+        try {
+            return $this->allPhotos()->create(['path' => $name, 'type' => $type]);
+        } catch (\Throwable $exception) {
+            app(StoredFileDeletionService::class)->deleteOrQueue('public', $name);
+            throw $exception;
+        }
     }
 
     /**
@@ -137,59 +160,40 @@ trait HasPhoto
      */
     public function replaceImage($file, $path, $type = 'featured')
     {
-        if ($type == 'featured' && $this->photo) {
-            $this->photo->delete();
-        } elseif ($type == 'identity' && $this->identity) {
-            $this->identity->delete();
-        } elseif ($type == 'family' && $this->family) {
-            $this->family->delete();
-        } elseif ($type == 'licence' && $this->licence) {
-            $this->licence->delete();
-        } elseif ($type == 'certification' && $this->certification) {
-            $this->certification->delete();
-        } elseif ($type == 'personal' && $this->personal) {
-            $this->personal->delete();
-        } elseif ($type == 'car_licence' && $this->car_licence) {
-            $this->car_licence->delete();
-        } elseif ($type == 'car_photo' && $this->car_photo) {
-            $this->car_photo->delete();
-        } elseif ($type == 'car_photo2' && $this->car_photo2) {
-            $this->car_photo2->delete();
-        } else {
-            $this->photos->each(function ($photo) {
+        $oldPhotos = $this->allPhotos()->where('type', $type)->get();
+        $newPhoto = $this->storeImage($file, $path, $type);
+
+        $oldPhotos->each(function ($photo) use ($newPhoto): void {
+            if ((int) $photo->getKey() !== (int) $newPhoto->getKey()) {
                 $photo->delete();
-            });
-        }
-        $this->storeImage($file, $path, $type);
+            }
+        });
+
+        return $newPhoto;
     }
 
 
     public function deleteImage()
     {
-        Storage::disk('public')->delete($this->photo->path);
         $this->photo()->delete();
     }
 
     public function deleteIdentityImage()
     {
-        Storage::disk('public')->delete($this->identity->path);
         $this->identity()->delete();
     }
 
     public function deleteFamilyImage()
     {
-        Storage::disk('public')->delete($this->family->path);
         $this->family()->delete();
     }
 
     public function deleteLicenceImage()
     {
-        Storage::disk('public')->delete($this->licence->path);
         $this->licence()->delete();
     }
     public function deleteCertificationImage()
     {
-        Storage::disk('public')->delete($this->certification->path);
         $this->certification()->delete();
     }
     public function deleteCheck()
@@ -224,7 +228,7 @@ trait HasPhoto
      */
     public function deleteImages()
     {
-        $this->photos->each(function ($photo) {
+        $this->allPhotos()->get()->each(function ($photo) {
             $photo->delete();
         });
     }

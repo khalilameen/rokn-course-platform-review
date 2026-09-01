@@ -31,6 +31,16 @@ describe('coin checkout boundary', () => {
   const originalProfile = process.env.EXPO_PUBLIC_BUILD_PROFILE;
   const originalDemoFlag = process.env.EXPO_PUBLIC_ENABLE_LOCAL_DEMO;
 
+  beforeEach(() => {
+    jest.clearAllMocks();
+    const helpers = require('../src/constants/helpers') as {
+      getItem: jest.Mock;
+      saveItem: jest.Mock;
+    };
+    helpers.getItem.mockResolvedValue(null);
+    helpers.saveItem.mockResolvedValue(true);
+  });
+
   afterAll(() => {
     if (originalProfile === undefined) {
       delete process.env.EXPO_PUBLIC_BUILD_PROFILE;
@@ -71,5 +81,177 @@ describe('coin checkout boundary', () => {
       }),
     ).rejects.toThrow('LOCAL_DEMO_DISABLED');
     expect(publicRequest.post).not.toHaveBeenCalled();
+  });
+
+  it('keeps the same payment intent when the checkout browser is closed', async () => {
+    process.env.EXPO_PUBLIC_BUILD_PROFILE = 'production';
+    process.env.EXPO_PUBLIC_ENABLE_LOCAL_DEMO = '0';
+    jest.resetModules();
+
+    const WebBrowser = require('expo-web-browser') as {
+      openAuthSessionAsync: jest.Mock;
+    };
+    const {publicRequest} = require('../src/constants/api') as {
+      publicRequest: {post: jest.Mock};
+    };
+    const {removeItem} = require('../src/constants/helpers') as {
+      removeItem: jest.Mock;
+    };
+    const {openCoinCheckout} = require('../src/services/coinCheckout') as {
+      openCoinCheckout: (coinPackage: {
+        id: string;
+        coins: number;
+        price: number;
+        label: string;
+      }) => Promise<{cancelled: boolean}>;
+    };
+
+    publicRequest.post.mockResolvedValueOnce({
+      data: {
+        payment_url: 'https://checkout.kashier.io/session',
+        order_ref: 'PKG-ONE',
+        idempotency_key: '11111111-1111-4111-8111-111111111111',
+      },
+    });
+    WebBrowser.openAuthSessionAsync.mockResolvedValueOnce({type: 'cancel'});
+
+    await expect(
+      openCoinCheckout({id: '7', coins: 600, price: 49, label: 'باقة'}),
+    ).resolves.toMatchObject({cancelled: true});
+    expect(removeItem).not.toHaveBeenCalled();
+  });
+
+  it('recovers a captured payment after the browser was closed', async () => {
+    process.env.EXPO_PUBLIC_BUILD_PROFILE = 'production';
+    process.env.EXPO_PUBLIC_ENABLE_LOCAL_DEMO = '0';
+    jest.resetModules();
+
+    const WebBrowser = require('expo-web-browser') as {
+      openAuthSessionAsync: jest.Mock;
+    };
+    const {publicRequest} = require('../src/constants/api') as {
+      publicRequest: {get: jest.Mock; post: jest.Mock};
+    };
+    const helpers = require('../src/constants/helpers') as {
+      getItem: jest.Mock;
+      removeItem: jest.Mock;
+    };
+    helpers.getItem.mockResolvedValue({
+      idempotencyKey: '11111111-1111-4111-8111-111111111111',
+      packageId: 7,
+      createdAt: '2026-08-31T10:00:00.000Z',
+      orderRef: 'PKG-CAPTURED',
+    });
+    publicRequest.post.mockResolvedValueOnce({
+      data: {
+        data: {
+          status: 'approved',
+          financial_status: 'settled',
+          package: {coins: 600},
+        },
+      },
+    });
+
+    const {openCoinCheckout} = require('../src/services/coinCheckout') as {
+      openCoinCheckout: (coinPackage: {
+        id: string;
+        coins: number;
+        price: number;
+        label: string;
+      }) => Promise<{success: boolean; orderRef?: string}>;
+    };
+
+    await expect(
+      openCoinCheckout({id: '7', coins: 600, price: 49, label: 'باقة'}),
+    ).resolves.toMatchObject({success: true, orderRef: 'PKG-CAPTURED'});
+    expect(publicRequest.post).toHaveBeenCalledWith(
+      'payment/reconcile/PKG-CAPTURED',
+    );
+    expect(WebBrowser.openAuthSessionAsync).not.toHaveBeenCalled();
+    expect(helpers.removeItem).toHaveBeenCalled();
+  });
+
+  it('accepts an approved idempotent replay instead of showing a false error', async () => {
+    process.env.EXPO_PUBLIC_BUILD_PROFILE = 'production';
+    process.env.EXPO_PUBLIC_ENABLE_LOCAL_DEMO = '0';
+    jest.resetModules();
+
+    const {publicRequest} = require('../src/constants/api') as {
+      publicRequest: {post: jest.Mock};
+    };
+    publicRequest.post
+      .mockRejectedValueOnce({
+        response: {
+          data: {
+            code: 'checkout_attempt_closed',
+            data: {order_ref: 'PKG-PAID', status: 'approved'},
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          data: {
+            status: 'approved',
+            financial_status: 'settled',
+            package: {coins: 600},
+          },
+        },
+      });
+
+    const {openCoinCheckout} = require('../src/services/coinCheckout') as {
+      openCoinCheckout: (coinPackage: {
+        id: string;
+        coins: number;
+        price: number;
+        label: string;
+      }) => Promise<{success: boolean; orderRef?: string}>;
+    };
+
+    await expect(
+      openCoinCheckout({id: '7', coins: 600, price: 49, label: 'باقة'}),
+    ).resolves.toMatchObject({success: true, orderRef: 'PKG-PAID'});
+  });
+
+  it('accepts an approved replay after the response interceptor unwraps AxiosError', async () => {
+    process.env.EXPO_PUBLIC_BUILD_PROFILE = 'production';
+    process.env.EXPO_PUBLIC_ENABLE_LOCAL_DEMO = '0';
+    jest.resetModules();
+
+    const {publicRequest} = require('../src/constants/api') as {
+      publicRequest: {post: jest.Mock};
+    };
+    publicRequest.post
+      .mockRejectedValueOnce({
+        data: {
+          code: 'checkout_attempt_closed',
+          data: {order_ref: 'PKG-PAID-UNWRAPPED', status: 'approved'},
+        },
+        status: 409,
+      })
+      .mockResolvedValueOnce({
+        data: {
+          data: {
+            status: 'approved',
+            financial_status: 'settled',
+            package: {coins: 600},
+          },
+        },
+      });
+
+    const {openCoinCheckout} = require('../src/services/coinCheckout') as {
+      openCoinCheckout: (coinPackage: {
+        id: string;
+        coins: number;
+        price: number;
+        label: string;
+      }) => Promise<{success: boolean; orderRef?: string}>;
+    };
+
+    await expect(
+      openCoinCheckout({id: '7', coins: 600, price: 49, label: 'باقة'}),
+    ).resolves.toMatchObject({
+      success: true,
+      orderRef: 'PKG-PAID-UNWRAPPED',
+    });
   });
 });

@@ -15,6 +15,10 @@ export interface DemoCourse {
   homeSortOrder?: number;
   homeRows?: Array<{id: string; title: string; order: number}>;
   coinPrice?: number;
+  durationMinutes?: number;
+  ratingAverage?: number;
+  ratingsCount?: number;
+  studentsCount?: number;
   progress?: number;
   category: 'freelance' | 'skills' | 'language' | 'values' | 'religious';
   owned?: boolean;
@@ -26,7 +30,7 @@ export const demoCourses: DemoCourse[] = [
     id: 'demo-freelance-course',
     title: 'من الصفر إلى أول عميل في العمل الحر',
     description:
-      'رحلة تطبيقية كاملة لبناء خدمتك، تسعيرها، عرضها والوصول إلى أول عميل بثقة.',
+      'ابنِ خدمتك وسعّرها واعرضها حتى تصل إلى أول عميل',
     instructor: 'كريم الشاذلي',
     image: require('../assets/images/demo-course/covers/course-01.jpg'),
     label: 'كورس كامل للتجربة',
@@ -41,7 +45,7 @@ export const demoCourses: DemoCourse[] = [
     id: 'demo-preview-content-marketing',
     title: 'التسويق بالمحتوى في ٣٠ يومًا',
     description:
-      'خطة عملية لصناعة محتوى يجذب جمهورك ويحوّل الاهتمام إلى فرص حقيقية.',
+      'خطة عملية لصناعة محتوى يجذب جمهورك ويحوّل الاهتمام إلى فرص',
     instructor: 'مروة خالد',
     image: require('../assets/images/demo-course/covers/course-08.jpg'),
     label: 'الأكثر مشاهدة',
@@ -53,7 +57,7 @@ export const demoCourses: DemoCourse[] = [
     id: 'demo-preview-design-basics',
     title: 'أساسيات التصميم لغير المصممين',
     description:
-      'قواعد بصرية بسيطة تساعدك على تقديم أفكارك بصورة واضحة واحترافية.',
+      'قواعد بصرية بسيطة لتقديم أفكارك بوضوح',
     instructor: 'ندى عادل',
     image: require('../assets/images/demo-course/covers/course-06.jpg'),
     label: 'مجاني عند الإطلاق',
@@ -65,7 +69,7 @@ export const demoCourses: DemoCourse[] = [
     id: 'demo-preview-time-management',
     title: 'إدارة وقتك من دون ضغط',
     description:
-      'نظام مرن لترتيب الأولويات وإنجاز المهم مع مساحة كافية للراحة.',
+      'نظام مرن لترتيب الأولويات وإنجاز المهم مع وقت للراحة',
     instructor: 'أحمد سامي',
     image: require('../assets/images/demo-course/covers/course-09.jpg'),
     label: 'جديد',
@@ -77,7 +81,7 @@ export const demoCourses: DemoCourse[] = [
     id: 'demo-preview-mobile-video',
     title: 'صناعة الفيديو بالموبايل',
     description:
-      'من الفكرة إلى المونتاج: اصنع فيديو جذابًا بالأدوات الموجودة في يدك.',
+      'من الفكرة إلى المونتاج\nاصنع فيديو بالأدوات الموجودة في يدك',
     instructor: 'عمر حسن',
     image: require('../assets/images/demo-course/covers/course-10.jpg'),
     label: 'قريبًا',
@@ -89,7 +93,7 @@ export const demoCourses: DemoCourse[] = [
     id: 'demo-preview-portfolio',
     title: 'ابنِ معرض أعمال يقنع العملاء',
     description:
-      'حوّل مشاريعك وخبراتك إلى معرض أعمال يشرح قيمتك قبل أول مكالمة.',
+      'حوّل مشاريعك وخبراتك إلى معرض أعمال يشرح قيمتك قبل أول مكالمة',
     instructor: 'سارة نبيل',
     image: require('../assets/images/demo-course/covers/course-20.jpg'),
     label: 'الأكثر مشاهدة',
@@ -101,7 +105,7 @@ export const demoCourses: DemoCourse[] = [
     id: 'demo-preview-pricing',
     title: 'التسعير والتفاوض بثقة',
     description:
-      'اختر سعرًا عادلًا، وضّح حدود العمل وتفاوض من دون أن تخسر قيمتك.',
+      'اختر سعرًا عادلًا وحدد نطاق العمل وتفاوض بوضوح',
     instructor: 'زياد فتحي',
     image: require('../assets/images/demo-course/covers/course-04.jpg'),
     label: 'جديد',
@@ -112,7 +116,7 @@ export const demoCourses: DemoCourse[] = [
   {
     id: 'demo-preview-digital-project',
     title: 'ابدأ مشروعك الرقمي الأول',
-    description: 'اختبر فكرتك بسرعة وابنِ نسخة أولى صغيرة يمكن للناس تجربتها.',
+    description: 'اختبر فكرتك وابنِ نسخة أولى صغيرة يمكن للناس تجربتها',
     instructor: 'منة الله راضي',
     image: require('../assets/images/demo-course/covers/course-07.jpg'),
     label: 'مجاني عند الإطلاق',
@@ -124,7 +128,7 @@ export const demoCourses: DemoCourse[] = [
     id: 'demo-preview-winning-proposals',
     title: 'كتابة عروض عمل تفوز',
     description:
-      'اكتب عرضًا مختصرًا ومخصصًا يجعل العميل يفهم أنك الشخص المناسب.',
+      'اكتب عرضًا مختصرًا يوضح للعميل أنك الشخص المناسب',
     instructor: 'حسام مصطفى',
     image: require('../assets/images/demo-course/covers/course-03.jpg'),
     category: 'freelance',
@@ -134,7 +138,7 @@ export const demoCourses: DemoCourse[] = [
     id: 'demo-preview-ai-freelance',
     title: 'الذكاء الاصطناعي للعمل الحر',
     description:
-      'استخدم الأدوات الذكية لتسريع البحث والتنفيذ مع الحفاظ على جودة عملك.',
+      'استخدم الأدوات الذكية لتسريع البحث والتنفيذ مع الحفاظ على جودة عملك',
     instructor: 'لينا عماد',
     image: require('../assets/images/demo-course/covers/course-02.jpg'),
     label: 'قريبًا',
@@ -146,7 +150,7 @@ export const demoCourses: DemoCourse[] = [
     id: 'demo-preview-business-english',
     title: 'الإنجليزية لمحادثات العمل',
     description:
-      'مواقف وجمل عملية للاجتماعات والمقابلات والتواصل اليومي مع العملاء.',
+      'مواقف وجمل عملية للاجتماعات والمقابلات والتواصل مع العملاء',
     instructor: 'مريم منصور',
     image: require('../assets/images/demo-course/covers/course-11.jpg'),
     label: 'الأكثر مشاهدة',
@@ -158,7 +162,7 @@ export const demoCourses: DemoCourse[] = [
     id: 'demo-preview-travel-english',
     title: 'الإنجليزية للسفر بثقة',
     description:
-      'تدرّب على أهم الحوارات من المطار وحتى الفندق والمواقف اليومية.',
+      'تدرّب على أهم الحوارات من المطار إلى الفندق والمواقف اليومية',
     instructor: 'نورهان علي',
     image: require('../assets/images/demo-course/covers/course-12.jpg'),
     label: 'مجاني عند الإطلاق',
@@ -170,7 +174,7 @@ export const demoCourses: DemoCourse[] = [
     id: 'demo-preview-german',
     title: 'تأسيس اللغة الألمانية',
     description:
-      'ابدأ بالنطق والمفردات الأساسية وابنِ جملتك الأولى خطوة بخطوة.',
+      'ابدأ بالنطق والمفردات الأساسية وابنِ جملتك الأولى بالتدرج',
     instructor: 'هناء مجدي',
     image: require('../assets/images/demo-course/covers/course-15.jpg'),
     label: 'جديد',
@@ -182,7 +186,7 @@ export const demoCourses: DemoCourse[] = [
     id: 'demo-preview-french',
     title: 'الفرنسية للحياة اليومية',
     description:
-      'لغة بسيطة وعملية للمحادثات القصيرة والمواقف التي تتكرر كل يوم.',
+      'لغة بسيطة للمحادثات القصيرة والمواقف اليومية',
     instructor: 'ياسمين فؤاد',
     image: require('../assets/images/demo-course/covers/course-14.jpg'),
     category: 'language',
@@ -191,7 +195,7 @@ export const demoCourses: DemoCourse[] = [
   {
     id: 'demo-preview-public-speaking',
     title: 'التحدث أمام الجمهور',
-    description: 'رتّب فكرتك، اضبط نبرة صوتك وقدّم رسالتك بحضور ووضوح.',
+    description: 'رتّب فكرتك واضبط نبرة صوتك وقدّم رسالتك بوضوح',
     instructor: 'إياد شريف',
     image: require('../assets/images/demo-course/covers/course-13.jpg'),
     label: 'قريبًا',
@@ -202,8 +206,8 @@ export const demoCourses: DemoCourse[] = [
   {
     id: 'demo-preview-balanced-habits',
     title: 'عادات صغيرة لحياة أكثر اتزانًا',
-    description: 'تغييرات يومية واقعية تساعدك على الاستمرار من دون خطط مرهقة.',
-    instructor: 'د. سلمى محسن',
+    description: 'تغييرات يومية واقعية تساعدك على الاستمرار دون خطط مرهقة',
+    instructor: 'الدكتورة سلمى محسن',
     image: require('../assets/images/demo-course/covers/course-18.jpg'),
     label: 'جديد',
     labelTone: 'coin',
@@ -214,8 +218,8 @@ export const demoCourses: DemoCourse[] = [
     id: 'demo-preview-short-surahs',
     title: 'تدبّر قصار السور',
     description:
-      'معانٍ قريبة وتطبيقات يومية تساعدك على حضور القلب وفهم الآيات.',
-    instructor: 'د. يوسف حلمي',
+      'معان قريبة وتطبيقات يومية تساعدك على حضور القلب وفهم الآيات',
+    instructor: 'الدكتور يوسف حلمي',
     image: require('../assets/images/demo-course/covers/course-16.jpg'),
     label: 'مجاني عند الإطلاق',
     labelTone: 'success',
@@ -226,8 +230,8 @@ export const demoCourses: DemoCourse[] = [
     id: 'demo-preview-emotional-intelligence',
     title: 'الذكاء العاطفي في العلاقات',
     description:
-      'افهم مشاعرك، عبّر عنها بوضوح وابنِ حوارًا أكثر هدوءًا ونضجًا.',
-    instructor: 'د. هالة مراد',
+      'افهم مشاعرك وعبّر عنها بوضوح وابنِ حوارًا أكثر هدوءًا',
+    instructor: 'الدكتورة هالة مراد',
     image: require('../assets/images/demo-course/covers/course-05.jpg'),
     label: 'الأكثر مشاهدة',
     labelTone: 'primary',
@@ -238,7 +242,7 @@ export const demoCourses: DemoCourse[] = [
     id: 'demo-preview-digital-parenting',
     title: 'تربية رقمية واعية للأسرة',
     description:
-      'اتفاقات وحدود عملية لاستخدام الشاشات تحمي العلاقة داخل البيت.',
+      'اتفاقات وحدود عملية لاستخدام الشاشات تحمي العلاقة داخل البيت',
     instructor: 'مي عبد الرحمن',
     image: require('../assets/images/demo-course/covers/course-19.jpg'),
     category: 'values',
@@ -248,7 +252,7 @@ export const demoCourses: DemoCourse[] = [
     id: 'demo-preview-lasting-impact',
     title: 'اصنع أثرًا يدوم',
     description:
-      'اكتشف قيمك وحوّلها إلى مبادرات صغيرة نافعة يمكنك الاستمرار فيها.',
+      'حدّد قيمك وحوّلها إلى مبادرات صغيرة يمكنك الاستمرار فيها',
     instructor: 'فريق ركن',
     image: require('../assets/images/demo-course/covers/course-17.jpg'),
     label: 'قريبًا',

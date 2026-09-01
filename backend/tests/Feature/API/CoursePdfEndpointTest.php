@@ -22,9 +22,9 @@ class CoursePdfEndpointTest extends ApiTestCase
         $this->assertNotEquals(404, $response->status());
     }
 
-    public function test_can_stream_pdf_file(): void
+    public function test_legacy_in_app_pdf_stream_is_not_published(): void
     {
         $response = $this->actingAs($this->user, 'api')->get("/api/v1/courses/{$this->courseId}/pdfs/1/stream");
-        $this->assertNotEquals(404, $response->status());
+        $response->assertNotFound();
     }
 }

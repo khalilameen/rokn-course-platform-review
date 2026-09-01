@@ -1,5 +1,12 @@
 import React from 'react';
-import {Modal, Pressable, ScrollView, StyleSheet, Text} from 'react-native';
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import {
   Palette,
   Radius,
@@ -8,6 +15,8 @@ import {
   rtlRowStyle,
   textDirection,
 } from '../../constants/designSystem';
+import {useReducedMotion} from '../../hooks/useReducedMotion';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
 export type SettingsChoice = 'quality' | 'reminderTime' | null;
 
@@ -31,8 +40,8 @@ const choicesFor = (choice: SettingsChoice) => {
   return [
     {key: 'auto', label: 'تلقائي — موصى به'},
     {key: 'data_saver', label: 'توفير البيانات'},
-    {key: '720p', label: '٧٢٠p'},
-    {key: '1080p', label: '١٠٨٠p'},
+    {key: '720p', label: '٧٢٠ بكسل'},
+    {key: '1080p', label: '١٠٨٠ بكسل'},
   ];
 };
 
@@ -44,58 +53,67 @@ export const SettingsChoiceModal = ({
   quality,
   reminderHour,
 }: Props) => {
+  const reducedMotion = useReducedMotion();
+  const insets = useSafeAreaInsets();
   const selectedKey =
-    choice === 'reminderTime'
-      ? String(reminderHour)
-      : quality;
+    choice === 'reminderTime' ? String(reminderHour) : quality;
   const title =
-    choice === 'reminderTime'
-      ? 'وقت مناسب لتذكيرك'
-      : 'جودة الفيديو الافتراضية';
+    choice === 'reminderTime' ? 'وقت مناسب لتذكيرك' : 'جودة الفيديو الافتراضية';
 
   return (
     <Modal
-      animationType="fade"
+      animationType={reducedMotion ? 'none' : 'fade'}
       onRequestClose={onClose}
+      statusBarTranslucent
       transparent
       visible={Boolean(choice)}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="إغلاق النافذة"
-        onPress={onClose}
-        style={styles.overlay}>
+      <View style={styles.overlay}>
         <Pressable
-          accessible={false}
-          onPress={event => event.stopPropagation()}
+          accessibilityLabel="إغلاق النافذة"
+          accessibilityRole="button"
+          onPress={onClose}
+          style={StyleSheet.absoluteFill}
+        />
+        <View
+          accessibilityViewIsModal
           style={[
             styles.sheet,
-            {paddingBottom: Math.max(Spacing.xl, bottomInset + Spacing.md)},
+            {
+              paddingBottom: Math.max(Spacing.xl, bottomInset + Spacing.md),
+              paddingLeft: Math.max(Spacing.xl, insets.left + Spacing.md),
+              paddingRight: Math.max(Spacing.xl, insets.right + Spacing.md),
+            },
           ]}>
           <ScrollView
             bounces={false}
             contentContainerStyle={styles.content}
             showsVerticalScrollIndicator={false}>
-            <Text style={styles.title}>{title}</Text>
-            {choicesFor(choice).map(option => {
-              const selected = option.key === selectedKey;
-              return (
-                <Pressable
-                  accessibilityRole="radio"
-                  accessibilityState={{checked: selected}}
-                  key={option.key}
-                  onPress={() => onSelect(option.key)}
-                  style={[styles.row, selected && styles.rowSelected]}>
-                  <Text
-                    style={[styles.label, selected && styles.labelSelected]}>
-                    {option.label}
-                  </Text>
-                  {selected && <Text style={styles.check}>✓</Text>}
-                </Pressable>
-              );
-            })}
+            <Text accessibilityRole="header" style={styles.title}>
+              {title}
+            </Text>
+            <View accessibilityRole="radiogroup">
+              {choicesFor(choice).map(option => {
+                const selected = option.key === selectedKey;
+                return (
+                  <Pressable
+                    accessibilityLabel={option.label}
+                    accessibilityRole="radio"
+                    accessibilityState={{checked: selected}}
+                    key={option.key}
+                    onPress={() => onSelect(option.key)}
+                    style={[styles.row, selected && styles.rowSelected]}>
+                    <Text
+                      style={[styles.label, selected && styles.labelSelected]}>
+                      {option.label}
+                    </Text>
+                    {selected && <Text style={styles.check}>✓</Text>}
+                  </Pressable>
+                );
+              })}
+            </View>
           </ScrollView>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 };

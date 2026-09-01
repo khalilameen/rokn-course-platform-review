@@ -7,14 +7,15 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import {Image, PanResponder, StyleSheet, View} from 'react-native';
-import Video, {SelectedVideoTrackType, VideoRef} from 'react-native-video';
+import {Image, PanResponder, Platform, StyleSheet, View} from 'react-native';
+import Video, {
+  SelectedVideoTrackType,
+  VideoRef,
+  ViewType,
+} from 'react-native-video';
 import {CourseReel, VideoQuality} from './types';
 import {probeVideoSource} from './videoSourcePolicy';
-import {
-  PlaybackPlayerEvent,
-  PlaybackRuntimeMetrics,
-} from './playbackTelemetry';
+import {PlaybackPlayerEvent, PlaybackRuntimeMetrics} from './playbackTelemetry';
 import {VideoChrome} from './video/VideoChrome';
 import {createVideoEventHandlers} from './video/eventHandlers';
 import {
@@ -24,6 +25,7 @@ import {
   VIDEO_BITRATE_BY_QUALITY,
   type PlaybackFailure,
 } from './video/policy';
+import {useAppActiveState} from '../../hooks/useAppActiveState';
 
 export interface VideoComponentHandle {
   seekTo: (seconds: number) => void;
@@ -34,6 +36,7 @@ interface VideoComponentProps {
   width: number;
   height: number;
   isVisible: boolean;
+  playbackBlocked?: boolean;
   playbackSpeed?: number;
   selectedQuality?: VideoQuality;
   initialPosition?: number;
@@ -52,6 +55,7 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
       width,
       height,
       isVisible,
+      playbackBlocked = false,
       playbackSpeed = 1,
       selectedQuality = 'auto',
       initialPosition = 0,
@@ -65,12 +69,19 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
     forwardedRef,
   ) => {
     const videoRef = useRef<VideoRef>(null);
+    const declaredDurationRef = useRef(
+      Number.isFinite(Number(data.durationSeconds))
+        ? Math.max(0, Number(data.durationSeconds))
+        : 0,
+    );
     const reelIdentityRef = useRef(data.id);
     const reelInitialPositionRef = useRef(initialPosition);
     const lastPositionRef = useRef(initialPosition);
     const durationRef = useRef(0);
     const hasRestoredRef = useRef(false);
     const retryPositionRef = useRef<number | null>(null);
+    const pendingSeekRef = useRef<number | null>(null);
+    const resumeAfterFocusLossRef = useRef(false);
     const preferredQualityRef = useRef(selectedQuality);
     const recoveryAttemptsRef = useRef(0);
     const sameSourceRetryUsedRef = useRef(false);
@@ -91,11 +102,12 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
     const runtimeMetricsRef = useRef<PlaybackRuntimeMetrics>({
       recoveryCount: 0,
     });
-    const [duration, setDuration] = useState(0);
+    const [duration, setDuration] = useState(declaredDurationRef.current);
     const [bufferedTime, setBufferedTime] = useState(0);
     const [currentTime, setCurrentTime] = useState(initialPosition);
     const [previewTime, setPreviewTime] = useState<number | null>(null);
     const [pausedByUser, setPausedByUser] = useState(false);
+    const [pausedForInterruption, setPausedForInterruption] = useState(false);
     const [isBuffering, setIsBuffering] = useState(true);
     const [isLoaded, setIsLoaded] = useState(false);
     const [error, setError] = useState(false);
@@ -110,16 +122,27 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
     const [effectiveQuality, setEffectiveQuality] =
       useState<VideoQuality>(selectedQuality);
     const [trackWidth, setTrackWidth] = useState(0);
+    const appIsActive = useAppActiveState();
 
     if (reelIdentityRef.current !== data.id) {
       reelIdentityRef.current = data.id;
       reelInitialPositionRef.current = initialPosition;
+      declaredDurationRef.current = Number.isFinite(
+        Number(data.durationSeconds),
+      )
+        ? Math.max(0, Number(data.durationSeconds))
+        : 0;
     }
 
     useImperativeHandle(
       forwardedRef,
       () => ({
-        seekTo: seconds => videoRef.current?.seek(Math.max(0, seconds)),
+        seekTo: seconds => {
+          const target = Math.max(0, seconds);
+          pendingSeekRef.current = target;
+          lastPositionRef.current = target;
+          videoRef.current?.seek(target);
+        },
       }),
       [],
     );
@@ -127,10 +150,12 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
     useEffect(() => {
       hasRestoredRef.current = false;
       retryPositionRef.current = null;
+      pendingSeekRef.current = null;
+      resumeAfterFocusLossRef.current = false;
       lastPositionRef.current = reelInitialPositionRef.current;
       setCurrentTime(reelInitialPositionRef.current);
-      setDuration(0);
-      durationRef.current = 0;
+      setDuration(declaredDurationRef.current);
+      durationRef.current = declaredDurationRef.current;
       setBufferedTime(0);
       setError(false);
       setFailureKind('source');
@@ -138,6 +163,7 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
       setIsLoaded(false);
       setIsBuffering(true);
       setPausedByUser(false);
+      setPausedForInterruption(false);
       setUsingFallback(false);
       setEffectiveQuality(preferredQualityRef.current);
       recoveryAttemptsRef.current = 0;
@@ -179,12 +205,22 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
       setEffectiveQuality(selectedQuality);
     }, [selectedQuality]);
 
+    const playbackEligible = isVisible && !playbackBlocked && appIsActive;
+    const playbackPaused = pausedByUser || pausedForInterruption;
+
     useEffect(() => {
-      if (!isVisible) {
+      if (!playbackEligible) {
         setPreviewTime(null);
         if (longBufferTimerRef.current) {
           clearTimeout(longBufferTimerRef.current);
           longBufferTimerRef.current = null;
+        }
+        if (bufferingStartedAtRef.current !== null) {
+          bufferDurationMsRef.current += Math.max(
+            0,
+            Date.now() - bufferingStartedAtRef.current,
+          );
+          bufferingStartedAtRef.current = null;
         }
       } else if (deferredPreloadFailureRef.current) {
         deferredPreloadFailureRef.current = false;
@@ -194,7 +230,17 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
         setIsBuffering(true);
         setRetryKey(value => value + 1);
       }
-    }, [isVisible]);
+    }, [playbackEligible]);
+
+    useEffect(() => {
+      if (!appIsActive) {
+        setPreviewTime(null);
+        if (longBufferTimerRef.current) {
+          clearTimeout(longBufferTimerRef.current);
+          longBufferTimerRef.current = null;
+        }
+      }
+    }, [appIsActive]);
 
     useEffect(
       () => () => {
@@ -293,6 +339,38 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
       [onPlaybackEvent],
     );
 
+    const handleAudioBecomingNoisy = useCallback(() => {
+      if (!isVisible) return;
+      resumeAfterFocusLossRef.current = false;
+      setPausedForInterruption(false);
+      setPausedByUser(true);
+      if (isPlayingRef.current) {
+        isPlayingRef.current = false;
+        emitPlaybackEvent('pause');
+      }
+    }, [emitPlaybackEvent, isVisible]);
+
+    const handleAudioFocusChanged = useCallback(
+      ({hasAudioFocus}: {hasAudioFocus: boolean}) => {
+        if (!isVisible) return;
+        if (!hasAudioFocus) {
+          if (!playbackEligible || pausedByUser) return;
+          resumeAfterFocusLossRef.current = true;
+          setPausedForInterruption(true);
+          if (isPlayingRef.current) {
+            isPlayingRef.current = false;
+            emitPlaybackEvent('pause');
+          }
+          return;
+        }
+        if (resumeAfterFocusLossRef.current) {
+          resumeAfterFocusLossRef.current = false;
+          setPausedForInterruption(false);
+        }
+      },
+      [emitPlaybackEvent, isVisible, pausedByUser, playbackEligible],
+    );
+
     useEffect(() => {
       const wasVisible = previousVisibleRef.current;
       previousVisibleRef.current = isVisible;
@@ -373,14 +451,20 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
           recoveryAttemptsRef.current += 1;
           publishRuntimeMetrics({});
           setUsingFallback(true);
-          restartPlayback('نجرب مصدرًا آخر\nونكمل من مكانك');
+          restartPlayback('جارٍ استعادة المقطع\nمكانك محفوظ');
           return true;
         }
         if (step.kind === 'retry') {
           sameSourceRetryUsedRef.current = true;
           recoveryAttemptsRef.current += 1;
           publishRuntimeMetrics({});
-          restartPlayback('نحاول الوصول إلى الفيديو', 900);
+          setRecoveryMessage('نحاول الوصول إلى الفيديو');
+          // A network switch or expired signature can make the old source
+          // fail immediately. Wait for the manifest refresh attempt before
+          // rebuilding the native player instead of replaying that stale URL.
+          void Promise.resolve(onRefreshSource?.())
+            .catch(() => undefined)
+            .then(() => restartPlayback('نحاول الوصول إلى الفيديو', 120));
           return true;
         }
 
@@ -396,6 +480,7 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
         finishWithDiagnostic,
         isFallbackSource,
         isVisible,
+        onRefreshSource,
         restartPlayback,
         publishRuntimeMetrics,
       ],
@@ -410,14 +495,14 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
         const seconds = ratio * duration;
         setPreviewTime(seconds);
         if (commit) {
+          pendingSeekRef.current = seconds;
           videoRef.current?.seek(seconds);
           lastPositionRef.current = seconds;
           setCurrentTime(seconds);
           setPreviewTime(null);
-          onProgress?.(seconds, duration);
         }
       },
-      [duration, onProgress, trackWidth],
+      [duration, trackWidth],
     );
 
     const panResponder = useMemo(
@@ -452,18 +537,20 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
         Math.min(duration, timeline.displayedTime + offsetSeconds),
       );
       videoRef.current?.seek(seconds);
+      pendingSeekRef.current = seconds;
       lastPositionRef.current = seconds;
       setCurrentTime(seconds);
       setPreviewTime(null);
-      onProgress?.(seconds, duration);
     };
 
     const togglePaused = () => {
-      if (!pausedByUser) {
+      resumeAfterFocusLossRef.current = false;
+      if (!playbackPaused) {
         isPlayingRef.current = false;
         emitPlaybackEvent('pause');
       }
-      setPausedByUser(value => !value);
+      setPausedForInterruption(false);
+      setPausedByUser(!playbackPaused);
     };
 
     const retryPlayback = () => {
@@ -478,8 +565,9 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
       setIsBuffering(true);
       setUsingFallback(false);
       setEffectiveQuality(selectedQuality);
-      setRetryKey(value => value + 1);
-      void Promise.resolve(onRefreshSource?.()).catch(() => undefined);
+      void Promise.resolve(onRefreshSource?.())
+        .catch(() => undefined)
+        .then(() => setRetryKey(value => value + 1));
     };
 
     const videoEventHandlers = createVideoEventHandlers({
@@ -501,6 +589,7 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
       longBufferTimer: longBufferTimerRef,
       onComplete,
       onProgressChange: onProgress,
+      pendingSeek: pendingSeekRef,
       publishRuntimeMetrics,
       recoverOrFail,
       recoveryAttempts: recoveryAttemptsRef,
@@ -522,7 +611,9 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
       <View style={[styles.container, {width, height}]}>
         {!isLoaded && !!data.thumbnailUrl && (
           <Image
+            accessibilityElementsHidden
             accessibilityIgnoresInvertColors
+            importantForAccessibility="no"
             blurRadius={3}
             source={{uri: data.thumbnailUrl}}
             style={StyleSheet.absoluteFill}
@@ -536,21 +627,31 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
             ref={videoRef}
             source={source}
             resizeMode="cover"
-            paused={!isVisible || pausedByUser}
-            muted={!isVisible}
+            viewType={Platform.OS === 'android' ? ViewType.TEXTURE : undefined}
+            shutterColor="#030507"
+            paused={!playbackEligible || playbackPaused}
+            muted={!playbackEligible}
             repeat={false}
             rate={playbackSpeed}
             selectedVideoTrack={selectedVideoTrack}
             controls={false}
             playInBackground={false}
             playWhenInactive={false}
-            progressUpdateInterval={isVisible ? 1000 : 2500}
-            reportBandwidth={isVisible}
+            progressUpdateInterval={playbackEligible ? 1000 : 2500}
+            reportBandwidth={playbackEligible}
             ignoreSilentSwitch="ignore"
-            disableFocus
+            mixWithOthers="inherit"
+            disableFocus={!playbackEligible || pausedByUser}
+            automaticallyWaitsToMinimizeStalling
+            preferredForwardBufferDuration={playbackEligible ? 6 : 1}
+            preventsDisplaySleepDuringVideoPlayback={
+              playbackEligible && !playbackPaused
+            }
+            onAudioBecomingNoisy={handleAudioBecomingNoisy}
+            onAudioFocusChanged={handleAudioFocusChanged}
             style={StyleSheet.absoluteFill}
             bufferConfig={
-              isVisible
+              playbackEligible
                 ? {
                     minBufferMs: 4000,
                     maxBufferMs: 18000,
@@ -565,7 +666,9 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
                   }
             }
             maxBitRate={
-              isVisible ? VIDEO_BITRATE_BY_QUALITY[effectiveQuality] : 750_000
+              playbackEligible
+                ? VIDEO_BITRATE_BY_QUALITY[effectiveQuality]
+                : 750_000
             }
             {...videoEventHandlers}
           />
@@ -582,7 +685,7 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
           onTogglePaused={togglePaused}
           onTrackWidth={setTrackWidth}
           panHandlers={panResponder.panHandlers}
-          pausedByUser={pausedByUser}
+          pausedByUser={playbackPaused}
           previewTime={previewTime}
           recoveryMessage={recoveryMessage}
           sourceFailed={sourceFailed}

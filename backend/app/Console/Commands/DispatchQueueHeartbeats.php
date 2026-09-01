@@ -7,6 +7,7 @@ namespace App\Console\Commands;
 use App\Jobs\RecordQueueHeartbeat;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 final class DispatchQueueHeartbeats extends Command
@@ -22,6 +23,18 @@ final class DispatchQueueHeartbeats extends Command
             $this->error('No required heartbeat queues are configured.');
 
             return self::FAILURE;
+        }
+
+        try {
+            Cache::put(
+                (string) config('operations.scheduler_heartbeat_key', 'operations:scheduler-heartbeat:v1'),
+                now()->toIso8601String(),
+                max(60, (int) config('operations.scheduler_heartbeat_ttl_seconds', 600))
+            );
+        } catch (Throwable $exception) {
+            Log::warning('Unable to record scheduler heartbeat.', [
+                'exception' => $exception::class,
+            ]);
         }
 
         $failed = [];

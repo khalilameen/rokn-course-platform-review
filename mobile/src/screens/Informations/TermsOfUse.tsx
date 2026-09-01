@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import {StyleSheet, Text, View} from 'react-native';
 import {Container, Content} from '../../components/containers/Containers';
 import {PremiumCard, ResponsiveFrame} from '../../components/ui/PremiumUI';
@@ -9,6 +9,7 @@ import {
   Type,
   textDirection,
 } from '../../constants/designSystem';
+import {getManagedPublicContent} from '../../services/publicContent';
 
 const sections = [
   [
@@ -17,11 +18,11 @@ const sections = [
   ],
   [
     'الحساب والضيف',
-    'يمكنك تصفح الأجزاء المتاحة للضيف دون حساب. نطلب تسجيل الدخول عند استخدام ميزة تحتاج إلى حفظ أو مزامنة أو معاملة، مثل الاشتراك أو تسليم مشروع أو إنشاء بورتفوليو. استخدم حسابك الشخصي وأبلغنا إذا لاحظت استخدامًا غير مصرح به. من لم يبلغ السن القانوني للتعاقد يستخدم ركن بموافقة ولي الأمر.',
+    'يمكنك تصفح الأجزاء المتاحة للضيف دون حساب. نطلب تسجيل الدخول عند استخدام ميزة تحتاج إلى حفظ أو مزامنة أو معاملة، مثل شراء كورس أو تسليم مشروع أو إنشاء بورتفوليو. استخدم حسابك الشخصي وأبلغنا إذا لاحظت استخدامًا غير مصرح به. من لم يبلغ السن القانوني للتعاقد يستخدم ركن بموافقة ولي الأمر.',
   ],
   [
     'الكورسات والمدربون',
-    'توضح صفحة الكورس محتواه وأجزاءه المجانية ومتطلباته قبل الاشتراك. يلتزم كل مدرب تعاقديًا بصحة ما يقدمه وامتلاكه حقوق مواده، ويتحمل أمام ركن وأصحاب الحقوق مسؤولية المواد التي يوردها. وتظل ركن مسؤولة عن التزاماتها التي لا يجوز قانونًا إعفاؤها منها بصفتها مشغل المنصة ومقدم الخدمة. لا نضمن وظيفة أو دخلًا أو نتيجة بعينها.',
+    'توضح صفحة الكورس محتواه وأجزاءه المجانية ومتطلباته قبل الشراء. يلتزم كل مدرب تعاقديًا بصحة ما يقدمه وامتلاكه حقوق مواده، ويتحمل أمام ركن وأصحاب الحقوق مسؤولية المواد التي يوردها. وتظل ركن مسؤولة عن التزاماتها التي لا يجوز قانونًا إعفاؤها منها بصفتها مشغل المنصة ومقدم الخدمة. لا نضمن وظيفة أو دخلًا أو نتيجة بعينها.',
   ],
   [
     'المنح التعليمية',
@@ -66,6 +67,20 @@ const sections = [
 ];
 
 export default function TermsOfUse() {
+  const [managedBody, setManagedBody] = useState('');
+  useEffect(() => {
+    let active = true;
+    void getManagedPublicContent('terms')
+      .then(body => active && setManagedBody(body))
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+  const visibleSections = useMemo(
+    () => (managedBody ? [['شروط الاستخدام', managedBody]] : sections),
+    [managedBody],
+  );
   return (
     <Container noPadding>
       <Content noPadding>
@@ -77,7 +92,7 @@ export default function TermsOfUse() {
           </Text>
           <Text style={styles.updated}>آخر تحديث: ٣١ أغسطس ٢٠٢٦</Text>
           <View style={styles.list}>
-            {sections.map(([title, body]) => (
+            {visibleSections.map(([title, body]) => (
               <PremiumCard key={title} style={styles.card}>
                 <Text style={styles.title}>{title}</Text>
                 <Text style={styles.body}>{body}</Text>

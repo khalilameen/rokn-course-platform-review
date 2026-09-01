@@ -38,14 +38,27 @@ class AboutsController extends Controller
     {
         return view('admin.abouts.policy', ['about' => $this->aboutForDisplay()]);
     }
+
+    public function about()
+    {
+        return view('admin.abouts.about', ['about' => $this->aboutForDisplay()]);
+    }
     /**
      * @param Request $request
      * @return \Illuminate\Http\RedirectResponse
      */
     public function update(Request $request)
     {
-        $this->aboutForUpdate()->update($request->input());
+        $validated = $request->validate([
+            'about_ar' => 'nullable|string|max:100000',
+            'about_en' => 'nullable|string|max:100000',
+            'privacy_ar' => 'nullable|string|max:100000',
+            'privacy_en' => 'nullable|string|max:100000',
+            'policy_ar' => 'nullable|string|max:100000',
+            'policy_en' => 'nullable|string|max:100000',
+        ]);
+        $this->aboutForUpdate()->update($validated);
 
-        return redirect()->back();
+        return redirect()->back()->with('success', 'تم تحديث النص المنشور');
     }
 }

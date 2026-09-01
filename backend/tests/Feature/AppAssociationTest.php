@@ -21,6 +21,7 @@ class AppAssociationTest extends TestCase
         $response->assertOk()
             ->assertHeader('X-Content-Type-Options', 'nosniff')
             ->assertHeader('Cache-Control', 'max-age=3600, public, stale-while-revalidate=86400')
+            ->assertHeader('X-Rokn-Mobile-Contract', '1')
             ->assertExactJson([[
                 'relation' => ['delegate_permission/common.handle_all_urls'],
                 'target' => [
@@ -49,11 +50,9 @@ class AppAssociationTest extends TestCase
                         'appID' => 'ABCDE12345.com.rokn.app',
                         'paths' => [
                             '/home',
-                            '/home/*',
                             '/profile',
-                            '/profile/*',
                             '/wallet',
-                            '/wallet/*',
+                            '/support/*',
                             '/course/*',
                             '/courses/*',
                         ],
@@ -62,11 +61,9 @@ class AppAssociationTest extends TestCase
                         'appID' => 'FGHIJ67890.com.rokn.app.beta',
                         'paths' => [
                             '/home',
-                            '/home/*',
                             '/profile',
-                            '/profile/*',
                             '/wallet',
-                            '/wallet/*',
+                            '/support/*',
                             '/course/*',
                             '/courses/*',
                         ],

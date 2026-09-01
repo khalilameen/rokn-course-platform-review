@@ -31,7 +31,7 @@
     <section class="contact-card">
         <div class="contact-grid">
             <div class="contact-field"><span>الاسم</span><strong>{{ $contact->name ?: '—' }}</strong></div>
-            <div class="contact-field"><span>تاريخ الطلب</span><strong>{{ optional($contact->created_at)->format('Y-m-d H:i') ?: '—' }}</strong></div>
+            <div class="contact-field"><span>تاريخ الطلب</span><strong>{{ $contact->created_at ? \App\Support\BusinessClock::format($contact->created_at) : '—' }}</strong></div>
             <div class="contact-field"><span>البريد الإلكتروني</span><a href="mailto:{{ $contact->email }}">{{ $contact->email ?: '—' }}</a></div>
             <div class="contact-field"><span>رقم الهاتف</span><a href="tel:{{ $contact->phone }}">{{ $contact->phone ?: '—' }}</a></div>
         </div>
@@ -47,6 +47,7 @@
                 'no_account_found' => 'لا يوجد حساب مطابق بعد التحقق',
                 'duplicate' => 'طلب مكرر',
                 'withdrawn' => 'صاحب الطلب تراجع عنه',
+                'manual_verified_deletion' => 'حُذف الحساب بعد التحقق من صاحبه',
             ];
             $outcome = data_get($contact->resolution_metadata, 'outcome');
         @endphp
@@ -65,7 +66,7 @@
                 <div class="account-match">
                     <strong>يوجد حساب مطابق للبريد</strong>
                     <div class="mt-2"><a href="{{ route('admin.users.show', $deletionUser) }}">{{ $deletionUser->name }} · رقم {{ $deletionUser->id }}</a></div>
-                    <small class="text-muted">تحقق من صاحب الطلب ثم وجّهه إلى «حذف الحساب» داخل التطبيق. لا تشارك بيانات الحساب عبر البريد.</small>
+                    <small class="text-muted">يمكن لصاحب الحساب حذفه من التطبيق. إن تعذر دخوله فتحقق من هويته ثم نفّذ الطلب من المسار الآمن أدناه.</small>
                 </div>
             @elseif(!$contact->isResolved())
                 <div class="account-match"><strong>لا يوجد حساب نشط مطابق للبريد حاليًا</strong><div class="text-muted mt-1">راجع البريد مع صاحب الطلب قبل اختيار نتيجة الإغلاق.</div></div>
@@ -75,7 +76,7 @@
                 <div class="resolved-grid">
                     <div class="contact-field"><span>النتيجة</span><strong>{{ $outcomeLabels[$outcome] ?? 'مغلقة بعد المراجعة' }}</strong></div>
                     <div class="contact-field"><span>أغلقها</span><strong>{{ optional($contact->resolver)->name ?: 'مسؤول غير متاح' }}</strong></div>
-                    <div class="contact-field"><span>وقت الإغلاق</span><strong>{{ optional($contact->resolved_at)->format('Y-m-d H:i') ?: '—' }}</strong></div>
+                    <div class="contact-field"><span>وقت الإغلاق</span><strong>{{ $contact->resolved_at ? \App\Support\BusinessClock::format($contact->resolved_at) : '—' }}</strong></div>
                 </div>
                 @if(data_get($contact->resolution_metadata, 'note'))
                     <div class="account-match"><strong>ملاحظة المعالجة</strong><div class="mt-1">{{ data_get($contact->resolution_metadata, 'note') }}</div></div>
@@ -92,6 +93,20 @@
                             </button>
                         </form>
                     </div>
+                    @if($contact->isProcessing() && $deletionUser)
+                        <div class="workflow-box">
+                            <h3>تنفيذ الحذف بعد التحقق</h3>
+                            <p>استخدم هذا المسار فقط إذا تعذر على صاحب الحساب الدخول إلى التطبيق وتم التحقق من هويته.</p>
+                            <form method="POST" action="{{ route('admin.contacts.execute-account-deletion', $contact) }}">
+                                @csrf
+                                <input name="account_email" type="email" dir="ltr" autocomplete="off" placeholder="اكتب بريد الحساب للتأكيد" required>
+                                <textarea name="verification_note" minlength="8" maxlength="500" placeholder="كيف تحققت من صاحب الحساب؟" required>{{ old('verification_note') }}</textarea>
+                                <label class="confirm-row"><input type="checkbox" name="confirm_identity" value="1" required><span>تحققت من أن مقدم الطلب هو صاحب الحساب</span></label>
+                                <label class="confirm-row"><input type="checkbox" name="confirm_delete" value="1" required><span>أفهم أن الحذف نهائي وسيُنهي كل جلسات الحساب</span></label>
+                                <button class="btn-rokn btn-danger-rokn" type="submit">حذف الحساب نهائيًا</button>
+                            </form>
+                        </div>
+                    @endif
                     <div class="workflow-box">
                         <h3>إغلاق الطلب بعد المراجعة</h3>
                         <form method="POST" action="{{ route('admin.contacts.close-deletion-request', $contact) }}">

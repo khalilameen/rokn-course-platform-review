@@ -4,10 +4,15 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Services\AppReleasePolicyService;
 use Illuminate\Http\JsonResponse;
 
 final class AppAssociationController extends Controller
 {
+    public function __construct(private readonly AppReleasePolicyService $releasePolicy)
+    {
+    }
+
     public function android(): JsonResponse
     {
         $package = trim((string) config('app_links.android_package'));
@@ -53,11 +58,9 @@ final class AppAssociationController extends Controller
                     'appID' => $appId,
                     'paths' => [
                         '/home',
-                        '/home/*',
                         '/profile',
-                        '/profile/*',
                         '/wallet',
-                        '/wallet/*',
+                        '/support/*',
                         '/course/*',
                         '/courses/*',
                     ],
@@ -72,6 +75,8 @@ final class AppAssociationController extends Controller
             'Content-Type' => 'application/json',
             'Cache-Control' => 'public, max-age=3600, stale-while-revalidate=86400',
             'X-Content-Type-Options' => 'nosniff',
+            'X-Rokn-Mobile-Contract' => (string) max(1, (int) config('mobile_contract.current_version', 1)),
+            'X-Rokn-App-Identity' => $this->releasePolicy->publicContractIdentity(),
         ];
     }
 

@@ -6,16 +6,14 @@ import appConfig from '../app.json';
 const hosts = [
   'rokn.app',
   'www.rokn.app',
-  'rokn-course-platform-review-production-b7gpy1.laravel.cloud',
-  'rokn.com',
-  'www.rokn.com',
 ];
-const paths = ['/home', '/profile', '/wallet', '/course', '/courses'];
+const exactPaths = ['/home', '/profile', '/wallet'];
+const routePrefixes = ['/support/', '/course/', '/courses/'];
 const expectedData = (host: string) => [
   {scheme: 'https'},
   {host},
-  ...paths.map(routePath => ({path: routePath})),
-  ...paths.map(pathPrefix => ({pathPrefix: `${pathPrefix}/`})),
+  ...exactPaths.map(routePath => ({path: routePath})),
+  ...routePrefixes.map(pathPrefix => ({pathPrefix})),
 ];
 
 const matchesConfiguredPath = (item: any, pathname: string) =>

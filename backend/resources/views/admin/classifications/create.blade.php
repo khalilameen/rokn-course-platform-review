@@ -8,7 +8,7 @@
         <strong>إضافة تصنيف جديد</strong>
     </div>
     <div class="card-body card-block">
-        <form action="{{ route('admin.classifications.store') }}" method="post" class="form-horizontal">
+        <form action="{{ route('admin.classifications.store') }}" method="post" class="form-horizontal" id="classificationForm">
             @csrf
             <div class="row form-group">
                 <div class="col col-md-3"><label for="name_ar" class=" form-control-label">الاسم (AR)</label></div>
@@ -47,4 +47,8 @@
         </form>
     </div>
 </div>
+@endsection
+
+@section('scripts')
+    @include('admin.partials.course-authoring-draft', ['formId' => 'classificationForm'])
 @endsection

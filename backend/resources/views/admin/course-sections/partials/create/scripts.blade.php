@@ -128,22 +128,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 alert('يجب إضافة سؤال واحد على الأقل للاختبار');
                 return false;
             }
-
-            // Add hidden input for section_id if auto-saved
-            if (autoSavedSectionId) {
-                const sectionIdInput = document.createElement('input');
-                sectionIdInput.type = 'hidden';
-                sectionIdInput.name = 'section_id';
-                sectionIdInput.value = autoSavedSectionId;
-                this.appendChild(sectionIdInput);
-            }
-
-            // Since questions are already saved via auto-save, we can skip validation
-            // Just ensure the last question was saved
-            if (questions.length > 0 && autoSavedSectionId) {
-                // All good, questions are auto-saved
-                return true;
-            }
         }
 
         // Validate required fields based on section type
@@ -298,8 +282,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Quiz Questions Management
     let questionCount = 0;
-    let autoSavedSectionId = null; // Track the auto-saved section ID
-    let isAutoSaving = false; // Flag to prevent concurrent saves
     const questionsContainer = document.getElementById('questionsContainer');
     const addQuestionBtn = document.getElementById('addQuestionBtn');
 
@@ -308,11 +290,12 @@ document.addEventListener('DOMContentLoaded', function() {
         const titleAr = document.getElementById('title_ar').value.trim();
         const quizTitleAr = document.getElementById('quiz_title_ar').value.trim();
         const timeMinutes = document.getElementById('time_minutes').value.trim();
+        const moduleId = document.getElementById('module_id')?.value || '';
 
-        if (!titleAr || !quizTitleAr || !timeMinutes) {
+        if (!titleAr || !quizTitleAr || !timeMinutes || !moduleId) {
             return {
                 valid: false,
-                message: 'يرجى ملء عنوان القسم وعنوان الاختبار ومدة الاختبار أولاً'
+                message: 'أكمل العنوان والوحدة ومدة الاختبار أولًا'
             };
         }
 
@@ -350,151 +333,6 @@ document.addEventListener('DOMContentLoaded', function() {
         return { valid: true };
     }
 
-    // Function to get question data
-    function getQuestionData(index) {
-        const questionElement = questionsContainer.querySelector(`[data-question-index="${index}"]`);
-        const questionId = questionElement?.getAttribute('data-question-id');
-
-        const data = {
-            question_title: document.getElementById(`questions_${index}_title`)?.value || null,
-            question_text: document.getElementById(`questions_${index}_text`).value,
-            choice1: document.getElementById(`questions_${index}_choice1`).value,
-            choice2: document.getElementById(`questions_${index}_choice2`).value,
-            choice3: document.getElementById(`questions_${index}_choice3`).value,
-            choice4: document.getElementById(`questions_${index}_choice4`).value,
-            choice5: document.getElementById(`questions_${index}_choice5`)?.value || null,
-            choice6: document.getElementById(`questions_${index}_choice6`)?.value || null,
-            correct_answer: document.getElementById(`questions_${index}_correct_answer`).value
-        };
-
-        // Include question_id if this is an update
-        if (questionId) {
-            data.question_id = questionId;
-        }
-
-        return data;
-    }
-
-    // Function to auto-save quiz and question
-    async function autoSaveQuizAndQuestion(questionIndex) {
-        if (isAutoSaving) {
-            return { success: false, message: 'جاري الحفظ...' };
-        }
-
-        isAutoSaving = true;
-
-        try {
-            // Validate basic quiz fields
-            const basicValidation = validateQuizBasicFields();
-            if (!basicValidation.valid) {
-                alert(basicValidation.message);
-                isAutoSaving = false;
-                return { success: false, message: basicValidation.message };
-            }
-
-            // Prepare data
-            const formData = new FormData();
-            formData.append('_token', '{{ csrf_token() }}');
-            formData.append('title_ar', document.getElementById('title_ar').value);
-            formData.append('title_en', document.getElementById('title_en').value);
-            formData.append('quiz_title_ar', document.getElementById('quiz_title_ar').value);
-            formData.append('quiz_title_en', document.getElementById('quiz_title_en').value);
-            formData.append('quiz_description_ar', document.getElementById('quiz_description_ar')?.value || '');
-            formData.append('quiz_description_en', document.getElementById('quiz_description_en')?.value || '');
-            formData.append('time_minutes', document.getElementById('time_minutes').value);
-            formData.append('order', document.getElementById('order').value);
-
-            // Add section_id if already saved
-            if (autoSavedSectionId) {
-                formData.append('section_id', autoSavedSectionId);
-            }
-
-            // Add question data if provided
-            if (questionIndex !== null && questionIndex !== undefined) {
-                const questionData = getQuestionData(questionIndex);
-                Object.keys(questionData).forEach(key => {
-                    if (questionData[key] !== null) {
-                        formData.append(`question[${key}]`, questionData[key]);
-                    }
-                });
-            }
-
-            // Send AJAX request
-            const response = await fetch('{{ route("admin.courses.sections.autoSaveQuiz", $course) }}', {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-            });
-
-            const result = await response.json();
-
-            if (result.success) {
-                // Store section ID for future updates
-                if (result.section_id) {
-                    autoSavedSectionId = result.section_id;
-                }
-
-                // Show success feedback
-                showAutoSaveFeedback(true, result.message);
-
-                isAutoSaving = false;
-                return { success: true, data: result };
-            } else {
-                showAutoSaveFeedback(false, result.message);
-                isAutoSaving = false;
-                return { success: false, message: result.message };
-            }
-
-        } catch (error) {
-            console.error('Auto-save error:', error);
-            showAutoSaveFeedback(false, 'حدث خطأ أثناء الحفظ التلقائي');
-            isAutoSaving = false;
-            return { success: false, message: error.message };
-        }
-    }
-
-    // Function to show auto-save feedback
-    function showAutoSaveFeedback(success, message) {
-        // Create or get feedback element
-        let feedback = document.getElementById('autoSaveFeedback');
-        if (!feedback) {
-            feedback = document.createElement('div');
-            feedback.id = 'autoSaveFeedback';
-            feedback.style.cssText = `
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                padding: 15px 20px;
-                border-radius: 10px;
-                color: white;
-                font-weight: 600;
-                z-index: 9999;
-                animation: slideIn 0.3s ease-out;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            `;
-            document.body.appendChild(feedback);
-        }
-
-        feedback.style.background = success ?
-            'linear-gradient(135deg, #48bb78, #38a169)' :
-            'linear-gradient(135deg, #f56565, #e53e3e)';
-        feedback.innerHTML = `
-            <i class="fa fa-${success ? 'check-circle' : 'exclamation-circle'}"></i>
-            ${message}
-        `;
-        feedback.style.display = 'block';
-
-        // Hide after 3 seconds
-        setTimeout(() => {
-            feedback.style.animation = 'slideOut 0.3s ease-out';
-            setTimeout(() => {
-                feedback.style.display = 'none';
-            }, 300);
-        }, 3000);
-    }
-
     function createQuestionTemplate(index, questionId = null) {
         const questionDiv = document.createElement('div');
         questionDiv.className = 'question-item mb-4';
@@ -503,6 +341,7 @@ document.addEventListener('DOMContentLoaded', function() {
             questionDiv.setAttribute('data-question-id', questionId);
         }
         questionDiv.innerHTML = `
+            <input type="hidden" name="questions[${index}][id]" value="${questionId || ''}" data-question-id-input>
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0 question-item__title">السؤال ${index + 1}</h5>
                 ${index > 0 ? `
@@ -649,108 +488,15 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
 
-        // Add event listener for remove button (only if not the first question)
+        // Creating a quiz remains one atomic form submission. Removing a row
+        // here never mutates the database or leaves an unfinished quiz behind.
         if (questionCount > 0) {
             const removeBtn = questionElement.querySelector('.remove-question-btn');
-
-            removeBtn.addEventListener('click', async function() {
-                const questionId = questionElement.getAttribute('data-question-id');
-
-                // If question has ID, delete from database
-                if (questionId && autoSavedSectionId) {
-                    // Show loading state
-                    const originalText = this.innerHTML;
-                    this.disabled = true;
-                    this.innerHTML = '<i class="fa fa-spinner fa-spin"></i> جاري الحذف...';
-
-                    try {
-                        const formData = new FormData();
-                        formData.append('_token', '{{ csrf_token() }}');
-                        formData.append('question_id', questionId);
-                        formData.append('section_id', autoSavedSectionId);
-
-                        const response = await fetch('{{ route("admin.courses.sections.deleteQuizQuestion", $course) }}', {
-                            method: 'POST',
-                            body: formData,
-                            headers: {
-                                'X-Requested-With': 'XMLHttpRequest'
-                            }
-                        });
-
-                        const result = await response.json();
-
-                        if (result.success) {
-                            showAutoSaveFeedback(true, result.message);
-
-                            // Add animation and remove from DOM
-                            questionElement.style.animation = 'shake 0.3s ease-in-out';
-                            setTimeout(() => {
-                                removeQuestion(questionElement);
-                            }, 300);
-                        } else {
-                            // Restore button on error
-                            this.disabled = false;
-                            this.innerHTML = originalText;
-                            showAutoSaveFeedback(false, result.message);
-                        }
-                    } catch (error) {
-                        console.error('Delete error:', error);
-                        this.disabled = false;
-                        this.innerHTML = originalText;
-                        showAutoSaveFeedback(false, 'حدث خطأ أثناء حذف السؤال');
-                    }
-                } else {
-                    // Question not saved yet, just remove from DOM
-                    questionElement.style.animation = 'shake 0.3s ease-in-out';
-                    setTimeout(() => {
-                        removeQuestion(questionElement);
-                    }, 300);
-                }
+            removeBtn.addEventListener('click', function() {
+                questionElement.style.animation = 'shake 0.3s ease-in-out';
+                setTimeout(() => removeQuestion(questionElement), 300);
             });
         }
-
-        // Add auto-save on change for question fields (debounced)
-        let autoSaveTimeout = null;
-        const questionFields = questionElement.querySelectorAll('input, textarea, select');
-
-        questionFields.forEach(field => {
-            field.addEventListener('change', async function() {
-                // Only auto-save if question has been saved before (has question_id)
-                const questionId = questionElement.getAttribute('data-question-id');
-                if (!questionId || !autoSavedSectionId) {
-                    return; // Question not saved yet, skip auto-save
-                }
-
-                // Clear previous timeout
-                if (autoSaveTimeout) {
-                    clearTimeout(autoSaveTimeout);
-                }
-
-                // Debounce auto-save by 1 second
-                autoSaveTimeout = setTimeout(async () => {
-                    const questionIndex = parseInt(questionElement.getAttribute('data-question-index'));
-
-                    // Validate before saving
-                    const validation = validateCurrentQuestion(questionIndex);
-                    if (!validation.valid) {
-                        // Show brief error feedback
-                        showAutoSaveFeedback(false, 'يرجى ملء جميع الحقول المطلوبة');
-                        return;
-                    }
-
-                    // Show subtle saving indicator
-                    showAutoSaveFeedback(true, 'جاري حفظ التعديلات...');
-
-                    // Perform auto-save
-                    const saveResult = await autoSaveQuizAndQuestion(questionIndex);
-
-                    if (saveResult.success && saveResult.data && saveResult.data.question_id) {
-                        // Update question ID in case it changed (shouldn't normally, but just in case)
-                        questionElement.setAttribute('data-question-id', saveResult.data.question_id);
-                    }
-                }, 1000); // Wait 1 second after user stops typing
-            });
-        });
 
         questionCount++;
         updateRequiredFields();
@@ -828,16 +574,13 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Add question button handler with auto-save
+    // Questions stay in the recoverable browser draft until the moderator
+    // saves the complete quiz in one database transaction.
     if (addQuestionBtn) {
-        addQuestionBtn.addEventListener('click', async function() {
-            // If there are existing questions, validate and auto-save the last one
+        addQuestionBtn.addEventListener('click', function() {
             const existingQuestions = questionsContainer.querySelectorAll('.question-item');
-
             if (existingQuestions.length > 0) {
                 const lastQuestionIndex = existingQuestions.length - 1;
-
-                // Validate the last question
                 const validation = validateCurrentQuestion(lastQuestionIndex);
                 if (!validation.valid) {
                     alert(validation.message);
@@ -850,56 +593,44 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                     return;
                 }
-
-                // Show loading state on button
-                const originalText = this.innerHTML;
-                this.disabled = true;
-                this.innerHTML = '<i class="fa fa-spinner fa-spin"></i> جاري الحفظ...';
-
-                // Auto-save the quiz and question
-                const saveResult = await autoSaveQuizAndQuestion(lastQuestionIndex);
-
-                // Restore button
-                this.disabled = false;
-                this.innerHTML = originalText;
-
-                if (!saveResult.success) {
-                    return;
-                }
-
-                // Store question ID in the question element
-                if (saveResult.data && saveResult.data.question_id) {
-                    const lastQuestionElement = existingQuestions[lastQuestionIndex];
-                    lastQuestionElement.setAttribute('data-question-id', saveResult.data.question_id);
-                }
             } else {
-                // First question - just save the quiz structure
                 const basicValidation = validateQuizBasicFields();
                 if (!basicValidation.valid) {
                     alert(basicValidation.message);
                     return;
                 }
-
-                // Show loading state
-                const originalText = this.innerHTML;
-                this.disabled = true;
-                this.innerHTML = '<i class="fa fa-spinner fa-spin"></i> جاري الحفظ...';
-
-                // Save quiz structure without question
-                const saveResult = await autoSaveQuizAndQuestion(null);
-
-                // Restore button
-                this.disabled = false;
-                this.innerHTML = originalText;
-
-                if (!saveResult.success) {
-                    return;
-                }
             }
-
-            // Add new question
             addQuestion();
         });
     }
+
+    // Validation redirects must preserve the quiz even when localStorage is
+    // blocked by the browser. The server-flashed input is the fallback source.
+    const oldQuestions = @json(array_values(old('questions', [])));
+    oldQuestions.forEach(question => {
+        addQuestion();
+        const index = questionCount - 1;
+        const row = questionsContainer.querySelector(`[data-question-index="${index}"]`);
+        if (!row) return;
+        if (question.choice5 || question.choice6) {
+            row.querySelector('.toggle-extra-choices-btn')?.click();
+        }
+        Object.entries(question).forEach(([field, value]) => {
+            const input = row.querySelector(`[name="questions[${index}][${CSS.escape(field)}]"]`);
+            if (input) input.value = value ?? '';
+        });
+    });
+
+    document.addEventListener('rokn:authoring-draft-prepare', event => {
+        if (event.detail?.formId !== 'sectionForm') return;
+        const values = event.detail?.values || {};
+        const indexes = Object.keys(values)
+            .map(name => name.match(/^questions\[(\d+)\]/))
+            .filter(Boolean)
+            .map(match => Number(match[1]));
+        if (indexes.length === 0) return;
+        const maxIndex = Math.max(...indexes);
+        while (questionCount <= maxIndex) addQuestion();
+    });
 });
 </script>

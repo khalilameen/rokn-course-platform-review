@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\RoknLocale;
 use Illuminate\Database\Eloquent\Model;
 
 class StudentNotification extends Model
@@ -29,10 +30,16 @@ class StudentNotification extends Model
         'message_ar',
         'message_en',
         'link',
+        'image_url',
+        'action_label_ar',
+        'action_label_en',
         'is_read',
         'read_at',
         'push_attempted_at',
+        'push_attempts',
         'push_sent_at',
+        'push_failed_at',
+        'push_failure_code',
     ];
 
     /**
@@ -44,7 +51,9 @@ class StudentNotification extends Model
         'is_read' => 'boolean',
         'read_at' => 'datetime',
         'push_attempted_at' => 'datetime',
+        'push_attempts' => 'integer',
         'push_sent_at' => 'datetime',
+        'push_failed_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
@@ -123,8 +132,9 @@ class StudentNotification extends Model
      */
     public function getLocalizedTitle()
     {
-        $locale = app()->getLocale();
-        return $locale === 'ar' ? $this->title_ar : $this->title_en;
+        return RoknLocale::isArabic()
+            ? ($this->title_ar ?: $this->title_en)
+            : ($this->title_en ?: $this->title_ar);
     }
 
     /**
@@ -134,8 +144,9 @@ class StudentNotification extends Model
      */
     public function getLocalizedMessage()
     {
-        $locale = app()->getLocale();
-        return $locale === 'ar' ? $this->message_ar : $this->message_en;
+        return RoknLocale::isArabic()
+            ? ($this->message_ar ?: $this->message_en)
+            : ($this->message_en ?: $this->message_ar);
     }
 }
 

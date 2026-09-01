@@ -71,10 +71,10 @@ final class SocialAuthProviderRegistry
         }
 
         return match ($provider) {
-            'google' => 'Google client ID أو secret ناقص',
-            'facebook' => 'بيانات Facebook أو إصدار Graph المدعوم ناقص',
-            'tiktok' => 'TikTok client key أو secret ناقص',
-            'apple' => 'Apple client ID ناقص أو غير صالح',
+            'google' => 'GOOGLE_CLIENT_ID أو GOOGLE_CLIENT_SECRET ناقص',
+            'facebook' => 'FACEBOOK_CLIENT_ID أو FACEBOOK_CLIENT_SECRET أو FACEBOOK_GRAPH_VERSION ناقص أو غير صالح',
+            'tiktok' => 'TIKTOK_CLIENT_KEY أو TIKTOK_CLIENT_SECRET ناقص',
+            'apple' => 'APPLE_CLIENT_ID ناقص أو غير صالح',
             default => 'مزوّد غير مدعوم',
         };
     }

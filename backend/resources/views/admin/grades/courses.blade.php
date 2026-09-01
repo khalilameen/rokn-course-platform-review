@@ -77,15 +77,15 @@
                                     <span class="stat-label">إجمالي الكورسات</span>
                                 </div>
                                 <div class="stat-card">
-                                    <span class="stat-number">{{ $courses->where('is_opened', true)->count() }}</span>
-                                    <span class="stat-label">مفتوح للجميع</span>
+                                    <span class="stat-number">{{ $courses->where('is_coming_soon', false)->count() }}</span>
+                                    <span class="stat-label">منشورة</span>
                                 </div>
                                 <div class="stat-card">
-                                    <span class="stat-number">{{ $courses->where('is_opened', false)->count() }}</span>
-                                    <span class="stat-label">للأعضاء فقط</span>
+                                    <span class="stat-number">{{ $courses->where('is_coming_soon', true)->count() }}</span>
+                                    <span class="stat-label">قيد الإعداد</span>
                                 </div>
                                 <div class="stat-card">
-                                    <span class="stat-number">{{ $courses->whereNotNull('category_id')->count() }}</span>
+                                    <span class="stat-number">{{ $courses->filter(fn ($course) => $course->classifications->isNotEmpty())->count() }}</span>
                                     <span class="stat-label">مصنفة</span>
                                 </div>
                             </div>
@@ -102,15 +102,13 @@
                                     <input type="text" class="search-input" id="courseSearch" placeholder="البحث في الكورسات...">
                                     <select class="filter-select" id="statusFilter">
                                         <option value="">جميع الحالات</option>
-                                        <option value="opened">مفتوح للجميع</option>
-                                        <option value="closed">للأعضاء فقط</option>
+                                        <option value="published">منشور</option>
+                                        <option value="draft">قيد الإعداد</option>
                                     </select>
-                                    <select class="filter-select" id="categoryFilter">
-                                        <option value="">جميع الأقسام</option>
-                                        @foreach($courses->whereNotNull('category')->unique('category_id') as $course)
-                                            @if($course->category)
-                                                <option value="{{ $course->category->id }}">{{ $course->category->name_ar }}</option>
-                                            @endif
+                                    <select class="filter-select" id="classificationFilter">
+                                        <option value="">جميع التصنيفات</option>
+                                        @foreach($classifications as $classification)
+                                                <option value="{{ $classification->id }}">{{ $classification->name_ar }}</option>
                                         @endforeach
                                     </select>
                                 </div>
@@ -123,22 +121,22 @@
                                          data-course="{{ json_encode([
                                             'title' => $course->title,
                                             'description' => $course->description,
-                                            'status' => $course->is_opened ? 'opened' : 'closed',
-                                            'category' => $course->category ? $course->category->id : null
+                                            'status' => $course->is_coming_soon ? 'draft' : 'published',
+                                            'classifications' => $course->classifications->pluck('id')->map(fn ($id) => (string) $id)->values()
                                          ]) }}">
 
                                         <div class="course-header">
                                             <h3 class="course-title">{{ $course->title }}</h3>
-                                            <span class="course-status-badge {{ $course->is_opened ? 'status-opened' : 'status-closed' }}">
-                                                {{ $course->is_opened ? 'مفتوح للجميع' : 'للأعضاء فقط' }}
+                                            <span class="course-status-badge {{ $course->is_coming_soon ? 'status-closed' : 'status-opened' }}">
+                                                {{ $course->is_coming_soon ? 'قيد الإعداد' : 'منشور' }}
                                             </span>
                                         </div>
 
                                         <div class="course-meta">
-                                            @if($course->category)
+                                            @if($course->classifications->isNotEmpty())
                                                 <div class="course-meta-item">
                                                     <i class="fa fa-folder"></i>
-                                                    <span>{{ $course->category->name_ar }}</span>
+                                                    <span>{{ $course->classifications->pluck('name_ar')->filter()->join(' · ') }}</span>
                                                 </div>
                                             @else
                                                 <div class="course-meta-item">
@@ -150,14 +148,14 @@
                                             @if($course->created_at)
                                                 <div class="course-meta-item">
                                                     <i class="fa fa-calendar"></i>
-                                                    <span>تم الإنشاء: {{ $course->created_at->diffForHumans() }}</span>
+                                                    <span>أُنشئ {{ \App\Support\BusinessClock::relative($course->created_at) }}</span>
                                                 </div>
                                             @endif
 
-                                            @if(isset($course->students_count))
+                                            @if($canViewEnrollmentCounts)
                                                 <div class="course-meta-item">
                                                     <i class="fa fa-users"></i>
-                                                    <span>{{ $course->students_count ?? 0 }} طالب</span>
+                                                    <span>{{ number_format($course->active_enrollments_count) }} طالب</span>
                                                 </div>
                                             @endif
                                         </div>
@@ -183,14 +181,6 @@
                                                 تعديل
                                             </a>
 
-                                            <!-- @if($course->students_count ?? 0 > 0)
-                                                <button onclick="viewStudents({{ $course->id }})"
-                                                        class="btn-course btn-success-custom"
-                                                        title="عرض الطلاب">
-                                                    <i class="fa fa-users"></i>
-                                                    الطلاب
-                                                </button>
-                                            @endif -->
                                         </div>
                                     </div>
                                 @endforeach
@@ -224,14 +214,14 @@ document.addEventListener('DOMContentLoaded', function() {
     const coursesContainer = document.getElementById('coursesContainer');
     const searchInput = document.getElementById('courseSearch');
     const statusFilter = document.getElementById('statusFilter');
-    const categoryFilter = document.getElementById('categoryFilter');
+    const classificationFilter = document.getElementById('classificationFilter');
 
     if (!coursesContainer) return;
 
     function filterCourses() {
         const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
         const statusValue = statusFilter ? statusFilter.value : '';
-        const categoryValue = categoryFilter ? categoryFilter.value : '';
+        const classificationValue = classificationFilter ? classificationFilter.value : '';
 
         const courseCards = coursesContainer.querySelectorAll('.course-card');
         let visibleCount = 0;
@@ -248,9 +238,13 @@ document.addEventListener('DOMContentLoaded', function() {
             const matchesStatus = !statusValue || courseData.status === statusValue;
 
             // Category filter
-            const matchesCategory = !categoryValue || courseData.category == categoryValue;
+            const classifications = Array.isArray(courseData.classifications)
+                ? courseData.classifications.map(String)
+                : [];
+            const matchesClassification = !classificationValue ||
+                classifications.includes(String(classificationValue));
 
-            const shouldShow = matchesSearch && matchesStatus && matchesCategory;
+            const shouldShow = matchesSearch && matchesStatus && matchesClassification;
 
             card.hidden = !shouldShow;
             if (shouldShow) visibleCount++;
@@ -284,8 +278,8 @@ document.addEventListener('DOMContentLoaded', function() {
         statusFilter.addEventListener('change', filterCourses);
     }
 
-    if (categoryFilter) {
-        categoryFilter.addEventListener('change', filterCourses);
+    if (classificationFilter) {
+        classificationFilter.addEventListener('change', filterCourses);
     }
 
     // Add loading states for action buttons

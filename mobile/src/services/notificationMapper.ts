@@ -7,9 +7,13 @@ import {
   safeNotificationImageUrl,
 } from './notificationCampaigns';
 import {parseRoknDestination} from '../navigation/deepLinks';
+import {firstBoolean} from './api/common';
+import {learnerFacingText} from '../utils/errorPayload';
+import {formatArabicDisplayText} from '../constants/arabicFormatting';
 
 export type Notification = {
   id: string;
+  campaignId?: string;
   type: string;
   title: string;
   description: string;
@@ -25,7 +29,7 @@ export type Notification = {
 
 const safeCourseId = (value: unknown): string | undefined => {
   const id = String(value || '').trim();
-  return /^[\p{L}\p{N}][\p{L}\p{N}._-]{0,127}$/u.test(id) ? id : undefined;
+  return /^\d{1,18}$/.test(id) && Number(id) > 0 ? id : undefined;
 };
 
 const courseIdFromItem = (item: Record<string, unknown>) => {
@@ -44,6 +48,7 @@ const normalizedExplicitLink = (
   const link = String(value || '').trim();
   if (!link) return undefined;
   const destination = parseRoknDestination(link);
+  if (!destination) return undefined;
   if (
     destination?.name === 'CourseDetails' &&
     (kind === 'continue_course' ||
@@ -63,6 +68,11 @@ const notificationTone = (kind: NotificationKind): Notification['tone'] => {
     return 'project';
   }
   return 'learning';
+};
+
+const safeDate = (value: unknown) => {
+  const date = String(value || '').trim();
+  return date && Number.isFinite(Date.parse(date)) ? date : '';
 };
 
 const firstValue = (item: Record<string, unknown>, keys: string[]): unknown => {
@@ -109,21 +119,26 @@ export const mapNotification = (
   );
   return {
     id: String(item.id),
+    campaignId: String(item.campaign_id || '').trim() || undefined,
     type,
-    title: String(
-      item.title_ar || item.title || item.title_en || 'إشعار من ركن',
+    title: formatArabicDisplayText(
+      learnerFacingText(item.title_ar || item.title, 'إشعار من ركن'),
     ),
-    description: String(
-      item.message_ar || item.message || item.message_en || '',
+    description: formatArabicDisplayText(
+      learnerFacingText(item.message_ar || item.message, 'لديك إشعار جديد'),
     ),
-    createdAt: String(item.created_at || ''),
-    read: Boolean(item.is_read || item.read_at),
+    createdAt: safeDate(item.created_at),
+    read:
+      firstBoolean(item.is_read) ??
+      (typeof item.read_at === 'string' && item.read_at.trim().length > 0),
     link: explicitLink || fallbackLink,
     courseId,
     imageUrl,
-    actionLabel: String(
-      firstValue(item, ['action_label_ar', 'cta_ar', 'action_label']) ||
+    actionLabel: formatArabicDisplayText(
+      learnerFacingText(
+        firstValue(item, ['action_label_ar', 'cta_ar', 'action_label']),
         notificationDefaultAction[kind],
+      ),
     ),
     kind,
     tone: notificationTone(kind),

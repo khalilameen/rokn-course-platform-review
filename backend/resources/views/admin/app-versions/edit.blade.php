@@ -19,7 +19,8 @@
                 <div class="col-md-4">
                     <div class="form-group">
                         <label>المنصة</label>
-                        <select name="platform" class="form-control" required id="platform-select">
+                        <input type="hidden" name="platform" value="{{ $version->platform }}">
+                        <select class="form-control" id="platform-select" disabled>
                             <option value="android" {{ $version->platform == 'android' ? 'selected' : '' }}>Android</option>
                             <option value="ios" {{ $version->platform == 'ios' ? 'selected' : '' }}>iOS</option>
                         </select>
@@ -28,19 +29,20 @@
                 <div class="col-md-4">
                     <div class="form-group">
                         <label>قناة التوزيع</label>
-                        @php($selectedChannel = old('distribution_channel', $version->distribution_channel ?: ($version->platform === 'ios' ? 'appstore' : 'play')))
-                        <select name="distribution_channel" class="form-control" required id="channel-select">
+                        @php($selectedChannel = $version->distribution_channel ?: ($version->platform === 'ios' ? 'appstore' : 'play'))
+                        <input type="hidden" name="distribution_channel" value="{{ $selectedChannel }}">
+                        <select class="form-control" id="channel-select" disabled>
                             <option value="play" data-platform="android" {{ $selectedChannel === 'play' ? 'selected' : '' }}>Google Play</option>
                             <option value="direct" data-platform="android" {{ $selectedChannel === 'direct' ? 'selected' : '' }}>Android مباشر</option>
                             <option value="appstore" data-platform="ios" {{ $selectedChannel === 'appstore' ? 'selected' : '' }}>App Store</option>
                         </select>
-                        <small class="form-text text-muted">رابط هذه القناة فقط سيصل إلى نسختها من التطبيق.</small>
+                        <small class="form-text text-muted">هوية الإصدار ثابتة بعد إنشائه</small>
                     </div>
                 </div>
                 <div class="col-md-4">
                     <div class="form-group">
                         <label>اسم الإصدار الظاهر (مثال 1.0.0)</label>
-                        <input type="text" name="version_name" class="form-control" required value="{{ old('version_name', $version->version_name) }}">
+                        <input type="text" name="version_name" class="form-control" required readonly value="{{ $version->version_name }}">
                     </div>
                 </div>
             </div>
@@ -49,13 +51,13 @@
                 <div class="col-md-6" id="version-code-group" {{ $version->platform == 'android' ? '' : 'hidden' }}>
                     <div class="form-group">
                         <label>كود الإصدار (للأندرويد - رقمي)</label>
-                        <input type="number" min="1" name="version_code" id="version-code" class="form-control" value="{{ old('version_code', $version->version_code) }}">
+                        <input type="number" min="1" name="version_code" id="version-code" class="form-control" readonly value="{{ $version->version_code }}">
                     </div>
                 </div>
                 <div class="col-md-6" id="build-number-group" {{ $version->platform == 'ios' ? '' : 'hidden' }}>
                     <div class="form-group">
                         <label>رقم البناء (لـ iOS - رقمي)</label>
-                        <input type="number" min="1" name="build_number" id="build-number" class="form-control" value="{{ old('build_number', $version->build_number) }}">
+                        <input type="number" min="1" name="build_number" id="build-number" class="form-control" readonly value="{{ $version->build_number }}">
                     </div>
                 </div>
                 <div class="col-md-6">
@@ -146,7 +148,6 @@ function syncPlatformFields() {
     }
 }
 
-platformSelect.addEventListener('change', syncPlatformFields);
 syncPlatformFields();
 </script>
 @endsection

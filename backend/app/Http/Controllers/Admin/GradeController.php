@@ -8,6 +8,8 @@ use App\Models\Grade;
 use App\Models\Setting;
 use App\Models\DesignSetting;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class GradeController extends Controller
 {
@@ -69,7 +71,8 @@ class GradeController extends Controller
         $settings = Setting::first();
         $enableEnglish = $settings ? $settings->english_translation : false;
         $designSettings = $this->getDesignSettings();
-        return view('admin.grades.edit', compact('grade', 'enableEnglish', 'designSettings'));
+        $editorVersion = $this->editorVersion($grade);
+        return view('admin.grades.edit', compact('grade', 'enableEnglish', 'designSettings', 'editorVersion'));
     }
 
     /**
@@ -81,7 +84,16 @@ class GradeController extends Controller
      */
     public function update(GradeRequest $request, Grade $grade)
     {
-        $grade->update($request->validated());
+        $request->validate(['editor_version' => 'required|string|size:64']);
+        DB::transaction(function () use ($request, $grade): void {
+            $locked = Grade::query()->whereKey($grade->id)->lockForUpdate()->firstOrFail();
+            if (!hash_equals($this->editorVersion($locked), (string) $request->input('editor_version'))) {
+                throw ValidationException::withMessages([
+                    'editor_version' => 'عدّل شخص آخر هذه المرحلة\nأعد تحميل الصفحة قبل الحفظ',
+                ]);
+            }
+            $locked->update($request->validated());
+        }, 3);
 
         return redirect()->route('admin.grades.index')
             ->with('success', 'تم تحديث المرحلة الدراسية بنجاح');
@@ -95,13 +107,16 @@ class GradeController extends Controller
      */
     public function destroy(Grade $grade)
     {
-        // Check if grade has associated courses
-        if ($grade->courses()->count() > 0) {
+        $blocked = DB::transaction(function () use ($grade): bool {
+            $locked = Grade::query()->whereKey($grade->id)->lockForUpdate()->firstOrFail();
+            if ($locked->courses()->exists()) return true;
+            $locked->delete();
+            return false;
+        }, 3);
+        if ($blocked) {
             return redirect()->route('admin.grades.index')
                 ->with('error', 'لا يمكن حذف المرحلة الدراسية لوجود كورسات مرتبطة بها');
         }
-
-        $grade->delete();
 
         return redirect()->route('admin.grades.index')
             ->with('success', 'تم حذف المرحلة الدراسية بنجاح');
@@ -115,8 +130,39 @@ class GradeController extends Controller
      */
     public function courses(Grade $grade)
     {
-        $courses = $grade->courses()->with('category')->get();
+        $canViewEnrollmentCounts = strtolower(trim((string) auth()->user()?->role)) === 'admin';
+        $coursesQuery = $grade->courses()
+            ->with('classifications')
+            ->orderByDesc('updated_at')
+            ->orderByDesc('id');
+        if ($canViewEnrollmentCounts) {
+            $coursesQuery->withCount('activeEnrollments');
+        }
+        $courses = $coursesQuery->get();
+        $classifications = $courses
+            ->flatMap->classifications
+            ->unique('id')
+            ->sortBy([['home_order', 'asc'], ['id', 'asc']])
+            ->values();
         $designSettings = $this->getDesignSettings();
-        return view('admin.grades.courses', compact('grade', 'courses', 'designSettings'));
+        return view('admin.grades.courses', compact(
+            'grade',
+            'courses',
+            'classifications',
+            'designSettings',
+            'canViewEnrollmentCounts'
+        ));
+    }
+
+    private function editorVersion(Grade $grade): string
+    {
+        return hash('sha256', json_encode([
+            $grade->name_ar,
+            $grade->name_en,
+            $grade->type,
+            $grade->description_ar,
+            $grade->description_en,
+            $grade->country,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     }
 }

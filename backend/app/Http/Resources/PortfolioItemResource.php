@@ -32,6 +32,7 @@ class PortfolioItemResource extends JsonResource
             'course' => $this->whenLoaded('course', fn () => $this->course ? [
                 'id' => $this->course->id,
                 'name' => $this->course->name_ar ?: $this->course->name_en,
+                'image' => $this->course->image ? (string) $this->course->image : null,
             ] : null),
             'source_project_id' => $this->source_project_id,
             'media' => PortfolioMediaResource::collection($this->whenLoaded('mediaFiles')),

@@ -25,7 +25,7 @@
                 </div>
                 <div class="notification-template-card__actions">
                     <a class="btn btn-sm btn-primary" href="{{ route('admin.admin_notifications.edit', $notification) }}">تعديل</a>
-                    <form action="{{ route('admin.admin_notifications.destroy', $notification) }}" method="post" onsubmit="return confirm('حذف هذا القالب؟')">@csrf @method('DELETE')<button class="btn btn-sm btn-outline-danger" type="submit">حذف</button></form>
+                    <form action="{{ route('admin.admin_notifications.destroy', $notification) }}" method="post" onsubmit="return confirm('{{ $notification->isSystemTemplate() ? 'إيقاف هذا القالب؟' : 'حذف هذا القالب؟' }}')">@csrf @method('DELETE')<button class="btn btn-sm btn-outline-danger" type="submit">{{ $notification->isSystemTemplate() ? 'إيقاف' : 'حذف' }}</button></form>
                 </div>
             </article>
         @empty

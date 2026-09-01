@@ -7,6 +7,7 @@ namespace Tests\Feature\API;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 /**
  * Authentication contract tests for Rokn's social-only mobile sign-in.
@@ -48,6 +49,23 @@ class AuthEndpointTest extends ApiTestCase
             ->assertJsonStructure([
                 'data' => ['providers', 'authorization_urls', 'recommendation_badge'],
             ]);
+    }
+
+    public function test_every_api_response_has_a_safe_support_request_id(): void
+    {
+        $requestId = (string) Str::uuid();
+        $this->withHeader('X-Request-ID', $requestId)
+            ->getJson('/api/v1/auth-methods')
+            ->assertOk()
+            ->assertHeader('X-Request-ID', $requestId);
+
+        $generated = $this->withHeader('X-Request-ID', 'not-a-safe-id')
+            ->postJson('/api/v1/social-login', [])
+            ->assertUnprocessable()
+            ->headers->get('X-Request-ID');
+
+        self::assertIsString($generated);
+        self::assertTrue(Str::isUuid($generated));
     }
 
     public function test_auth_methods_hide_facebook_until_its_graph_contract_is_safe(): void
@@ -104,6 +122,105 @@ class AuthEndpointTest extends ApiTestCase
         $this->assertSame($before, \App\Models\User::query()->count());
     }
 
+    public function test_transient_session_failure_does_not_burn_social_completion_code(): void
+    {
+        $verifier = str_repeat('v', 43);
+        $challenge = rtrim(strtr(
+            base64_encode(hash('sha256', $verifier, true)),
+            '+/',
+            '-_'
+        ), '=');
+        $completionCode = str_repeat('c', 64);
+        $attempts = app(\App\Services\SocialOAuthAttemptService::class);
+        $attempt = $attempts->begin(
+            str_repeat('s', 64),
+            'google',
+            'rokn://auth',
+            $challenge
+        );
+        $attempts->issueCompletion(
+            $attempt,
+            $completionCode,
+            \Illuminate\Support\Facades\Crypt::encryptString('provider-token')
+        );
+
+        $failedSignIn = \Mockery::mock(\App\Http\Controllers\API\SignController::class);
+        $failedSignIn->shouldReceive('socialLogin')->once()->andReturn(
+            response()->json([
+                'status' => 503,
+                'success' => false,
+                'code' => 'provider_unavailable',
+                'data' => null,
+            ], 503)
+        );
+        $this->app->instance(\App\Http\Controllers\API\SignController::class, $failedSignIn);
+
+        $this->postJson('/api/v1/social-auth/complete', [
+            'code' => $completionCode,
+            'code_verifier' => $verifier,
+            'device_os' => 'android',
+            'device_type' => 'android',
+        ])->assertStatus(503);
+
+        $this->assertDatabaseHas('social_oauth_attempts', [
+            'id' => $attempt->id,
+            'completion_processing_at' => null,
+            'completion_consumed_at' => null,
+        ]);
+
+        $successfulSignIn = \Mockery::mock(\App\Http\Controllers\API\SignController::class);
+        $successfulSignIn->shouldReceive('socialLogin')->once()->andReturn(
+            response()->json([
+                'status' => 200,
+                'success' => true,
+                'data' => ['api_token' => 'session-token'],
+            ])
+        );
+        $this->app->instance(\App\Http\Controllers\API\SignController::class, $successfulSignIn);
+
+        $this->postJson('/api/v1/social-auth/complete', [
+            'code' => $completionCode,
+            'code_verifier' => $verifier,
+            'device_os' => 'android',
+            'device_type' => 'android',
+        ])->assertOk();
+
+        $this->assertDatabaseMissing('social_oauth_attempts', [
+            'id' => $attempt->id,
+            'completion_consumed_at' => null,
+        ]);
+        self::assertNull($attempt->fresh()->encrypted_token);
+    }
+
+    public function test_social_start_persists_a_hashed_cross_container_attempt(): void
+    {
+        config()->set([
+            'social_auth.providers' => ['google'],
+            'social_auth.public_api_url' => 'https://api.rokn.test/api/v1',
+            'services.google.client_id' => 'google-client',
+            'services.google.client_secret' => 'google-secret',
+        ]);
+        $challenge = str_repeat('a', 43);
+
+        $response = $this->get(
+            '/api/v1/social-auth/google/start?return_to=rokn%3A%2F%2Fauth'
+            . '&code_challenge=' . $challenge
+            . '&code_challenge_method=S256'
+        )->assertRedirect();
+
+        parse_str((string) parse_url((string) $response->headers->get('Location'), PHP_URL_QUERY), $query);
+        $state = (string) ($query['state'] ?? '');
+
+        self::assertSame(64, strlen($state));
+        $this->assertDatabaseHas('social_oauth_attempts', [
+            'state_hash' => hash('sha256', $state),
+            'provider' => 'google',
+            'return_to' => 'rokn://auth',
+            'code_challenge' => $challenge,
+        ]);
+        $this->assertDatabaseMissing('social_oauth_attempts', ['state_hash' => $state]);
+    }
+
     public function test_social_auth_completion_is_bounded_without_throttling_catalog_reads(): void
     {
         RateLimiter::clear('auth:127.0.0.1');
@@ -157,7 +274,7 @@ class AuthEndpointTest extends ApiTestCase
                     'status' => 401,
                     'success' => false,
                     'data' => null,
-                    'message' => 'Unauthenticated',
+                    'message' => 'سجّل الدخول أولًا',
                     'code' => 'unauthenticated',
                 ]);
         }
@@ -200,7 +317,7 @@ class AuthEndpointTest extends ApiTestCase
             ->assertOk()
             ->assertJsonPath('status', 200)
             ->assertJsonPath('success', true)
-            ->assertJsonPath('message', 'Sessions retrieved successfully')
+            ->assertJsonPath('message', 'تم تحميل الأجهزة المسجّل عليها الحساب')
             ->assertJsonStructure(['data' => [['id', 'platform', 'current']]]);
 
         $sessionId = (string) $response->json('data.0.id');
@@ -360,6 +477,10 @@ class AuthEndpointTest extends ApiTestCase
         $this->assertDatabaseHas('user_device_tokens', [
             'user_id' => $this->user->id,
             'device_token' => $token,
+        ]);
+        $this->assertDatabaseHas('users', [
+            'id' => $this->user->id,
+            'notifications_status' => true,
         ]);
 
         $this->actingAs($this->user, 'api')->deleteJson('/api/v1/user/device-token', [

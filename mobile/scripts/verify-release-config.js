@@ -73,12 +73,25 @@ const iosProject = read('ios/Rokn.xcodeproj/project.pbxproj');
 const iosAppDelegate = read('ios/Rokn/AppDelegate.swift');
 const iosEntitlements = read('ios/Rokn/Rokn.entitlements');
 const iosInfoPlist = read('ios/Rokn/Info.plist');
+const iosPrivacyManifest = read('ios/Rokn/PrivacyInfo.xcprivacy');
 const iosPodfile = read('ios/Podfile');
 const runtimeConfig = read('src/config/runtime.ts');
+const androidCheckoutActivity = read(
+  'android/app/src/main/java/com/rokn/checkout/CheckoutActivity.kt',
+);
+const smartReminders = read('src/services/smartReminders.ts');
+const projectSubmissions = read(
+  'src/components/VideoPlayer/courseLearning/projects.ts',
+);
 const apiConfig = read('src/constants/api.ts');
 const apiBaseUrlConfig = read('src/constants/apiBaseUrl.ts');
 const environmentExample = read('.env.example');
 const androidReleaseScript = read('scripts/build-android-release.ps1');
+const androidInstallScript = read('scripts/install-android-artifact.ps1');
+const easEvidenceScript = read('scripts/eas-build-on-success.js');
+const artifactVerifier = read('scripts/verify-artifact-provenance.js');
+const appVersionCheck = read('src/services/appVersionCheck.ts');
+const releaseChannels = read('RELEASE_CHANNELS.md');
 const nativePushTokens = read('src/services/nativePushTokens.ts');
 const mobileCi = read('../.github/workflows/mobile-ci.yml');
 const productionApiBase =
@@ -226,20 +239,22 @@ assert(
     ),
   'The iOS Firebase config is not bundled in the Rokn application target.',
 );
-const firebaseAppVersion = packageJson.dependencies?.['@react-native-firebase/app'];
+const firebaseAppVersion =
+  packageJson.dependencies?.['@react-native-firebase/app'];
 const firebaseMessagingVersion =
   packageJson.dependencies?.['@react-native-firebase/messaging'];
 assert(
   firebaseAppVersion === firebaseMessagingVersion &&
-    packageLock.packages?.['node_modules/@react-native-firebase/app']?.version ===
-      firebaseAppVersion &&
-    packageLock.packages?.['node_modules/@react-native-firebase/messaging']?.version ===
-      firebaseMessagingVersion,
+    packageLock.packages?.['node_modules/@react-native-firebase/app']
+      ?.version === firebaseAppVersion &&
+    packageLock.packages?.['node_modules/@react-native-firebase/messaging']
+      ?.version === firebaseMessagingVersion,
   'React Native Firebase app and messaging must share one exact locked version.',
 );
 assert(
   [...iosAppDelegate.matchAll(/\bimport Firebase\b/g)].length === 1 &&
-    [...iosAppDelegate.matchAll(/\bFirebaseApp\.configure\(\)/g)].length === 1 &&
+    [...iosAppDelegate.matchAll(/\bFirebaseApp\.configure\(\)/g)].length ===
+      1 &&
     !/(?:import\s+FBSDKCoreKit|ApplicationDelegate\.shared)/.test(
       iosAppDelegate,
     ),
@@ -329,6 +344,10 @@ assert(
   'package.json and app.json versions differ.',
 );
 assert(
+  /^\d+\.\d+\.\d+(?:\.\d+)?$/.test(app.version || ''),
+  'The marketing version must be a numeric store-compatible version.',
+);
+assert(
   packageLock.packages?.['']?.version === packageJson.version,
   'package-lock.json root version differs from package.json.',
 );
@@ -337,7 +356,8 @@ assert(
   'Android versionCode must be a positive integer.',
 );
 assert(
-  /^\d+$/.test(app.ios?.buildNumber || ''),
+  /^\d+$/.test(app.ios?.buildNumber || '') &&
+    Number(app.ios.buildNumber) > 0,
   'iOS buildNumber must be a positive numeric string.',
 );
 assert(
@@ -369,14 +389,74 @@ assert(
   'iPad support is declared in Expo but missing from the native target.',
 );
 assert(
+  iosProject.includes('PrivacyInfo.xcprivacy in Resources') &&
+    [
+      'NSPrivacyCollectedDataTypeName',
+      'NSPrivacyCollectedDataTypeEmailAddress',
+      'NSPrivacyCollectedDataTypeUserID',
+      'NSPrivacyCollectedDataTypePhoneNumber',
+      'NSPrivacyCollectedDataTypePhotosorVideos',
+      'NSPrivacyCollectedDataTypePurchaseHistory',
+      'NSPrivacyCollectedDataTypeCustomerSupport',
+      'NSPrivacyCollectedDataTypeProductInteraction',
+      'NSPrivacyCollectedDataTypeDeviceID',
+      'NSPrivacyCollectedDataTypeCrashData',
+      'NSPrivacyCollectedDataTypeOtherDiagnosticData',
+    ].every(dataType => iosPrivacyManifest.includes(dataType)) &&
+    iosPrivacyManifest.includes('<key>NSPrivacyTracking</key>') &&
+    /<key>NSPrivacyTracking<\/key>\s*<false\/>/.test(iosPrivacyManifest),
+  'The iOS privacy manifest is not bundled or omits a learner data family used by the app.',
+);
+assert(
   app.orientation === 'default',
   'Responsive phone/tablet builds must not declare a global portrait-only lock.',
 );
 assert(
-  /<key>UISupportedInterfaceOrientations~ipad<\/key>[\s\S]*UIInterfaceOrientationLandscapeLeft[\s\S]*UIInterfaceOrientationLandscapeRight/.test(
+  app.ios?.supportsTablet === true &&
+    !/android:screenOrientation=/.test(androidManifest),
+  'Phone, tablet, foldable and checkout activities must remain resizeable in both orientations.',
+);
+assert(
+  /<key>UISupportedInterfaceOrientations<\/key>[\s\S]*UIInterfaceOrientationLandscapeLeft[\s\S]*UIInterfaceOrientationLandscapeRight/.test(
     iosInfoPlist,
+  ) &&
+    /<key>UISupportedInterfaceOrientations~ipad<\/key>[\s\S]*UIInterfaceOrientationLandscapeLeft[\s\S]*UIInterfaceOrientationLandscapeRight/.test(
+      iosInfoPlist,
+    ),
+  'The iPhone and iPad targets must support landscape resizing as well as portrait.',
+);
+assert(
+  app.ios?.infoPlist?.ITSAppUsesNonExemptEncryption === false &&
+    /<key>ITSAppUsesNonExemptEncryption<\/key>\s*<false\/>/.test(iosInfoPlist),
+  'iOS export-compliance metadata is missing or differs between Expo and the native target.',
+);
+assert(
+  app.ios?.infoPlist?.UIStatusBarStyle === 'UIStatusBarStyleLightContent' &&
+    app.ios?.infoPlist?.UIViewControllerBasedStatusBarAppearance === false &&
+    /<key>UIStatusBarStyle<\/key>\s*<string>UIStatusBarStyleLightContent<\/string>/.test(
+      iosInfoPlist,
+    ),
+  'The iOS system-bar contrast contract is missing or differs between Expo and the native target.',
+);
+const declaredAndroidPermissions = [
+  ...androidManifest.matchAll(
+    /<uses-permission\s+android:name="([^"]+)"[\s\S]*?\/>/g,
   ),
-  'The iPad target must support landscape resizing as well as portrait.',
+].map(match => match[1]);
+assert(
+  declaredAndroidPermissions.every(permission =>
+    [
+      'android.permission.INTERNET',
+      'android.permission.POST_NOTIFICATIONS',
+      'android.permission.RECEIVE_BOOT_COMPLETED',
+      // This declaration only removes a transitive legacy permission.
+      'android.permission.WRITE_EXTERNAL_STORAGE',
+    ].includes(permission),
+  ) &&
+    !/(?:READ_MEDIA|READ_EXTERNAL_STORAGE|CAMERA|RECORD_AUDIO|ACCESS_FINE_LOCATION|ACCESS_COARSE_LOCATION)/.test(
+      androidManifest,
+    ),
+  'Android declares a broad device permission that the learner journeys do not need.',
 );
 assert(
   iosEntitlements.includes('<key>aps-environment</key>'),
@@ -384,13 +464,15 @@ assert(
 );
 assert(
   Array.isArray(app.ios?.infoPlist?.UIBackgroundModes) &&
-    ['fetch', 'remote-notification'].every(mode =>
-      app.ios.infoPlist.UIBackgroundModes.includes(mode),
+    app.ios.infoPlist.UIBackgroundModes.length === 1 &&
+    app.ios.infoPlist.UIBackgroundModes[0] === 'remote-notification' &&
+    /<key>UIBackgroundModes<\/key>[\s\S]*?<array>[\s\S]*?<string>remote-notification<\/string>[\s\S]*?<\/array>/.test(
+      iosInfoPlist,
     ) &&
-    /<key>UIBackgroundModes<\/key>[\s\S]*?<string>fetch<\/string>[\s\S]*?<string>remote-notification<\/string>/.test(
+    !/<key>UIBackgroundModes<\/key>[\s\S]*?<string>fetch<\/string>/.test(
       iosInfoPlist,
     ),
-  'iOS background push modes are missing from Expo or the native target.',
+  'iOS must declare remote notifications without an unused background-fetch capability.',
 );
 assert(
   packageJson.dependencies?.['@react-native-firebase/app'] &&
@@ -420,9 +502,8 @@ assert(
   'iOS push registration and token rotation must use the backend-compatible Firebase token.',
 );
 assert(
-  /linkage\s*=\s*ENV\['USE_FRAMEWORKS'\]\s*\|\|\s*'dynamic'/.test(
-    iosPodfile,
-  ) && /use_frameworks!\s*:linkage\s*=>\s*linkage\.to_sym/.test(iosPodfile),
+  /linkage\s*=\s*ENV\['USE_FRAMEWORKS'\]\s*\|\|\s*'dynamic'/.test(iosPodfile) &&
+    /use_frameworks!\s*:linkage\s*=>\s*linkage\.to_sym/.test(iosPodfile),
   'The iOS Podfile does not use the Firebase-supported dynamic framework linkage.',
 );
 assert(
@@ -487,9 +568,26 @@ assert(
   'The Android debug client cannot reach a local HTTP Metro/API server.',
 );
 assert(
-  runtimeConfig.includes("buildProfile === 'test'") &&
+  runtimeConfig.includes('__DEV__') &&
+    runtimeConfig.includes("buildProfile === 'test'") &&
     !runtimeConfig.includes("buildProfile !== 'production'"),
-  'The local demo is not restricted to an explicit test build profile.',
+  'The local demo is not restricted to a debug-only explicit test profile.',
+);
+assert(
+  !/(?:rokn-demo|DEMO_SCHEME|loadDemoCheckoutPage|creditDemoCoins)/.test(
+    androidCheckoutActivity,
+  ),
+  'A synthetic Android checkout is packaged in the application source.',
+);
+assert(
+  !/DEMO_COURSE_ID|from ['"]\.\/demoExperience['"]/.test(smartReminders) &&
+    /if \(!destinationCourseId\) return false;/.test(smartReminders),
+  'A distributed reminder can still open a synthetic course destination.',
+);
+assert(
+  !/projects\/\$\{pending\.projectId\}\/evaluate/.test(projectSubmissions) &&
+    !/form\.append\(['"](?:score|passed)['"]/.test(projectSubmissions),
+  'Project submission can still fall through to a client-asserted legacy result.',
 );
 const mutableActions = [...mobileCi.matchAll(/uses:\s+[^\s@]+@([^\s#]+)/g)]
   .map(match => match[1])
@@ -507,7 +605,8 @@ assert(
 );
 assert(
   ['metro', 'metro-config', 'metro-transform-worker'].every(
-    name => packageLock.packages?.[`node_modules/${name}`]?.version === '0.83.8',
+    name =>
+      packageLock.packages?.[`node_modules/${name}`]?.version === '0.83.8',
   ) && !packageLock.packages?.['node_modules/image-size'],
   'Metro must remain on the image-parser-safe 0.83.8 patch without image-size.',
 );
@@ -522,12 +621,18 @@ assert(
       'npm run verify:release' &&
     packageJson.scripts?.['eas-build-on-success'] ===
       'node scripts/eas-build-on-success.js' &&
-    eas.build?.['production-play']?.buildArtifactPaths?.includes(
-      'artifacts/eas/**/*',
+    ['production-play', 'production-direct'].every(profileName =>
+      eas.build?.[profileName]?.buildArtifactPaths?.includes(
+        'artifacts/eas/**/*',
+      ),
     ),
   'EAS production builds must require a clean commit, run the release gate, and archive provenance/symbols.',
 );
-for (const profileName of ['production-play', 'production-ios']) {
+for (const profileName of [
+  'production-play',
+  'production-direct',
+  'production-ios',
+]) {
   const profile = eas.build?.[profileName];
   const apiUrl = profile?.env?.EXPO_PUBLIC_API_URL || '';
   assert(/^https:\/\//.test(apiUrl), `${profileName} API URL must use HTTPS.`);
@@ -553,13 +658,69 @@ assert(
   previewProfile?.env?.EXPO_PUBLIC_API_URL === productionApiBase &&
     previewProfile?.env?.EXPO_PUBLIC_BUILD_PROFILE === 'test' &&
     previewProfile?.env?.EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS === '1' &&
-    previewProfile?.env?.EXPO_PUBLIC_ENABLE_LOCAL_DEMO === '0',
+    previewProfile?.env?.EXPO_PUBLIC_ENABLE_LOCAL_DEMO === '0' &&
+    previewProfile?.android?.buildType === 'apk' &&
+    previewProfile?.buildArtifactPaths?.includes('artifacts/eas/**/*'),
   'The distributed preview must exercise the live API and remote feature flags without synthetic content.',
 );
 assert(
   androidReleaseScript.includes("$env:EXPO_PUBLIC_ENABLE_LOCAL_DEMO = '0'") &&
-    androidReleaseScript.includes("$env:EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS = '1'"),
+    androidReleaseScript.includes(
+      "$env:EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS = '1'",
+    ),
   'The local APK builder must preserve the same live-test contract as EAS preview.',
+);
+const directProductionProfile = eas.build?.['production-direct'];
+assert(
+  directProductionProfile?.distribution === 'internal' &&
+    directProductionProfile?.channel === 'production' &&
+    directProductionProfile?.android?.buildType === 'apk' &&
+    directProductionProfile?.env?.EXPO_PUBLIC_DISTRIBUTION_CHANNEL ===
+      'direct' &&
+    directProductionProfile?.env?.ORG_GRADLE_PROJECT_roknDistributionChannel ===
+      'direct' &&
+    directProductionProfile?.env?.ORG_GRADLE_PROJECT_roknBuildProfile ===
+      'production' &&
+    directProductionProfile?.env?.ORG_GRADLE_PROJECT_roknEnableMinify ===
+      'true' &&
+    directProductionProfile?.env
+      ?.ORG_GRADLE_PROJECT_roknEnableResourceShrink === 'true',
+  'Direct production EAS profile does not produce a hardened production APK.',
+);
+assert(
+  androidReleaseScript.includes('ROKN_ANDROID_APP_SIGNING_SHA256') &&
+    androidReleaseScript.includes("'Rokn-internal-test.apk'") &&
+    androidReleaseScript.includes("'arm64-v8a,x86_64'") &&
+    androidReleaseScript.includes('publicDistributionEligible') &&
+    easEvidenceScript.includes("'production-direct'") &&
+    easEvidenceScript.includes('ROKN_ANDROID_APP_SIGNING_SHA256') &&
+    artifactVerifier.includes("PRODUCTION_APPLICATION_ID = 'com.rokn'") &&
+    artifactVerifier.includes('publicDistributionEligible'),
+  'Android release tooling does not distinguish an internal APK from a pinned public direct artifact.',
+);
+assert(
+  androidInstallScript.includes("$applicationId = 'com.rokn'") &&
+    androidInstallScript.includes("@('install', '-r', $resolvedArtifact)") &&
+    !androidInstallScript.includes("@('uninstall'") &&
+    !androidInstallScript.includes("'-d'") &&
+    androidInstallScript.includes('different signing certificates') &&
+    androidInstallScript.includes('Downgrade refused'),
+  'The device installer can bypass the safe in-place upgrade contract.',
+);
+assert(
+  packageJson.scripts?.['android:install-artifact']?.includes(
+    'install-android-artifact.ps1',
+  ) &&
+    releaseChannels.includes('Rokn-internal-test.apk') &&
+    releaseChannels.includes('app-signing certificate') &&
+    releaseChannels.includes('adb install -r'),
+  'Release channel and upgrade instructions are missing from the checked-in workflow.',
+);
+assert(
+  appVersionCheck.includes('skipAuthorization: true') &&
+    appVersionCheck.includes('skipPersistedSessionInvalidation: true') &&
+    appVersionCheck.includes('distributionChannel: DISTRIBUTION_CHANNEL'),
+  'An obsolete-build policy check can still expose or invalidate the stored session.',
 );
 assert(
   apiConfig.includes("import {roknApiUrl} from './apiBaseUrl';") &&

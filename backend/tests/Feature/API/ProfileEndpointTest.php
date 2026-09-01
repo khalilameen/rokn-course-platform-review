@@ -24,4 +24,31 @@ class ProfileEndpointTest extends ApiTestCase
         ]);
         $this->assertNotEquals(404, $response->status());
     }
+
+    public function test_account_identity_fields_are_updated_together(): void
+    {
+        $response = $this->actingAs($this->user, 'api')->postJson('/api/v1/update_profile', [
+            'name' => 'Rokn Learner',
+            'job_title' => 'Product Designer',
+            'portfolio_slug' => 'rokn-learner-' . $this->user->id,
+            'portfolio_headline' => 'Product Designer',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Rokn Learner')
+            ->assertJsonPath('data.portfolio_slug', 'rokn-learner-' . $this->user->id)
+            ->assertJsonPath(
+                'data.portfolio_url',
+                \App\Support\RoknPublicUrl::portfolio('rokn-learner-' . $this->user->id)
+            )
+            ->assertJsonPath('data.portfolio_headline', 'Product Designer');
+
+        $this->assertDatabaseHas('users', [
+            'id' => $this->user->id,
+            'name' => 'Rokn Learner',
+            'portfolio_slug' => 'rokn-learner-' . $this->user->id,
+            'portfolio_headline' => 'Product Designer',
+        ]);
+    }
 }

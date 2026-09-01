@@ -1,7 +1,5 @@
 <?php
 
-use Illuminate\Support\Facades\Broadcast;
-
 /*
 |--------------------------------------------------------------------------
 | Broadcast Channels
@@ -13,6 +11,6 @@ use Illuminate\Support\Facades\Broadcast;
 |
 */
 
-Broadcast::channel('order', function () {
-    return true;
-});
+// No public broadcast channels are registered. Operational order updates are
+// rendered from authenticated dashboard queries rather than exposing order
+// models to anonymous websocket subscribers.

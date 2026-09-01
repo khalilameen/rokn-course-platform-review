@@ -220,7 +220,7 @@ final readonly class FinancialProvenanceService
         }
 
         /** @var User $user */
-        $user = User::query()->lockForUpdate()->findOrFail($packageOrder->user_id);
+        $user = User::withTrashed()->lockForUpdate()->findOrFail($packageOrder->user_id);
         /** @var WalletCreditLot|null $lot */
         $lot = WalletCreditLot::query()
             ->where('source_order_id', $packageOrder->id)
@@ -404,13 +404,14 @@ final readonly class FinancialProvenanceService
 
             // Deactivate only the entitlement still owned by this order.
             if ($entitlementScope === 'course' && $enrollment->is_active) {
-                CourseEnrollment::query()
-                    ->whereKey($enrollment->id)
-                    ->where('order_id', $courseOrder->id)
-                    ->update([
-                        'is_active' => false,
-                        'updated_at' => $enrollmentDeactivatedAt,
-                    ]);
+                // This enrollment is already locked and was selected through
+                // the owning order above. Persist through the model so course
+                // catalogue aggregates are invalidated with every other
+                // enrollment transition instead of staying stale for minutes.
+                $enrollment->forceFill([
+                    'is_active' => false,
+                    'updated_at' => $enrollmentDeactivatedAt,
+                ])->save();
             }
 
             if (
@@ -467,7 +468,7 @@ final readonly class FinancialProvenanceService
             $actorId,
             $note
         ): array {
-            User::query()->lockForUpdate()->findOrFail($packageOrder->user_id);
+            User::withTrashed()->lockForUpdate()->findOrFail($packageOrder->user_id);
             /** @var Order $lockedOrder */
             $lockedOrder = Order::query()->lockForUpdate()->findOrFail($packageOrder->id);
             /** @var WalletCreditLot $lot */

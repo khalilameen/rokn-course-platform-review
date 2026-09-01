@@ -59,12 +59,13 @@ class UserProjectEvaluation extends Model
         $this->save();
     }
 
-    /**
-     * Get the submission file URL.
-     */
-    public function getSubmissionFileUrlAttribute()
+    /** Legacy evaluations must not mint a public storage URL. */
+    public function getSubmissionFileUrlAttribute(): ?string
     {
-        return $this->submission_file ? asset('storage/' . $this->submission_file) : null;
+        // ProjectSubmission owns the authenticated download route. This model
+        // stores historical evaluation metadata only; exposing its path would
+        // bypass account ownership checks for old public-disk files.
+        return null;
     }
 
     /**

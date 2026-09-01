@@ -345,66 +345,66 @@
                                                 <div class="demo-header-content">
                                                     <div class="demo-header-text">
                                                         <div class="demo-title">
-                                                            <i class="fa fa-building"></i>
-                                                            إدارة المراكز التعليمية
+                                                            <i class="fa fa-play-circle"></i>
+                                                            تجربة التعلّم
                                                         </div>
-                                                        <div class="demo-subtitle">إدارة ومراقبة المراكز التعليمية والمجموعات</div>
+                                                        <div class="demo-subtitle">مقاطع قصيرة بخريطة واضحة</div>
                                                     </div>
-                                                    <button class="demo-add-btn">
+                                                    <span class="demo-add-btn" aria-hidden="true">
                                                         <i class="fa fa-plus"></i>
-                                                        إضافة مركز جديد
-                                                    </button>
+                                                        ابدأ التعلّم
+                                                    </span>
                                                 </div>
 
                                                 <!-- Stats Cards -->
                                                 <div class="demo-stats">
                                                     <div class="demo-stat-card">
-                                                        <span class="demo-stat-number">3</span>
-                                                        <span class="demo-stat-label">إجمالي المراكز</span>
+                                                        <span class="demo-stat-number">62</span>
+                                                        <span class="demo-stat-label">دقيقة</span>
                                                     </div>
                                                     <div class="demo-stat-card">
-                                                        <span class="demo-stat-number">7</span>
-                                                        <span class="demo-stat-label">إجمالي المجموعات</span>
+                                                        <span class="demo-stat-number">4.8</span>
+                                                        <span class="demo-stat-label">التقييم</span>
                                                     </div>
                                                     <div class="demo-stat-card">
-                                                        <span class="demo-stat-number">3</span>
-                                                        <span class="demo-stat-label">مراكز نشطة</span>
+                                                        <span class="demo-stat-number">1,240</span>
+                                                        <span class="demo-stat-label">طالب</span>
                                                     </div>
                                                 </div>
                                             </div>
 
                                             <!-- Search Bar -->
                                             <div class="demo-search-section">
-                                                <input type="text" class="demo-search-input" placeholder="البحث في المراكز..." readonly>
+                                                <input type="text" class="demo-search-input" placeholder="ابحث عن كورس" readonly>
                                             </div>
 
                                             <!-- Center Card -->
                                             <div class="demo-card">
                                                 <div class="demo-card-header">
-                                                    <span class="demo-card-title">فرع المعادي</span>
-                                                    <span class="demo-badge">3 مجموعة</span>
+                                                    <span class="demo-card-title">أساسيات صناعة المحتوى</span>
+                                                    <span class="demo-badge">جديد</span>
                                                 </div>
                                                 <div class="demo-card-info">
-                                                    <span><i class="fa fa-calendar"></i> تم الإنشاء: منذ 12 ساعة</span>
-                                                    <span><i class="fa fa-clock-o"></i> آخر تحديث: منذ 12 ساعة</span>
+                                                    <span><i class="fa fa-clock-o"></i> 62 دقيقة</span>
+                                                    <span><i class="fa fa-star"></i> 4.8 تقييم</span>
                                                 </div>
                                                 <div class="demo-card-address">
-                                                    <i class="fa fa-map-marker"></i>
-                                                    المعادي، القاهرة، مصر
+                                                    <i class="fa fa-map-o"></i>
+                                                    ثلاث وحدات مرتبة من البداية إلى التطبيق
                                                 </div>
                                                 <div class="demo-card-actions">
-                                                    <button class="demo-btn demo-btn-primary">
+                                                    <span class="demo-btn demo-btn-primary" aria-hidden="true">
                                                         <i class="fa fa-eye"></i>
-                                                        عرض التفاصيل
-                                                    </button>
-                                                    <button class="demo-btn demo-btn-secondary">
+                                                        شاهد مجانًا
+                                                    </span>
+                                                    <span class="demo-btn demo-btn-secondary" aria-hidden="true">
                                                         <i class="fa fa-edit"></i>
-                                                        تعديل
-                                                    </button>
-                                                    <button class="demo-btn demo-btn-danger">
-                                                        <i class="fa fa-trash"></i>
-                                                        حذف
-                                                    </button>
+                                                        تفاصيل الكورس
+                                                    </span>
+                                                    <span class="demo-btn demo-btn-danger" aria-hidden="true">
+                                                        <i class="fa fa-bookmark-o"></i>
+                                                        حفظ
+                                                    </span>
                                                 </div>
                                             </div>
                                         </div>
@@ -422,66 +422,66 @@
                                                 <div class="demo-header-content">
                                                     <div class="demo-header-text">
                                                         <div class="demo-title">
-                                                            <i class="fa fa-building"></i>
-                                                            إدارة المراكز التعليمية
+                                                            <i class="fa fa-play-circle"></i>
+                                                            تجربة التعلّم
                                                         </div>
-                                                        <div class="demo-subtitle">إدارة ومراقبة المراكز التعليمية والمجموعات</div>
+                                                        <div class="demo-subtitle">مقاطع قصيرة بخريطة واضحة</div>
                                                     </div>
-                                                    <button class="demo-add-btn">
+                                                    <span class="demo-add-btn" aria-hidden="true">
                                                         <i class="fa fa-plus"></i>
-                                                        إضافة مركز جديد
-                                                    </button>
+                                                        ابدأ التعلّم
+                                                    </span>
                                                 </div>
 
                                                 <!-- Stats Cards -->
                                                 <div class="demo-stats">
                                                     <div class="demo-stat-card">
-                                                        <span class="demo-stat-number">3</span>
-                                                        <span class="demo-stat-label">إجمالي المراكز</span>
+                                                        <span class="demo-stat-number">62</span>
+                                                        <span class="demo-stat-label">دقيقة</span>
                                                     </div>
                                                     <div class="demo-stat-card">
-                                                        <span class="demo-stat-number">7</span>
-                                                        <span class="demo-stat-label">إجمالي المجموعات</span>
+                                                        <span class="demo-stat-number">4.8</span>
+                                                        <span class="demo-stat-label">التقييم</span>
                                                     </div>
                                                     <div class="demo-stat-card">
-                                                        <span class="demo-stat-number">3</span>
-                                                        <span class="demo-stat-label">مراكز نشطة</span>
+                                                        <span class="demo-stat-number">1,240</span>
+                                                        <span class="demo-stat-label">طالب</span>
                                                     </div>
                                                 </div>
                                             </div>
 
                                             <!-- Search Bar -->
                                             <div class="demo-search-section">
-                                                <input type="text" class="demo-search-input" placeholder="البحث في المراكز..." readonly>
+                                                <input type="text" class="demo-search-input" placeholder="ابحث عن كورس" readonly>
                                             </div>
 
                                             <!-- Center Card -->
                                             <div class="demo-card">
                                                 <div class="demo-card-header">
-                                                    <span class="demo-card-title">فرع المعادي</span>
-                                                    <span class="demo-badge">3 مجموعة</span>
+                                                    <span class="demo-card-title">أساسيات صناعة المحتوى</span>
+                                                    <span class="demo-badge">جديد</span>
                                                 </div>
                                                 <div class="demo-card-info">
-                                                    <span><i class="fa fa-calendar"></i> تم الإنشاء: منذ 12 ساعة</span>
-                                                    <span><i class="fa fa-clock-o"></i> آخر تحديث: منذ 12 ساعة</span>
+                                                    <span><i class="fa fa-clock-o"></i> 62 دقيقة</span>
+                                                    <span><i class="fa fa-star"></i> 4.8 تقييم</span>
                                                 </div>
                                                 <div class="demo-card-address">
-                                                    <i class="fa fa-map-marker"></i>
-                                                    المعادي، القاهرة، مصر
+                                                    <i class="fa fa-map-o"></i>
+                                                    ثلاث وحدات مرتبة من البداية إلى التطبيق
                                                 </div>
                                                 <div class="demo-card-actions">
-                                                    <button class="demo-btn demo-btn-primary">
+                                                    <span class="demo-btn demo-btn-primary" aria-hidden="true">
                                                         <i class="fa fa-eye"></i>
-                                                        عرض التفاصيل
-                                                    </button>
-                                                    <button class="demo-btn demo-btn-secondary">
+                                                        شاهد مجانًا
+                                                    </span>
+                                                    <span class="demo-btn demo-btn-secondary" aria-hidden="true">
                                                         <i class="fa fa-edit"></i>
-                                                        تعديل
-                                                    </button>
-                                                    <button class="demo-btn demo-btn-danger">
-                                                        <i class="fa fa-trash"></i>
-                                                        حذف
-                                                    </button>
+                                                        تفاصيل الكورس
+                                                    </span>
+                                                    <span class="demo-btn demo-btn-danger" aria-hidden="true">
+                                                        <i class="fa fa-bookmark-o"></i>
+                                                        حفظ
+                                                    </span>
                                                 </div>
                                             </div>
                                         </div>

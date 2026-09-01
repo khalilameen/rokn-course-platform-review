@@ -165,8 +165,8 @@ export default function ThirdPartyNotices() {
       await shareBundledNotice(bundle);
     } catch {
       Alert.alert(
-        'تعذر فتح الإشعارات',
-        'ملف الإشعارات موجود داخل التطبيق، لكن تعذر تسليمه لتطبيق العرض أو المشاركة.',
+        'تعذّر فتح الإشعارات',
+        "تعذّر فتح الملف\nحاول مرة أخرى",
       );
     } finally {
       setSharingNotice(null);

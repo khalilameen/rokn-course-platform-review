@@ -4,11 +4,17 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Exceptions\AiProviderUnavailableException;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 final class OpenRouterService
 {
+    public const CIRCUIT_KEY = 'openrouter:circuit-open';
+    private const FAILURE_KEY = 'openrouter:circuit-failures';
+
     public function chat(string $model, array $messages, float $temperature, int $maxTokens): array
     {
         $apiKey = (string) config('openrouter.api_key');
@@ -21,45 +27,78 @@ final class OpenRouterService
             throw new \RuntimeException('AI model is not in the production allowlist.');
         }
 
-        if (Cache::has('openrouter:circuit-open')) {
-            throw new \RuntimeException('AI provider is temporarily unavailable.');
+        if ($this->circuitIsOpen()) {
+            throw new AiProviderUnavailableException(true);
         }
 
-        $response = Http::withToken($apiKey)
-            ->acceptJson()
-            ->withHeaders([
-                'HTTP-Referer' => (string) config('app.url'),
-                'X-Title' => (string) config('app.name', 'Rokn'),
-            ])
-            ->timeout((int) config('openrouter.timeout_seconds', 20))
-            ->post((string) config('openrouter.endpoint'), [
-                'model' => $model,
-                'messages' => $messages,
-                'temperature' => max(0, min(1.2, $temperature)),
-                'max_tokens' => max(80, min((int) config('openrouter.max_tokens', 500), $maxTokens)),
-                'provider' => [
-                    'data_collection' => 'deny',
-                    'zdr' => true,
-                ],
-            ]);
+        try {
+            $response = Http::withToken($apiKey)
+                ->acceptJson()
+                ->withHeaders([
+                    'HTTP-Referer' => (string) config('app.url'),
+                    'X-Title' => (string) config('app.name', 'Rokn'),
+                ])
+                ->connectTimeout(max(1, (int) config('openrouter.connect_timeout_seconds', 5)))
+                ->timeout((int) config('openrouter.timeout_seconds', 20))
+                ->post((string) config('openrouter.endpoint'), [
+                    'model' => $model,
+                    'messages' => $messages,
+                    'temperature' => max(0, min(1.2, $temperature)),
+                    'max_tokens' => max(80, min((int) config('openrouter.max_tokens', 500), $maxTokens)),
+                    'provider' => [
+                        'data_collection' => 'deny',
+                        'zdr' => true,
+                    ],
+                ]);
+        } catch (ConnectionException $exception) {
+            $this->recordTransientFailure('connection');
+            // A timeout may happen after the provider accepted and billed the
+            // request. Do not issue a blind second paid call.
+            throw new AiProviderUnavailableException(false, previous: $exception);
+        }
 
         if (!$response->successful()) {
-            if ($response->status() === 402 || $response->status() === 429 || $response->serverError()) {
-                Cache::put('openrouter:circuit-open', true, now()->addSeconds(30));
+            if ($response->status() === 402) {
+                $this->openCircuit(
+                    'billing',
+                    max(60, (int) config('openrouter.billing_circuit_open_seconds', 900))
+                );
+            } elseif (in_array($response->status(), [401, 403], true)) {
+                $this->openCircuit(
+                    'authentication',
+                    max(60, (int) config('openrouter.billing_circuit_open_seconds', 900))
+                );
+            } elseif ($response->status() === 429 || $response->serverError()) {
+                $this->recordTransientFailure('http_' . $response->status());
             }
-            throw new \RuntimeException('AI provider is temporarily unavailable.');
+            throw new AiProviderUnavailableException(
+                $response->status() === 429 || $response->serverError()
+            );
         }
+
+        $this->recordSuccess();
 
         $body = $response->json();
         $content = data_get($body, 'choices.0.message.content');
         if (!is_string($content) || trim($content) === '') {
             throw new \RuntimeException('AI provider returned an empty response.');
         }
+        $content = trim((string) preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $content));
+        if (
+            $content === ''
+            || mb_strlen($content) > 12000
+            || preg_match(
+                '/(?:sqlstate|stack\s+trace|uncaught\s+exception|provider\s+error|tool[_\s-]?calls?|<html\b)/iu',
+                $content
+            )
+        ) {
+            throw new \RuntimeException('AI provider returned an unusable response.');
+        }
 
         $providerCost = data_get($body, 'usage.cost');
 
         return [
-            'message' => trim($content),
+            'message' => $content,
             'provider_request_id' => data_get($body, 'id'),
             // OpenRouter includes normalized token and cost accounting in the
             // response. Persist the real amount; never infer margin from a
@@ -74,5 +113,61 @@ final class OpenRouterService
                 'cost_reported' => is_numeric($providerCost),
             ],
         ];
+    }
+
+    private function circuitIsOpen(): bool
+    {
+        try {
+            return Cache::has(self::CIRCUIT_KEY);
+        } catch (\Throwable) {
+            // Cache failure is already visible in operational health. It must
+            // not turn an otherwise usable AI provider into a false outage.
+            return false;
+        }
+    }
+
+    private function recordTransientFailure(string $reason): void
+    {
+        try {
+            Cache::add(self::FAILURE_KEY, 0, now()->addMinute());
+            $failures = (int) Cache::increment(self::FAILURE_KEY);
+            if ($failures >= max(2, (int) config('openrouter.circuit_failure_threshold', 3))) {
+                $this->openCircuit($reason);
+            }
+        } catch (\Throwable $exception) {
+            Log::warning('OpenRouter circuit state could not be recorded.', [
+                'reason' => $reason,
+                'exception' => $exception::class,
+            ]);
+        }
+    }
+
+    private function openCircuit(string $reason, ?int $seconds = null): void
+    {
+        try {
+            Cache::put(
+                self::CIRCUIT_KEY,
+                ['reason' => $reason, 'opened_at' => now()->toIso8601String()],
+                now()->addSeconds($seconds ?? max(
+                    10,
+                    (int) config('openrouter.circuit_open_seconds', 30)
+                ))
+            );
+        } catch (\Throwable $exception) {
+            Log::warning('OpenRouter circuit could not be opened.', [
+                'reason' => $reason,
+                'exception' => $exception::class,
+            ]);
+        }
+    }
+
+    private function recordSuccess(): void
+    {
+        try {
+            Cache::forget(self::FAILURE_KEY);
+            Cache::forget(self::CIRCUIT_KEY);
+        } catch (\Throwable) {
+            // Successful student output is never failed by monitoring state.
+        }
     }
 }

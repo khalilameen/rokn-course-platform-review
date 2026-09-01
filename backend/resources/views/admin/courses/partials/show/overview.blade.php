@@ -46,33 +46,45 @@
                             <td>آخر تحديث:</td>
                             <td>{{ $course->updated_at->format('Y/m/d H:i') }}</td>
                         </tr>
+                        @if($course->isPublishedForLearning() && $course->is_catalog_visible && !$course->isNestedCourse())
+                            <tr>
+                                <td>رابط المشاركة:</td>
+                                <td dir="ltr"><a href="{{ \App\Support\RoknPublicUrl::course((int) $course->id) }}" rel="noopener" target="_blank">{{ \App\Support\RoknPublicUrl::course((int) $course->id) }}</a></td>
+                            </tr>
+                        @endif
                     </table>
                 </div>
 
-                <!-- Pricing Information -->
+                <!-- Access plans -->
                 <div class="info-section">
                     <h3 class="section-title">
                         <div class="section-icon">
                             <i class="fa fa-money"></i>
                         </div>
-                        معلومات السعر
+                        فئات الكورس
                     </h3>
                     <table class="info-table">
-                        <tr>
-                            <td>السعر:</td>
-                            <td>
-                                @if($course->price)
-                                    {{ number_format($course->price) }} عملة
-                                @else
-                                    مجاني
-                                @endif
-                            </td>
-                        </tr>
-                        <tr>
-                            <td>عدد الطلاب:</td>
-                            <td>{{ $activeStudentsCount }} طالب نشط</td>
-                        </tr>
-
+                        @forelse($course->accessPlans->sortBy('sort_order') as $plan)
+                            <tr>
+                                <td>{{ $plan->name_ar ?: $plan->code }}</td>
+                                <td>
+                                    {{ number_format((int) $plan->price_coins) }} عملة
+                                    <span class="badge {{ $plan->is_active ? 'badge-success' : 'badge-secondary' }}">
+                                        {{ $plan->is_active ? 'متاحة' : 'موقوفة' }}
+                                    </span>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="2">أضف فئات الكورس قبل النشر</td>
+                            </tr>
+                        @endforelse
+                        @if($activeStudentsCount !== null)
+                            <tr>
+                                <td>الطلاب الفعليون</td>
+                                <td>{{ number_format($activeStudentsCount) }} طالب نشط</td>
+                            </tr>
+                        @endif
                     </table>
                 </div>
 

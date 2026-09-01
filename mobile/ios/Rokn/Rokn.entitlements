@@ -12,9 +12,6 @@
 	<array>
 		<string>applinks:rokn.app</string>
 		<string>applinks:www.rokn.app</string>
-		<string>applinks:rokn-course-platform-review-production-b7gpy1.laravel.cloud</string>
-		<string>applinks:rokn.com</string>
-		<string>applinks:www.rokn.com</string>
 	</array>
 </dict>
 </plist>

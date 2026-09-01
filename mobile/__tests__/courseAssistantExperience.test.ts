@@ -32,10 +32,11 @@ describe('course assistant waiting experience', () => {
 
     await expect(
       askCourseAssistant({course, message: 'اشرح الخطوة', onRequestStart}),
-    ).resolves.toEqual({
+    ).resolves.toEqual(expect.objectContaining({
       text: 'إجابة مرتبطة بالكورس',
       offline: false,
-    });
+      turnStatus: 'completed',
+    }));
 
     expect(onRequestStart).toHaveBeenCalledTimes(1);
     expect(publicRequest.post).toHaveBeenCalledWith(
@@ -45,6 +46,24 @@ describe('course assistant waiting experience', () => {
     );
     expect(onRequestStart.mock.invocationCallOrder[0]).toBeLessThan(
       jest.mocked(publicRequest.post).mock.invocationCallOrder[0],
+    );
+  });
+
+  it('does not trust client history as conversation context', async () => {
+    jest.mocked(isProductFeatureEnabled).mockResolvedValue(true);
+    jest.mocked(publicRequest.post).mockResolvedValue({
+      data: {data: {message: 'متابعة مفهومة'}},
+    });
+
+    await askCourseAssistant({
+      course,
+      message: 'وماذا بعد؟',
+    });
+
+    expect(publicRequest.post).toHaveBeenCalledWith(
+      'courses/52/chat',
+      expect.not.objectContaining({history: expect.anything()}),
+      {timeout: 60_000},
     );
   });
 
@@ -58,7 +77,8 @@ describe('course assistant waiting experience', () => {
       onRequestStart,
     });
 
-    expect(result.blocked).toBe(true);
+    expect(result.unavailable).toBe(true);
+    expect(result.code).toBe('ai_feature_unavailable');
     expect(onRequestStart).not.toHaveBeenCalled();
     expect(publicRequest.post).not.toHaveBeenCalled();
   });

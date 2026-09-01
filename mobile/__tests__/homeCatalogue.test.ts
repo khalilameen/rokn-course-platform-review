@@ -79,6 +79,7 @@ describe('home catalogue presentation', () => {
         demoCatalogue: [],
         remoteCourses: [hero],
         searchQuery: 'المحتوي',
+        loadedSearchQuery: 'المحتوي',
         usingLocalDemo: false,
       }),
     ).toEqual([hero]);
@@ -96,5 +97,25 @@ describe('home catalogue presentation', () => {
       'المهارات',
       'العمل الحر',
     ]);
+  });
+
+  test('does not present results from an older rapid search as authoritative', () => {
+    const oldResult = course('old', {title: 'التسويق'});
+    const currentLocalMatch = course('current', {
+      title: 'التصميم',
+      instructor: 'أحمد',
+    });
+
+    expect(
+      searchHomeCatalogue({
+        browseCatalogue: [oldResult, currentLocalMatch],
+        catalogue: [oldResult],
+        demoCatalogue: [],
+        remoteCourses: [oldResult],
+        searchQuery: 'احمد',
+        loadedSearchQuery: 'التسويق',
+        usingLocalDemo: false,
+      }),
+    ).toEqual([currentLocalMatch]);
   });
 });

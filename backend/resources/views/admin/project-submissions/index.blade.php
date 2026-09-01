@@ -70,7 +70,7 @@
                         <td><strong>{{ optional($course)->title ?: 'كورس غير متاح' }}</strong><br><small class="text-muted">{{ optional($section)->title ?: 'مشروع #' . $submission->project_id }}</small></td>
                         <td>@include('admin.partials.status-badge', ['badgeStatus' => $submission->review_status])</td>
                         <td><span class="admin-code">{{ Str::limit($submission->public_id, 18) }}</span><br><small class="text-muted">الجهد: {{ $submission->effort_status }}</small></td>
-                        <td>{{ optional($submission->submitted_at)->format('Y-m-d H:i') ?: '—' }}</td>
+                        <td>{{ $submission->submitted_at ? \App\Support\BusinessClock::format($submission->submitted_at) : '—' }}</td>
                         <td><a href="{{ route('admin.project-submissions.show', $submission) }}" class="btn btn-sm btn-outline-primary"><i class="fa fa-eye"></i> مراجعة</a></td>
                     </tr>
                 @empty

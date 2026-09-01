@@ -1,6 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {Dimensions, Platform} from 'react-native';
+import {roknCalendarDay} from '../../../constants/roknCalendar';
+import {deadlineFromServerTtl} from '../../../utils/serverClock';
+import {AppState, Dimensions, Platform} from 'react-native';
 import appConfig from '../../../../app.json';
+import {isLocalDemoId} from '../../../config/runtime';
 import {publicRequest} from '../../../constants/api';
 import {getCurrentAccountStorageScope} from '../../../constants/helpers';
 import {requireProductFeature} from '../../../services/productFeatures';
@@ -45,6 +48,8 @@ const watchHistoryFlights = new Map<string, Promise<void>>();
 const watchHistoryLastSyncedAt = new Map<string, number>();
 const playbackSequences = new Map<string, number>();
 const playbackRequestQueues = new Map<string, Promise<unknown>>();
+const MAX_RECENT_WATCH_SYNC_KEYS = 128;
+let playbackRuntimeGeneration = 0;
 
 export type PlaybackEvidenceContext = {
   playbackSessionId?: string;
@@ -79,6 +84,7 @@ export type PlaybackManifest = {
   playbackSessionId: string;
   sourceUrl: string;
   fallbackUrl?: string;
+  posterUrl?: string;
   protocol: 'hls' | 'dash' | 'mp4' | 'unknown';
   expiresAt?: string;
   refreshAfter?: string;
@@ -86,6 +92,10 @@ export type PlaybackManifest = {
   availableQualities: VideoQuality[];
   qualitySources: VideoQualitySources;
   mediaStatus: 'ready' | 'processing' | 'failed' | 'unknown';
+};
+
+const localDeadlineFromTtl = (value: unknown): string | undefined => {
+  return deadlineFromServerTtl(value);
 };
 
 const watchEvidenceStorageKey = (key: string) =>
@@ -132,6 +142,7 @@ const scheduleWatchHistoryFlush = (key: string, delay: number) => {
   if (existing) clearTimeout(existing);
   const timer = setTimeout(() => {
     watchHistoryTimers.delete(key);
+    if (AppState.currentState !== 'active') return;
     void flushWatchHistoryEntry(key);
   }, Math.max(0, delay));
   watchHistoryTimers.set(key, timer);
@@ -148,14 +159,19 @@ const postPlaybackSample = (
   playbackSessionId: string | undefined,
   payload: Record<string, unknown>,
 ) => {
-  if (!playbackSessionId) {
+  const generation = playbackRuntimeGeneration;
+  const send = () => {
+    if (generation !== playbackRuntimeGeneration) {
+      throw new Error('ACCOUNT_SESSION_CHANGED');
+    }
     return publicRequest.post('user/watch-history', payload);
+  };
+  if (!playbackSessionId) {
+    return send();
   }
   const previous =
     playbackRequestQueues.get(playbackSessionId) || Promise.resolve();
-  const request = previous
-    .catch(() => undefined)
-    .then(() => publicRequest.post('user/watch-history', payload));
+  const request = previous.catch(() => undefined).then(send);
   const settled = request.finally(() => {
     if (playbackRequestQueues.get(playbackSessionId) === settled) {
       playbackRequestQueues.delete(playbackSessionId);
@@ -170,6 +186,7 @@ const flushWatchHistoryEntry = (key: string): Promise<void> => {
   if (activeFlight) return activeFlight;
   const pending = pendingWatchHistory.get(key);
   if (!pending) return Promise.resolve();
+  const generation = playbackRuntimeGeneration;
 
   const timer = watchHistoryTimers.get(key);
   if (timer) clearTimeout(timer);
@@ -213,6 +230,11 @@ const flushWatchHistoryEntry = (key: string): Promise<void> => {
   })
     .then(() => {
       watchHistoryLastSyncedAt.set(key, Date.now());
+      while (watchHistoryLastSyncedAt.size > MAX_RECENT_WATCH_SYNC_KEYS) {
+        const oldest = watchHistoryLastSyncedAt.keys().next().value;
+        if (typeof oldest !== 'string') break;
+        watchHistoryLastSyncedAt.delete(oldest);
+      }
       if (pendingWatchHistory.get(key) === pending) {
         pendingWatchHistory.delete(key);
         return AsyncStorage.removeItem(watchEvidenceStorageKey(key));
@@ -222,11 +244,17 @@ const flushWatchHistoryEntry = (key: string): Promise<void> => {
     .catch(() => {
       // Keep only the newest sample in memory and retry later. Playback and
       // the local resume point never wait for this network request.
-      scheduleWatchHistoryFlush(key, WATCH_HISTORY_SYNC_INTERVAL_MS);
+      if (generation === playbackRuntimeGeneration) {
+        scheduleWatchHistoryFlush(key, WATCH_HISTORY_SYNC_INTERVAL_MS);
+      }
     })
     .finally(() => {
       watchHistoryFlights.delete(key);
-      if (pendingWatchHistory.has(key) && !watchHistoryTimers.has(key)) {
+      if (
+        generation === playbackRuntimeGeneration &&
+        pendingWatchHistory.has(key) &&
+        !watchHistoryTimers.has(key)
+      ) {
         scheduleWatchHistoryFlush(key, WATCH_HISTORY_SYNC_INTERVAL_MS);
       }
     });
@@ -325,6 +353,27 @@ export const retryPendingPlaybackPositions = async () => {
   await flushPendingPlaybackPositions();
 };
 
+/** Persist the last rendered frame without emitting a second server sample. */
+export const persistLocalPlaybackPosition = async (
+  courseId: string,
+  reelId: string,
+  seconds: number,
+) => {
+  if (!(await isWatchHistoryEnabled())) return;
+  const historyKey = `${courseId}:${reelId}`;
+  await updatePlayerState(state => ({
+    ...state,
+    positions: {
+      ...state.positions,
+      [historyKey]: Math.max(0, Math.floor(seconds)),
+    },
+    lastWatchedAt: {
+      ...state.lastWatchedAt,
+      [historyKey]: new Date().toISOString(),
+    },
+  }));
+};
+
 export const savePlaybackPosition = async (
   courseId: string,
   reelId: string,
@@ -334,27 +383,13 @@ export const savePlaybackPosition = async (
   completed = false,
   context?: PlaybackEvidenceContext,
 ) => {
-  const historyEnabled = await isWatchHistoryEnabled();
-  if (historyEnabled) {
-    const historyKey = `${courseId}:${reelId}`;
-    await updatePlayerState(state => ({
-      ...state,
-      positions: {
-        ...state.positions,
-        [historyKey]: Math.max(0, Math.floor(seconds)),
-      },
-      lastWatchedAt: {
-        ...state.lastWatchedAt,
-        [historyKey]: new Date().toISOString(),
-      },
-    }));
-  }
+  await persistLocalPlaybackPosition(courseId, reelId, seconds);
 
   const remoteLessonId = Number(lessonId);
   if (
-    !courseId.startsWith('demo') &&
+    !isLocalDemoId(courseId) &&
     lessonId &&
-    !lessonId.startsWith('demo') &&
+    !isLocalDemoId(lessonId) &&
     Number.isFinite(remoteLessonId) &&
     (await hasSession())
   ) {
@@ -377,7 +412,7 @@ export const reportPlaybackSessionEvent = async (
   const lessonId = Number(event.lessonId);
   if (
     !event.playbackSessionId ||
-    event.lessonId.startsWith('demo') ||
+    isLocalDemoId(event.lessonId) ||
     !Number.isFinite(lessonId) ||
     !(await hasSession())
   ) {
@@ -450,6 +485,13 @@ export const reportPlaybackSessionEvent = async (
     return true;
   } catch {
     return false;
+  } finally {
+    if (
+      event.eventType === 'stop' ||
+      (event.eventType === 'error' && event.endReason)
+    ) {
+      playbackSequences.delete(event.playbackSessionId);
+    }
   }
 };
 
@@ -495,81 +537,135 @@ export const openPlaybackSession = async (
   preference: PlaybackClientPreference = {},
 ): Promise<PlaybackManifest | null> => {
   const numericLessonId = Number(lessonId);
-  if (!Number.isFinite(numericLessonId) || lessonId.startsWith('demo')) {
+  if (!Number.isFinite(numericLessonId) || isLocalDemoId(lessonId)) {
     return null;
   }
   await requireProductFeature('playback');
-  try {
-    const response = await publicRequest.post(
-      `lessons/${numericLessonId}/playback-manifest`,
-      {
-        client: Platform.OS,
-        capability_version: 2,
-        ...(preference.playbackSessionId
-          ? {playback_session_id: preference.playbackSessionId}
-          : {}),
-        client_capabilities: playbackClientCapabilities(preference),
-      },
-      {timeout: 8000},
-    );
-    const raw = response?.data?.data || response?.data;
-    const sourceUrl = valueAsString(raw?.source_url || raw?.url);
-    const playbackSessionId = valueAsString(raw?.playback_session_id);
-    if (!sourceUrl || !playbackSessionId) return null;
-    const sources = qualitySources(raw);
-    return {
-      playbackSessionId,
-      sourceUrl,
-      fallbackUrl: valueAsString(raw?.fallback_url) || undefined,
-      protocol: ['hls', 'dash', 'mp4'].includes(raw?.protocol)
-        ? raw.protocol
-        : 'unknown',
-      expiresAt: valueAsString(raw?.expires_at) || undefined,
-      refreshAfter: valueAsString(raw?.refresh_after) || undefined,
-      durationSeconds: Number(raw?.duration_seconds) || undefined,
-      availableQualities: qualityOptions(raw, sourceUrl, sources),
-      qualitySources: sources,
-      mediaStatus: ['ready', 'processing', 'failed'].includes(raw?.media_status)
-        ? raw.media_status
-        : 'unknown',
-    };
-  } catch {
-    return null;
-  }
+  const response = await publicRequest.post(
+    `lessons/${numericLessonId}/playback-manifest`,
+    {
+      client: Platform.OS,
+      capability_version: 2,
+      ...(preference.playbackSessionId
+        ? {playback_session_id: preference.playbackSessionId}
+        : {}),
+      client_capabilities: playbackClientCapabilities(preference),
+    },
+    {timeout: 8000},
+  );
+  const raw = response?.data?.data || response?.data;
+  const sourceUrl = valueAsString(raw?.source_url || raw?.url);
+  const playbackSessionId = valueAsString(raw?.playback_session_id);
+  if (!sourceUrl || !playbackSessionId) return null;
+  const sources = qualitySources(raw);
+  // Relative lifetimes are anchored to the response arrival time. Device
+  // clocks are often minutes off, while Bunny signatures follow server time.
+  const localExpiresAt = localDeadlineFromTtl(raw?.expires_in_seconds);
+  const localRefreshAfter = localDeadlineFromTtl(raw?.refresh_in_seconds);
+  return {
+    playbackSessionId,
+    sourceUrl,
+    fallbackUrl: valueAsString(raw?.fallback_url) || undefined,
+    posterUrl: valueAsString(raw?.poster_url) || undefined,
+    protocol: ['hls', 'dash', 'mp4'].includes(raw?.protocol)
+      ? raw.protocol
+      : 'unknown',
+    expiresAt: localExpiresAt || valueAsString(raw?.expires_at) || undefined,
+    refreshAfter:
+      localRefreshAfter || valueAsString(raw?.refresh_after) || undefined,
+    durationSeconds: Number(raw?.duration_seconds) || undefined,
+    availableQualities: qualityOptions(raw, sourceUrl, sources),
+    qualitySources: sources,
+    mediaStatus: ['ready', 'processing', 'failed'].includes(raw?.media_status)
+      ? raw.media_status
+      : 'unknown',
+  };
 };
 
 export const markSectionComplete = async (
   courseId: string,
   sectionId: string,
 ) => {
-  await updatePlayerState(state => ({
-    ...state,
-    completedSections: Array.from(
-      new Set([...state.completedSections, sectionId]),
-    ),
-    activityDays: Array.from(
-      new Set([...state.activityDays, new Date().toISOString().slice(0, 10)]),
-    ).slice(-60),
-  }));
+  const recordLocalCompletion = () =>
+    updatePlayerState(state => ({
+      ...state,
+      completedSections: Array.from(
+        new Set([...state.completedSections, sectionId]),
+      ),
+      activityDays: Array.from(
+        new Set([...state.activityDays, roknCalendarDay()]),
+      ).slice(-60),
+    }));
 
-  if (
-    !courseId.startsWith('demo') &&
-    !sectionId.startsWith('demo') &&
-    (await hasSession())
-  ) {
-    const storageKey = await sectionCompletionKey(courseId, sectionId);
-    try {
-      await publicRequest.post(
-        `courses/${courseId}/sections/${sectionId}/complete`,
-      );
-      await AsyncStorage.removeItem(storageKey);
-    } catch {
+  if (isLocalDemoId(courseId) || isLocalDemoId(sectionId)) {
+    await recordLocalCompletion();
+    return true;
+  }
+  if (!(await hasSession())) {
+    return false;
+  }
+
+  const storageKey = await sectionCompletionKey(courseId, sectionId);
+  try {
+    await publicRequest.post(
+      `courses/${courseId}/sections/${sectionId}/complete`,
+    );
+    await AsyncStorage.removeItem(storageKey);
+    await recordLocalCompletion();
+    return true;
+  } catch (error) {
+    if (isRetryableCompletionError(error)) {
       await AsyncStorage.setItem(
         storageKey,
         JSON.stringify({courseId, sectionId}),
       );
+    } else {
+      await AsyncStorage.removeItem(storageKey);
     }
+    return false;
   }
+};
+
+const responseStatus = (error: unknown): number | null => {
+  if (!error || typeof error !== 'object') return null;
+  const candidate = error as {
+    status?: unknown;
+    response?: {status?: unknown};
+  };
+  const value = Number(candidate.status ?? candidate.response?.status);
+  return Number.isFinite(value) && value > 0 ? value : null;
+};
+
+const completionErrorCode = (error: unknown): string => {
+  if (!error || typeof error !== 'object') return '';
+  const candidate = error as {
+    code?: unknown;
+    data?: {code?: unknown};
+    response?: {data?: {code?: unknown}};
+  };
+  return String(
+    candidate.response?.data?.code ??
+      candidate.data?.code ??
+      candidate.code ??
+      '',
+  )
+    .trim()
+    .toLowerCase();
+};
+
+const isRetryableCompletionError = (error: unknown) => {
+  const status = responseStatus(error);
+  if (status === null || status === 408 || status === 429 || status >= 500) {
+    return true;
+  }
+
+  return [
+    'verified_watch_required',
+    'passed_quiz_required',
+    'previous_section_incomplete',
+    'module_project_not_passed',
+    'section_locked',
+  ].includes(completionErrorCode(error));
 };
 
 const sectionCompletionPrefix = async () =>
@@ -603,13 +699,25 @@ export const retryPendingSectionCompletions = async () => {
         `courses/${pending.courseId}/sections/${pending.sectionId}/complete`,
       );
       await AsyncStorage.removeItem(key);
-    } catch {
-      // Keep the durable event for the next foreground sync.
+      await updatePlayerState(state => ({
+        ...state,
+        completedSections: Array.from(
+          new Set([...state.completedSections, pending.sectionId]),
+        ),
+        activityDays: Array.from(
+          new Set([...state.activityDays, roknCalendarDay()]),
+        ).slice(-60),
+      }));
+    } catch (error) {
+      if (!isRetryableCompletionError(error)) {
+        await AsyncStorage.removeItem(key);
+      }
     }
   }
 };
 
 export const resetPlaybackRuntimeState = () => {
+  playbackRuntimeGeneration += 1;
   watchHistoryTimers.forEach(timer => clearTimeout(timer));
   watchHistoryTimers.clear();
   pendingWatchHistory.clear();

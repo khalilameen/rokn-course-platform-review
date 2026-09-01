@@ -246,6 +246,12 @@ $appConfigPath = Join-Path $projectRoot 'app.json'
 $packagePath = Join-Path $projectRoot 'package.json'
 $appConfig = Get-Content -LiteralPath $appConfigPath -Raw | ConvertFrom-Json
 $packageConfig = Get-Content -LiteralPath $packagePath -Raw | ConvertFrom-Json
+$rootBuildGradle = Get-Content -LiteralPath (Join-Path $androidRoot 'build.gradle') -Raw
+$minSdkMatch = [regex]::Match($rootBuildGradle, 'minSdkVersion\s*=\s*(?<value>\d+)')
+$targetSdkMatch = [regex]::Match($rootBuildGradle, 'targetSdkVersion\s*=\s*(?<value>\d+)')
+if (-not $minSdkMatch.Success -or -not $targetSdkMatch.Success) {
+    throw 'Could not read Android minSdkVersion/targetSdkVersion for artifact provenance.'
+}
 if ($packageConfig.version -ne $appConfig.expo.version) {
     throw "Version mismatch: package.json is $($packageConfig.version), app.json is $($appConfig.expo.version)."
 }
@@ -333,9 +339,9 @@ $androidArchitectures = if ($Channel -eq 'play') {
 } elseif ($env:ROKN_ANDROID_ARCHITECTURES) {
     $env:ROKN_ANDROID_ARCHITECTURES
 } elseif ($Profile -eq 'test') {
-    # Fast install artifact for the connected modern Android phone. Override
-    # with ROKN_ANDROID_ARCHITECTURES when testing another ABI.
-    'arm64-v8a'
+    # The internal artifact must install on a modern physical device and the
+    # common Windows/macOS emulator without rebuilding or deleting app data.
+    'arm64-v8a,x86_64'
 } else {
     'armeabi-v7a,arm64-v8a'
 }
@@ -399,7 +405,8 @@ if ((Get-Item -LiteralPath $builtArtifact).LastWriteTimeUtc -lt $buildStartedAtU
 }
 
 $signerSha256 = $null
-if ($isProduction -and $Artifact -eq 'apk') {
+$signerRole = $null
+if ($Artifact -eq 'apk') {
     $buildToolsRoot = Join-Path $androidSdk 'build-tools'
     $apkSigner = Get-ChildItem -LiteralPath $buildToolsRoot -Directory -ErrorAction SilentlyContinue |
         Sort-Object { [version]$_.Name } -Descending |
@@ -413,7 +420,8 @@ if ($isProduction -and $Artifact -eq 'apk') {
     if ($LASTEXITCODE -ne 0) {
         throw "APK signature verification failed.`n$signatureReport"
     }
-    if ($signatureReport -match 'Android Debug') {
+    $isDebugSigner = $signatureReport -match '(?im)Signer #1 certificate DN:.*CN=Android Debug'
+    if ($isProduction -and $isDebugSigner) {
         throw 'A production APK was signed with the Android debug certificate.'
     }
     $signerMatch = [regex]::Match(
@@ -424,6 +432,26 @@ if ($isProduction -and $Artifact -eq 'apk') {
         throw 'Unable to read the production APK signer SHA-256 fingerprint.'
     }
     $signerSha256 = $signerMatch.Groups['digest'].Value.Replace(':', '').ToLowerInvariant()
+    $signerRole = if ($isDebugSigner) { 'internal-debug' } else { 'release-app-signing' }
+
+    if ($isProduction -and $Channel -eq 'direct') {
+        $expectedAppSigner = [Environment]::GetEnvironmentVariable(
+            'ROKN_ANDROID_APP_SIGNING_SHA256',
+            'Process'
+        )
+        $normalizedExpectedSigner = ($expectedAppSigner -replace '[^0-9A-Fa-f]', '').ToLowerInvariant()
+        if ($normalizedExpectedSigner -notmatch '^[0-9a-f]{64}$') {
+            throw @"
+Direct production APKs must pin ROKN_ANDROID_APP_SIGNING_SHA256 to the public
+SHA-256 certificate fingerprint configured as the Google Play App Signing key
+and in APP_LINK_ANDROID_SHA256_FINGERPRINTS. This keeps direct/store installs
+upgrade-compatible instead of forcing an uninstall that would erase local data.
+"@
+        }
+        if ($signerSha256 -ne $normalizedExpectedSigner) {
+            throw 'The direct APK signer does not match ROKN_ANDROID_APP_SIGNING_SHA256.'
+        }
+    }
 }
 if ($isProduction -and $Artifact -eq 'aab') {
     $jarSigner = Join-Path $javaHome 'bin\jarsigner.exe'
@@ -447,11 +475,12 @@ if ($isProduction -and $Artifact -eq 'aab') {
         throw "Unable to read the production AAB signer SHA-256 fingerprint.`n$certificateReport"
     }
     $signerSha256 = $signerMatch.Groups['digest'].Value.Replace(':', '').ToLowerInvariant()
+    $signerRole = 'play-upload'
 }
 
 New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
 $artifactName = if ($Profile -eq 'test') {
-    'Rokn-test.apk'
+    'Rokn-internal-test.apk'
 } elseif ($Channel -eq 'play') {
     'Rokn-play.aab'
 } else {
@@ -508,12 +537,18 @@ $metadata = [ordered]@{
     name = $artifactName
     version = [string]$appConfig.expo.version
     versionCode = [int]$appConfig.expo.android.versionCode
+    applicationId = [string]$appConfig.expo.android.package
     channel = $Channel
     profile = $Profile
     format = $Artifact
+    minSdk = [int]$minSdkMatch.Groups['value'].Value
+    targetSdk = [int]$targetSdkMatch.Groups['value'].Value
+    abis = @($androidArchitectures.Split(',') | ForEach-Object { $_.Trim() })
     sha256 = $artifactSha256
     bytes = (Get-Item -LiteralPath $artifactPath).Length
     signerSha256 = $signerSha256
+    signerRole = $signerRole
+    publicDistributionEligible = [bool]($isProduction -and $signerRole -ne 'internal-debug')
     apiHost = $metadataApiHost
     apiBase = $metadataApiBase
     apiBaseSha256 = Get-StringSha256 -Value $metadataApiBase
@@ -529,3 +564,6 @@ $metadata | ConvertTo-Json | Set-Content -LiteralPath $metadataPath -Encoding UT
 Write-Output "Artifact ready: $artifactPath"
 Write-Output "SHA-256: $($metadata.sha256)"
 Write-Output "Build metadata: $metadataPath"
+if ($Profile -eq 'test') {
+    Write-Warning 'Internal test APK: debug-signed and not eligible for public website distribution or store upgrade testing.'
+}

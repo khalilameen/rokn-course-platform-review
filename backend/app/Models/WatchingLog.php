@@ -18,6 +18,9 @@ class WatchingLog extends Model
         'course_name',
         'position_seconds',
         'duration_seconds',
+        'playback_session_id',
+        'playback_session_started_at',
+        'last_playback_sequence',
         'watched_at',
         'completed_at',
     ];
@@ -25,6 +28,8 @@ class WatchingLog extends Model
     protected $casts = [
         'position_seconds' => 'integer',
         'duration_seconds' => 'integer',
+        'playback_session_started_at' => 'datetime',
+        'last_playback_sequence' => 'integer',
         'watched_at' => 'datetime',
         'completed_at' => 'datetime',
     ];

@@ -7,7 +7,6 @@ export type SettingsNavigation = {
         | 'EditAccount'
         | 'PrivacyPolicy'
         | 'Profile'
-        | 'ThirdPartyNotices'
         | 'TermsOfUse',
     ): void;
     (screen: 'Login', params: {returnTo: {name: 'Settings'}}): void;

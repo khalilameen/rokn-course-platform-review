@@ -6,11 +6,18 @@ import axios, {
 import {useEffect} from 'react';
 import {Platform} from 'react-native';
 import appConfig from '../../app.json';
-import {AsyncKeys, extractApiToken, getItem, removeItem} from './helpers';
+import {
+  AsyncKeys,
+  extractApiToken,
+  getItem,
+  removeItem,
+  rotateGuestStorageScope,
+} from './helpers';
 import {
   getLoginReturnToSnapshot,
   navigate,
 } from '../navigation/RootNavigationHelper';
+import {savePendingLoginReturnTo} from '../navigation/authReturn';
 // import {showMessage} from 'react-native-flash-message';
 import {store} from '../store/store';
 import {LogOut} from '../store/reducers/auth';
@@ -20,9 +27,11 @@ import {
 } from '../services/smartReminders';
 import {invalidateLocalPushDeviceRegistration} from '../services/pushDeviceState';
 import {roknApiUrl} from './apiBaseUrl';
-// Never fall back to the unrelated legacy medical API this mobile shell was
-// originally forked from. Expo inlines EXPO_PUBLIC_* values at build time, so
-// release/staging channels can point at their own Rokn host without a code change.
+import {secureRandomUuid} from '../utils/secureRandom';
+import {observeServerTime} from '../utils/serverClock';
+import {getInstallationId} from '../services/installationIdentity';
+// Expo inlines EXPO_PUBLIC_* values at build time; each release channel uses
+// its configured Rokn host and has no hidden fallback origin.
 export const mainUrl = roknApiUrl;
 export const headers = {
   Accept: 'application/json',
@@ -41,6 +50,7 @@ export type APIError = {
   message: string;
   code: number;
   errors: object;
+  diagnostic_code?: string;
   need_activation?: unknown;
 };
 export type APIData<DataType = unknown> = {
@@ -51,40 +61,151 @@ export type APIData<DataType = unknown> = {
 
 export type RoknRequestConfig = AxiosRequestConfig & {
   skipPersistedSessionInvalidation?: boolean;
+  skipAuthorization?: boolean;
+  /** Internal guard for the one safe retry after an adapter/network hand-off. */
+  roknNetworkRetryCount?: number;
+  /** Bearer captured when this request crossed the account boundary. */
+  roknSessionToken?: string;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
 
 export const InternalError = {
-  message: 'Internal error during request.',
+  message: 'تعذّر إكمال الطلب\nحاول مرة أخرى',
   errors: {},
   code: -500,
+  diagnostic_code: 'INTERNAL_REQUEST_ERROR',
 };
-export const onFulfilledRequest = (response: AxiosResponse) => response;
+const assertResponseStillBelongsToSession = async (
+  config?: Record<string, unknown>,
+) => {
+  const requestToken =
+    typeof config?.roknSessionToken === 'string'
+      ? config.roknSessionToken.trim()
+      : '';
+  if (!requestToken) return;
+  const activeToken = extractApiToken(await getItem(AsyncKeys.USER_DATA));
+  if (activeToken !== requestToken) {
+    throw new Error('ACCOUNT_CHANGED_DURING_REQUEST');
+  }
+};
+
+export const onFulfilledRequest = async (response: AxiosResponse) => {
+  const body = isRecord(response.data) ? response.data : undefined;
+  observeServerTime(body?.server_time ?? response.headers?.date);
+  await assertResponseStillBelongsToSession(
+    isRecord(response.config) ? response.config : undefined,
+  );
+  return response;
+};
 let handledExpiredToken: string | null = null;
+
+const bearerTokenUsedByRequest = (
+  config?: Record<string, unknown>,
+): string | null => {
+  const rawHeaders = config?.headers;
+  if (!rawHeaders || typeof rawHeaders !== 'object') return null;
+  const headerRecord = rawHeaders as Record<string, unknown>;
+  let authorization: unknown;
+  if (typeof headerRecord.get === 'function') {
+    authorization = (
+      headerRecord.get as (this: unknown, name: string) => unknown
+    ).call(rawHeaders, 'Authorization');
+  } else {
+    authorization = headerRecord.Authorization ?? headerRecord.authorization;
+  }
+  const matched = String(authorization || '').match(/^Bearer\s+(.+)$/i);
+  return matched?.[1]?.trim() || null;
+};
+
 export const onRejectedResponse = async (error: unknown): Promise<never> => {
   const errorRecord = isRecord(error) ? error : {};
   const response = isRecord(errorRecord.response)
     ? errorRecord.response
     : undefined;
+  const responseBody = isRecord(response?.data) ? response.data : undefined;
+  const responseHeaders = isRecord(response?.headers)
+    ? response.headers
+    : undefined;
+  observeServerTime(responseBody?.server_time ?? responseHeaders?.date);
   const config = isRecord(errorRecord.config) ? errorRecord.config : undefined;
+  await assertResponseStillBelongsToSession(config);
+  const method = String(config?.method || 'get').toLowerCase();
+  const errorCode = String(errorRecord.code || '').toUpperCase();
+  const errorMessage = String(errorRecord.message || '').toLowerCase();
+  const retryCount = Number(config?.roknNetworkRetryCount || 0);
+  const safeNetworkHandoffFailure =
+    !response &&
+    (errorCode === 'ERR_NETWORK' ||
+      errorCode === 'ENETUNREACH' ||
+      errorCode === 'ECONNRESET' ||
+      errorMessage.includes('network error'));
+
+  // Wi-Fi/mobile-data hand-offs commonly fail one socket while the device is
+  // already online through the other interface. Retry only read-only requests,
+  // once, and never replay a mutation whose server result may be unknown.
+  if (
+    safeNetworkHandoffFailure &&
+    retryCount < 1 &&
+    (method === 'get' || method === 'head')
+  ) {
+    const retryConfig = {
+      ...(config as RoknRequestConfig),
+      roknNetworkRetryCount: retryCount + 1,
+    };
+    await new Promise(resolve => setTimeout(resolve, 450));
+    return publicRequest.request(retryConfig).then(
+      value => value as never,
+      retryError => Promise.reject(retryError),
+    );
+  }
+
   if (
     response?.status === 401 &&
     config?.skipPersistedSessionInvalidation !== true
   ) {
     const session = await getItem(AsyncKeys.USER_DATA);
     const expiredToken = extractApiToken(session);
+    const rejectedToken = bearerTokenUsedByRequest(config);
     // Several requests can fail together. Handle this bearer once so the
-    // learner gets one Login screen instead of a stack of duplicates.
-    if (expiredToken && handledExpiredToken !== expiredToken) {
+    // learner gets one Login screen instead of a stack of duplicates. A late
+    // 401 from a request sent before reauthentication must never erase the
+    // newer session that is already durable on the device.
+    if (
+      expiredToken &&
+      rejectedToken === expiredToken &&
+      handledExpiredToken !== expiredToken
+    ) {
       handledExpiredToken = expiredToken;
       const returnTo = getLoginReturnToSnapshot();
+      // Persist before deleting the session. If Android kills the process
+      // while Login or the provider browser is opening, cold start restores
+      // the same course/lesson instead of silently dropping the learner home.
+      if (returnTo) {
+        await savePendingLoginReturnTo(returnTo).catch(() => undefined);
+      }
       cancelLearningReminders();
       await setSmartRemindersEnabled(false).catch(() => undefined);
       await invalidateLocalPushDeviceRegistration().catch(() => undefined);
+      await import('../components/VideoPlayer/courseLearningApi')
+        .then(module => module.quiesceLearningRuntime())
+        .catch(() => undefined);
+      await Promise.all([
+        import('../components/VideoPlayer/courseChat/persistence')
+          .then(module => module.quiesceCourseChatPersistence())
+          .catch(() => undefined),
+        import('../components/VideoPlayer/attachmentActions')
+          .then(module => module.quiescePrivateAttachmentDownloads())
+          .catch(() => undefined),
+      ]);
+      // A 401 asks for reauthentication; it is not account deletion. Keep the
+      // owner's scoped progress, pending submissions and editor drafts. If a
+      // different person signs in next, secureSession clears the previous
+      // scope before committing the replacement profile.
       await removeItem(AsyncKeys.IS_LOGIN);
       await removeItem(AsyncKeys.USER_DATA);
+      await rotateGuestStorageScope().catch(() => undefined);
       store.dispatch(LogOut());
       navigate('Login', returnTo ? {returnTo} : undefined);
     }
@@ -106,19 +227,27 @@ export const getExceptionPayload = (ex: unknown): APIError => {
     Object.prototype.hasOwnProperty.call(data, 'status') &&
     typeof data.status === 'number'
   ) {
+    const learnerMessage = /[\u0600-\u06ff]/u.test(data.message)
+      ? data.message
+      : 'تعذّر إكمال الطلب\nحاول مرة أخرى';
     return {
-      message: data.message,
+      message: learnerMessage,
       errors: isRecord(data.errors) ? data.errors : {},
       code: data.status,
+      diagnostic_code:
+        typeof data.code === 'string' && data.code.trim()
+          ? data.code.trim()
+          : 'API_REQUEST_REJECTED',
       need_activation: data.need_activation,
     };
   }
   return InternalError;
 };
 export const UnhandledError = {
-  message: 'Cannot handle error data.',
+  message: 'تعذّر قراءة الرد\nحاول مرة أخرى',
   errors: {},
   code: -400,
+  diagnostic_code: 'UNHANDLED_RESPONSE_ERROR',
 };
 export const useAPIData = <DataType>(
   response: APIData<DataType>,
@@ -160,8 +289,20 @@ export const responseConfig = async (config: InternalAxiosRequestConfig) => {
     }
   }
 
-  config.headers.set('Accept-language', language ?? 'ar');
+  const languageTag =
+    typeof language === 'string' &&
+    language.trim().toLowerCase().replace('_', '-').startsWith('en')
+      ? 'en'
+      : 'ar';
+  config.headers.set('Accept-Language', languageTag);
+  if (!config.headers.has('X-Request-Id')) {
+    config.headers.set('X-Request-Id', secureRandomUuid());
+  }
   config.headers.set('X-Rokn-Platform', Platform.OS);
+  const installationId = await getInstallationId();
+  if (installationId) {
+    config.headers.set('X-Rokn-Installation', installationId);
+  }
   config.headers.set('X-Rokn-App-Version', appConfig.expo.version);
   config.headers.set(
     'X-Rokn-App-Build',
@@ -173,8 +314,13 @@ export const responseConfig = async (config: InternalAxiosRequestConfig) => {
   );
 
   const apiToken = extractApiToken(userData);
-  if (apiToken && !config.headers.has('Authorization')) {
+  if (
+    apiToken &&
+    (config as RoknRequestConfig).skipAuthorization !== true &&
+    !config.headers.has('Authorization')
+  ) {
     config.headers.set('Authorization', `Bearer ${apiToken}`);
+    (config as RoknRequestConfig).roknSessionToken = apiToken;
   }
 
   return config;

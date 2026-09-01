@@ -7,6 +7,7 @@ namespace Tests\Feature;
 use App\Http\Controllers\Admin\UsersController;
 use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
@@ -33,10 +34,18 @@ final class UserDeactivationSecurityTest extends TestCase
             $table->timestamp('issued_at')->nullable();
             $table->timestamp('expired_at');
         });
+        Schema::create('user_device_tokens', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->string('device_token')->unique();
+            $table->string('device_type')->nullable();
+            $table->timestamps();
+        });
     }
 
     protected function tearDown(): void
     {
+        Schema::dropIfExists('user_device_tokens');
         Schema::dropIfExists('api_tokens');
         Schema::dropIfExists('users');
         parent::tearDown();
@@ -55,7 +64,12 @@ final class UserDeactivationSecurityTest extends TestCase
         $user->generateApiToken();
         self::assertSame(2, $user->apiTokens()->count());
 
-        app(UsersController::class)->deactive($user);
+        app(UsersController::class)->deactive(
+            Request::create('/dashboard/users/'.$user->id.'/deactive', 'POST', [
+                'expected_active' => true,
+            ]),
+            $user
+        );
 
         $user->refresh();
         self::assertFalse((bool) $user->active);

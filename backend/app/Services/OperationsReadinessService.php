@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 final class OperationsReadinessService
 {
+    public function __construct(private readonly RecoveryEvidenceService $recoveryEvidence) {}
+
     /** @return array<string, mixed>|null */
     public function mediaReconcileStatus(): ?array
     {
@@ -31,39 +32,24 @@ final class OperationsReadinessService
     public function backupReadiness(): array
     {
         $runbookPath = base_path('PRODUCTION_RUNBOOK.md');
-        $provider = trim((string) config('operations.backup_provider'));
-        $lastBackup = $this->parseDate(config('operations.backup_last_verified_at'));
-        $lastRestoreDrill = $this->parseDate(config('operations.restore_drill_verified_at'));
-        $backupMaximumAge = max(1, (int) config('operations.backup_max_age_hours', 26));
-        $drillMaximumAge = max(1, (int) config('operations.restore_drill_max_age_days', 90));
-
+        $recovery = $this->recoveryEvidence->readiness();
         $checks = [
             'runbook' => is_file($runbookPath),
-            'provider' => $provider !== '',
-            'recent_backup' => $lastBackup?->gte(now()->subHours($backupMaximumAge)) ?? false,
-            'recent_restore_drill' => $lastRestoreDrill?->gte(now()->subDays($drillMaximumAge)) ?? false,
-        ];
+            'recovery_mode_cleared' => !(bool) ($recovery['recovery_mode'] ?? false),
+        ] + (array) ($recovery['checks'] ?? []);
 
         return [
             'ready' => !in_array(false, $checks, true),
             'checks' => $checks,
-            'provider' => $provider !== '' ? $provider : null,
-            'last_backup_at' => $lastBackup,
-            'last_restore_drill_at' => $lastRestoreDrill,
+            'provider' => $recovery['provider'] ?? null,
+            'last_backup_at' => $recovery['last_backup_at'] ?? null,
+            'last_restore_drill_at' => $recovery['last_restore_drill_at'] ?? null,
+            'rpo_seconds' => $recovery['rpo_seconds'] ?? null,
+            'rto_seconds' => $recovery['rto_seconds'] ?? null,
+            'recovery_mode' => (bool) ($recovery['recovery_mode'] ?? false),
+            'purchases_allowed' => (bool) ($recovery['purchases_allowed'] ?? false),
             'runbook' => is_file($runbookPath) ? 'PRODUCTION_RUNBOOK.md' : null,
-            'note' => 'Read-only evidence. The dashboard never starts a backup or restore.',
+            'note' => 'Signed read-only evidence. The dashboard never starts a backup or restore.',
         ];
-    }
-
-    private function parseDate(mixed $value): ?Carbon
-    {
-        if (!is_string($value) || trim($value) === '') {
-            return null;
-        }
-        try {
-            return Carbon::parse($value);
-        } catch (Throwable) {
-            return null;
-        }
     }
 }

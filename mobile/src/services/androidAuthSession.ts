@@ -5,6 +5,7 @@ export type AndroidAuthSessionResult =
   | {type: 'cancel'};
 
 const AUTH_SESSION_TIMEOUT_MS = 10 * 60 * 1000;
+const DEEP_LINK_DELIVERY_GRACE_MS = 8000;
 
 export const openAndroidAuthSession = (
   startUrl: string,
@@ -15,8 +16,11 @@ export const openAndroidAuthSession = (
     let leftApp = false;
     let cancelTimer: ReturnType<typeof setTimeout> | undefined;
 
+    const isExpectedCallback = (url: string) =>
+      url === returnUrl || url.startsWith(`${returnUrl}?`);
+
     const redirectSubscription = Linking.addEventListener('url', event => {
-      if (event.url.startsWith(returnUrl)) {
+      if (isExpectedCallback(event.url)) {
         finish({type: 'success', url: event.url});
       }
     });
@@ -26,8 +30,14 @@ export const openAndroidAuthSession = (
         return;
       }
       if (state === 'active' && leftApp && !settled) {
-        // Android can emit active immediately before the deep-link event.
-        cancelTimer = setTimeout(() => finish({type: 'cancel'}), 750);
+        // Some Android builds resume the activity well before dispatching the
+        // OAuth deep link. A short grace period produced false cancellations
+        // on real devices even though the provider callback had succeeded.
+        if (cancelTimer) clearTimeout(cancelTimer);
+        cancelTimer = setTimeout(
+          () => finish({type: 'cancel'}),
+          DEEP_LINK_DELIVERY_GRACE_MS,
+        );
       }
     });
     const timeoutTimer = setTimeout(fail, AUTH_SESSION_TIMEOUT_MS);

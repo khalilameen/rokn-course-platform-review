@@ -7,6 +7,10 @@
     <div class="page-content">
         <h1>{{ __('about.heading') }}</h1>
 
+        @if(!empty($managedBody))
+            <div class="policy-content">{!! nl2br(e($managedBody)) !!}</div>
+        @else
+
         <h2>{{ __('about.mission_title') }}</h2>
         <p>{{ __('about.mission_text') }}</p>
 
@@ -38,5 +42,6 @@
                 <span class="skill-tag">{{ $skill }}</span>
             @endforeach
         </div>
+        @endif
     </div>
 @endsection

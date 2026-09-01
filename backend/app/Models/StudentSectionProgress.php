@@ -17,7 +17,8 @@ class StudentSectionProgress extends Model
     protected $fillable = [
         'user_id',
         'course_section_id',
-        'is_completed'
+        'is_completed',
+        'completed_at',
     ];
 
     /**
@@ -27,6 +28,7 @@ class StudentSectionProgress extends Model
      */
     protected $casts = [
         'is_completed' => 'boolean',
+        'completed_at' => 'datetime',
     ];
 
     /**

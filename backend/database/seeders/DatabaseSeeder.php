@@ -2,10 +2,13 @@
 
 namespace Database\Seeders;
 
+use Database\Seeders\Concerns\GuardsDevelopmentFixtures;
 use Illuminate\Database\Seeder;
 
 class DatabaseSeeder extends Seeder
 {
+    use GuardsDevelopmentFixtures;
+
     /**
      * Seed the application's database.
      *
@@ -13,17 +16,7 @@ class DatabaseSeeder extends Seeder
      */
     public function run()
     {
-        if (!config('demo.seed_enabled', false)) {
-            $this->command?->info('Demo experience seeding is disabled.');
-            return;
-        }
-
-        if (app()->environment('production') && !config('demo.allow_in_production', false)) {
-            $this->command?->warn(
-                'Demo seeding was blocked in production. Set ROKN_ALLOW_PRODUCTION_DEMO_SEED=true explicitly to opt in.'
-            );
-            return;
-        }
+        $this->guardDevelopmentFixtures();
 
         $this->call(RoknExperienceDemoSeeder::class);
     }

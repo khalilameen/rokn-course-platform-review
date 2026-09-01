@@ -23,3 +23,74 @@ export const errorMessage = (error: unknown, fallback = ''): string => {
   }
   return error instanceof Error && error.message ? error.message : fallback;
 };
+
+const hasArabic = (value: string) => /[\u0600-\u06ff]/.test(value);
+
+const diagnosticPattern =
+  /(?:https?:\/\/|www\.|sqlstate|exception|stack\s*trace|\bat\s+[^\s]+\.(?:php|tsx?|jsx?):\d+|[a-z]:\\|\/var\/|\/app\/|axios|openrouter|bunny(?:cdn)?|kashier|firebase|oauth|pkce|google\s*play|app\s*store|storekit|billingclient|authorization(?:signature|expire)?|access[_ -]?key|api[_ -]?key|\b[A-Z][A-Z0-9_]{2,}\b)/i;
+
+/**
+ * Converts trusted Arabic API copy into the same small visual language used by
+ * the app. Provider diagnostics and machine codes always stay behind the UI.
+ */
+export const learnerFacingText = (value: unknown, fallback = ''): string => {
+  const clean = (candidate: unknown) =>
+    String(candidate || '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\p{Cc}/gu, character =>
+        ['\n', '\r', '\t'].includes(character) ? character : ' ',
+      )
+      .trim();
+  const normalize = (candidate: string) =>
+    candidate
+      .replace(/\r\n?/g, '\n')
+      .replace(/[,،;؛:]+/g, '\n')
+      .replace(/([^\d])\.(?=\s|$)/g, '$1\n')
+      .replace(/\?/g, '؟')
+      .split('\n')
+      .map(line => line.replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .slice(0, 3)
+      .join('\n')
+      .slice(0, 240)
+      .trim();
+  const safeFallback = clean(fallback);
+  const normalizedFallback =
+    safeFallback &&
+    hasArabic(safeFallback) &&
+    !diagnosticPattern.test(safeFallback)
+      ? normalize(safeFallback)
+      : '';
+  const raw = clean(value);
+
+  if (!raw || !hasArabic(raw) || diagnosticPattern.test(raw)) {
+    return normalizedFallback;
+  }
+
+  return normalize(raw) || normalizedFallback;
+};
+
+/**
+ * API diagnostics are not product copy. Only pass through an Arabic message
+ * that is already suitable for the learner; otherwise keep the screen-owned
+ * fallback so an English controller message never leaks into the interface.
+ */
+export const learnerErrorMessage = (
+  error: unknown,
+  fallback: string,
+): string => {
+  const payload = errorPayload(error);
+  const errors = asRecord(payload.errors);
+  const candidates = [
+    ...(errors
+      ? Object.values(errors).flatMap(value =>
+          Array.isArray(value) ? value : [value],
+        )
+      : []),
+    payload.message,
+  ];
+  const localized = candidates
+    .map(value => learnerFacingText(value))
+    .find(Boolean);
+  return localized || learnerFacingText(fallback) || 'تعذّر إكمال الطلب';
+};

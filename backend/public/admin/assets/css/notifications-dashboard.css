@@ -31,4 +31,7 @@
 .notification-template-card__meta span { padding: 4px 8px; color: #4653c3; border-radius: 999px; background: #eef0ff; font-size: .7rem; font-weight: 800; }
 .notification-template-card__actions { display: flex; align-items: center; gap: 7px; }
 .notification-template-preview { display: block; width: 92px; height: 72px; margin-top: 8px; border-radius: 10px; object-fit: cover; }
+.notification-campaign-copy { display: flex; align-items: center; gap: 10px; min-width: 220px; }
+.notification-campaign-copy img { width: 48px; height: 48px; flex: 0 0 48px; border-radius: 12px; object-fit: cover; }
+.notification-campaign-copy span { display: inline-block; max-width: 360px; color: #666c82; white-space: pre-line; }
 @media (max-width: 720px) { .notification-template-card { grid-template-columns: 58px minmax(0, 1fr); } .notification-template-card__visual { width: 58px; height: 58px; } .notification-template-card__actions { grid-column: 1 / -1; justify-content: flex-end; } }

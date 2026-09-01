@@ -50,12 +50,6 @@
                         <option value="0" {{ old('is_active') == '0' ? 'selected' : '' }}>غير نشط</option>
                     </select>
                 </div>
-                <div class="col-md-3 mb-3">
-                    <label class="form-label">قابل للتكرار</label>
-                    <select name="is_repeatable" class="form-control">
-                        <option value="0" selected>مرة واحدة لكل حساب</option>
-                    </select>
-                </div>
             </div>
             <div class="row mt-2">
                 <div class="col-md-8 mb-3">
@@ -75,8 +69,25 @@
                     <label class="form-label">مهلة العودة بالثواني</label>
                     <input type="number" min="0" max="300" name="verification_delay_seconds" class="form-control" value="{{ old('verification_delay_seconds', 3) }}">
                 </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">مفتاح الحملة</label>
+                    <input type="text" name="campaign_key" class="form-control @error('campaign_key') is-invalid @enderror" value="{{ old('campaign_key') }}" placeholder="launch-2026-instagram">
+                    @error('campaign_key')<div class="invalid-feedback">{{ $message }}</div>@enderror
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">بداية الحملة</label>
+                    <input type="datetime-local" name="starts_at" class="form-control" value="{{ old('starts_at') }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">نهاية الحملة</label>
+                    <input type="datetime-local" name="ends_at" class="form-control" value="{{ old('ends_at') }}">
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">إجمالي المطالبات المتاحة</label>
+                    <input type="number" min="1" name="total_claim_limit" class="form-control" value="{{ old('total_claim_limit') }}" placeholder="بلا سقف">
+                </div>
             </div>
-            <div class="alert alert-info py-2">المهمة الخارجية تعمل بخطوتين: يبدأها الطالب ويفتح الرابط، ثم يعود للتطبيق ويطالب بالمكافأة. كل مهمة تُمنح مرة واحدة فقط لكل حساب.</div>
+            <div class="alert alert-info py-2">التوقيت بتوقيت القاهرة. كل حساب يستلم الحملة مرة واحدة والسقف الإجمالي يُحجز عند المطالبة.</div>
             <div class="coin-form-actions">
                 <button type="submit" class="btn btn-primary px-5 coin-form-action">حفظ</button>
                 <a href="{{ route('admin.coin-earning-methods.index') }}" class="btn btn-light px-5 coin-form-action">إلغاء</a>

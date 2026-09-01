@@ -81,7 +81,7 @@
                     </div>
                     <div class="form-group-modern">
                         <label class="form-label-modern">نص النافذة</label>
-                        <textarea class="form-control-modern" rows="3" maxlength="500" name="attachment_prompt_body" placeholder="الوحدة دي فيها ملفات جاهزة للتحميل...">{{ old('attachment_prompt_body', $course->attachment_prompt_body) }}</textarea>
+                        <textarea class="form-control-modern" rows="3" maxlength="500" name="attachment_prompt_body" placeholder="هذه الوحدة تتضمن ملفات تساعد الطالب على التطبيق">{{ old('attachment_prompt_body', $course->attachment_prompt_body) }}</textarea>
                     </div>
                     <div class="form-group-modern">
                         <label class="form-label-modern">نص زر الفتح</label>
@@ -119,51 +119,6 @@
                     </div>
                 </div>
 
-                    <div class="form-group-modern">
-                        <label for="students_count" class="form-label-modern">
-                            <i class="fa fa-users label-icon"></i>
-                            طلاب سابقون موثّقون
-                        </label>
-                        {!! Form::number('students_count', null, [
-                            'class' => 'form-control-modern' . ($errors->has('students_count') ? ' is-invalid' : ''),
-                            'id' => 'students_count',
-                            'placeholder' => '0',
-                            'min' => '0'
-                        ]) !!}
-                        @if ($errors->has('students_count'))
-                            <div class="invalid-feedback">
-                                <i class="fa fa-exclamation-circle"></i>
-                                {{ $errors->first('students_count') }}
-                            </div>
-                        @endif
-                        <div class="form-help">استخدمه فقط لطلاب سابقين قبل تشغيل النظام. المسجلون الجدد يُضافون تلقائيًا.</div>
-                    </div>
-
-
-                <div class="form-row">
-                    <div class="form-group-modern">
-                        <label for="price" class="form-label-modern">
-                            <i class="fa fa-money label-icon"></i>
-                            سعر الكورس (بالعملات)
-                        </label>
-                        {!! Form::number('price', null, [
-                            'class' => 'form-control-modern' . ($errors->has('price') ? ' is-invalid' : ''),
-                            'id' => 'price',
-                            'placeholder' => '0',
-                            'step' => '1',
-                            'min' => '0'
-                        ]) !!}
-                        @if ($errors->has('price'))
-                            <div class="invalid-feedback">
-                                <i class="fa fa-exclamation-circle"></i>
-                                {{ $errors->first('price') }}
-                            </div>
-                        @endif
-                        <div class="form-help">حدد سعر الكورس بالعملات الافتراضية</div>
-                    </div>
-
-                </div>
-
                 <div class="form-row">
                     <div class="form-group-modern">
                         <label class="checkbox-item {{ $course->is_main_course ? 'selected' : '' }}" for="is_main_course">
@@ -193,23 +148,27 @@
                     </div>
                 </div>
 
-                @if($course->is_coming_soon)
-                    <div class="form-row">
-                        <div class="form-group-modern">
-                            <label class="checkbox-item {{ $course->is_catalog_visible ? 'selected' : '' }}" for="is_catalog_visible">
-                                <div class="custom-checkbox">
-                                    <i class="fa fa-check{{ $course->is_catalog_visible ? '' : ' course-editor__check-icon--hidden' }}"></i>
+                <div class="form-row">
+                    <div class="form-group-modern">
+                        <label class="checkbox-item {{ $course->is_catalog_visible ? 'selected' : '' }}" for="is_catalog_visible">
+                            <div class="custom-checkbox">
+                                <i class="fa fa-check{{ $course->is_catalog_visible ? '' : ' course-editor__check-icon--hidden' }}"></i>
+                            </div>
+                            <div>
+                                <div class="course-editor__option-title">
+                                    {{ $course->is_coming_soon ? 'إظهار بطاقة «قريبًا» في التطبيق' : 'إظهار الكورس في التطبيق والبحث' }}
                                 </div>
-                                <div>
-                                    <div class="course-editor__option-title">إظهار بطاقة «قريبًا» في التطبيق</div>
-                                    <div class="course-editor__option-description">يظهر الغلاف والاسم فقط ولا يمكن فتح الكورس. لن تُعرض البطاقة قبل اكتمال الغلاف والمدرب والتصنيف والوصف.</div>
+                                <div class="course-editor__option-description">
+                                    {{ $course->is_coming_soon
+                                        ? 'لن تظهر البطاقة قبل اكتمال الغلاف والمحاضر والتصنيف والوصف'
+                                        : 'يمكن إخفاؤه من الاكتشاف مع بقاء وصول الطلاب المسجلين' }}
                                 </div>
-                                {!! Form::hidden('is_catalog_visible', 0) !!}
+                            </div>
+                            {!! Form::hidden('is_catalog_visible', 0) !!}
                             {!! Form::checkbox('is_catalog_visible', 1, $course->is_catalog_visible, ['id' => 'is_catalog_visible', 'class' => 'course-editor__native-checkbox']) !!}
-                            </label>
-                        </div>
+                        </label>
                     </div>
-                @endif
+                </div>
 
                 <div class="form-row">
                     <div class="form-group-modern">

@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use App\Support\RoknLocale;
+
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Config;
+use App\Services\PublicAppSettingsService;
 class Setting extends Model
 {
-    private const DEFAULT_COIN_RULES_AR = 'عملات ركن رصيد استخدام داخلي غير قابل للبيع أو التحويل أو السحب نقدًا. لديك عملات مكافآت وعملات مشتراة؛ عند فتح كورس تُستخدم المكافآت المؤهلة أولًا ثم العملات المشتراة. شراء العملات نهائي بعد تأكيد الدفع، وتبدأ مراجعة أي عطل يمنع الانتفاع عبر دعم ركن.';
-    private const DEFAULT_COIN_RULES_EN = 'Rokn Coins are internal credit that cannot be sold, transferred, or withdrawn as cash. Eligible reward coins are spent before paid coins. Coin purchases are final once payment is confirmed, and any service-failure review starts with Rokn Support.';
+    private const DEFAULT_COIN_RULES_AR = "استخدم عملات ركن عند شراء الكورسات والخدمات داخل التطبيق\nتظهر لك القيمة المتاحة قبل تأكيد الشراء";
+    private const DEFAULT_COIN_RULES_EN = "Use Rokn Coins for courses and services inside the app\nYou will see the available amount before confirming a purchase";
 
     protected $fillable = [
         'site_name_ar',
@@ -111,6 +113,16 @@ class Setting extends Model
         'bunny_security_key_secret',
     ];
 
+    protected static function booted(): void
+    {
+        static::saved(static function (): void {
+            PublicAppSettingsService::invalidate();
+        });
+        static::deleted(static function (): void {
+            PublicAppSettingsService::invalidate();
+        });
+    }
+
     /**
      * Legacy plaintext credentials are migration inputs only. Returning null
      * prevents any runtime service from silently falling back to them while
@@ -131,11 +143,10 @@ class Setting extends Model
      */
     public function getHowToUseCoinsAttribute(): ?string
     {
-        $lang = request()->header('Accept-Language', 'ar');
         $arabic = trim((string) ($this->attributes['how_to_use_coins_ar'] ?? ''));
         $english = trim((string) ($this->attributes['how_to_use_coins_en'] ?? ''));
 
-        if (str_starts_with(strtolower($lang), 'en')) {
+        if (!RoknLocale::isArabic()) {
             return $english !== '' ? $english : ($arabic !== '' ? $arabic : self::DEFAULT_COIN_RULES_EN);
         }
 

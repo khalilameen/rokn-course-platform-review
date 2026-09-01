@@ -22,7 +22,8 @@ class AdminNotificationsResource extends JsonResource
             'description_ar' => (string)$this->description_ar,
             'description_en' => (string)$this->description_en,
             'link' => (string)$this->link,
-            'image' => $this->image,
+            'image' => $this->public_image_url,
+            'image_url' => $this->public_image_url,
             'system_key' => $this->system_key,
             'surface' => (string) $this->surface,
             'action_label_ar' => (string) $this->action_label_ar,
@@ -32,9 +33,6 @@ class AdminNotificationsResource extends JsonResource
             'is_dismissible' => (bool) $this->is_dismissible,
             'priority' => (int) $this->priority,
             'cooldown_hours' => (int) $this->cooldown_hours,
-            'created_at' => (string)$this->created_at,
-            'updated_at' => (string)$this->updated_at
-            
         ];
     }
 }

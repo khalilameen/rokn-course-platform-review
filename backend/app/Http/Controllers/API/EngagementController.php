@@ -49,7 +49,7 @@ final class EngagementController extends Controller
         });
 
         if (!$method) {
-            return $responses->success(null, 'No eligible engagement message');
+            return $responses->success(null, 'لا توجد رسالة الآن');
         }
 
         $message = $messages->publicMessage('coin_offer', [
@@ -57,7 +57,7 @@ final class EngagementController extends Controller
             'coins' => (int) $method->coins_amount,
         ]);
         if (!$message) {
-            return $responses->success(null, 'Coin offer messages are disabled');
+            return $responses->success(null, 'رسائل العملات متوقفة الآن');
         }
 
         return $responses->success($message + [
@@ -65,6 +65,6 @@ final class EngagementController extends Controller
             'task_id' => (string) $method->id,
             'action_key' => (string) $method->action_key,
             'link' => '/wallet',
-        ], 'Next eligible engagement message retrieved successfully');
+        ], 'تم تحميل الرسالة المناسبة');
     }
 }

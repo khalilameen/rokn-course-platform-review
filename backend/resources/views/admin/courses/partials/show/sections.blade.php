@@ -74,6 +74,7 @@
                         <form class="course-section-delete-form" id="deleteSectionForm{{ $section->id }}" action="{{ route('admin.courses.sections.destroy', [$course, $section]) }}" method="post">
                             <input name="_method" type="hidden" value="DELETE">
                             @csrf
+                            <input type="hidden" name="authoring_version" value="{{ $course->authoring_version }}">
                         </form>
                     @endforeach
                 </div>

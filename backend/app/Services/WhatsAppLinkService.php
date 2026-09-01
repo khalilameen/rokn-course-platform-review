@@ -24,7 +24,11 @@ final readonly class WhatsAppLinkService
     /** @return array<string, mixed> */
     public function createLink(User $user, CoinEarningMethod $method): array
     {
-        if (!$method->is_active || $method->action_key !== 'link_whatsapp') {
+        if (
+            !$method->isAvailableNow()
+            || !$method->hasClaimCapacity()
+            || $method->action_key !== 'link_whatsapp'
+        ) {
             throw new \DomainException('task_unavailable');
         }
 
@@ -42,13 +46,17 @@ final readonly class WhatsAppLinkService
         $result = DB::transaction(function () use ($user, $method, $rawToken, $expiresAt): array {
             /** @var User $lockedUser */
             $lockedUser = User::query()->lockForUpdate()->findOrFail($user->id);
+            $lockedMethod = CoinEarningMethod::query()->lockForUpdate()->findOrFail($method->id);
+            if (!$lockedMethod->isAvailableNow() || !$lockedMethod->hasClaimCapacity()) {
+                throw new \DomainException('task_unavailable');
+            }
             $earning = $lockedUser->coinEarnings()
-                ->where('coin_earning_method_id', $method->id)
+                ->where('coin_earning_method_id', $lockedMethod->id)
                 ->first();
             $attempt = UserCoinTaskAttempt::query()->firstOrCreate(
                 [
                     'user_id' => $lockedUser->id,
-                    'coin_earning_method_id' => $method->id,
+                    'coin_earning_method_id' => $lockedMethod->id,
                 ],
                 [
                     'public_id' => (string) Str::uuid(),
@@ -64,13 +72,13 @@ final readonly class WhatsAppLinkService
 
             WhatsAppLinkToken::query()
                 ->where('user_id', $lockedUser->id)
-                ->where('coin_earning_method_id', $method->id)
+                ->where('coin_earning_method_id', $lockedMethod->id)
                 ->whereNull('consumed_at')
                 ->update(['consumed_at' => now()]);
 
             WhatsAppLinkToken::query()->create([
                 'user_id' => $lockedUser->id,
-                'coin_earning_method_id' => $method->id,
+                'coin_earning_method_id' => $lockedMethod->id,
                 'token_hash' => hash('sha256', $rawToken),
                 'expires_at' => $expiresAt,
             ]);
@@ -119,7 +127,9 @@ final readonly class WhatsAppLinkService
             /** @var User $user */
             $user = User::query()->lockForUpdate()->findOrFail($link->user_id);
             /** @var CoinEarningMethod $method */
-            $method = CoinEarningMethod::query()->findOrFail($link->coin_earning_method_id);
+            $method = CoinEarningMethod::query()
+                ->lockForUpdate()
+                ->findOrFail($link->coin_earning_method_id);
 
             if ($link->consumed_at) {
                 $alreadyClaimed = $user->coinEarnings()
@@ -168,17 +178,23 @@ final readonly class WhatsAppLinkService
             );
             $alreadyClaimed = $earning !== null
                 || $attempt->status === UserCoinTaskAttempt::STATUS_CLAIMED;
+            $rewardAvailable = $method->isAvailableNow() && $method->hasClaimCapacity();
             $coins = 0;
             $balance = (int) $user->wallet_coins;
 
-            if (!$alreadyClaimed) {
+            if (!$alreadyClaimed && $rewardAvailable) {
                 $transaction = $this->wallet->credit(
                     $user->id,
                     (int) $method->coins_amount,
                     'task_reward',
                     "coin-task:{$user->id}:{$method->id}",
                     $method,
-                    ['action_key' => $method->action_key, 'verified_by' => 'whatsapp_inbound'],
+                    [
+                        'action_key' => $method->action_key,
+                        'campaign_key' => $method->campaign_key,
+                        'verified_by' => 'whatsapp_inbound',
+                        'reward_timezone' => \App\Support\BusinessClock::timezoneName(),
+                    ],
                     WalletTransaction::BUCKET_REWARD
                 );
                 $user->coinEarnings()->firstOrCreate(

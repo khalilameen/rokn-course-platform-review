@@ -81,7 +81,12 @@ export const SkeletonBlock = ({
 export const CatalogueSkeleton = () => {
   const {gutter, railCardWidth} = useResponsiveLayout();
   return (
-    <View accessibilityLabel="جارٍ تجهيز الكورسات" style={{paddingTop: Spacing.md}}>
+    <View
+      accessible
+      accessibilityLabel="جارٍ تجهيز الكورسات"
+      accessibilityLiveRegion="polite"
+      accessibilityRole="progressbar"
+      style={{paddingTop: Spacing.md}}>
       <View style={{paddingHorizontal: gutter}}>
         <SkeletonBlock height={260} radius={Radius.xl} />
       </View>
@@ -106,7 +111,12 @@ export const CatalogueSkeleton = () => {
 };
 
 export const CourseDetailsSkeleton = () => (
-  <View accessibilityLabel="جارٍ تجهيز تفاصيل الكورس" style={styles.details}>
+  <View
+    accessible
+    accessibilityLabel="جارٍ تجهيز تفاصيل الكورس"
+    accessibilityLiveRegion="polite"
+    accessibilityRole="progressbar"
+    style={styles.details}>
     <SkeletonBlock height={28} width="92%" />
     <SkeletonBlock height={20} style={styles.detailLine} width="76%" />
     <SkeletonBlock height={20} style={styles.detailLine} width="58%" />
@@ -127,7 +137,12 @@ export const CourseDetailsSkeleton = () => (
 );
 
 export const LearningDashboardSkeleton = () => (
-  <View accessibilityLabel="جارٍ ترتيب ركنك" style={styles.dashboard}>
+  <View
+    accessible
+    accessibilityLabel="جارٍ ترتيب ركنك"
+    accessibilityLiveRegion="polite"
+    accessibilityRole="progressbar"
+    style={styles.dashboard}>
     {[0, 1, 2].map(row => (
       <View key={row} style={styles.learningRow}>
         <SkeletonBlock height={154} radius={Radius.lg} width={116} />
@@ -142,7 +157,12 @@ export const LearningDashboardSkeleton = () => (
 );
 
 export const SavedLibrarySkeleton = () => (
-  <View accessibilityLabel="جارٍ تجهيز محفوظاتك" style={styles.dashboard}>
+  <View
+    accessible
+    accessibilityLabel="جارٍ تجهيز محفوظاتك"
+    accessibilityLiveRegion="polite"
+    accessibilityRole="progressbar"
+    style={styles.dashboard}>
     <View style={styles.savedFilters}>
       <SkeletonBlock height={38} radius={Radius.pill} width={96} />
       <SkeletonBlock height={38} radius={Radius.pill} width={112} />

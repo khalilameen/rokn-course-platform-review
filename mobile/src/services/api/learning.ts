@@ -3,7 +3,14 @@ import {accountScopedStorageKey} from '../../constants/helpers';
 import {publicRequest} from '../../constants/api';
 import type {DemoCourse} from '../../data/demoContent';
 import {getLearningCourses} from './courses';
-import {payload, resourceList} from './common';
+import {
+  firstBoolean,
+  isApiRecord,
+  isResourceListPayload,
+  payload,
+  resourceList,
+} from './common';
+import {isServerTimestampFresh, serverNowMs} from '../../utils/serverClock';
 
 type EarnedBadgeDto = {
   id?: unknown;
@@ -20,7 +27,11 @@ type EarnedBadgeDto = {
 
 type ProfileLearningDto = {earned_badges?: unknown};
 type StreakDayDto = {has_streak?: unknown; date?: unknown};
-type StreakDto = {week?: {days?: unknown}};
+type StreakDto = {
+  week?: {days?: unknown};
+  current_streak?: unknown;
+  last_streak_before_gap?: unknown;
+};
 
 type LearningPathLevelDto = {
   id?: unknown;
@@ -49,6 +60,7 @@ type SavedLessonDto = {
   course_id?: unknown;
   title?: unknown;
   duration_minutes?: unknown;
+  duration_seconds?: unknown;
   image?: unknown;
 };
 
@@ -61,7 +73,8 @@ type SavedLessonsPayloadDto = {
   };
 };
 
-const SAVED_LESSONS_CACHE_KEY = '@rokn/saved-lessons/v1';
+const SAVED_LESSONS_CACHE_KEY = '@rokn/saved-lessons/v2';
+const SAVED_LESSONS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export type LearningCourse = {
   id: string;
@@ -75,6 +88,7 @@ export type LearningCourse = {
   lastLessonTitle?: string;
   nextLessonId?: string;
   nextLessonTitle?: string;
+  nextSectionType?: string;
   lastWatchedAt?: string;
 };
 
@@ -92,6 +106,7 @@ export type LearningDashboard = {
     earnedAt?: string;
   }>;
   activityDays: string[];
+  currentStreakDays: number;
 };
 
 export type LearningPathLevel = {
@@ -128,11 +143,38 @@ const mapPathLevel = (
 };
 
 const getLearningPaths = async (): Promise<LearningPathProgress[]> => {
-  const data = payload<LearningPathDto[]>(
+  const data = payload<unknown>(
     await publicRequest.get('user/paths'),
   );
+  if (!isResourceListPayload(data)) {
+    throw new Error('LEARNING_PATHS_CONTRACT_INVALID');
+  }
   return resourceList<LearningPathDto>(data).flatMap(item => {
-    if (item.path?.id === null || item.path?.id === undefined) return [];
+    if (
+      !isApiRecord(item) ||
+      !isApiRecord(item.path) ||
+      item.path.id === null ||
+      item.path.id === undefined
+    ) {
+      return [];
+    }
+    const currentLevel = mapPathLevel(item.current_level);
+    const nextLevel = mapPathLevel(item.next_level);
+    const seenLevelIds = new Set<string>();
+    const upcomingLevels = resourceList<LearningPathLevelDto>(item.levels)
+      .map(mapPathLevel)
+      .filter((level): level is LearningPathLevel => {
+        if (
+          !level ||
+          level.id === currentLevel?.id ||
+          seenLevelIds.has(level.id)
+        ) {
+          return false;
+        }
+        seenLevelIds.add(level.id);
+        return true;
+      })
+      .sort((left, right) => left.order - right.order);
     return [
       {
         id: String(item.path.id),
@@ -142,11 +184,9 @@ const getLearningPaths = async (): Promise<LearningPathProgress[]> => {
             item.path.title_en ||
             'مسارك المهني',
         ),
-        currentLevel: mapPathLevel(item.current_level),
-        nextLevel: mapPathLevel(item.next_level),
-        upcomingLevels: resourceList<LearningPathLevelDto>(item.levels)
-          .map(mapPathLevel)
-          .filter((level): level is LearningPathLevel => Boolean(level)),
+        currentLevel,
+        nextLevel,
+        upcomingLevels,
         progress: Math.min(
           100,
           Math.max(0, Number(item.progress_percentage) || 0),
@@ -165,20 +205,98 @@ const getLearningPaths = async (): Promise<LearningPathProgress[]> => {
   });
 };
 
-const LEARNING_DASHBOARD_CACHE = '@rokn/learning-dashboard/v1';
+const LEARNING_DASHBOARD_CACHE = '@rokn/learning-dashboard/v2';
+const LEARNING_DASHBOARD_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+
+type LearningDashboardCache = {
+  version: 2;
+  savedAt: number;
+  dashboard: LearningDashboard;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const normalizeCachedLearningDashboard = (
+  value: unknown,
+): LearningDashboard | null => {
+  if (!isRecord(value)) return null;
+  const courses = Array.isArray(value.courses)
+    ? value.courses.filter(
+        (course): course is LearningCourse =>
+          isRecord(course) &&
+          typeof course.id === 'string' &&
+          course.id.length > 0 &&
+          typeof course.title === 'string' &&
+          Number.isFinite(course.progress) &&
+          Number.isFinite(course.completedSections) &&
+          Number.isFinite(course.totalSections),
+      )
+    : [];
+  const paths = Array.isArray(value.paths)
+    ? value.paths.filter(
+        (path): path is LearningPathProgress =>
+          isRecord(path) &&
+          typeof path.id === 'string' &&
+          path.id.length > 0 &&
+          typeof path.title === 'string' &&
+          Array.isArray(path.upcomingLevels) &&
+          Number.isFinite(path.progress) &&
+          Number.isFinite(path.remainingToNextLevel),
+      )
+    : [];
+  const badges = Array.isArray(value.badges)
+    ? value.badges.filter(
+        (badge): badge is LearningDashboard['badges'][number] =>
+          isRecord(badge) &&
+          typeof badge.id === 'string' &&
+          badge.id.length > 0 &&
+          typeof badge.title === 'string',
+      )
+    : [];
+  const activityDays = Array.isArray(value.activityDays)
+    ? value.activityDays.filter(
+        (day): day is string =>
+          typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day),
+      )
+    : [];
+  const currentStreakDays = Number(value.currentStreakDays);
+  if (!Number.isFinite(currentStreakDays)) return null;
+  return {
+    courses: courses.slice(0, 100),
+    paths: paths.slice(0, 50),
+    badges: badges.slice(0, 200),
+    activityDays: Array.from(new Set(activityDays)).slice(-31),
+    currentStreakDays: Math.max(0, Math.floor(currentStreakDays)),
+  };
+};
 
 export const getCachedLearningDashboard = async () => {
   try {
     const raw = await AsyncStorage.getItem(
       await accountScopedStorageKey(LEARNING_DASHBOARD_CACHE),
     );
-    return raw ? (JSON.parse(raw) as LearningDashboard) : null;
+    if (!raw) return null;
+    const cached = JSON.parse(raw) as Partial<LearningDashboardCache>;
+    if (
+      cached.version !== 2 ||
+      !isServerTimestampFresh(
+        Number(cached.savedAt),
+        LEARNING_DASHBOARD_CACHE_TTL_MS,
+      )
+    ) {
+      return null;
+    }
+    return normalizeCachedLearningDashboard(cached.dashboard);
   } catch {
     return null;
   }
 };
 
 export const getLearningDashboard = async (): Promise<LearningDashboard> => {
+  const dashboardCacheKey = await accountScopedStorageKey(
+    LEARNING_DASHBOARD_CACHE,
+  );
   const [profileResult, streakResult, learningResult, pathsResult] =
     await Promise.allSettled([
       publicRequest.get('user/profile'),
@@ -186,9 +304,11 @@ export const getLearningDashboard = async (): Promise<LearningDashboard> => {
       getLearningCourses(),
       getLearningPaths(),
     ]);
-  if (profileResult.status === 'rejected') throw profileResult.reason;
   if (learningResult.status === 'rejected') throw learningResult.reason;
-  const profile = payload<ProfileLearningDto>(profileResult.value);
+  const profile =
+    profileResult.status === 'fulfilled'
+      ? payload<ProfileLearningDto>(profileResult.value)
+      : {};
   const streak =
     streakResult.status === 'fulfilled'
       ? payload<StreakDto>(streakResult.value)
@@ -196,28 +316,51 @@ export const getLearningDashboard = async (): Promise<LearningDashboard> => {
   const dashboard: LearningDashboard = {
     courses: learningResult.value,
     paths: pathsResult.status === 'fulfilled' ? pathsResult.value : [],
-    badges: resourceList<EarnedBadgeDto>(profile.earned_badges).map(badge => ({
-      id: String(badge.id),
-      levelId: badge.level_id ? String(badge.level_id) : undefined,
-      title: String(badge.name_ar || badge.name_en || 'شارة مهنية'),
-      imageUrl: badge.badge_image ? String(badge.badge_image) : undefined,
-      courseId: badge.course_id ? String(badge.course_id) : undefined,
-      courseTitle:
-        badge.course_name_ar || badge.course_name_en
-          ? String(badge.course_name_ar || badge.course_name_en)
-          : undefined,
-      track: badge.track ? String(badge.track) : undefined,
-      earnedAt: badge.earned_at ? String(badge.earned_at) : undefined,
-    })),
+    badges: resourceList<EarnedBadgeDto>(profile.earned_badges).flatMap(
+      badge => {
+        const id = String(badge.id ?? '').trim();
+        if (!id) return [];
+        return [
+          {
+            id,
+            levelId: badge.level_id ? String(badge.level_id) : undefined,
+            title: String(badge.name_ar || badge.name_en || 'شارة مهنية'),
+            imageUrl: badge.badge_image ? String(badge.badge_image) : undefined,
+            courseId: badge.course_id ? String(badge.course_id) : undefined,
+            courseTitle:
+              badge.course_name_ar || badge.course_name_en
+                ? String(badge.course_name_ar || badge.course_name_en)
+                : undefined,
+            track: badge.track ? String(badge.track) : undefined,
+            earnedAt: badge.earned_at ? String(badge.earned_at) : undefined,
+          },
+        ];
+      },
+    ),
     activityDays: resourceList<StreakDayDto>(streak.week?.days)
-      .filter(day => Boolean(day?.has_streak) && typeof day?.date === 'string')
+      .filter(
+        day =>
+          firstBoolean(day?.has_streak) === true &&
+          typeof day?.date === 'string',
+      )
       .map(day => String(day.date)),
+    currentStreakDays: Math.max(
+      0,
+      Number(
+        streak.current_streak ?? streak.last_streak_before_gap ?? 0,
+      ) || 0,
+    ),
   };
-  // Keep a bounded metadata snapshot; media is never stored here.
+  // The backend already caps active courses at 100. Keeping the complete
+  // metadata set prevents older active courses from disappearing offline.
   await AsyncStorage.setItem(
-    await accountScopedStorageKey(LEARNING_DASHBOARD_CACHE),
-    JSON.stringify({...dashboard, courses: dashboard.courses.slice(0, 12)}),
-  );
+    dashboardCacheKey,
+    JSON.stringify({
+      version: 2,
+      savedAt: serverNowMs(),
+      dashboard: {...dashboard, courses: dashboard.courses.slice(0, 100)},
+    } satisfies LearningDashboardCache),
+  ).catch(() => undefined);
   return dashboard;
 };
 
@@ -240,15 +383,47 @@ export type SavedLessonsPage = {
   fromCache: boolean;
 };
 
-const savedLessonsCacheKey = () =>
-  accountScopedStorageKey(SAVED_LESSONS_CACHE_KEY);
+const savedLessonsCacheKey = (capturedKey?: string) =>
+  capturedKey
+    ? Promise.resolve(capturedKey)
+    : accountScopedStorageKey(SAVED_LESSONS_CACHE_KEY);
 
-const readSavedLessonsCache = async (): Promise<SavedLesson[] | null> => {
+const readSavedLessonsCache = async (
+  capturedKey?: string,
+): Promise<SavedLesson[] | null> => {
   try {
-    const raw = await AsyncStorage.getItem(await savedLessonsCacheKey());
+    const raw = await AsyncStorage.getItem(
+      await savedLessonsCacheKey(capturedKey),
+    );
     if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : null;
+    const parsed = JSON.parse(raw) as {
+      version?: unknown;
+      savedAt?: unknown;
+      lessons?: unknown;
+    };
+    if (
+      parsed?.version !== 2 ||
+      !isServerTimestampFresh(
+        Number(parsed.savedAt),
+        SAVED_LESSONS_CACHE_TTL_MS,
+      ) ||
+      !Array.isArray(parsed.lessons)
+    ) {
+      return null;
+    }
+    return parsed.lessons.filter(
+      (lesson): lesson is SavedLesson =>
+        isRecord(lesson) &&
+        typeof lesson.id === 'string' &&
+        lesson.id.length > 0 &&
+        typeof lesson.folderId === 'string' &&
+        lesson.folderId.length > 0 &&
+        typeof lesson.courseId === 'string' &&
+        lesson.courseId.length > 0 &&
+        typeof lesson.title === 'string' &&
+        typeof lesson.courseTitle === 'string' &&
+        typeof lesson.duration === 'string',
+    );
   } catch {
     return null;
   }
@@ -260,27 +435,46 @@ export const getSavedLessonsPage = async (
 ): Promise<SavedLessonsPage> => {
   const safePage = Math.max(1, Math.floor(page));
   const safePerPage = Math.min(50, Math.max(1, Math.floor(perPage)));
+  const capturedCacheKey = await savedLessonsCacheKey();
   try {
-    const data = payload<SavedLessonsPayloadDto>(
+    const rawData = payload<unknown>(
       await publicRequest.get('saved-lessons', {
         params: {page: safePage, per_page: safePerPage},
       }),
     );
+    if (!isRecord(rawData) || !Array.isArray(rawData.lessons)) {
+      throw new Error('SAVED_LESSONS_CONTRACT_INVALID');
+    }
+    const data = rawData as SavedLessonsPayloadDto;
     const lessons = resourceList<SavedLessonDto>(data.lessons).flatMap(
       lesson => {
         if (lesson?.id === null || lesson?.id === undefined) return [];
+        const courseId = String(
+          lesson.course?.id ?? lesson.course_id ?? '',
+        ).trim();
+        if (!courseId) return [];
         return resourceList<SavedFolderDto>(lesson.folder_memberships)
           .filter(folder => folder?.id !== null && folder?.id !== undefined)
           .map(folder => ({
             id: String(lesson.id),
             folderId: String(folder.id),
             folderName: String(folder.name || 'المشاهدة لاحقًا'),
-            courseId: String(lesson.course?.id || lesson.course_id || ''),
+            courseId,
             title: String(lesson.title || 'مقطع محفوظ'),
             courseTitle: String(lesson.course?.title || 'كورس ركن'),
-            duration: `${String(
-              Math.floor(Number(lesson.duration_minutes || 0)),
-            ).padStart(2, '0')}:00`,
+            duration: (() => {
+              const seconds = Math.max(
+                0,
+                Math.floor(
+                  Number(lesson.duration_seconds) ||
+                    Number(lesson.duration_minutes || 0) * 60,
+                ),
+              );
+              return `${String(Math.floor(seconds / 60)).padStart(
+                2,
+                '0',
+              )}:${String(seconds % 60).padStart(2, '0')}`;
+            })(),
             imageUrl:
               lesson.image || lesson.course?.image
                 ? String(lesson.image || lesson.course?.image)
@@ -299,8 +493,12 @@ export const getSavedLessonsPage = async (
     );
     if (currentPage === 1) {
       await AsyncStorage.setItem(
-        await savedLessonsCacheKey(),
-        JSON.stringify(lessons),
+        capturedCacheKey,
+        JSON.stringify({
+          version: 2,
+          savedAt: serverNowMs(),
+          lessons,
+        }),
       ).catch(() => undefined);
     }
     return {
@@ -312,7 +510,10 @@ export const getSavedLessonsPage = async (
     };
   } catch (error) {
     // Only page one has an offline snapshot; later-page failures remain errors.
-    const cached = safePage === 1 ? await readSavedLessonsCache() : null;
+    const cached =
+      safePage === 1
+        ? await readSavedLessonsCache(capturedCacheKey)
+        : null;
     if (cached) {
       return {
         lessons: cached,
@@ -331,18 +532,28 @@ export const getSavedLessons = async (): Promise<SavedLesson[]> =>
   (await getSavedLessonsPage()).lessons;
 
 export const deleteSavedLesson = async (folderId: string, lessonId: string) => {
+  const normalizedFolderId = String(folderId).trim();
+  const normalizedLessonId = String(lessonId).trim();
+  if (!/^\d+$/.test(normalizedFolderId) || !/^\d+$/.test(normalizedLessonId)) {
+    throw new Error('INVALID_SAVED_LESSON_ROUTE');
+  }
+  const capturedCacheKey = await savedLessonsCacheKey();
   const response = await publicRequest.delete(
-    `saved-folders/${folderId}/lessons/${lessonId}`,
+    `saved-folders/${normalizedFolderId}/lessons/${normalizedLessonId}`,
   );
-  const cached = await readSavedLessonsCache();
+  const cached = await readSavedLessonsCache(capturedCacheKey);
   if (cached) {
     await AsyncStorage.setItem(
-      await savedLessonsCacheKey(),
-      JSON.stringify(
-        cached.filter(
-          lesson => lesson.folderId !== folderId || lesson.id !== lessonId,
+      capturedCacheKey,
+      JSON.stringify({
+        version: 2,
+        savedAt: serverNowMs(),
+        lessons: cached.filter(
+          lesson =>
+            lesson.folderId !== normalizedFolderId ||
+            lesson.id !== normalizedLessonId,
         ),
-      ),
+      }),
     ).catch(() => undefined);
   }
   return response;

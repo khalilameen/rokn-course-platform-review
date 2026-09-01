@@ -10,13 +10,14 @@ import {
   type Purchase,
 } from 'expo-iap';
 import {publicRequest} from '../constants/api';
+import {accountScopedStorageKey} from '../constants/helpers';
 import {
   DISTRIBUTION_CHANNEL,
   IS_APP_STORE_DISTRIBUTION,
   IS_PLAY_DISTRIBUTION,
 } from '../constants/distribution';
 import type {DemoCoinPackage} from './demoExperience';
-import {payload} from './api/common';
+import {firstBoolean, payload} from './api/common';
 import {reportClientError} from './operationalTelemetry';
 
 type StoreBillingContext = {
@@ -41,6 +42,7 @@ export type NativeCoinCheckoutResult = {
 
 type ActivePurchase = {
   productId: string;
+  accountScope: string;
   resolve: (value: NativeCoinCheckoutResult) => void;
   reject: (reason?: unknown) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -48,13 +50,42 @@ type ActivePurchase = {
 
 let connectionPromise: Promise<void> | null = null;
 let listenersReady = false;
-let outstandingReconciled = false;
 let activePurchase: ActivePurchase | null = null;
-const processing = new Map<string, Promise<NativeCoinCheckoutResult>>();
+const processing = new Map<
+  string,
+  {accountScope: string; promise: Promise<NativeCoinCheckoutResult>}
+>();
+const reconciliationFlights = new Map<
+  string,
+  Promise<{pending: boolean; reconciled: number}>
+>();
+const emittedCredits = new Set<string>();
+const MAX_EMITTED_CREDIT_KEYS = 128;
 const creditListeners = new Set<(result: NativeCoinCheckoutResult) => void>();
 
 const emitCredit = (result: NativeCoinCheckoutResult) => {
   if (result.success) creditListeners.forEach(listener => listener(result));
+};
+
+const emitPurchaseCredit = (
+  purchase: Purchase,
+  result: NativeCoinCheckoutResult,
+  accountScope: string,
+) => {
+  const key = purchaseKey(purchase);
+  if (!result.success || emittedCredits.has(key)) return;
+  void accountScopedStorageKey('@rokn/native-store-reconciliation/v1').then(
+    currentScope => {
+      if (currentScope !== accountScope || emittedCredits.has(key)) return;
+      emittedCredits.add(key);
+      while (emittedCredits.size > MAX_EMITTED_CREDIT_KEYS) {
+        const oldest = emittedCredits.values().next().value;
+        if (typeof oldest !== 'string') break;
+        emittedCredits.delete(oldest);
+      }
+      emitCredit(result);
+    },
+  );
 };
 
 const provider = () => {
@@ -67,8 +98,8 @@ const packageProductId = (coinPackage: DemoCoinPackage) =>
   IS_PLAY_DISTRIBUTION
     ? coinPackage.storeProductIds?.google
     : IS_APP_STORE_DISTRIBUTION
-      ? coinPackage.storeProductIds?.apple
-      : undefined;
+    ? coinPackage.storeProductIds?.apple
+    : undefined;
 
 const purchaseTransactionId = (purchase: Purchase) =>
   'transactionId' in purchase && purchase.transactionId
@@ -89,9 +120,15 @@ const cancelledError = (error: {code?: unknown}) => {
 
 const settleActive = (
   productId: string,
+  accountScope: string,
   action: (active: ActivePurchase) => void,
 ) => {
-  if (!activePurchase || activePurchase.productId !== productId) return;
+  if (
+    !activePurchase ||
+    activePurchase.productId !== productId ||
+    activePurchase.accountScope !== accountScope
+  )
+    return;
   const current = activePurchase;
   activePurchase = null;
   clearTimeout(current.timer);
@@ -100,6 +137,7 @@ const settleActive = (
 
 const verifyAndFinish = async (
   purchase: Purchase,
+  accountScope: string,
 ): Promise<NativeCoinCheckoutResult> => {
   if (purchase.purchaseState === 'pending') {
     return {
@@ -119,7 +157,12 @@ const verifyAndFinish = async (
 
   const key = purchaseKey(purchase);
   const existing = processing.get(key);
-  if (existing) return existing;
+  if (existing) {
+    if (existing.accountScope !== accountScope) {
+      throw new Error('STORE_PURCHASE_ACCOUNT_CHANGED');
+    }
+    return existing.promise;
+  }
 
   const operation: Promise<NativeCoinCheckoutResult> = (async () => {
     const response = await publicRequest.post('store-purchases/verify', {
@@ -129,8 +172,12 @@ const verifyAndFinish = async (
       transaction_id: purchaseTransactionId(purchase),
     });
     const verified = payload<StoreVerificationResult>(response);
-    if (verified.finalize_transaction !== true) {
+    if (firstBoolean(verified.finalize_transaction) !== true) {
       throw new Error('STORE_SERVER_DID_NOT_AUTHORIZE_FINALIZATION');
+    }
+    const coinsAdded = Number(verified.coins_added);
+    if (!Number.isSafeInteger(coinsAdded) || coinsAdded <= 0) {
+      throw new Error('STORE_VERIFICATION_CONTRACT_INVALID');
     }
 
     // Consumables are finalized only after the backend has atomically recorded
@@ -142,30 +189,39 @@ const verifyAndFinish = async (
       success: true,
       pending: false,
       cancelled: false,
-      coinsAdded: Math.max(0, Number(verified.coins_added || 0)),
+      coinsAdded,
       orderRef: purchaseTransactionId(purchase),
       demo: false,
     };
   })();
-  processing.set(key, operation);
+  processing.set(key, {accountScope, promise: operation});
   try {
     return await operation;
   } finally {
-    processing.delete(key);
+    if (processing.get(key)?.promise === operation) processing.delete(key);
   }
 };
 
 const handlePurchaseUpdate = async (purchase: Purchase) => {
+  const accountScope = await accountScopedStorageKey(
+    '@rokn/native-store-reconciliation/v1',
+  );
   try {
-    const result = await verifyAndFinish(purchase);
-    emitCredit(result);
-    settleActive(purchase.productId, active => active.resolve(result));
+    const result = await verifyAndFinish(purchase, accountScope);
+    emitPurchaseCredit(purchase, result, accountScope);
+    settleActive(purchase.productId, accountScope, active =>
+      active.resolve(result),
+    );
   } catch (error: unknown) {
     reportClientError(
-      error instanceof Error ? error : new Error('native_store_verification_failed'),
+      error instanceof Error
+        ? error
+        : new Error('native_store_verification_failed'),
       {source: 'native_store_billing'},
     );
-    settleActive(purchase.productId, active => active.reject(error));
+    settleActive(purchase.productId, accountScope, active =>
+      active.reject(error),
+    );
   }
 };
 
@@ -190,7 +246,9 @@ const installListeners = () => {
       });
       return;
     }
-    current.reject(new Error(String(error.code || error.message || 'STORE_PURCHASE_FAILED')));
+    current.reject(
+      new Error(String(error.code || error.message || 'STORE_PURCHASE_FAILED')),
+    );
   });
 };
 
@@ -212,20 +270,60 @@ const ensureConnection = async () => {
 };
 
 const reconcileOutstandingPurchases = async () => {
-  if (outstandingReconciled) return;
-  const purchases = await getAvailablePurchases({
-    alsoPublishToEventListenerIOS: false,
-    onlyIncludeActiveItemsIOS: false,
-  });
-  for (const purchase of purchases) {
-    if (purchase.purchaseState === 'purchased') {
-      // Fail closed: starting another charge while an earlier consumable is
-      // still unverified can double-charge the learner. The next refresh
-      // retries this exact store transaction.
-      emitCredit(await verifyAndFinish(purchase));
+  const scope = await accountScopedStorageKey(
+    '@rokn/native-store-reconciliation/v1',
+  );
+  const existing = reconciliationFlights.get(scope);
+  if (existing) return existing;
+
+  const operation = (async () => {
+    const purchases = await getAvailablePurchases({
+      alsoPublishToEventListenerIOS: false,
+      onlyIncludeActiveItemsIOS: false,
+    });
+    let pending = false;
+    let reconciled = 0;
+    for (const purchase of purchases) {
+      if (purchase.purchaseState === 'pending') {
+        pending = true;
+        continue;
+      }
+      if (purchase.purchaseState !== 'purchased') continue;
+
+      try {
+        const result = await verifyAndFinish(purchase, scope);
+        emitPurchaseCredit(purchase, result, scope);
+        settleActive(purchase.productId, scope, active =>
+          active.resolve(result),
+        );
+        reconciled += result.success ? 1 : 0;
+      } catch (error: unknown) {
+        // One unresolved receipt must not hide later receipts in the queue.
+        // It still blocks a second purchase until it can be verified, because
+        // finishing or ignoring it locally could lose a paid transaction.
+        pending = true;
+        reportClientError(
+          error instanceof Error
+            ? error
+            : new Error('native_store_reconciliation_failed'),
+          {source: 'native_store_reconciliation'},
+        );
+        settleActive(purchase.productId, scope, active => active.reject(error));
+      }
     }
+    return {pending, reconciled};
+  })();
+  reconciliationFlights.set(scope, operation);
+  try {
+    return await operation;
+  } finally {
+    reconciliationFlights.delete(scope);
   }
-  outstandingReconciled = true;
+};
+
+export const reconcileNativeStorePurchases = async () => {
+  await ensureConnection();
+  return reconcileOutstandingPurchases();
 };
 
 export const hydrateNativeStorePackages = async (
@@ -234,7 +332,10 @@ export const hydrateNativeStorePackages = async (
   await ensureConnection();
   await reconcileOutstandingPurchases();
   const configured = packages
-    .map(coinPackage => ({coinPackage, productId: packageProductId(coinPackage)}))
+    .map(coinPackage => ({
+      coinPackage,
+      productId: packageProductId(coinPackage),
+    }))
     .filter(
       (entry): entry is {coinPackage: DemoCoinPackage; productId: string} =>
         Boolean(entry.productId),
@@ -250,13 +351,15 @@ export const hydrateNativeStorePackages = async (
   return configured.flatMap(({coinPackage, productId}) => {
     const product = byId.get(productId);
     if (!product) return [];
-    return [{
-      ...coinPackage,
-      price: Number.isFinite(Number(product.price))
-        ? Number(product.price)
-        : coinPackage.price,
-      displayPrice: product.displayPrice,
-    }];
+    return [
+      {
+        ...coinPackage,
+        price: Number.isFinite(Number(product.price))
+          ? Number(product.price)
+          : coinPackage.price,
+        displayPrice: product.displayPrice,
+      },
+    ];
   });
 };
 
@@ -268,11 +371,17 @@ export const purchaseNativeCoinPackage = async (
   if (activePurchase) throw new Error('STORE_PURCHASE_ALREADY_IN_PROGRESS');
 
   await ensureConnection();
-  await reconcileOutstandingPurchases();
+  const accountScope = await accountScopedStorageKey(
+    '@rokn/native-store-reconciliation/v1',
+  );
+  const outstanding = await reconcileOutstandingPurchases();
+  if (outstanding.pending) throw new Error('STORE_PURCHASE_PENDING');
   const context = payload<StoreBillingContext>(
     await publicRequest.get('store-billing/context'),
   );
-  const googleAccount = String(context.google_obfuscated_account_id || '').trim();
+  const googleAccount = String(
+    context.google_obfuscated_account_id || '',
+  ).trim();
   const appleAccount = String(context.apple_app_account_token || '').trim();
   if (IS_PLAY_DISTRIBUTION && !googleAccount) {
     throw new Error('STORE_ACCOUNT_BINDING_UNAVAILABLE');
@@ -288,16 +397,19 @@ export const purchaseNativeCoinPackage = async (
     rejectPurchase = reject;
   });
   const timer = setTimeout(() => {
-    settleActive(productId, active => active.resolve({
-      success: false,
-      pending: true,
-      cancelled: false,
-      coinsAdded: 0,
-      demo: false,
-    }));
+    settleActive(productId, accountScope, active =>
+      active.resolve({
+        success: false,
+        pending: true,
+        cancelled: false,
+        coinsAdded: 0,
+        demo: false,
+      }),
+    );
   }, 5 * 60 * 1000);
   activePurchase = {
     productId,
+    accountScope,
     resolve: resolvePurchase,
     reject: rejectPurchase,
     timer,
@@ -322,7 +434,7 @@ export const purchaseNativeCoinPackage = async (
       type: 'in-app',
     });
   } catch (error: unknown) {
-    settleActive(productId, active => active.reject(error));
+    settleActive(productId, accountScope, active => active.reject(error));
   }
 
   return outcome;

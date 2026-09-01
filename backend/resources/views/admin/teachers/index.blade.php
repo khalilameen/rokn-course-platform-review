@@ -74,17 +74,20 @@
                                         <form action="{{ route('admin.teachers.deactive', $teacher->id) }}" method="POST" class="d-inline">
                                             @csrf
                                             @method('PATCH')
+                                            <input type="hidden" name="expected_active" value="{{ $teacher->active ? 1 : 0 }}">
                                             <button type="submit" class="btn btn-warning btn-sm" title="{{ $teacher->active ? 'تعطيل' : 'تفعيل' }}">
                                                 <i class="fa fa-power-off"></i>
                                             </button>
                                         </form>
-                                        <form action="{{ route('admin.teachers.destroy', $teacher->id) }}" method="POST" class="d-inline">
-                                            @csrf
-                                            @method('DELETE')
-                                            <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('هل أنت متأكد من الحذف؟')" title="حذف">
-                                                <i class="fa fa-trash"></i>
-                                            </button>
-                                        </form>
+                                        @if(strtolower(trim((string) auth()->user()?->role)) === 'admin')
+                                            <form action="{{ route('admin.teachers.destroy', $teacher->id) }}" method="POST" class="d-inline">
+                                                @csrf
+                                                @method('DELETE')
+                                                <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('هل أنت متأكد من الحذف؟')" title="حذف">
+                                                    <i class="fa fa-trash"></i>
+                                                </button>
+                                            </form>
+                                        @endif
                                     </div>
                                 </td>
                             </tr>

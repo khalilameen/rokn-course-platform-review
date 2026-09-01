@@ -30,6 +30,7 @@ import * as mapping from '../src/components/VideoPlayer/courseLearning/mapping';
 import * as persistence from '../src/components/VideoPlayer/courseLearning/persistence';
 import * as playback from '../src/components/VideoPlayer/courseLearning/playback';
 import * as projects from '../src/components/VideoPlayer/courseLearning/projects';
+import * as quizzes from '../src/components/VideoPlayer/courseLearning/quizzes';
 import * as savedCollections from '../src/components/VideoPlayer/courseLearning/savedCollections';
 
 describe('course learning facade', () => {
@@ -44,15 +45,25 @@ describe('course learning facade', () => {
       courseIncludesAssistant: assistant.courseIncludesAssistant,
       createSavedFolderOption: savedCollections.createSavedFolderOption,
       deleteSavedFolderOption: savedCollections.deleteSavedFolderOption,
+      finishCourseQuiz: quizzes.finishCourseQuiz,
       flushPendingPlaybackPositions: playback.flushPendingPlaybackPositions,
       getLocalLearningState: persistence.getLocalLearningState,
       getSavedFolderOptions: savedCollections.getSavedFolderOptions,
       isWatchHistoryEnabled: persistence.isWatchHistoryEnabled,
+      loadCourseAssistantHistory: assistant.loadCourseAssistantHistory,
       loadCourseLearningData: mapping.loadCourseLearningData,
+      loadCourseQuiz: quizzes.loadCourseQuiz,
+      loadProjectFeedbackThread: projects.loadProjectFeedbackThread,
       mapCoursePayload: mapping.mapCoursePayload,
       markSectionComplete: playback.markSectionComplete,
       migrateGuestLearningState: persistence.migrateGuestLearningState,
+      migrateGuestSavedCollections:
+        savedCollections.migrateGuestSavedCollections,
       openPlaybackSession: playback.openPlaybackSession,
+      persistLocalPlaybackPosition: playback.persistLocalPlaybackPosition,
+      quiesceLearningRuntime: projects.quiesceLearningRuntime,
+      reconcileServerSavedLessons:
+        savedCollections.reconcileServerSavedLessons,
       removeLessonFromSavedFolder: savedCollections.removeLessonFromSavedFolder,
       reportPlaybackSessionEvent: playback.reportPlaybackSessionEvent,
       retryPendingPlaybackPositions: playback.retryPendingPlaybackPositions,
@@ -60,6 +71,9 @@ describe('course learning facade', () => {
       retryPendingSectionCompletions: playback.retryPendingSectionCompletions,
       saveLessonToFolder: savedCollections.saveLessonToFolder,
       savePlaybackPosition: playback.savePlaybackPosition,
+      sendProjectFeedbackMessage: projects.sendProjectFeedbackMessage,
+      startCourseQuiz: quizzes.startCourseQuiz,
+      submitCourseQuizAnswer: quizzes.submitCourseQuizAnswer,
       submitProjectAttempt: projects.submitProjectAttempt,
       toggleWatchLater: savedCollections.toggleWatchLater,
       unlockAfterProject: projects.unlockAfterProject,

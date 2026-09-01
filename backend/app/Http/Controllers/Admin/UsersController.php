@@ -11,8 +11,11 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Models\UserNote;
 use App\Services\StudentNotificationService;
+use App\Services\AccountDeletionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 
 class UsersController extends Controller
 {
@@ -28,12 +31,13 @@ class UsersController extends Controller
      */
     public function index(Request $request)
     {
-        $users = User::whereNotIn('role', ['admin', 'moderator', 'teacher'])
+        $users = User::query()->students()
             ->with(['latestNote']);
 
         // Filter by active status
-        if ($request->has('active') && $request->active == '1' || $request->active == '0') {
-            $users->where('active', $request->active);
+        $activeFilter = $request->query('active');
+        if (in_array($activeFilter, ['0', '1'], true)) {
+            $users->where('active', $activeFilter === '1');
         }
 
         // Search functionality
@@ -41,13 +45,15 @@ class UsersController extends Controller
             $search = $request->search;
             $users->where(function($query) use ($search) {
                 $query->where('name', 'LIKE', "%{$search}%")
+                      ->orWhere('name_ar', 'LIKE', "%{$search}%")
+                      ->orWhere('name_en', 'LIKE', "%{$search}%")
                       ->orWhere('email', 'LIKE', "%{$search}%")
                       ->orWhere('phone', 'LIKE', "%{$search}%");
             });
         }
 
         // Add pagination
-        $users = $users->paginate(10)->appends($request->query());
+        $users = $users->orderByDesc('id')->paginate(10)->appends($request->query());
 
         // Get design settings
         $designSettings = $this->getDesignSettings();
@@ -100,28 +106,33 @@ class UsersController extends Controller
     public function show(User $user, Request $request)
     {
 
-        $user->loadCount('deviceTokens');
+        $user->loadCount('deviceTokens')->load([
+            'socialAccounts' => fn ($accounts) => $accounts->orderBy('provider'),
+        ]);
 
         // Get user orders with related data
         $orders = Order::where('user_id', $user->id)
             ->with(['course', 'coupon', 'courseCode', 'approvedBy', 'paymentMethod'])
             ->latest()
+            ->latest('id')
             ->paginate(10, ['*'], 'orders_page');
 
         // Get user bills with related data
         $bills = Bill::where('user_id', $user->id)
             ->with(['order.course', 'order.paymentMethod'])
             ->latest()
+            ->latest('id')
             ->paginate(10, ['*'], 'bills_page');
 
         // Get user notes with pagination
-        $notes = $user->notes()->with('createdBy')->latest()->paginate(5, ['*'], 'notes_page');
+        $notes = $user->notes()->with('createdBy')->latest()->latest('id')->paginate(5, ['*'], 'notes_page');
 
         // Get user exam results with related data
         $examResults = \App\Models\ExamAttempt::where('user_id', $user->id)
             ->where('status', \App\Models\ExamAttempt::STATUS_COMPLETED)
             ->with(['quiz.course', 'quiz.lesson'])
             ->latest('completed_at')
+            ->latest('id')
             ->paginate(10, ['*'], 'exam_results_page');
 
         // Calculate exam statistics
@@ -190,38 +201,46 @@ class UsersController extends Controller
      * @return \Illuminate\Http\RedirectResponse
      * @throws \Exception
      */
-    public function destroy(User $user)
+    public function destroy(User $user, AccountDeletionService $accounts)
     {
         abort_if(in_array(strtolower((string) $user->role), ['admin', 'moderator', 'teacher'], true), 403);
 
-        $user->delete();
+        $accounts->delete($user);
 
-        return redirect()->route('admin.users.index')->with('success', 'تم الحذف بنجاح ');
+        return redirect()->route('admin.users.index')->with('success', 'تم حذف الحساب وبياناته الشخصية');
     }
 
     /**
      * @param User $user
      * @return \Illuminate\Http\RedirectResponse
      */
-    public function deactive(User $user)
+    public function deactive(Request $request, User $user)
     {
         abort_if(in_array(strtolower((string) $user->role), ['admin', 'moderator', 'teacher'], true), 403);
-        DB::transaction(function () use ($user): void {
-            $active = !(bool) $user->active;
-            $user->forceFill([
+        $validated = $request->validate(['expected_active' => ['required', 'boolean']]);
+        DB::transaction(function () use ($user, $validated): void {
+            $locked = User::query()->lockForUpdate()->findOrFail($user->id);
+            if ((bool) $locked->active !== (bool) $validated['expected_active']) {
+                throw ValidationException::withMessages([
+                    'expected_active' => ['تغيّرت حالة الحساب بالفعل\nأعد تحميل الصفحة'],
+                ]);
+            }
+            $active = !(bool) $locked->active;
+            $locked->forceFill([
                 'active' => $active,
                 // Clear the retired single-token credential at the same time.
-                'api_token' => $active ? $user->getRawOriginal('api_token') : null,
+                'api_token' => $active ? $locked->getRawOriginal('api_token') : null,
             ])->save();
 
             if (!$active) {
-                $user->purgeApiTokens();
+                $locked->purgeApiTokens();
+                $locked->deviceTokens()->delete();
             }
 
             // The previous implementation inverted the just-saved value here,
             // leaving a disabled learner's store active.
-            if ($user->store) {
-                $user->store->update(['active' => $active]);
+            if ($locked->store) {
+                $locked->store->update(['active' => $active]);
             }
         }, 3);
 
@@ -232,12 +251,21 @@ class UsersController extends Controller
     public function sendNotification(Request $request, User $user)
     {
         $request->validate([
-            'title'   => 'required|string|max:255',
-            'message' => 'required|string|max:1000',
+            'title'   => 'required|string|max:80',
+            'message' => 'required|string|max:240',
+            'image' => 'nullable|image|mimes:jpeg,png,webp|max:4096',
         ]);
 
         $title   = $request->input('title');
         $message = $request->input('message');
+        $imageUrl = null;
+        if ($request->hasFile('image')) {
+            $imagePath = $request->file('image')->store('student-notifications', 'public');
+            if (!is_string($imagePath) || trim($imagePath) === '') {
+                throw ValidationException::withMessages(['image' => ['تعذّر حفظ الصورة']]);
+            }
+            $imageUrl = Storage::disk('public')->url($imagePath);
+        }
 
         StudentNotificationService::notifyUser(
             $user,
@@ -245,7 +273,13 @@ class UsersController extends Controller
             $title,
             $title,
             $message,
-            $message
+            $message,
+            null,
+            null,
+            null,
+            null,
+            [],
+            $imageUrl
         );
 
         $canReceivePush = (bool) $user->notifications_status
@@ -296,8 +330,13 @@ class UsersController extends Controller
         // Check if device login policy is single_device_permanent
         $settings = Setting::first();
 
-        if ($settings) {
-            $user->forceFill(['locked_device_id' => null])->save();
+        if ($settings?->device_login_policy === 'single_device_permanent') {
+            DB::transaction(function () use ($user): void {
+                $locked = User::query()->lockForUpdate()->findOrFail($user->id);
+                $locked->purgeApiTokens();
+                $locked->deviceTokens()->delete();
+                $locked->forceFill(['locked_device_id' => null])->save();
+            }, 3);
             return redirect()->back()->with('success', 'تم إعادة تعيين الجهاز بنجاح. يمكن للطالب الآن تسجيل الدخول من جهاز جديد.');
         }
 

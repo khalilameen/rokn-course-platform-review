@@ -30,9 +30,10 @@
 
     <!-- Form Container -->
     <div class="form-container">
-        <form action="{{ route('admin.courses.pdfs.update', [$course, $pdf]) }}" method="POST" enctype="multipart/form-data">
+        <form action="{{ route('admin.courses.pdfs.update', [$course, $pdf]) }}" method="POST" enctype="multipart/form-data" id="coursePdfForm">
             @csrf
             @method('PUT')
+            <input type="hidden" name="authoring_version" value="{{ $course->authoring_version }}">
 
             <!-- Arabic Content -->
             <h4 class="section-title">
@@ -175,6 +176,8 @@
                 </div>
             </div>
 
+            @include('admin.course-pdfs.partials._upload-progress')
+
             <!-- Form Actions -->
             <div class="form-actions">
                 <a href="{{ route('admin.courses.pdfs.index', $course) }}" class="btn-cancel">
@@ -280,4 +283,5 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
+@include('admin.partials.course-authoring-draft', ['formId' => 'coursePdfForm'])
 @endsection

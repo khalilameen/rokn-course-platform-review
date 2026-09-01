@@ -25,12 +25,19 @@ final class ProductFeatureFlagService
             ->all();
     }
 
-    /** @return Collection<string, ProductFeatureFlag> */
-    private function rows(): Collection
+    /**
+     * Null means the control-plane could not be read. An empty collection is a
+     * valid configuration that intentionally uses the declared defaults.
+     * Keeping those states distinct prevents a database/migration outage from
+     * silently enabling paid or provider-backed mutations.
+     *
+     * @return Collection<string, ProductFeatureFlag>|null
+     */
+    private function rows(): ?Collection
     {
         try {
             if (!Schema::hasTable('product_feature_flags')) {
-                return collect();
+                return null;
             }
 
             return ProductFeatureFlag::query()
@@ -38,7 +45,7 @@ final class ProductFeatureFlagService
                 ->get()
                 ->keyBy('key');
         } catch (Throwable) {
-            return collect();
+            return null;
         }
     }
 
@@ -48,7 +55,12 @@ final class ProductFeatureFlagService
         if (!array_key_exists($key, $definitions)) {
             return false;
         }
-        $row = $this->rows()->get($key);
+        $rows = $this->rows();
+        if ($rows === null) {
+            return $definitions[$key]['safe_default'];
+        }
+
+        $row = $rows->get($key);
         if (!$row) {
             return $definitions[$key]['default_enabled'];
         }
@@ -70,29 +82,36 @@ final class ProductFeatureFlagService
         return $this->bucket($key, (string) $subject) < $rollout;
     }
 
-    /** @return array{version: string, ttl_seconds: int, expires_at: string, flags: array<string, bool>, safe_defaults: array<string, bool>} */
-    public function clientSnapshot(int $bucket): array
+    /** @return array{contract_version: int, version: string, ttl_seconds: int, expires_at: string, flags: array<string, bool>} */
+    public function clientSnapshot(int|string $subject): array
     {
-        $bucket = max(0, min(99, $bucket));
+        // Integer support remains for internal diagnostics and focused tests.
+        // Public clients never choose it; the controller passes a server-built subject.
+        $bucket = is_int($subject)
+            ? max(0, min(99, $subject))
+            : $this->bucket('client-rollout', $subject);
         $definitions = $this->definitions();
         $rows = $this->rows();
+        $configurationAvailable = $rows !== null;
+        $rows ??= collect();
         $flags = [];
-        $safeDefaults = [];
         $versionSource = [];
 
         foreach ($definitions as $key => $definition) {
             $row = $rows->get($key);
             $expired = $row?->expires_at?->isPast() ?? false;
-            $enabled = $row
+            $enabled = !$configurationAvailable
+                ? $definition['safe_default']
+                : ($row
                 ? (!$expired && (bool) $row->enabled)
-                : $definition['default_enabled'];
+                : $definition['default_enabled']);
             $rollout = $row ? max(0, min(100, (int) $row->rollout_percentage)) : 100;
             $flags[$key] = $enabled && $bucket < $rollout;
             if ($expired) {
                 $flags[$key] = $definition['safe_default'];
             }
-            $safeDefaults[$key] = $definition['safe_default'];
             $versionSource[$key] = [
+                $configurationAvailable,
                 $enabled, $rollout, $expired, $row?->updated_at?->getTimestamp() ?? 0,
             ];
         }
@@ -100,11 +119,11 @@ final class ProductFeatureFlagService
         $ttl = max(60, (int) config('product_features.client_ttl_seconds', 300));
 
         return [
+            'contract_version' => 1,
             'version' => hash('sha256', json_encode($versionSource, JSON_THROW_ON_ERROR)),
             'ttl_seconds' => $ttl,
             'expires_at' => now()->addSeconds($ttl)->toIso8601String(),
             'flags' => $flags,
-            'safe_defaults' => $safeDefaults,
         ];
     }
 
@@ -112,17 +131,23 @@ final class ProductFeatureFlagService
     public function operationalSnapshot(): array
     {
         $rows = $this->rows();
+        $configurationAvailable = $rows !== null;
+        $rows ??= collect();
         $result = [];
         foreach ($this->definitions() as $key => $definition) {
             $row = $rows->get($key);
             $expired = $row?->expires_at?->isPast() ?? false;
             $result[$key] = [
-                'enabled' => $row
+                'enabled' => !$configurationAvailable
+                    ? $definition['safe_default']
+                    : ($row
                     ? (!$expired && (bool) $row->enabled)
-                    : $definition['default_enabled'],
+                    : $definition['default_enabled']),
                 'rollout_percentage' => $row ? (int) $row->rollout_percentage : 100,
                 'owner' => $row?->owner,
-                'reason' => $row?->reason,
+                'reason' => $configurationAvailable
+                    ? $row?->reason
+                    : 'Feature control is unavailable; safe defaults are active.',
                 'expires_at' => $row?->expires_at?->toIso8601String(),
                 'safe_default' => $definition['safe_default'],
                 'description' => $definition['description'],

@@ -63,7 +63,7 @@ const HeaderWithBack: FC<IHeader> = ({
   onPress,
 }) => {
   const {goBack, canGoBack, navigate} = useNavigation<RootNavigation>();
-  const {contentWidth, gutter} = useResponsiveLayout();
+  const {contentWidth, gutter, largeText} = useResponsiveLayout();
 
   const {t} = useTranslation();
   const [state, setState] = useState({
@@ -104,7 +104,7 @@ const HeaderWithBack: FC<IHeader> = ({
                 inputSearchValue?.(text);
               },
               onSubmitEditing(_event) {
-                // navigation.navigate('SearchScreen', state);
+                inputSearchValue?.(state.inputSearch);
               },
             }}
             styleCon={styles.inputCont}
@@ -113,7 +113,7 @@ const HeaderWithBack: FC<IHeader> = ({
                 accessibilityLabel={t('Search')}
                 accessibilityRole="button"
                 style={styles.rightContent}
-                onPress={() => navigate('SearchScreen', state)}>
+                onPress={() => inputSearchValue?.(state.inputSearch)}>
                 <SearchIcon
                   fill={'#C5C5C5'}
                   height={PixelPerfect(16)}
@@ -126,7 +126,10 @@ const HeaderWithBack: FC<IHeader> = ({
       ) : (
         <>
           {title && (
-            <Text numberOfLines={2} style={[styles.title, styleTitle]}>
+            <Text
+              accessibilityRole="header"
+              numberOfLines={largeText ? 3 : 2}
+              style={[styles.title, styleTitle]}>
               {title}
             </Text>
           )}
@@ -181,10 +184,11 @@ const styles = StyleSheet.create({
     flex: 1,
     borderWidth: 1,
     borderColor: Colors.border,
-    height: PixelPerfect(40),
+    minHeight: PixelPerfect(48),
     marginBottom: 0,
   },
   rightContent: {
+    minWidth: 48,
     height: '100%',
     ...SharedStyles.centred,
     zIndex: 1,

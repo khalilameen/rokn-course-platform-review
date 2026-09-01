@@ -15,7 +15,6 @@ const allowedRoots = [
   'youtube.com',
   'youtu.be',
   'rokn.app',
-  'rokn.com',
 ] as const;
 
 const isHostOrSubdomain = (hostname: string, root: string) =>

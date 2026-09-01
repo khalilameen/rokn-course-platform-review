@@ -43,11 +43,7 @@
             {"path": "/home"},
             {"path": "/profile"},
             {"path": "/wallet"},
-            {"path": "/course"},
-            {"path": "/courses"},
-            {"pathPrefix": "/home/"},
-            {"pathPrefix": "/profile/"},
-            {"pathPrefix": "/wallet/"},
+            {"pathPrefix": "/support/"},
             {"pathPrefix": "/course/"},
             {"pathPrefix": "/courses/"}
           ]
@@ -62,68 +58,7 @@
             {"path": "/home"},
             {"path": "/profile"},
             {"path": "/wallet"},
-            {"path": "/course"},
-            {"path": "/courses"},
-            {"pathPrefix": "/home/"},
-            {"pathPrefix": "/profile/"},
-            {"pathPrefix": "/wallet/"},
-            {"pathPrefix": "/course/"},
-            {"pathPrefix": "/courses/"}
-          ]
-        },
-        {
-          "action": "VIEW",
-          "autoVerify": true,
-          "category": ["BROWSABLE", "DEFAULT"],
-          "data": [
-            {"scheme": "https"},
-            {"host": "rokn-course-platform-review-production-b7gpy1.laravel.cloud"},
-            {"path": "/home"},
-            {"path": "/profile"},
-            {"path": "/wallet"},
-            {"path": "/course"},
-            {"path": "/courses"},
-            {"pathPrefix": "/home/"},
-            {"pathPrefix": "/profile/"},
-            {"pathPrefix": "/wallet/"},
-            {"pathPrefix": "/course/"},
-            {"pathPrefix": "/courses/"}
-          ]
-        },
-        {
-          "action": "VIEW",
-          "autoVerify": true,
-          "category": ["BROWSABLE", "DEFAULT"],
-          "data": [
-            {"scheme": "https"},
-            {"host": "rokn.com"},
-            {"path": "/home"},
-            {"path": "/profile"},
-            {"path": "/wallet"},
-            {"path": "/course"},
-            {"path": "/courses"},
-            {"pathPrefix": "/home/"},
-            {"pathPrefix": "/profile/"},
-            {"pathPrefix": "/wallet/"},
-            {"pathPrefix": "/course/"},
-            {"pathPrefix": "/courses/"}
-          ]
-        },
-        {
-          "action": "VIEW",
-          "autoVerify": true,
-          "category": ["BROWSABLE", "DEFAULT"],
-          "data": [
-            {"scheme": "https"},
-            {"host": "www.rokn.com"},
-            {"path": "/home"},
-            {"path": "/profile"},
-            {"path": "/wallet"},
-            {"path": "/course"},
-            {"path": "/courses"},
-            {"pathPrefix": "/home/"},
-            {"pathPrefix": "/profile/"},
-            {"pathPrefix": "/wallet/"},
+            {"pathPrefix": "/support/"},
             {"pathPrefix": "/course/"},
             {"pathPrefix": "/courses/"}
           ]
@@ -147,15 +82,13 @@
       "supportsTablet": true,
       "usesAppleSignIn": true,
       "infoPlist": {
-        "UIBackgroundModes": ["fetch", "remote-notification"]
+        "UIBackgroundModes": ["remote-notification"],
+        "NSPhotoLibraryUsageDescription": "لاختيار صورة للحساب أو المشروع",
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIStatusBarStyle": "UIStatusBarStyleLightContent",
+        "UIViewControllerBasedStatusBarAppearance": false
       },
-      "associatedDomains": [
-        "applinks:rokn.app",
-        "applinks:www.rokn.app",
-        "applinks:rokn-course-platform-review-production-b7gpy1.laravel.cloud",
-        "applinks:rokn.com",
-        "applinks:www.rokn.com"
-      ]
+      "associatedDomains": ["applinks:rokn.app", "applinks:www.rokn.app"]
     }
   }
 }

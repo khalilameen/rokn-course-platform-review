@@ -4,6 +4,10 @@ let redirectHandler: ((event: {url: string}) => void) | undefined;
 
 jest.mock('react-native', () => ({
   Platform: {OS: 'android'},
+  Dimensions: {get: () => ({width: 390, height: 844})},
+  NativeModules: {StatusBarManager: {HEIGHT: 24}},
+  StatusBar: {currentHeight: 24},
+  StyleSheet: {create: (styles: unknown) => styles},
   Linking: {
     addEventListener: jest.fn(
       (_event: string, handler: (event: {url: string}) => void) => {
@@ -38,19 +42,31 @@ jest.mock('../src/constants/api', () => ({
   publicRequest: {get: jest.fn(), post: jest.fn()},
 }));
 
+jest.mock('../src/services/secureSession', () => ({
+  savePendingSocialAuthAttempt: jest.fn(async () => undefined),
+  loadPendingSocialAuthAttempt: jest.fn(async () => ({
+    provider: 'google',
+    verifier:
+      '1111111111114111811111111111111111111111111141118111111111111111',
+    startedAt: new Date().toISOString(),
+  })),
+  deletePendingSocialAuthAttempt: jest.fn(async () => undefined),
+  saveSecureSession: jest.fn(async () => undefined),
+}));
+
 import {signInWithSocialProvider} from '../src/services/socialAuth';
 
 describe('browser social auth launch', () => {
   it('opens a deterministic encoded PKCE request on Android', async () => {
     mockOpenUrl.mockImplementation(async () => {
-      redirectHandler?.({url: 'rokn://auth?error=LOGIN_CANCELLED'});
+      redirectHandler?.({url: 'rokn://auth?error=login_cancelled'});
     });
 
     await expect(
       signInWithSocialProvider('google', {
         providers: ['google'],
         authorizationUrls: {
-          google: 'not-a-runtime-safe-url',
+          google: 'https://rokn.app/api/v1/social-auth/google/start',
         },
         welcomeBonus: 20,
         recommendedProvider: 'google',

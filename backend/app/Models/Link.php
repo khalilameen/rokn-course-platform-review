@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Traits\ResolvesLocalizedAttributes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Link extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, ResolvesLocalizedAttributes;
 
     protected $fillable = [
         'list_id', 'type', 'link', 'title_ar', 'title_en', 
@@ -22,12 +23,12 @@ class Link extends Model
 
     public function getTitleAttribute()
     {
-        return app()->getLocale() == 'ar' ? $this->title_ar : $this->title_en;
+        return $this->localizedValue('title_ar', 'title_en');
     }
 
     public function getDescriptionAttribute()
     {
-        return app()->getLocale() == 'ar' ? $this->description_ar : $this->description_en;
+        return $this->localizedValue('description_ar', 'description_en');
     }
 
     public function courseSection()

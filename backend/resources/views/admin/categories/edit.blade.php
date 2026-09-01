@@ -9,11 +9,16 @@
                 <div class="card-header"><i class="fa fa-th-large"></i><strong class="card-title pr-2">تعديل القسم</strong>
                 </div>
                 <div class="card-body card-block">
-                    {!! Form::model($category,['method' => 'PATCH', 'files' => true, 'url' => route('admin.categories.update', $category->id)]) !!}
+                    {!! Form::model($category,['method' => 'PATCH', 'files' => true, 'url' => route('admin.categories.update', $category->id), 'id' => 'categoryForm']) !!}
+                        <input type="hidden" name="editor_version" value="{{ $editorVersion }}">
                         @include('admin.categories._form')
                     {!! Form::close() !!}
                 </div>
             </div>
         </div>
   </div>
+@endsection
+
+@section('scripts')
+    @include('admin.partials.course-authoring-draft', ['formId' => 'categoryForm'])
 @endsection

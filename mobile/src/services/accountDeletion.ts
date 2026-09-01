@@ -32,3 +32,17 @@ export const deleteRemoteAccount = async (
     message: typeof body.message === 'string' ? body.message : undefined,
   };
 };
+
+/** Close a short-lived reauthentication session when deletion did not run. */
+export const revokeReauthenticationSession = async (token: string) => {
+  const sessionToken = token.trim();
+  if (!sessionToken) return;
+  await publicRequest.post(
+    'logout',
+    {},
+    {
+      headers: {Authorization: `Bearer ${sessionToken}`},
+      skipPersistedSessionInvalidation: true,
+    } as RoknRequestConfig,
+  );
+};

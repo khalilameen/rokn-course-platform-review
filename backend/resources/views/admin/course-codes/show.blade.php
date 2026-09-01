@@ -117,8 +117,8 @@
                                         <th><i class="fa fa-calendar"></i> تاريخ البداية:</th>
                                         <td>
                                             @if($courseCode->start_date)
-                                                <strong>{{ $courseCode->start_date->format('Y-m-d') }}</strong>
-                                                <br><small class="text-muted">{{ $courseCode->start_date->format('H:i') }}</small>
+                                                <strong>{{ \App\Support\BusinessClock::format($courseCode->start_date, 'Y-m-d') }}</strong>
+                                                <br><small class="text-muted">{{ \App\Support\BusinessClock::format($courseCode->start_date, 'H:i') }}</small>
                                             @else
                                                 <span class="text-muted">غير محدد</span>
                                             @endif
@@ -128,8 +128,8 @@
                                         <th><i class="fa fa-calendar-times-o"></i> تاريخ الانتهاء:</th>
                                         <td>
                                             @if($courseCode->expiry_date)
-                                                <strong>{{ $courseCode->expiry_date->format('Y-m-d') }}</strong>
-                                                <br><small class="text-muted">{{ $courseCode->expiry_date->format('H:i') }}</small>
+                                                <strong>{{ \App\Support\BusinessClock::format($courseCode->expiry_date, 'Y-m-d') }}</strong>
+                                                <br><small class="text-muted">{{ \App\Support\BusinessClock::format($courseCode->expiry_date, 'H:i') }}</small>
                                             @else
                                                 <span class="text-muted">غير محدد</span>
                                             @endif
@@ -160,15 +160,15 @@
                                     <tr>
                                         <th><i class="fa fa-clock-o"></i> تاريخ الإنشاء:</th>
                                         <td>
-                                            <strong>{{ $courseCode->created_at->format('Y-m-d') }}</strong>
-                                            <br><small class="text-muted">{{ $courseCode->created_at->format('H:i:s') }}</small>
+                                            <strong>{{ \App\Support\BusinessClock::format($courseCode->created_at, 'Y-m-d') }}</strong>
+                                            <br><small class="text-muted">{{ \App\Support\BusinessClock::format($courseCode->created_at, 'H:i:s') }}</small>
                                         </td>
                                     </tr>
                                     <tr>
                                         <th><i class="fa fa-history"></i> آخر تحديث:</th>
                                         <td>
-                                            <strong>{{ $courseCode->updated_at->format('Y-m-d') }}</strong>
-                                            <br><small class="text-muted">{{ $courseCode->updated_at->format('H:i:s') }}</small>
+                                            <strong>{{ \App\Support\BusinessClock::format($courseCode->updated_at, 'Y-m-d') }}</strong>
+                                            <br><small class="text-muted">{{ \App\Support\BusinessClock::format($courseCode->updated_at, 'H:i:s') }}</small>
                                         </td>
                                     </tr>
                                 </table>
@@ -300,7 +300,7 @@
                                                         <td>
                                                             <strong>{{ $usage->used_at->format('Y-m-d') }}</strong>
                                                             <br><small class="text-muted">{{ $usage->used_at->format('H:i:s') }}</small>
-                                                            <br><small class="text-muted">{{ $usage->used_at->diffForHumans() }}</small>
+                                                            <br><small class="text-muted">{{ \App\Support\BusinessClock::relative($usage->used_at) }}</small>
                                                         </td>
                                                         <td>
                                                             @if($usage->ip_address)
@@ -350,7 +350,6 @@ function copyCodeToClipboard(code, button) {
         navigator.clipboard.writeText(code).then(function() {
             showCopySuccess(button);
         }).catch(function(err) {
-            console.error('Clipboard API failed:', err);
             fallbackCopy(code, button);
         });
     } else {
@@ -379,7 +378,6 @@ function fallbackCopy(text, button) {
             alert('فشل النسخ. يرجى نسخ الكود يدوياً.');
         }
     } catch (err) {
-        console.error('Fallback copy failed:', err);
         alert('فشل النسخ. يرجى نسخ الكود يدوياً.');
     }
 

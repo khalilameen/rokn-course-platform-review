@@ -132,8 +132,58 @@ class CourseEndpointTest extends ApiTestCase
                 ->assertOk()
                 ->assertJsonPath('status', 200)
                 ->assertJsonPath('success', true)
-                ->assertJsonPath('message', 'Course retrieved successfully')
+                ->assertJsonPath('message', 'تم تحميل الكورس')
                 ->assertJsonPath('data.id', $this->courseId);
+        } finally {
+            Schema::dropIfExists('course_modules');
+        }
+    }
+
+    public function test_catalog_visible_coming_soon_course_has_a_guest_details_page(): void
+    {
+        $teacherId = (int) DB::table('courses')->where('id', $this->courseId)->value('teacher_id');
+        $courseId = DB::table('courses')->insertGetId([
+            'name_ar' => 'كورس قادم',
+            'name_en' => 'Coming soon course',
+            'description_ar' => 'وصف الكورس القادم',
+            'description_en' => 'Coming soon course description',
+            'image' => 'courses/coming-soon.jpg',
+            'teacher_id' => $teacherId,
+            'grade_id' => $this->gradeId,
+            'price' => 200,
+            'active' => true,
+            'is_main_course' => false,
+            'is_coming_soon' => true,
+            'is_catalog_visible' => true,
+            'course_type' => 'online',
+            'rate' => 5,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('course_teacher')->insert([
+            'course_id' => $courseId,
+            'teacher_id' => $teacherId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('classification_course')->insert([
+            'classification_id' => 1,
+            'course_id' => $courseId,
+        ]);
+
+        Schema::create('course_modules', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('course_id');
+            $table->unsignedInteger('order')->default(1);
+            $table->timestamps();
+            $table->softDeletes();
+        });
+
+        try {
+            $this->getJson("/api/v1/courses/{$courseId}/details")
+                ->assertOk()
+                ->assertJsonPath('data.id', $courseId)
+                ->assertJsonPath('data.is_coming_soon', true);
         } finally {
             Schema::dropIfExists('course_modules');
         }
@@ -149,7 +199,7 @@ class CourseEndpointTest extends ApiTestCase
 
         $this->getJson('/api/v1/lesson/10')
             ->assertOk()
-            ->assertJsonPath('message', 'Lesson preview retrieved successfully')
+            ->assertJsonPath('message', 'تم تحميل العينة المجانية')
             ->assertJsonPath('data.duration_minutes', 15)
             ->assertJsonMissingPath('data.video_link');
     }
@@ -205,13 +255,68 @@ class CourseEndpointTest extends ApiTestCase
         }
     }
 
-    public function test_authenticated_user_can_rate_course(): void
+    public function test_user_without_active_course_access_cannot_rate_course(): void
     {
-        $response = $this->actingAs($this->user, 'api')->postJson("/api/v1/courses/{$this->courseId}/rate", [
-            'rating' => 5,
-            'comment' => 'Great course'
+        $this->actingAs($this->user, 'api')
+            ->postJson("/api/v1/courses/{$this->courseId}/rate", [
+                'rating' => 5,
+                'comment' => 'Great course',
+                'version' => 0,
+            ])
+            ->assertForbidden()
+            ->assertJsonPath('success', false);
+
+        $this->assertDatabaseMissing('course_ratings', [
+            'user_id' => $this->user->id,
+            'course_id' => $this->courseId,
         ]);
-        $this->assertNotEquals(404, $response->status());
+    }
+
+    public function test_course_details_return_the_current_students_rating(): void
+    {
+        Schema::create('course_modules', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('course_id');
+            $table->unsignedInteger('order')->default(1);
+            $table->timestamps();
+            $table->softDeletes();
+        });
+
+        try {
+            $this->actingAs($this->user, 'api')
+                ->postJson('/api/v1/course-codes/redeem', ['code' => 'TESTCODE'])
+                ->assertOk();
+
+            DB::table('lesson_watch_evidence')->insert([
+                'user_id' => $this->user->id,
+                'lesson_id' => 10,
+                'course_section_id' => $this->sectionId,
+                'duration_seconds' => 900,
+                'verified_seconds' => 900,
+                'last_position_seconds' => 900,
+                'last_heartbeat_at' => now(),
+                'completed_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $this->actingAs($this->user, 'api')
+                ->postJson("/api/v1/courses/{$this->courseId}/rate", [
+                    'rating' => 4,
+                    'version' => 0,
+                ])
+                ->assertOk()
+                ->assertJsonPath('data.rating', 4);
+
+            $this->actingAs($this->user, 'api')
+                ->getJson("/api/v1/courses/{$this->courseId}/details")
+                ->assertOk()
+                ->assertJsonPath('data.user_rating.rating', 4)
+                ->assertJsonPath('data.ratings_count', 1)
+                ->assertJsonPath('data.average_rating', 4);
+        } finally {
+            Schema::dropIfExists('course_modules');
+        }
     }
 
     public function test_authenticated_user_can_view_project_evaluations(): void

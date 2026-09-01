@@ -1,4 +1,14 @@
-import {safeLoginReturnToFromRoute} from '../authReturn';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  acknowledgePendingLoginReturnTo,
+  claimPendingLoginReturnTo,
+  safeLoginReturnToFromRoute,
+  savePendingLoginReturnTo,
+} from '../authReturn';
+
+beforeEach(async () => {
+  await AsyncStorage.clear();
+});
 
 describe('safeLoginReturnToFromRoute', () => {
   it('preserves the exact course position without copying arbitrary params', () => {
@@ -87,4 +97,27 @@ describe('safeLoginReturnToFromRoute', () => {
       ).toEqual({name});
     },
   );
+});
+
+describe('durable login return hand-off', () => {
+  it('keeps the route until navigation acknowledges the exact receipt', async () => {
+    await savePendingLoginReturnTo({
+      name: 'CourseDetails',
+      params: {courseId: '42', openPurchase: true},
+    });
+    const claim = await claimPendingLoginReturnTo();
+    expect(claim?.returnTo).toMatchObject({
+      name: 'CourseDetails',
+      params: {courseId: '42', openPurchase: true},
+    });
+    expect((await claimPendingLoginReturnTo())?.receipt).toBe(claim?.receipt);
+
+    await savePendingLoginReturnTo({name: 'Wallet'});
+    expect(
+      await acknowledgePendingLoginReturnTo(claim?.receipt || ''),
+    ).toBe(false);
+    expect((await claimPendingLoginReturnTo())?.returnTo).toEqual({
+      name: 'Wallet',
+    });
+  });
 });

@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Schema;
 
 final readonly class CourseDurationService
 {
-    /** Lesson durations take precedence over the legacy course-hours fallback. */
+    /** Verified media durations take precedence over authored estimates. */
     public function minutes(Course $course): int
     {
         if (!$this->hasLessonDurationSchema()) {
@@ -33,10 +33,10 @@ final readonly class CourseDurationService
             ->whereIn('id', $lessonIds->filter()->unique()->values())
             ->get(['id', 'duration_minutes']);
 
-        $lessonMinutes = (int) $lessons->sum($this->lessonMinutes(...));
+        $lessonSeconds = (int) $lessons->sum($this->lessonSeconds(...));
 
-        if ($lessonMinutes > 0) {
-            return $lessonMinutes;
+        if ($lessonSeconds > 0) {
+            return (int) ceil($lessonSeconds / 60);
         }
 
         return $this->legacyMinutes($course);
@@ -87,17 +87,18 @@ final readonly class CourseDurationService
                     ->values()
             );
 
-        $lessonMinutes = $this->lessonDurationQuery()
+        $lessonSeconds = $this->lessonDurationQuery()
             ->whereIn('id', $lessonIdsByCourse->flatten()->unique()->values())
             ->get(['id', 'duration_minutes'])
             ->mapWithKeys(fn (Lesson $lesson): array => [
-                (int) $lesson->getKey() => $this->lessonMinutes($lesson),
+                (int) $lesson->getKey() => $this->lessonSeconds($lesson),
             ]);
 
         foreach ($coursesById as $courseId => $course) {
-            $minutes = (int) $lessonIdsByCourse
+            $seconds = (int) $lessonIdsByCourse
                 ->get($courseId, collect())
-                ->sum(fn ($lessonId): int => (int) $lessonMinutes->get((int) $lessonId, 0));
+                ->sum(fn ($lessonId): int => (int) $lessonSeconds->get((int) $lessonId, 0));
+            $minutes = $seconds > 0 ? (int) ceil($seconds / 60) : 0;
 
             $course->setAttribute(
                 'duration_minutes_computed',
@@ -108,18 +109,16 @@ final readonly class CourseDurationService
         return $courses;
     }
 
-    private function lessonMinutes(Lesson $lesson): int
+    private function lessonSeconds(Lesson $lesson): int
     {
-        $declaredMinutes = max(0, (int) $lesson->duration_minutes);
-        if ($declaredMinutes > 0) {
-            return $declaredMinutes;
-        }
-
         $providerSeconds = $lesson->relationLoaded('mediaState')
             ? max(0, (int) ($lesson->mediaState?->duration_seconds ?? 0))
             : 0;
+        if ($providerSeconds > 0) {
+            return $providerSeconds;
+        }
 
-        return $providerSeconds > 0 ? (int) ceil($providerSeconds / 60) : 0;
+        return max(0, (int) $lesson->duration_minutes) * 60;
     }
 
     private function hasLessonDurationSchema(): bool

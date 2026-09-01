@@ -11,8 +11,10 @@ final class OutboxEvent extends Model
 {
     public const STATUS_PENDING = 'pending';
     public const STATUS_PROCESSING = 'processing';
+    public const STATUS_BLOCKED = 'blocked';
     public const STATUS_DELIVERED = 'delivered';
     public const STATUS_FAILED = 'failed';
+    public const STATUS_SKIPPED = 'skipped';
 
     protected $fillable = [
         'event_key', 'topic', 'aggregate_type', 'aggregate_id', 'payload',

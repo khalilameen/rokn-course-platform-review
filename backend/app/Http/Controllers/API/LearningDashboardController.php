@@ -25,7 +25,7 @@ final class LearningDashboardController extends Controller
 
         return $this->responses->success(
             $this->dashboard->forUser($user),
-            'Learning courses retrieved successfully'
+            'تم تحميل كورساتك'
         );
     }
 }

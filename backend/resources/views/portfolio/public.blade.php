@@ -24,7 +24,7 @@
 <body>
 <header class="hero"><div class="wrap">
     <div class="identity">
-        <img class="avatar" src="{{ $portfolio['profile']['image_url'] ?: asset('images/logo.png') }}" alt="{{ $portfolio['profile']['name'] }}">
+        <img class="avatar" src="{{ $portfolio['profile']['image_url'] ?: asset('images/avatar/customer_blank.png') }}" onerror="this.onerror=null;this.src='{{ asset('images/avatar/customer_blank.png') }}'" alt="{{ $portfolio['profile']['name'] }}">
         <div><h1>{{ $portfolio['profile']['name'] }}</h1><p class="headline">{{ $portfolio['profile']['headline'] ?: 'متعلم في ركن' }}</p>@if($portfolio['profile']['location'])<div class="muted">{{ $portfolio['profile']['location'] }}</div>@endif</div>
     </div>
     @if($portfolio['profile']['bio'])<p class="muted" style="max-width:760px;margin-top:22px">{{ $portfolio['profile']['bio'] }}</p>@endif
@@ -36,7 +36,7 @@
     @if($portfolio['highlighted_certificate'])
     <section><div class="section-head"><h2>التحقق من الشهادة</h2><span class="verified">{{ $portfolio['highlighted_certificate']['status'] === 'active' ? 'بيانات الشهادة مؤكدة من ركن ✓' : 'هذه الشهادة ملغاة ولم تعد سارية' }}</span></div>
         @php($certificate = $portfolio['highlighted_certificate'])
-        <div class="certificate highlight"><div class="verified">{{ ($certificate['verification_level'] ?? 'completion') === 'reviewed_project' ? 'إتمام الكورس ومشروع راجعه فريق ركن' : 'إتمام الكورس موثق من ركن' }} · {{ $certificate['status'] === 'active' ? 'سارية' : 'ملغاة' }}</div><h3>{{ $certificate['course']['name'] ?? 'شهادة إتمام' }}</h3><div class="muted">رقم الشهادة: {{ $certificate['public_id'] ?? $certificate['id'] }}</div></div>
+        <div class="certificate highlight"><div class="verified">{{ ($certificate['verification_level'] ?? 'completion') === 'reviewed_project' ? 'إتمام الكورس ومشروع راجعه فريق ركن' : 'إتمام الكورس موثق من ركن' }} · {{ $certificate['status'] === 'active' ? 'سارية' : 'ملغاة' }}</div><h3>{{ $certificate['course_name'] ?? $certificate['course']['name'] ?? 'شهادة إتمام' }}</h3><div>{{ $certificate['holder_name'] ?? $portfolio['profile']['name'] }}</div><div class="muted">رقم الشهادة {{ $certificate['public_id'] ?? $certificate['id'] }}</div>@if($certificate['status'] === 'active' && !empty($certificate['certificate_url']))<p><a href="{{ $certificate['certificate_url'] }}" rel="noopener noreferrer">عرض الشهادة</a></p>@endif</div>
     </section>
     @endif
 
@@ -45,7 +45,7 @@
         @foreach($portfolio['projects'] as $project)
         <article class="project {{ $project['is_featured'] ? 'featured' : '' }}">
             @php($cover = collect($project['media'] ?? [])->firstWhere('file_type','image'))
-            @if($cover && $cover['image_url'])<img class="cover" src="{{ $cover['image_url'] }}" alt="{{ $project['title'] }}" loading="lazy">@endif
+            @if($cover && $cover['image_url'])<img class="cover" src="{{ $cover['image_url'] }}" onerror="this.remove()" alt="{{ $project['title'] }}" loading="lazy">@endif
             <div class="project-body">@if($project['course'])<div class="eyebrow">مشروع من كورس {{ $project['course']['name'] }}</div>@endif<h3>{{ $project['title'] }}</h3>@if($project['role'])<div class="muted">الدور: {{ $project['role'] }}</div>@endif<p class="muted">{{ $project['description'] }}</p><div class="tools">@foreach($project['tools'] as $tool)<span>{{ $tool }}</span>@endforeach</div>@if($project['external_url'])<p><a href="{{ $project['external_url'] }}" rel="noopener noreferrer">عرض المشروع ↗</a></p>@endif</div>
         </article>
         @endforeach
@@ -55,7 +55,7 @@
     @if(count($portfolio['badges']))<section><div class="section-head"><h2>الشارات المهنية</h2></div><div class="grid">@foreach($portfolio['badges'] as $badge)<div class="badge">@if($badge->badge_image)<img src="{{ $badge->badge_image }}" alt="">@endif<div><strong>{{ $badge->name_ar ?: $badge->name_en }}</strong><div class="muted">{{ $badge->course_name_ar ?: $badge->course_name_en }}</div></div></div>@endforeach</div></section>@endif
 
     @if(count($portfolio['certificates']))
-    <section><div class="section-head"><h2>الشهادات</h2></div><div class="grid">@foreach($portfolio['certificates'] as $certificate)<div class="certificate {{ ($portfolio['highlighted_certificate']['id'] ?? null) === $certificate['id'] ? 'highlight' : '' }}"><div class="verified">{{ $certificate['status'] !== 'active' ? 'شهادة ملغاة' : ((($certificate['verification_level'] ?? 'completion') === 'reviewed_project') ? 'إتمام ومشروع بمراجعة بشرية ✓' : 'إتمام الكورس موثق ✓') }}</div><h3>{{ $certificate['course']['name'] ?? 'شهادة إتمام' }}</h3><div class="muted">{{ $certificate['generated_at'] }}</div></div>@endforeach</div></section>
+    <section><div class="section-head"><h2>الشهادات</h2></div><div class="grid">@foreach($portfolio['certificates'] as $certificate)<div class="certificate {{ ($portfolio['highlighted_certificate']['public_id'] ?? null) === $certificate['public_id'] ? 'highlight' : '' }}"><div class="verified">{{ $certificate['status'] !== 'active' ? 'شهادة ملغاة' : ((($certificate['verification_level'] ?? 'completion') === 'reviewed_project') ? 'إتمام ومشروع بمراجعة بشرية ✓' : 'إتمام الكورس موثق ✓') }}</div><h3>{{ $certificate['course_name'] ?? $certificate['course']['name'] ?? 'شهادة إتمام' }}</h3><div class="muted">{{ $certificate['generated_at'] }}</div></div>@endforeach</div></section>
     @endif
 </main>
 <footer><div class="wrap">ملف الطالب على ركن</div></footer>

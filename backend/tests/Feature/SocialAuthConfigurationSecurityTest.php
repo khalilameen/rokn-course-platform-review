@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 final class SocialAuthConfigurationSecurityTest extends TestCase
 {
+    use RefreshDatabase;
+
     public function test_misconfigured_external_return_url_is_never_accepted_at_runtime(): void
     {
         config([

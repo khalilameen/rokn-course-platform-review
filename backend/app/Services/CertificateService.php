@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Support\RoknPublicUrl;
+use App\Support\UnicodeText;
+
 use App\Models\Certificate;
 use App\Models\Course;
 use App\Models\CourseEnrollment;
@@ -25,7 +28,8 @@ class CertificateService
 {
     public function __construct(
         private readonly FinancialProvenanceService $financialProvenance,
-        private readonly CourseChatAccessService $courseAccess
+        private readonly CourseChatAccessService $courseAccess,
+        private readonly CertificateEligibilityService $eligibility
     ) {
     }
 
@@ -50,20 +54,38 @@ class CertificateService
             return null;
         }
 
-        $verificationLevel = $this->verificationLevel($user, $project);
+        $verificationLevel = $this->verificationLevel($user, $course);
         // Allows rolling deployments: old web workers may run briefly before
         // this additive migration reaches every database connection.
         $supportsVerificationLevel = Schema::hasColumn('certificates', 'verification_level');
+        $supportsIdentitySnapshots = Schema::hasColumns('certificates', [
+            'holder_name',
+            'course_name',
+        ]);
         $certificate = Certificate::where('user_id', $user->id)
             ->where('course_id', $course->id)
             ->first();
 
+        // Revocation is terminal. A missing artifact or a retry must never
+        // turn a revoked credential active again.
+        if ($certificate && ($certificate->status ?? 'active') === 'revoked') {
+            return null;
+        }
+
+        // Eligibility creates a credential; it does not expire one already
+        // issued. A pending or lost artifact can therefore be rebuilt from its
+        // immutable row even if progress tables are later archived.
+        if (!$certificate && !$this->eligibility->for($user, $course)['available']) {
+            return null;
+        }
+
+        if ($certificate && $supportsIdentitySnapshots) {
+            $this->fillMissingIdentitySnapshots($certificate, $user, $course);
+        }
+
         if ($certificate && $this->artifactExists($certificate)) {
-            if (
-                $supportsVerificationLevel
-                && ($certificate->verification_level ?? 'completion') !== $verificationLevel
-            ) {
-                $certificate->forceFill(['verification_level' => $verificationLevel])->save();
+            if (Schema::hasColumn('certificates', 'artifact_checked_at')) {
+                $certificate->forceFill(['artifact_checked_at' => now()])->save();
             }
             return $certificate;
         }
@@ -81,6 +103,10 @@ class CertificateService
                     'generated_at' => now(),
                     'status'       => 'active',
                 ];
+                if ($supportsIdentitySnapshots) {
+                    $createAttributes['holder_name'] = $this->holderName($user);
+                    $createAttributes['course_name'] = $this->courseName($course);
+                }
                 if ($supportsVerificationLevel) {
                     $createAttributes['verification_level'] = $verificationLevel;
                 }
@@ -91,6 +117,9 @@ class CertificateService
                     ->first();
                 if (!$certificate) {
                     throw $e;
+                }
+                if (($certificate->status ?? 'active') === 'revoked') {
+                    return null;
                 }
             }
         }
@@ -103,7 +132,13 @@ class CertificateService
             $certificate->refresh();
         }
 
-        $generatedAt = now();
+        if ($supportsIdentitySnapshots) {
+            $this->fillMissingIdentitySnapshots($certificate, $user, $course);
+        }
+
+        // The issue date is credential history, not the time of an artifact
+        // recovery. Retrying a pending or lost image keeps the original date.
+        $generatedAt = $certificate->generated_at ?? now();
         $filePath = $this->createCertificateImage(
             $user,
             $course,
@@ -119,28 +154,56 @@ class CertificateService
 
         $updateAttributes = [
             'image_path' => $filePath,
-            'generated_at' => $generatedAt,
             'status' => 'active',
         ];
-        if ($supportsVerificationLevel) {
-            $updateAttributes['verification_level'] = $verificationLevel;
+        if (Schema::hasColumn('certificates', 'recovery_attempts')) {
+            $updateAttributes += [
+                'recovery_attempts' => 0,
+                'recovery_next_attempt_at' => null,
+                'recovery_failed_at' => null,
+                'recovery_failure_code' => null,
+            ];
+        }
+        if (Schema::hasColumn('certificates', 'artifact_checked_at')) {
+            $updateAttributes['artifact_checked_at'] = now();
         }
         $certificate->update($updateAttributes);
+
+        StudentNotificationService::notifyUser(
+            $user,
+            StudentNotificationService::TYPE_CERTIFICATE_READY,
+            'شهادتك جاهزة',
+            'Your certificate is ready',
+            'أكملت الكورس وأصبحت شهادتك جاهزة',
+            'You completed the course and your certificate is ready.',
+            'rokn://profile',
+            Course::class,
+            (int) $course->id,
+            'certificate-ready:' . $certificate->id,
+            ['course' => (string) ($course->name_ar ?: $course->name_en)]
+        );
 
         return $certificate;
     }
 
-    private function verificationLevel(User $user, ?Project $project): string
+    private function verificationLevel(
+        User $user,
+        Course $course
+    ): string
     {
-        if (!$project) {
-            return 'completion';
-        }
-
+        // A course may contain several graduation projects. The certificate
+        // label describes the strongest verified evidence in that course, not
+        // whichever project happened to be returned first by a legacy query.
         $humanReviewed = ProjectSubmission::query()
             ->where('user_id', $user->id)
-            ->where('project_id', $project->id)
             ->where('review_status', ProjectSubmission::STATUS_PASSED)
             ->where('review_source', 'admin_manual')
+            ->whereHas('project', function ($projects) use ($course): void {
+                $projects->where('is_graduation_project', true)
+                    ->whereHas('section', fn ($sections) =>
+                        $sections->where('course_id', $course->id)
+                    );
+            })
             ->exists();
 
         return $humanReviewed ? 'reviewed_project' : 'completion';
@@ -174,10 +237,8 @@ class CertificateService
             $height = $img->height();
 
             // ----- 1. Student name -----
-            $studentName = $user->name
-                ?? $user->name_ar
-                ?? $user->name_en
-                ?? 'Student';
+            $studentName = UnicodeText::clean($certificate->holder_name, false)
+                ?: $this->holderName($user);
             $studentName = $this->shapeIfArabic($studentName);
 
             $pos = $positions['name'];
@@ -190,10 +251,8 @@ class CertificateService
             });
 
             // ----- 2. Course name -----
-            $courseName = $course->name
-                ?? $course->name_ar
-                ?? $course->name_en
-                ?? '';
+            $courseName = UnicodeText::clean($certificate->course_name, false)
+                ?: $this->courseName($course);
             if ($courseName) {
                 $courseName = $this->shapeIfArabic($courseName);
                 $pos = $positions['course'];
@@ -231,11 +290,7 @@ class CertificateService
             });
 
             // ----- 5. QR code -----
-            $portfolioSlug = $user->portfolio_slug ?: ('student-' . $user->id);
-            $profileUrl = route('portfolio.public', [
-                'slug' => $portfolioSlug,
-                'certificate' => $certificate->public_id,
-            ]);
+            $profileUrl = RoknPublicUrl::certificate((string) $certificate->public_id);
             $qrSize     = $positions['qr_code']['size'];
             $qrPng      = $this->generateQrCode($profileUrl, $qrSize);
 
@@ -271,17 +326,66 @@ class CertificateService
 
     private function artifactExists(Certificate $certificate): bool
     {
-        $path = trim((string) $certificate->image_path);
-        if ($path === '' || $path === 'pending' || ($certificate->status ?? 'active') !== 'active') {
-            return false;
+        return $certificate->hasStoredArtifact();
+    }
+
+    private function fillMissingIdentitySnapshots(
+        Certificate $certificate,
+        User $user,
+        Course $course
+    ): void {
+        $updates = [];
+        if (trim((string) $certificate->holder_name) === '') {
+            $updates['holder_name'] = $this->holderName($user);
+        }
+        if (trim((string) $certificate->course_name) === '') {
+            $updates['course_name'] = $this->courseName($course);
+        }
+        if ($updates === []) {
+            return;
         }
 
-        try {
-            return Storage::disk((string) config('certificate.disk', 'public'))->exists($path);
-        } catch (\Throwable $exception) {
-            report($exception);
-            return false;
+        // Conditional writes make concurrent recovery safe and ensure that a
+        // later profile or course edit can never replace the issued identity.
+        foreach ($updates as $column => $value) {
+            Certificate::query()
+                ->whereKey($certificate->id)
+                ->where(function ($query) use ($column): void {
+                    $query->whereNull($column)->orWhere($column, '');
+                })
+                ->update([$column => $value]);
         }
+        $certificate->refresh();
+    }
+
+    private function holderName(User $user): string
+    {
+        return $this->firstText([
+            $user->getRawOriginal('name_ar'),
+            $user->getRawOriginal('name_en'),
+            $user->getRawOriginal('name'),
+        ], 'طالب ركن');
+    }
+
+    private function courseName(Course $course): string
+    {
+        return $this->firstText([
+            $course->getRawOriginal('name_ar'),
+            $course->getRawOriginal('name_en'),
+        ], 'كورس ركن');
+    }
+
+    /** @param array<int, mixed> $values */
+    private function firstText(array $values, string $fallback): string
+    {
+        foreach ($values as $value) {
+            $text = UnicodeText::clean($value, false);
+            if ($text !== '') {
+                return $text;
+            }
+        }
+
+        return $fallback;
     }
 
     /* ------------------------------------------------------------------
@@ -321,7 +425,8 @@ class CertificateService
      */
     private function shapeIfArabic(string $text): string
     {
-        if (!preg_match('/[\x{0600}-\x{06FF}]/u', $text)) {
+        $text = UnicodeText::clean($text, false);
+        if (!preg_match('/\p{Arabic}/u', $text)) {
             return $text;
         }
 

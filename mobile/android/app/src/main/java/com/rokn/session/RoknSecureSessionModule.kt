@@ -1,6 +1,7 @@
 package com.rokn.session
 
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import com.facebook.react.bridge.Promise
@@ -8,6 +9,7 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import java.security.KeyStore
+import java.security.UnrecoverableKeyException
 import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -48,6 +50,12 @@ class RoknSecureSessionModule(
     return generator.generateKey()
   }
 
+  private fun resetUnusableKeyMaterial() {
+    preferences.edit().clear().commit()
+    val keyStore = KeyStore.getInstance(KEYSTORE_PROVIDER).apply { load(null) }
+    if (keyStore.containsAlias(KEY_ALIAS)) keyStore.deleteEntry(KEY_ALIAS)
+  }
+
   @ReactMethod
   fun setItem(key: String, value: String, promise: Promise) {
     try {
@@ -79,21 +87,49 @@ class RoknSecureSessionModule(
         return
       }
       val parts = payload.split('.')
-      check(parts.size == 3 && parts[0] == PAYLOAD_VERSION) {
-        "Unsupported secure-session payload"
+      if (parts.size != 3 || parts[0] != PAYLOAD_VERSION) {
+        // An interrupted app upgrade or an older unsupported payload is not a
+        // recoverable session. Remove only this logical value so it cannot
+        // break every future cold start.
+        preferences.edit().remove(key).commit()
+        promise.resolve(null)
+        return
+      }
+      val iv = try {
+        Base64.decode(parts[1], Base64.NO_WRAP)
+      } catch (_: IllegalArgumentException) {
+        preferences.edit().remove(key).commit()
+        promise.resolve(null)
+        return
+      }
+      val encrypted = try {
+        Base64.decode(parts[2], Base64.NO_WRAP)
+      } catch (_: IllegalArgumentException) {
+        preferences.edit().remove(key).commit()
+        promise.resolve(null)
+        return
       }
       val cipher = Cipher.getInstance(TRANSFORMATION)
       cipher.init(
         Cipher.DECRYPT_MODE,
         getOrCreateSecretKey(),
-        GCMParameterSpec(GCM_TAG_BITS, Base64.decode(parts[1], Base64.NO_WRAP)),
+        GCMParameterSpec(GCM_TAG_BITS, iv),
       )
-      val decrypted = cipher.doFinal(Base64.decode(parts[2], Base64.NO_WRAP))
+      val decrypted = cipher.doFinal(encrypted)
       promise.resolve(String(decrypted, Charsets.UTF_8))
     } catch (error: AEADBadTagException) {
       // A restored preference cannot be decrypted after Android creates a new
       // app key. Remove the unusable value instead of repeatedly failing boot.
       preferences.edit().remove(key).commit()
+      promise.resolve(null)
+    } catch (error: KeyPermanentlyInvalidatedException) {
+      // Screen-lock/biometric changes can invalidate the AndroidKeyStore key.
+      // Every ciphertext under that key is then unreadable, so rotate the key
+      // once and continue as a guest instead of rejecting every app launch.
+      runCatching { resetUnusableKeyMaterial() }
+      promise.resolve(null)
+    } catch (error: UnrecoverableKeyException) {
+      runCatching { resetUnusableKeyMaterial() }
       promise.resolve(null)
     } catch (error: Throwable) {
       promise.reject("ROKN_SECURE_SESSION_READ_FAILED", error)

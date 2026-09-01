@@ -1,7 +1,7 @@
 import {useNavigation, useRoute} from '@react-navigation/native';
 import type {RouteProp} from '@react-navigation/native';
 import type {RootNavigation} from '../../navigation/types';
-import React, {useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import {
   ActivityIndicator,
@@ -56,8 +56,17 @@ import {
   type LoginReturnTo,
   type LoginReturnToParamlessRoute,
 } from '../../navigation/types';
-import {migrateGuestLearningState} from '../VideoPlayer/courseLearningApi';
 import type {RootState} from '../../store/store';
+import {
+  resumePendingGuestAccountMigration,
+  stageGuestAccountMigration,
+} from '../../services/guestAccountMigration';
+import {runAuthenticatedStorageUpgrade} from '../../services/storageUpgrade';
+import {
+  clearPendingLoginReturnTo,
+  savePendingLoginReturnTo,
+} from '../../navigation/authReturn';
+import {learnerFacingText} from '../../utils/errorPayload';
 
 type LoginRoute = RouteProp<{Login: LoginRouteParams}, 'Login'>;
 
@@ -130,6 +139,33 @@ export default function SocialAuthShell() {
   const [authMethods, setAuthMethods] = useState<
     SocialAuthMethods | null | undefined
   >(undefined);
+  const authMethodsGenerationRef = useRef(0);
+  const authMethodsRequestRef = useRef<Promise<SocialAuthMethods> | null>(null);
+  const authIntentGenerationRef = useRef(0);
+  const authAttemptInFlightRef = useRef(false);
+
+  const loadAuthMethods = useCallback(async () => {
+    const generation = ++authMethodsGenerationRef.current;
+    setAuthMethods(undefined);
+    const request = authMethodsRequestRef.current ?? getSocialAuthMethods();
+    authMethodsRequestRef.current = request;
+    try {
+      const methods = await request;
+      if (generation === authMethodsGenerationRef.current) {
+        setAuthMethods(methods);
+      }
+      return methods;
+    } catch (error) {
+      if (generation === authMethodsGenerationRef.current) {
+        setAuthMethods(null);
+      }
+      throw error;
+    } finally {
+      if (authMethodsRequestRef.current === request) {
+        authMethodsRequestRef.current = null;
+      }
+    }
+  }, []);
 
   const finishAuthenticatedNavigation = () => {
     const returnTo = route.params?.returnTo;
@@ -144,12 +180,14 @@ export default function SocialAuthShell() {
           // Returning to the mounted screen also preserves local UI intent,
           // such as the selected Saved or Portfolio tab inside Profile.
           navigation.goBack();
+          void clearPendingLoginReturnTo().catch(() => undefined);
           return;
         }
         navigation.reset({
           index: 1,
           routes: [{name: 'Home'}, {name: returnTo.name}],
         });
+        void clearPendingLoginReturnTo().catch(() => undefined);
         return;
       }
       const targetParams =
@@ -172,55 +210,73 @@ export default function SocialAuthShell() {
           },
         ],
       });
+      void clearPendingLoginReturnTo().catch(() => undefined);
       return;
     }
     navigation.reset({index: 0, routes: [{name: 'Home'}]});
+    void clearPendingLoginReturnTo().catch(() => undefined);
   };
 
   useEffect(() => {
-    let active = true;
-    getSocialAuthMethods()
-      .then(methods => active && setAuthMethods(methods))
-      .catch(() => active && setAuthMethods(null));
+    void loadAuthMethods().catch(() => undefined);
     return () => {
-      active = false;
+      authMethodsGenerationRef.current += 1;
+      authIntentGenerationRef.current += 1;
     };
-  }, []);
+  }, [loadAuthMethods]);
 
   const continueWith = async (provider: SocialProvider) => {
-    if (loading || (authMethods && !authMethods.providers.includes(provider))) {
+    if (
+      authAttemptInFlightRef.current ||
+      loading ||
+      (authMethods && !authMethods.providers.includes(provider))
+    ) {
       return;
     }
+    // Switching identities must pass through logout so push bindings, pending
+    // writes and account-scoped caches are closed under their original owner.
+    if (extractApiToken(currentSession)) {
+      finishAuthenticatedNavigation();
+      return;
+    }
+    const intentGeneration = ++authIntentGenerationRef.current;
+    const stillOwnsIntent = () =>
+      intentGeneration === authIntentGenerationRef.current;
+    authAttemptInFlightRef.current = true;
     setLoading(provider);
     try {
       await assertSecureSessionStorageAvailable();
-      const availableMethods = authMethods ?? (await getSocialAuthMethods());
+      await savePendingLoginReturnTo(route.params?.returnTo);
+      const guestScope = await getCurrentAccountStorageScope();
+      await stageGuestAccountMigration(guestScope);
+      const availableMethods = authMethods ?? (await loadAuthMethods());
+      if (!stillOwnsIntent()) return;
       setAuthMethods(availableMethods);
-      const session = await signInWithSocialProvider(
-        provider,
-        availableMethods,
-      );
-      const guestScope = extractApiToken(currentSession)
-        ? null
-        : await getCurrentAccountStorageScope();
-      const sessionSaved = await saveItem(AsyncKeys.USER_DATA, session);
-      if (!sessionSaved) throw new Error('SESSION_STORAGE_UNAVAILABLE');
+      await signInWithSocialProvider(provider, availableMethods);
+      if (!stillOwnsIntent()) return;
+      // Social auth owns the one durable session write for every provider.
+      // Writing it again here used to turn an already successful login into a
+      // visible failure when the second storage round-trip was interrupted.
       await saveItem(AsyncKeys.IS_LOGIN, true);
-      if (guestScope) {
-        await migrateGuestLearningState(guestScope);
-      }
-      const welcomeBonus = Number(session?.welcome_bonus_granted || 0);
-      if (welcomeBonus > 0) {
-        await saveItem(AsyncKeys.PENDING_WELCOME_BONUS, welcomeBonus);
-      }
+      // Account-scoped cache migration is recoverable housekeeping. A full
+      // disk must not turn an already durable OAuth session into a failed
+      // login; the copy-before-delete migration retries on the next launch.
+      await runAuthenticatedStorageUpgrade().catch(() => undefined);
+      await resumePendingGuestAccountMigration(false);
+      void resumePendingGuestAccountMigration(true).catch(() => undefined);
       const restoredSession = await getItem(AsyncKeys.USER_DATA);
+      if (!stillOwnsIntent()) return;
       if (!extractApiToken(restoredSession)) {
         throw new Error('SESSION_STORAGE_UNAVAILABLE');
       }
       dispatch(saveLoginData(restoredSession));
       finishAuthenticatedNavigation();
     } catch (error) {
+      if (!stillOwnsIntent()) return;
       const code = socialAuthFailureCode(error);
+      if (code === 'LOGIN_CANCELLED') {
+        await clearPendingLoginReturnTo().catch(() => undefined);
+      }
       if (code !== 'LOGIN_CANCELLED') {
         void reportClientError(new Error(code), {
           source: `auth.${provider}`,
@@ -229,20 +285,19 @@ export default function SocialAuthShell() {
       const message = socialAuthMessage(code);
       if (message) Alert.alert('تعذّر تسجيل الدخول', message);
     } finally {
-      setLoading(null);
+      authAttemptInFlightRef.current = false;
+      if (stillOwnsIntent()) setLoading(null);
     }
   };
 
   const retryAuthMethods = async () => {
-    setAuthMethods(undefined);
-    try {
-      setAuthMethods(await getSocialAuthMethods());
-    } catch {
-      setAuthMethods(null);
-    }
+    await loadAuthMethods().catch(() => undefined);
   };
 
   const enterFreePreview = async () => {
+    authIntentGenerationRef.current += 1;
+    authAttemptInFlightRef.current = false;
+    setLoading(null);
     if (extractApiToken(currentSession)) {
       finishAuthenticatedNavigation();
       return;
@@ -250,21 +305,64 @@ export default function SocialAuthShell() {
     // Guest browsing is explicit and never masquerades as a registered user.
     await removeItem(AsyncKeys.USER_DATA);
     await removeItem(AsyncKeys.IS_LOGIN);
+    await clearPendingLoginReturnTo().catch(() => undefined);
     dispatch(LogOut());
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    const returnTo = route.params?.returnTo;
+    if (validReturnTo(returnTo)) {
+      if (isParamlessReturnTo(returnTo)) {
+        navigation.reset({
+          index: 1,
+          routes: [{name: 'Home'}, {name: returnTo.name}],
+        });
+        return;
+      }
+      if (returnTo.name === 'CourseDetails') {
+        navigation.reset({
+          index: 1,
+          routes: [
+            {name: 'Home'},
+            {
+              name: 'CourseDetails',
+              params: {
+                ...returnTo.params,
+                openCodeRedemption: false,
+                openPurchase: false,
+              },
+            },
+          ],
+        });
+        return;
+      }
+      navigation.reset({
+        index: 1,
+        routes: [
+          {name: 'Home'},
+          {
+            name: 'Reels',
+            params: {...returnTo.params, preview: true},
+          },
+        ],
+      });
+      return;
+    }
     navigation.reset({index: 0, routes: [{name: 'Home'}]});
   };
 
   const recommendedProvider = authMethods?.recommendedProvider;
-  const recommendationText = authMethods?.recommendationText || null;
+  const recommendationText = authMethods?.recommendationText
+    ? learnerFacingText(authMethods.recommendationText)
+    : null;
   const providerOrder = [
     ...(recommendedProvider ? [recommendedProvider] : []),
     ...(authMethods?.providers ?? []),
   ].filter((value, index, list) => value && list.indexOf(value) === index);
   const visibleProviders = authMethods
-    ? providers.filter(provider =>
-        authMethods.providers.includes(provider.id),
-      )
-    : providers;
+    ? providers.filter(provider => authMethods.providers.includes(provider.id))
+    : [];
   const orderedProviders = authMethods
     ? [...visibleProviders].sort((first, second) => {
         const firstIndex = providerOrder.indexOf(first.id);
@@ -274,7 +372,7 @@ export default function SocialAuthShell() {
         if (secondIndex < 0) return -1;
         return firstIndex - secondIndex;
       })
-    : providers;
+    : [];
 
   return (
     <Container noPadding>
@@ -285,10 +383,14 @@ export default function SocialAuthShell() {
         <ResponsiveFrame style={styles.frame}>
           <View style={styles.hero}>
             <Image
+              accessibilityElementsHidden
+              importantForAccessibility="no"
               source={require('../../assets/images/authLogo.png')}
               style={styles.logo}
             />
-            <Text style={styles.title}>سجّل دخولك إلى ركن</Text>
+            <Text accessibilityRole="header" style={styles.title}>
+              سجّل دخولك إلى ركن
+            </Text>
             <Text style={styles.subtitle}>
               احفظ تقدمك ومحفوظاتك وارجع لها في أي وقت
             </Text>
@@ -296,8 +398,9 @@ export default function SocialAuthShell() {
 
           <View style={styles.providers}>
             {orderedProviders.map(provider => {
-              const methodsAreLoading = authMethods === undefined;
-              const disabled = Boolean(loading) || methodsAreLoading;
+              // Only providers confirmed ready by the current server contract
+              // are rendered. One missing provider never hides the others.
+              const disabled = Boolean(loading);
 
               if (provider.id === 'apple') {
                 return (
@@ -335,9 +438,8 @@ export default function SocialAuthShell() {
                         pointerEvents="none"
                         style={styles.recommendedBadge}>
                         <Text
-                          adjustsFontSizeToFit
-                          minimumFontScale={0.72}
-                          numberOfLines={1}
+                          maxFontSizeMultiplier={1.6}
+                          numberOfLines={2}
                           style={styles.recommendedText}>
                           {recommendationText}
                         </Text>
@@ -357,8 +459,8 @@ export default function SocialAuthShell() {
                       provider.id === 'google' && styles.googleProvider,
                       provider.id === 'tiktok' && styles.tiktokProvider,
                       provider.id === 'facebook' && styles.facebookProvider,
-                      ((loading && loading !== provider.id) ||
-                        methodsAreLoading) &&
+                      loading &&
+                        loading !== provider.id &&
                         styles.providerDisabled,
                       pressed && styles.pressed,
                     ]}>
@@ -374,6 +476,8 @@ export default function SocialAuthShell() {
                         />
                       ) : provider.image ? (
                         <Image
+                          accessibilityElementsHidden
+                          importantForAccessibility="no"
                           source={provider.image}
                           style={styles.providerImage}
                         />
@@ -395,15 +499,16 @@ export default function SocialAuthShell() {
           </View>
 
           {authMethods === undefined && (
-            <View style={styles.authStatus}>
+            <View accessibilityLiveRegion="polite" style={styles.authStatus}>
               <ActivityIndicator color={Palette.primary} size="small" />
-              <Text style={styles.authStatusText}>نجهّز طرق الدخول</Text>
+              <Text style={styles.authStatusText}>جارٍ تحميل طرق الدخول</Text>
             </View>
           )}
           {authMethods === null && (
-            <View style={styles.authStatus}>
+            <View accessibilityRole="alert" style={styles.authStatus}>
               <Text style={styles.authStatusText}>تعذّر تحميل طرق الدخول</Text>
               <Pressable
+                accessibilityLabel="إعادة تحميل طرق تسجيل الدخول"
                 accessibilityRole="button"
                 onPress={() => void retryAuthMethods()}
                 style={styles.retryMethods}>
@@ -412,33 +517,43 @@ export default function SocialAuthShell() {
             </View>
           )}
           {authMethods && authMethods.providers.length === 0 && (
-            <View style={styles.authStatus}>
+            <View accessibilityRole="alert" style={styles.authStatus}>
               <Text style={styles.authStatusText}>
                 طرق تسجيل الدخول غير متاحة الآن
               </Text>
             </View>
           )}
 
-          <Text style={styles.legal}>
-            بالمتابعة أنت توافق على{' '}
-            <Text
+          <View
+            accessibilityLabel="بالمتابعة أنت توافق على شروط الاستخدام وسياسة الخصوصية"
+            style={styles.legal}>
+            <Text style={styles.legalCopy}>بالمتابعة أنت توافق على</Text>
+            <Pressable
+              accessibilityLabel="فتح شروط الاستخدام"
+              accessibilityRole="link"
               onPress={() => navigation.navigate('TermsOfUse')}
-              style={styles.legalLink}>
-              شروط الاستخدام
-            </Text>{' '}
-            و
-            <Text
+              style={styles.legalLinkButton}>
+              <Text style={styles.legalLink}>شروط الاستخدام</Text>
+            </Pressable>
+            <Text style={styles.legalCopy}>و</Text>
+            <Pressable
+              accessibilityLabel="فتح سياسة الخصوصية"
+              accessibilityRole="link"
               onPress={() => navigation.navigate('PrivacyPolicy')}
-              style={styles.legalLink}>
-              سياسة الخصوصية
-            </Text>
-          </Text>
+              style={styles.legalLinkButton}>
+              <Text style={styles.legalLink}>سياسة الخصوصية</Text>
+            </Pressable>
+          </View>
 
           <Pressable
+            accessibilityLabel="استكشاف المحتوى المجاني دون تسجيل دخول"
             accessibilityRole="button"
+            accessibilityState={{disabled: Boolean(loading)}}
+            disabled={Boolean(loading)}
             onPress={() => void enterFreePreview()}
             style={({pressed}) => [
               styles.reviewButton,
+              loading && styles.providerDisabled,
               pressed && styles.pressed,
             ]}>
             <Text style={styles.reviewButtonText}>استكشف المحتوى المجاني</Text>
@@ -477,7 +592,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.xs,
   },
   providers: {direction: 'rtl', gap: Spacing.sm},
-  recommendedProviderWrap: {direction: 'rtl', paddingTop: 9},
+  recommendedProviderWrap: {direction: 'rtl'},
   provider: {
     minHeight: 58,
     ...rtlRowStyle,
@@ -506,12 +621,12 @@ const styles = StyleSheet.create({
   },
   googleLabel: {color: '#202124'},
   recommendedBadge: {
-    position: 'absolute',
     zIndex: 2,
-    top: 0,
-    end: 14,
+    alignSelf: 'flex-end',
+    marginEnd: 14,
+    marginBottom: -6,
     maxWidth: '86%',
-    minHeight: 20,
+    minHeight: 24,
     justifyContent: 'center',
     borderRadius: Radius.pill,
     paddingHorizontal: 10,
@@ -522,8 +637,8 @@ const styles = StyleSheet.create({
   },
   recommendedText: {
     fontFamily: 'Cairo-SemiBold',
-    fontSize: 8.5,
-    lineHeight: 13,
+    fontSize: 11,
+    lineHeight: 18,
     direction: 'rtl',
     writingDirection: 'rtl',
     textAlign: 'center',
@@ -531,13 +646,24 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   legal: {
-    ...Type.caption,
-    writingDirection: 'rtl',
-    color: Palette.textFaint,
-    textAlign: 'center',
+    ...rtlRowStyle,
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginTop: Spacing.xl,
   },
-  legalLink: {color: '#8BB5FF', textDecorationLine: 'underline'},
+  legalCopy: {...Type.caption, ...textDirection, color: Palette.textFaint},
+  legalLinkButton: {
+    minHeight: Accessibility.minTouchTarget,
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.xs,
+  },
+  legalLink: {
+    ...Type.caption,
+    ...textDirection,
+    color: '#8BB5FF',
+    textDecorationLine: 'underline',
+  },
   authStatus: {
     minHeight: 32,
     ...rtlRowStyle,

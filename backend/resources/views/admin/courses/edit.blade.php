@@ -69,11 +69,19 @@
             @elseif(!empty($publishingAudit['warnings']))
                 <div class="mt-2">{{ implode(' ', $publishingAudit['warnings']) }}</div>
             @endif
+            <form method="POST" action="{{ route('admin.courses.media-health.probe', $course) }}" class="mt-3">
+                @csrf
+                <button type="submit" class="btn btn-sm btn-outline-primary">
+                    <i class="fa fa-play-circle"></i>
+                    فحص تشغيل كل الفيديوهات
+                </button>
+            </form>
         </div>
 
         <!-- Form -->
         {!! Form::model($course, ['method' => 'PATCH', 'files' => true, 'url' => route('admin.courses.update', $course->id), 'id' => 'courseEditForm']) !!}
         <input type="hidden" name="return_to" value="{{ request('return_to') === 'studio' ? 'studio' : '' }}">
+        <input type="hidden" name="authoring_version" value="{{ $course->authoring_version }}">
 
         <div class="form-sections">
             @include('admin.courses.partials.edit.basic-information')
@@ -85,9 +93,6 @@
             @include('admin.courses.partials.edit.access-plans')
 
             @include('admin.courses.partials.edit.course-image')
-
-            @include('admin.courses.partials.edit.course-lessons')
-
 
         </div>
 
@@ -211,4 +216,5 @@ function checkForChanges() {
 }
 
 </script>
+@include('admin.partials.course-authoring-draft', ['formId' => 'courseEditForm'])
 @endsection

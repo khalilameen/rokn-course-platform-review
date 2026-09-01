@@ -8,17 +8,29 @@ use App\Traits\ResolvesLocalizedAttributes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Illuminate\Support\Facades\Schema;
 
 
 class Course extends Model
 {
     //
-    use HasPhoto, HasFactory, ResolvesLocalizedAttributes, InvalidatesCourseCatalogue;
+    use HasPhoto, HasFactory, ResolvesLocalizedAttributes, InvalidatesCourseCatalogue, SoftDeletes;
+
+    public static function bootSoftDeletes(): void
+    {
+        if (
+            Schema::hasTable('courses')
+            && Schema::hasColumn('courses', 'deleted_at')
+        ) {
+            static::addGlobalScope(new SoftDeletingScope);
+        }
+    }
     protected $fillable = [
         'name_ar', 'name_en', 'description_ar', 'description_en', 'image', 'grade_id', 'teacher_id', 'store_id',
         'price', 'price_before_discount', 'currency', 'video_count', 'hours_count', 'questions_count',
         'exam_count', 'home_work_count', 'files_count', 'students_count', 'course_type','parent_id',
-        'is_main_course', 'is_coming_soon', 'is_catalog_visible', 'home_sort_order',
+        'is_main_course', 'is_coming_soon', 'is_catalog_visible', 'authoring_version', 'authoring_request_id', 'home_sort_order',
         'catalog_badge_ar', 'catalog_badge_en', 'catalog_badge_tone',
         'search_keywords_ar', 'search_keywords_en', 'search_title_normalized', 'search_terms_normalized',
         'ai_model_type', 'chat_ai_prompt', 'temperature', 'tokens_number', 'ai_chat_enabled',
@@ -33,6 +45,7 @@ class Course extends Model
         'is_main_course' => 'boolean',
         'is_coming_soon' => 'boolean',
         'is_catalog_visible' => 'boolean',
+        'authoring_version' => 'integer',
         'home_sort_order' => 'integer',
         'ai_chat_enabled' => 'boolean',
         'attachment_prompt_enabled' => 'boolean',
@@ -74,13 +87,11 @@ class Course extends Model
 
     public function scopeVisibleInCatalog($query)
     {
-        return $query->where(function ($visibility) {
-            $visibility->where('is_coming_soon', false)
-                ->orWhere(function ($announced) {
-                    $announced->where('is_coming_soon', true)
-                        ->where('is_catalog_visible', true);
-                });
-        });
+        // Publication controls learning access. Catalogue visibility controls
+        // discovery. Keeping these two states independent lets an existing
+        // learner finish an unlisted course without leaking it to home,
+        // search, grades, paths or a guessed public details URL.
+        return $query->where('is_catalog_visible', true);
     }
 
     public function scopeQuiz($query){
@@ -147,10 +158,6 @@ class Course extends Model
     public function questions(){
         return $this->hasMany('App\Models\Question','list_id','id');
     }
-    public function category(){
-        return $this->belongsTo('App\Models\Category');
-    }
-
     public function grade(){
         return $this->belongsTo(Grade::class);
     }
@@ -221,12 +228,50 @@ class Course extends Model
      */
     public function ratings()
     {
-        return $this->hasMany(CourseRating::class);
+        return $this->hasMany(CourseRating::class)
+            ->whereBetween('rating', [1, 5]);
     }
 
     public function orders()
     {
         return $this->hasMany(Order::class);
+    }
+
+    /**
+     * A course is playable only after it leaves draft/coming-soon state and
+     * owns at least one live section. Catalogue visibility is deliberately
+     * separate: a published course may be hidden from discovery while its
+     * existing students keep learning.
+     */
+    public function isPublishedForLearning(): bool
+    {
+        if ((bool) $this->is_coming_soon) {
+            return false;
+        }
+
+        if (array_key_exists('sections_count', $this->attributes)) {
+            return (int) $this->attributes['sections_count'] > 0;
+        }
+
+        return $this->relationLoaded('sections')
+            ? $this->sections->isNotEmpty()
+            : $this->sections()->exists();
+    }
+
+    /** Child rows belong to a parent learning contract, not the public catalogue. */
+    public function isNestedCourse(): bool
+    {
+        if ($this->parent_id !== null) {
+            return true;
+        }
+
+        if (array_key_exists('course_section_exists', $this->attributes)) {
+            return (bool) $this->attributes['course_section_exists'];
+        }
+
+        return $this->relationLoaded('courseSection')
+            ? $this->courseSection !== null
+            : $this->courseSection()->exists();
     }
 
     public function enrollments()
@@ -237,6 +282,9 @@ class Course extends Model
     public function activeEnrollments()
     {
         return $this->enrollments()
+            ->whereHas('user', function ($users) {
+                $users->students();
+            })
             ->where('is_active', true)
             ->where(function ($query) {
                 $query->whereNull('expires_at')->orWhere('expires_at', '>', now());
@@ -251,17 +299,29 @@ class Course extends Model
     /**
      * Get the average rating for this course.
      */
-    public function getAverageRatingAttribute()
+    public function getAverageRatingAttribute($value): float
     {
-        return round($this->ratings()->avg('rating'), 1) ?: 0;
+        $average = array_key_exists('ratings_avg_rating', $this->attributes)
+            ? $this->attributes['ratings_avg_rating']
+            : ($this->relationLoaded('ratings')
+                ? $this->ratings->avg('rating')
+                : $this->ratings()->avg('rating'));
+
+        return $average !== null ? round((float) $average, 1) : 0.0;
     }
 
     /**
      * Get the total number of ratings for this course.
      */
-    public function getRatingsCountAttribute()
+    public function getRatingsCountAttribute($value): int
     {
-        return $this->ratings()->count();
+        if ($value !== null) {
+            return max(0, (int) $value);
+        }
+
+        return $this->relationLoaded('ratings')
+            ? $this->ratings->count()
+            : $this->ratings()->count();
     }
     /**
      * Get the teachers associated with this course.

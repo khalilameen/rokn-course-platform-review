@@ -25,7 +25,12 @@ return [
 
     'allowed_headers' => ['*'],
 
-    'exposed_headers' => false,
+    'exposed_headers' => [
+        'Retry-After',
+        'X-Request-ID',
+        'X-RateLimit-Limit',
+        'X-RateLimit-Remaining',
+    ],
 
     'max_age' => false,
 

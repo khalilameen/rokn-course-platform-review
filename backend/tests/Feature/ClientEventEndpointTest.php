@@ -55,7 +55,7 @@ class ClientEventEndpointTest extends TestCase
             ->assertAccepted()
             ->assertJsonPath('status', 202)
             ->assertJsonPath('success', true)
-            ->assertJsonPath('message', 'Client event accepted')
+            ->assertJsonPath('message', 'تم حفظ الحدث')
             ->assertJsonPath('data.accepted', true)
             ->assertJsonPath('accepted', true);
 

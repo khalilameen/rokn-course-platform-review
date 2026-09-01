@@ -3,12 +3,13 @@
 namespace App\Models;
 
 use App\Support\CourseAccessPlanSnapshot;
+use App\Traits\InvalidatesCourseCatalogue;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class CourseEnrollment extends Model
 {
-    use HasFactory;
+    use HasFactory, InvalidatesCourseCatalogue;
 
     protected $fillable = [
         'user_id',
@@ -39,7 +40,7 @@ class CourseEnrollment extends Model
      */
     public function user()
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class)->withTrashed();
     }
 
     /**
@@ -127,7 +128,12 @@ class CourseEnrollment extends Model
      */
     public function scopeActive($query)
     {
-        return $query->where('is_active', true);
+        return $query
+            ->where('is_active', true)
+            ->where(function ($active): void {
+                $active->whereNull('expires_at')
+                    ->orWhere('expires_at', '>', now());
+            });
     }
 
     /**

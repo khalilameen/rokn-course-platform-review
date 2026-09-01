@@ -55,9 +55,13 @@
     <!-- Form Container -->
     <div class="create-section-container">
         <div class="form-container">
-            <form action="{{ route('admin.courses.sections.store', $course) }}" method="POST" id="sectionForm" enctype="multipart/form-data">
+            <form action="{{ route('admin.courses.sections.store', $course) }}" method="POST" id="sectionForm" enctype="multipart/form-data"
+                  data-bunny-upload-init="{{ route('admin.courses.sections.video-uploads.store', $course) }}"
+                  data-bunny-upload-renew="{{ route('admin.courses.sections.video-uploads.renew', $course) }}"
+                  data-course-id="{{ $course->id }}" data-section-id="">
                 @csrf
                 <input type="hidden" name="return_to" value="{{ request('return_to') === 'studio' ? 'studio' : '' }}">
+                <input type="hidden" name="authoring_version" id="authoringVersion" value="{{ $course->authoring_version }}">
 
                 @include('admin.course-sections.partials.create.basic-information')
 
@@ -100,5 +104,7 @@
 
 @section('scripts')
 @include('admin.course-sections.partials.create.scripts')
+@include('admin.course-sections.partials.bunny-direct-upload')
+@include('admin.partials.course-authoring-draft', ['formId' => 'sectionForm'])
 
 @endsection

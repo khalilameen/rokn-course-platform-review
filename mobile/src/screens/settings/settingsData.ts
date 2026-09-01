@@ -6,11 +6,9 @@ import {
   MoreDeleteAccountIcon,
   MoreEditAccountIcon,
   MoreInfoIcon,
-  MoreLanguageIcon,
   MoreLogoutIcon,
   MoreRateAppIcon,
   SettingsClearHistoryIcon,
-  SettingsDataRequestIcon,
   SettingsDevicesIcon,
   SettingsFeedbackIcon,
   SettingsHistoryIcon,
@@ -24,12 +22,9 @@ import {
 } from '../../assets/SVG';
 import {toArabicDigits} from '../../constants/arabicFormatting';
 import appConfig from '../../../app.json';
-import {
-  accountDeletionUrl,
-  returnsPolicyUrl,
-} from '../../services/publicLinks';
+import {accountDeletionUrl} from '../../services/publicLinks';
 
-export {accountDeletionUrl, returnsPolicyUrl};
+export {accountDeletionUrl};
 
 export const PENDING_WATCH_HISTORY_CLEAR_KEY =
   '@rokn/pending-watch-history-clear/v1';
@@ -69,6 +64,7 @@ export type SettingsSectionModel = {
 
 export type SettingsSectionsProps = {
   authenticated: boolean;
+  canRateApp?: boolean;
   deletingAccount: boolean;
   marketingNotifications: boolean;
   notifications: boolean;
@@ -83,7 +79,6 @@ export type SettingsSectionsProps = {
   onFeedback: () => void;
   onLogin: () => void;
   onLogout: () => void;
-  onOpenAccountDeletion: () => void;
   onOpenQuality: () => void;
   onOpenReminderTime: () => void;
   onPortfolio: () => void;
@@ -131,7 +126,7 @@ export const buildSettingsSections = (
           icon: MoreDeleteAccountIcon,
           isLast: true,
           onPress: props.onDeleteAccount,
-          title: props.deletingAccount ? 'جارٍ حذف الحساب…' : 'حذف الحساب',
+          title: props.deletingAccount ? 'جارٍ حذف الحساب' : 'حذف الحساب',
         },
       ]
     : [
@@ -191,15 +186,19 @@ export const buildSettingsSections = (
   ];
 
   const privacyRows: SettingRowModel[] = [
-    {
-      id: 'privacy.marketing',
-      icon: SettingsMarketingIcon,
-      title: 'العروض والأخبار',
-      toggle: {
-        value: props.marketingNotifications,
-        onChange: props.onToggleMarketing,
-      },
-    },
+    ...(props.authenticated
+      ? [
+          {
+            id: 'privacy.marketing',
+            icon: SettingsMarketingIcon,
+            title: 'العروض والأخبار',
+            toggle: {
+              value: props.marketingNotifications,
+              onChange: props.onToggleMarketing,
+            },
+          } satisfies SettingRowModel,
+        ]
+      : []),
     {
       id: 'privacy.policy',
       icon: SettingsPrivacyIcon,
@@ -213,12 +212,6 @@ export const buildSettingsSections = (
       title: 'شروط الاستخدام',
     },
     {
-      id: 'privacy.data-request',
-      icon: SettingsDataRequestIcon,
-      onPress: props.onOpenAccountDeletion,
-      title: 'طلب حذف الحساب أو البيانات',
-    },
-    {
       id: 'privacy.feedback',
       icon: SettingsFeedbackIcon,
       onPress: props.onFeedback,
@@ -227,24 +220,23 @@ export const buildSettingsSections = (
     {
       id: 'privacy.support',
       icon: SupportWhatsAppIcon,
+      isLast: true,
       onPress: props.onSupport,
       title: 'تواصل معنا',
     },
   ];
 
   const aboutRows: SettingRowModel[] = [
-    {
-      id: 'about.language',
-      icon: MoreLanguageIcon,
-      title: 'اللغة',
-      value: 'العربية',
-    },
-    {
-      id: 'about.rate',
-      icon: MoreRateAppIcon,
-      onPress: props.onRateApp,
-      title: 'قيّم ركن',
-    },
+    ...(props.canRateApp !== false
+      ? [
+          {
+            id: 'about.rate',
+            icon: MoreRateAppIcon,
+            onPress: props.onRateApp,
+            title: 'قيّم ركن',
+          } satisfies SettingRowModel,
+        ]
+      : []),
     {
       id: 'about.info',
       icon: MoreInfoIcon,

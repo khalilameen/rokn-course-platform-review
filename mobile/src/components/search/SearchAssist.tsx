@@ -51,7 +51,7 @@ export default function SearchAssist({
       <View accessibilityLiveRegion="polite" style={styles.searchingRow}>
         <ActivityIndicator color={Palette.primary} size="small" />
         <Text style={styles.searchingText}>
-          نعرض النتائج ونبحث في بقية الكورسات…
+          نعرض النتائج المتاحة ونبحث في بقية الكورسات
         </Text>
       </View>
     );
@@ -137,7 +137,7 @@ const styles = StyleSheet.create({
   chips: {...rtlRowStyle, flexWrap: 'wrap', gap: Spacing.xs},
   chip: {
     maxWidth: '100%',
-    minHeight: 38,
+    minHeight: Accessibility.minTouchTarget,
     justifyContent: 'center',
     paddingHorizontal: Spacing.md,
     borderRadius: Radius.pill,

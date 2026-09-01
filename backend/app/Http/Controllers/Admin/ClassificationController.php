@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Classification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class ClassificationController extends Controller
 {
@@ -61,7 +63,8 @@ class ClassificationController extends Controller
      */
     public function edit(Classification $classification)
     {
-        return view('admin.classifications.edit', compact('classification'));
+        $editorVersion = $this->editorVersion($classification);
+        return view('admin.classifications.edit', compact('classification', 'editorVersion'));
     }
 
     /**
@@ -78,10 +81,21 @@ class ClassificationController extends Controller
             'name_en' => 'required|string|max:255',
             'show_on_home' => 'nullable|boolean',
             'home_order' => 'required|integer|min:0|max:10000',
+            'editor_version' => 'required|string|size:64',
         ]);
 
         $validated['show_on_home'] = $request->boolean('show_on_home');
-        $classification->update($validated);
+        $editorVersion = (string) $validated['editor_version'];
+        unset($validated['editor_version']);
+        DB::transaction(function () use ($classification, $validated, $editorVersion): void {
+            $locked = Classification::query()->whereKey($classification->id)->lockForUpdate()->firstOrFail();
+            if (!hash_equals($this->editorVersion($locked), $editorVersion)) {
+                throw ValidationException::withMessages([
+                    'editor_version' => 'عدّل شخص آخر هذا التصنيف\nأعد تحميل الصفحة قبل الحفظ',
+                ]);
+            }
+            $locked->update($validated);
+        }, 3);
         $this->forgetHomeCache($classification->id);
 
         return redirect()->route('admin.classifications.index')
@@ -96,8 +110,17 @@ class ClassificationController extends Controller
      */
     public function destroy(Classification $classification)
     {
+        $blocked = DB::transaction(function () use ($classification): bool {
+            $locked = Classification::query()->whereKey($classification->id)->lockForUpdate()->firstOrFail();
+            if ($locked->courses()->exists()) return true;
+            $locked->delete();
+            return false;
+        }, 3);
+        if ($blocked) {
+            return redirect()->route('admin.classifications.index')
+                ->with('error', 'انقل الكورسات إلى تصنيف آخر قبل حذف هذا التصنيف');
+        }
         $classificationId = $classification->id;
-        $classification->delete();
         $this->forgetHomeCache($classificationId);
 
         return redirect()->route('admin.classifications.index')
@@ -129,5 +152,15 @@ class ClassificationController extends Controller
         } catch (\Throwable $exception) {
             report($exception);
         }
+    }
+
+    private function editorVersion(Classification $classification): string
+    {
+        return hash('sha256', json_encode([
+            $classification->name_ar,
+            $classification->name_en,
+            (bool) $classification->show_on_home,
+            (int) $classification->home_order,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     }
 }

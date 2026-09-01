@@ -11,6 +11,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import java.util.UUID
 
 object RoknDiagnosticsStore {
   private const val PREFERENCES = "rokn_operational_diagnostics"
@@ -42,12 +43,29 @@ object RoknDiagnosticsStore {
   fun consume(application: Application): JSONObject? {
     val preferences = application.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
     val raw = preferences.getString(PENDING_EVENT, null) ?: return null
-    // Remove durably before returning so a process death cannot emit it twice.
-    preferences.edit(commit = true) { remove(PENDING_EVENT) }
     return try {
-      JSONObject(raw)
+      val event = JSONObject(raw)
+      if (event.optString("event_id").isBlank()) {
+        event.put("event_id", UUID.randomUUID().toString())
+        preferences.edit(commit = true) { putString(PENDING_EVENT, event.toString()) }
+      }
+      event
     } catch (_: Throwable) {
+      preferences.edit(commit = true) { remove(PENDING_EVENT) }
       null
+    }
+  }
+
+  fun acknowledge(application: Application, eventId: String): Boolean {
+    val preferences = application.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+    val raw = preferences.getString(PENDING_EVENT, null) ?: return true
+    return try {
+      val currentId = JSONObject(raw).optString("event_id")
+      if (currentId.isBlank() || currentId != eventId) return false
+      preferences.edit(commit = true) { remove(PENDING_EVENT) }
+      true
+    } catch (_: Throwable) {
+      false
     }
   }
 
@@ -66,6 +84,9 @@ object RoknDiagnosticsStore {
       preferences.edit(commit = true) {
         putLong(LAST_EXIT_TIMESTAMP, exit.timestamp)
       }
+      // The synchronous crash handler keeps a more precise fingerprint. Do
+      // not overwrite it with the coarser historical-exit classification.
+      if (preferences.contains(PENDING_EVENT)) return
       val errorCode = when (exit.reason) {
         android.app.ApplicationExitInfo.REASON_ANR -> "NATIVE_ANR"
         android.app.ApplicationExitInfo.REASON_CRASH,
@@ -91,6 +112,7 @@ object RoknDiagnosticsStore {
   ) {
     try {
       val payload = JSONObject()
+        .put("event_id", UUID.randomUUID().toString())
         .put("error_code", errorCode)
         .put("error_fingerprint", fingerprint)
         .put("occurred_at", isoTimestamp(occurredAtMillis))

@@ -5,20 +5,49 @@ import {
   PROJECT_SUBMISSION_MAX_BYTES,
   validateProjectFile,
 } from '../../../config/projects';
+import {isLocalDemoId} from '../../../config/runtime';
 import {publicRequest} from '../../../constants/api';
 import {getCurrentAccountStorageScope} from '../../../constants/helpers';
 import {requireProductFeature} from '../../../services/productFeatures';
+import {clearAccountLearnerDraftFiles} from '../../../services/learnerDraftFiles';
+import {secureRandomUuid} from '../../../utils/secureRandom';
+import {cleanUnicodeText} from '../../../utils/unicodeText';
 import type {
   CourseLearningData,
+  ProjectFeedbackThread,
   ProjectStatus,
   SelectedProjectFile,
 } from '../types';
 import {resetPlayerStateRuntime, updatePlayerState} from './persistence';
 import {resetPlaybackRuntimeState} from './playback';
-import {asRecord, DataRecord, valueAsString} from './shared';
+import {
+  asArray,
+  asRecord,
+  DataRecord,
+  valueAsBoolean,
+  valueAsString,
+} from './shared';
 
 const PROJECT_SUBMISSION_PREFIX = '@rokn/project-submission/v2';
 const PROJECT_FILE_CACHE_DIR = `${RNFS.CachesDirectoryPath}/rokn_project_submissions`;
+const PUBLIC_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const numericProjectId = (value: string) => {
+  const normalized = String(value).trim();
+  if (!/^\d+$/.test(normalized) || Number(normalized) <= 0) {
+    throw new Error('INVALID_PROJECT_ID');
+  }
+  return normalized;
+};
+
+const publicRouteId = (value: string, field: string) => {
+  const normalized = String(value).trim().toLowerCase();
+  if (!PUBLIC_ID_PATTERN.test(normalized)) {
+    throw new Error(`INVALID_${field}_ID`);
+  }
+  return normalized;
+};
 
 export type ProjectSubmissionOutcome = {
   passed: boolean;
@@ -27,12 +56,92 @@ export type ProjectSubmissionOutcome = {
   canContinue: boolean;
 };
 
+const normaliseFeedbackThread = (
+  value: unknown,
+): ProjectFeedbackThread | null => {
+  const thread = asRecord(value);
+  const level = valueAsString(thread.feedback_level);
+  if (!thread.id || !['report', 'enhanced'].includes(level)) return null;
+  return {
+    id: valueAsString(thread.id),
+    feedbackLevel: level as 'report' | 'enhanced',
+    canReply: valueAsBoolean(thread.can_reply),
+    status: valueAsString(thread.status, 'ready'),
+    remainingMessages: Math.max(0, Number(thread.remaining_messages) || 0),
+    messages: asArray<DataRecord>(thread.messages).flatMap(message => {
+      const role = valueAsString(message.role);
+      const status = valueAsString(message.status);
+      if (
+        !['assistant', 'user'].includes(role) ||
+        ![
+          'queued',
+          'sent',
+          'streaming',
+          'completed',
+          'failed',
+          'cancelled',
+        ].includes(status)
+      )
+        return [];
+      return [
+        {
+          id: valueAsString(message.id),
+          clientRequestId:
+            valueAsString(message.client_request_id) || undefined,
+          role: role as 'assistant' | 'user',
+          status: status as
+            | 'queued'
+            | 'sent'
+            | 'streaming'
+            | 'completed'
+            | 'failed'
+            | 'cancelled',
+          errorCode: valueAsString(message.error_code) || undefined,
+          text: valueAsString(message.text) || undefined,
+          createdAt: valueAsString(message.created_at) || undefined,
+        },
+      ];
+    }),
+  };
+};
+
+export const loadProjectFeedbackThread = async (
+  projectId: string,
+  threadId?: string,
+): Promise<ProjectFeedbackThread | null> => {
+  const response = threadId
+    ? await publicRequest.get(
+        `project-feedback-threads/${publicRouteId(threadId, 'PROJECT_THREAD')}`,
+      )
+    : await publicRequest.get(`projects/${numericProjectId(projectId)}`);
+  const payload = unwrapResponseData(response);
+  return normaliseFeedbackThread(
+    threadId ? payload : asRecord(payload.latest_submission).feedback_thread,
+  );
+};
+
+export const sendProjectFeedbackMessage = async (
+  threadId: string,
+  message: string,
+  clientRequestId = secureRandomUuid(),
+): Promise<ProjectFeedbackThread> => {
+  const normalizedThreadId = publicRouteId(threadId, 'PROJECT_THREAD');
+  const response = await publicRequest.post(
+    `project-feedback-threads/${normalizedThreadId}/messages`,
+    {message: cleanUnicodeText(message), client_request_id: clientRequestId},
+    {headers: {'Idempotency-Key': clientRequestId}, timeout: 30000},
+  );
+  const thread = normaliseFeedbackThread(unwrapResponseData(response));
+  if (!thread) throw new Error('PROJECT_FEEDBACK_THREAD_UNAVAILABLE');
+  return thread;
+};
+
 export const submitProjectAttempt = async (
   projectId: string,
   selectedFile?: SelectedProjectFile | null,
   submissionText?: string,
 ): Promise<ProjectSubmissionOutcome> => {
-  if (projectId.startsWith('demo')) {
+  if (isLocalDemoId(projectId)) {
     await passProjectLocally(projectId);
     return {
       passed: true,
@@ -50,22 +159,36 @@ export const submitProjectAttempt = async (
     submissionText,
   );
   let foregroundBudgetTimer: ReturnType<typeof setTimeout> | undefined;
-  const result = await Promise.race([
-    syncProjectSubmission(pending),
-    new Promise<SubmissionSyncResult>(resolve => {
-      foregroundBudgetTimer = setTimeout(
-        () => resolve({passed: false, terminal: false}),
-        // The server's normal fallback review is eight seconds. Keep this
-        // bounded, but long enough to receive the authoritative unlock in the
-        // common case instead of presenting an empty next module.
-        15000,
-      );
-    }),
-  ]).finally(() => {
+  let result: SubmissionSyncResult;
+  try {
+    result = await Promise.race([
+      syncProjectSubmission(pending),
+      new Promise<SubmissionSyncResult>(resolve => {
+        foregroundBudgetTimer = setTimeout(
+          () =>
+            resolve({
+              passed: false,
+              terminal: false,
+              accepted: Boolean(pending.publicId),
+            }),
+          // The server's normal fallback review is eight seconds. Keep this
+          // bounded, but long enough to receive the authoritative unlock in the
+          // common case instead of presenting an empty next module.
+          15000,
+        );
+      }),
+    ]);
+  } catch (error) {
+    if (!retryableRequestFailure(error)) {
+      await removeCachedProjectFile(pending);
+      await AsyncStorage.removeItem(await projectSubmissionKey(projectId));
+    }
+    throw error;
+  } finally {
     if (foregroundBudgetTimer) {
       clearTimeout(foregroundBudgetTimer);
     }
-  });
+  }
 
   if (result.passed) {
     await passProjectLocally(projectId);
@@ -84,7 +207,7 @@ export const submitProjectAttempt = async (
     await markProjectProvisional(projectId);
     return {
       passed: false,
-      synced: false,
+      synced: result.accepted,
       provisional: true,
       canContinue: false,
     };
@@ -114,6 +237,7 @@ type PendingProjectSubmission = {
 type SubmissionSyncResult = {
   passed: boolean;
   terminal: boolean;
+  accepted: boolean;
 };
 
 const projectSubmissionFlights = new Map<
@@ -122,6 +246,13 @@ const projectSubmissionFlights = new Map<
 >();
 let pendingProjectRetryFlight: Promise<ProjectSubmissionRetryOutcome[]> | null =
   null;
+let projectRuntimeGeneration = 0;
+
+const assertProjectRuntime = (generation: number) => {
+  if (generation !== projectRuntimeGeneration) {
+    throw new Error('ACCOUNT_SESSION_CHANGED');
+  }
+};
 
 const projectSubmissionPrefix = async () =>
   `${PROJECT_SUBMISSION_PREFIX}:${await getCurrentAccountStorageScope()}:`;
@@ -149,7 +280,7 @@ const submissionFingerprint = (
       selectedFile?.name || '',
       selectedFile?.type || '',
       selectedFile?.size || 0,
-      submissionText?.trim() || '',
+      cleanUnicodeText(submissionText || ''),
     ].join('|'),
   );
 
@@ -197,6 +328,7 @@ const removeCachedProjectFile = async (
 export const clearCurrentAccountLearningFiles = async (
   accountScope?: string,
 ) => {
+  quiesceLearningRuntime();
   const resolvedScope = accountScope || (await getCurrentAccountStorageScope());
   if (!/^[a-z0-9_-]+$/i.test(resolvedScope)) {
     throw new Error('INVALID_ACCOUNT_STORAGE_SCOPE');
@@ -216,11 +348,19 @@ export const clearCurrentAccountLearningFiles = async (
     }
   }
 
+  await Promise.all([
+    cleanupProjectFileCache(),
+    clearAccountLearnerDraftFiles(resolvedScope),
+  ]);
+};
+
+/** Stop old-session work without deleting retryable progress or draft files. */
+export const quiesceLearningRuntime = () => {
+  projectRuntimeGeneration += 1;
   resetPlaybackRuntimeState();
   resetPlayerStateRuntime();
   projectSubmissionFlights.clear();
   pendingProjectRetryFlight = null;
-  await cleanupProjectFileCache();
 };
 
 const activePendingProjectFilePaths = async () => {
@@ -306,10 +446,16 @@ const cachePendingProjectFile = async (
     const copiedSize = Number((await RNFS.stat(destination)).size);
     if (
       !Number.isFinite(copiedSize) ||
+      copiedSize <= 0 ||
+      copiedSize !== validatedSize ||
       copiedSize > PROJECT_SUBMISSION_MAX_BYTES
     ) {
       await RNFS.unlink(destination).catch(() => undefined);
-      throw new Error('PROJECT_FILE_TOO_LARGE');
+      throw new Error(
+        copiedSize > PROJECT_SUBMISSION_MAX_BYTES
+          ? 'PROJECT_FILE_TOO_LARGE'
+          : 'PROJECT_FILE_COPY_FAILED',
+      );
     }
     return {
       ...selectedFile,
@@ -324,9 +470,11 @@ const cachePendingProjectFile = async (
     ) {
       throw error;
     }
-    // Foreground upload can still use the picker URI. If Android revokes it
-    // later, the learner sees a retry state rather than a fabricated pass.
-    return {...selectedFile, size: validatedSize};
+    // Provider URIs can be revoked as soon as the picker or app process ends.
+    // A submission is either durably copied before it enters the outbox or it
+    // is not queued at all; retaining an unreadable pending item is worse than
+    // asking the learner to choose the file again now.
+    throw new Error('PROJECT_FILE_COPY_FAILED');
   }
 };
 
@@ -335,10 +483,11 @@ const getOrCreatePendingSubmission = async (
   selectedFile?: SelectedProjectFile | null,
   submissionText?: string,
 ) => {
+  const normalizedSubmissionText = cleanUnicodeText(submissionText || '');
   const fingerprint = submissionFingerprint(
     projectId,
     selectedFile,
-    submissionText,
+    normalizedSubmissionText,
   );
   const existing = await readPendingSubmission(projectId);
   if (existing?.fingerprint === fingerprint) {
@@ -357,7 +506,7 @@ const getOrCreatePendingSubmission = async (
   const pending: PendingProjectSubmission = {
     projectId,
     selectedFile: cachedSelectedFile,
-    submissionText: submissionText?.trim(),
+    submissionText: normalizedSubmissionText || undefined,
     fingerprint,
     clientSubmissionId: createClientSubmissionId(projectId, fingerprint),
   };
@@ -384,10 +533,7 @@ const getOrCreatePendingSubmission = async (
   return pending;
 };
 
-const makeSubmissionForm = (
-  pending: PendingProjectSubmission,
-  legacy = false,
-) => {
+const makeSubmissionForm = (pending: PendingProjectSubmission) => {
   const form = new FormData();
   if (pending.submissionText) {
     form.append('submission_text', pending.submissionText);
@@ -400,11 +546,6 @@ const makeSubmissionForm = (
     } as unknown as Blob);
   }
   form.append('client_submission_id', pending.clientSubmissionId);
-  if (legacy) {
-    // Kept only for servers that have not deployed the submissions route yet.
-    form.append('score', '100');
-    form.append('passed', '1');
-  }
   return form;
 };
 
@@ -419,14 +560,14 @@ const normaliseSubmissionResult = (
 ): SubmissionSyncResult => {
   const status = valueAsString(payload?.status).toLowerCase();
   if (
-    payload?.can_continue === true ||
-    payload?.passed === true ||
+    valueAsBoolean(payload?.can_continue) ||
+    valueAsBoolean(payload?.passed) ||
     ['passed', 'approved', 'completed'].includes(status)
   ) {
-    return {passed: true, terminal: true};
+    return {passed: true, terminal: true, accepted: true};
   }
   if (
-    payload?.needs_resubmission === true ||
+    valueAsBoolean(payload?.needs_resubmission) ||
     [
       'needs_resubmission',
       'rejected',
@@ -436,20 +577,36 @@ const normaliseSubmissionResult = (
       'invalid',
     ].includes(status)
   ) {
-    return {passed: false, terminal: true};
+    return {passed: false, terminal: true, accepted: true};
   }
-  return {passed: false, terminal: false};
+  return {passed: false, terminal: false, accepted: true};
 };
 
 const waitFor = (milliseconds: number) =>
   new Promise<void>(resolve => setTimeout(resolve, milliseconds));
 
+const requestStatus = (error: unknown): number | null => {
+  if (!error || typeof error !== 'object') return null;
+  const candidate = error as {
+    status?: unknown;
+    response?: {status?: unknown};
+  };
+  const status = Number(candidate.status ?? candidate.response?.status);
+  return Number.isFinite(status) && status > 0 ? status : null;
+};
+
+const retryableRequestFailure = (error: unknown) => {
+  const status = requestStatus(error);
+  return status === null || status === 408 || status === 429 || status >= 500;
+};
+
 const pollProjectSubmission = async (
   pending: PendingProjectSubmission,
   attempts = 5,
+  generation = projectRuntimeGeneration,
 ): Promise<SubmissionSyncResult> => {
   if (!pending.publicId) {
-    return {passed: false, terminal: false};
+    return {passed: false, terminal: false, accepted: false};
   }
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -461,24 +618,31 @@ const pollProjectSubmission = async (
       await waitFor(delay);
     }
     try {
+      assertProjectRuntime(generation);
       const response = await publicRequest.get(
-        `project-submissions/${pending.publicId}`,
+        `project-submissions/${publicRouteId(
+          pending.publicId,
+          'PROJECT_SUBMISSION',
+        )}`,
         {timeout: 12000},
       );
+      assertProjectRuntime(generation);
       const result = normaliseSubmissionResult(unwrapResponseData(response));
       if (result.terminal) {
         return result;
       }
     } catch {
-      return {passed: false, terminal: false};
+      return {passed: false, terminal: false, accepted: true};
     }
   }
-  return {passed: false, terminal: false};
+  return {passed: false, terminal: false, accepted: true};
 };
 
 const performProjectSubmissionSync = async (
   pending: PendingProjectSubmission,
+  generation: number,
 ): Promise<SubmissionSyncResult> => {
+  assertProjectRuntime(generation);
   if (pending.publicId) {
     if (pending.selectedFile) {
       const cachedFile = pending.selectedFile;
@@ -486,10 +650,11 @@ const performProjectSubmissionSync = async (
       await savePendingSubmission(pending);
       await removeCachedProjectFile({...pending, selectedFile: cachedFile});
     }
-    const existingResult = await pollProjectSubmission(pending);
-    if (existingResult.terminal) {
-      return existingResult;
-    }
+    const existingResult = await pollProjectSubmission(pending, 5, generation);
+    // Once the server has accepted a submission, only poll that immutable
+    // attempt. Reposting here can duplicate text submissions and cannot
+    // recreate a file that was already released from the local cache.
+    return existingResult;
   }
 
   const requestConfig = {
@@ -502,21 +667,19 @@ const performProjectSubmissionSync = async (
 
   let response: unknown;
   try {
+    assertProjectRuntime(generation);
     response = await publicRequest.post(
       `projects/${pending.projectId}/submissions`,
       makeSubmissionForm(pending),
       requestConfig,
     );
-  } catch {
-    try {
-      response = await publicRequest.post(
-        `projects/${pending.projectId}/evaluate`,
-        makeSubmissionForm(pending, true),
-        requestConfig,
-      );
-    } catch {
-      return {passed: false, terminal: false};
+    assertProjectRuntime(generation);
+  } catch (error) {
+    assertProjectRuntime(generation);
+    if (retryableRequestFailure(error)) {
+      return {passed: false, terminal: false, accepted: false};
     }
+    throw error;
   }
 
   const payload = unwrapResponseData(response);
@@ -528,8 +691,8 @@ const performProjectSubmissionSync = async (
   const publicId = valueAsString(
     payload?.id || payload?.public_id || payload?.submission_id,
   );
-  if (!publicId) {
-    return {passed: false, terminal: false};
+  if (!PUBLIC_ID_PATTERN.test(publicId)) {
+    return {passed: false, terminal: false, accepted: false};
   }
   pending.publicId = publicId;
   pending.pollAfterSeconds = Number(payload?.poll_after_seconds) || 1;
@@ -537,7 +700,8 @@ const performProjectSubmissionSync = async (
   pending.selectedFile = null;
   await savePendingSubmission(pending);
   await removeCachedProjectFile({...pending, selectedFile: uploadedFile});
-  return pollProjectSubmission(pending);
+  assertProjectRuntime(generation);
+  return pollProjectSubmission(pending, 5, generation);
 };
 
 const syncProjectSubmission = (
@@ -545,9 +709,12 @@ const syncProjectSubmission = (
 ): Promise<SubmissionSyncResult> => {
   const existing = projectSubmissionFlights.get(pending.clientSubmissionId);
   if (existing) return existing;
-  const flight = performProjectSubmissionSync(pending).finally(() => {
-    projectSubmissionFlights.delete(pending.clientSubmissionId);
-  });
+  const generation = projectRuntimeGeneration;
+  const flight = performProjectSubmissionSync(pending, generation).finally(
+    () => {
+      projectSubmissionFlights.delete(pending.clientSubmissionId);
+    },
+  );
   projectSubmissionFlights.set(pending.clientSubmissionId, flight);
   return flight;
 };
@@ -582,6 +749,7 @@ export type ProjectSubmissionRetryOutcome = {
   projectId: string;
   passed: boolean;
   terminal: boolean;
+  accepted: boolean;
 };
 
 const performPendingProjectSubmissionRetry = async (): Promise<
@@ -653,9 +821,11 @@ export const unlockAfterProject = (
         reels: module.reels.map((reel, reelIndex) => ({
           ...reel,
           // A confirmed project pass unlocks the next module, not media that
-          // the API has not authorised or supplied yet.
+          // the API has not authorised. Its media URL arrives separately in
+          // a short-lived playback manifest.
           isLocked: isNext
-            ? reelIndex !== 0 || !reel.videoUrl.trim()
+            ? reelIndex !== 0 ||
+              (!reel.videoUrl && !reel.fallbackVideoUrl)
             : reel.isLocked,
         })),
         project: isCurrent ? {...module.project!, status} : module.project,

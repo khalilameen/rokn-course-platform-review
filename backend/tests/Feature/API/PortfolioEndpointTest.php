@@ -69,8 +69,8 @@ class PortfolioEndpointTest extends ApiTestCase
         $response = $this->actingAs($this->user, 'api')->post('/api/v1/portfolio', [
             'title' => 'مشروع قابل لإعادة المحاولة',
             'files' => [
-                UploadedFile::fake()->image('first.jpg'),
-                UploadedFile::fake()->image('second.jpg'),
+                UploadedFile::fake()->image('first.jpg', 10, 10)->size(2),
+                UploadedFile::fake()->image('second.jpg', 11, 11)->size(2),
             ],
             'file_types' => ['image', 'image'],
         ]);
@@ -80,19 +80,12 @@ class PortfolioEndpointTest extends ApiTestCase
         self::assertSame($mediaCountBefore, DB::table('portfolio_media')->count());
     }
 
-    public function test_failed_video_append_records_a_reviewed_cleanup_candidate(): void
+    public function test_failed_video_append_leaves_no_media_row(): void
     {
         $bunny = Mockery::mock(BunnyService::class);
-        $bunny->shouldReceive('createVideo')
+        $bunny->shouldReceive('uploadVerifiedVideo')
             ->once()
-            ->andReturn(['guid' => 'orphan-guid', 'title' => 'Portfolio Video']);
-        $bunny->shouldReceive('uploadVideo')
-            ->once()
-            ->with('orphan-guid', Mockery::type(UploadedFile::class))
-            ->andReturnFalse();
-        $bunny->shouldReceive('queueVideoCleanup')
-            ->once()
-            ->with('orphan-guid', null, 'portfolio_upload_failed', 24)
+            ->with('Sample Portfolio Item', Mockery::type(UploadedFile::class))
             ->andReturnNull();
         $this->app->instance(BunnyService::class, $bunny);
 
@@ -101,7 +94,7 @@ class PortfolioEndpointTest extends ApiTestCase
                 'file' => UploadedFile::fake()->create('sample.mp4', 10, 'video/mp4'),
                 'file_type' => 'video',
             ])
-            ->assertStatus(500)
+            ->assertStatus(503)
             ->assertJsonPath('success', false);
 
         self::assertSame(0, DB::table('portfolio_media')->where('file_path', 'orphan-guid')->count());
@@ -127,5 +120,31 @@ class PortfolioEndpointTest extends ApiTestCase
             ->assertJsonPath('success', false);
 
         $this->assertDatabaseHas('portfolio_media', ['id' => $mediaId, 'file_path' => 'remote-guid']);
+    }
+
+    public function test_portfolio_contract_never_exposes_private_storage_identifiers(): void
+    {
+        DB::table('portfolio_media')->insert([
+            'portfolio_item_id' => 1,
+            'file_type' => 'image',
+            'file_path' => 'portfolio/private-object.jpg',
+            'thumbnail_path' => 'portfolio/private-thumbnail.jpg',
+            'sort_order' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $bunny = Mockery::mock(BunnyService::class);
+        $bunny->shouldReceive('generateBunnySignedUrl')
+            ->once()
+            ->with('portfolio/private-object.jpg', 300)
+            ->andReturn('https://cdn.example/signed-image');
+        $this->app->instance(BunnyService::class, $bunny);
+
+        $this->actingAs($this->user, 'api')
+            ->getJson('/api/v1/portfolio')
+            ->assertOk()
+            ->assertJsonPath('data.0.media.0.image_url', 'https://cdn.example/signed-image')
+            ->assertJsonMissingPath('data.0.media.0.file_path')
+            ->assertJsonMissingPath('data.0.media.0.thumbnail_path');
     }
 }

@@ -32,7 +32,7 @@
                             <option value="direct" data-platform="android" {{ old('distribution_channel') === 'direct' ? 'selected' : '' }}>Android مباشر</option>
                             <option value="appstore" data-platform="ios" {{ old('distribution_channel') === 'appstore' ? 'selected' : '' }}>App Store</option>
                         </select>
-                        <small class="form-text text-muted">كل قناة لها رابط تحديث مستقل ولا تختلط بالقنوات الأخرى.</small>
+                        <small class="form-text text-muted" id="channel-hint">كل قناة لها رابط تحديث مستقل ولا تختلط بالقنوات الأخرى</small>
                     </div>
                 </div>
                 <div class="col-md-4">
@@ -59,7 +59,7 @@
                 <div class="col-md-6">
                     <div class="form-group">
                         <label>رابط التحميل</label>
-                        <input type="url" name="download_url" class="form-control" placeholder="https://...">
+                        <input type="url" name="download_url" class="form-control" placeholder="https://..." value="{{ old('download_url') }}">
                     </div>
                 </div>
             </div>
@@ -70,13 +70,13 @@
                 <div class="col-md-6">
                     <div class="form-group">
                         <label>رسالة التحديث (عربي)</label>
-                        <textarea name="update_message_ar" class="form-control" rows="3"></textarea>
+                        <textarea name="update_message_ar" class="form-control" rows="3">{{ old('update_message_ar') }}</textarea>
                     </div>
                 </div>
                 <div class="col-md-6">
                     <div class="form-group">
                         <label>رسالة التحديث (إنجليزي)</label>
-                        <textarea name="update_message_en" class="form-control" rows="3"></textarea>
+                        <textarea name="update_message_en" class="form-control" rows="3">{{ old('update_message_en') }}</textarea>
                     </div>
                 </div>
             </div>
@@ -85,20 +85,20 @@
                 <div class="col-md-6">
                     <div class="form-group">
                         <label>ملاحظات الإصدار (عربي)</label>
-                        <textarea name="release_notes_ar" class="form-control" rows="3"></textarea>
+                        <textarea name="release_notes_ar" class="form-control" rows="3">{{ old('release_notes_ar') }}</textarea>
                     </div>
                 </div>
                 <div class="col-md-6">
                     <div class="form-group">
                         <label>ملاحظات الإصدار (إنجليزي)</label>
-                        <textarea name="release_notes_en" class="form-control" rows="3"></textarea>
+                        <textarea name="release_notes_en" class="form-control" rows="3">{{ old('release_notes_en') }}</textarea>
                     </div>
                 </div>
             </div>
 
             <div class="form-group">
                 <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="is_force_update" value="1" id="forceUpdate">
+                    <input class="form-check-input" type="checkbox" name="is_force_update" value="1" id="forceUpdate" {{ old('is_force_update') ? 'checked' : '' }}>
                     <label class="form-check-label" for="forceUpdate">
                         تحديث إجباري
                     </label>
@@ -107,7 +107,7 @@
 
             <div class="form-group">
                 <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="is_active" value="1" id="isActive" checked>
+                    <input class="form-check-input" type="checkbox" name="is_active" value="1" id="isActive" {{ old('is_active', '1') ? 'checked' : '' }}>
                     <label class="form-check-label" for="isActive">
                         نشط (الإصدار الحالي)
                     </label>
@@ -125,6 +125,8 @@ const platformSelect = document.getElementById('platform-select');
 const channelSelect = document.getElementById('channel-select');
 const versionCode = document.getElementById('version-code');
 const buildNumber = document.getElementById('build-number');
+const channelHint = document.getElementById('channel-hint');
+const latestIdentifiers = @json($latestIdentifiers);
 
 function syncPlatformFields() {
     const platform = platformSelect.value;
@@ -142,9 +144,18 @@ function syncPlatformFields() {
     if (channelSelect.selectedOptions[0]?.disabled) {
         channelSelect.value = isAndroid ? 'play' : 'appstore';
     }
+    const latest = latestIdentifiers[channelSelect.value] || {};
+    const channelLatest = Number(latest.channel || 0);
+    const platformLatest = Number(latest.platform || 0);
+    channelHint.textContent = channelLatest > 0
+        ? `آخر رقم في هذه القناة ${channelLatest} استخدم رقمًا أكبر منه`
+        : platformLatest > 0
+        ? `يمكنك استخدام رقم المنصة الحالي ${platformLatest} أو رقم أكبر`
+        : 'لا يوجد إصدار سابق في هذه القناة';
 }
 
 platformSelect.addEventListener('change', syncPlatformFields);
+channelSelect.addEventListener('change', syncPlatformFields);
 syncPlatformFields();
 </script>
 @endsection

@@ -26,7 +26,7 @@ final class WalletController extends Controller
 
         return $this->responses->success(
             $this->wallet->summary($user),
-            'Wallet retrieved successfully'
+            'تم تحميل رصيدك'
         );
     }
 
@@ -40,7 +40,7 @@ final class WalletController extends Controller
 
         return $this->responses->success(
             $this->wallet->transactions($user, (int) ($validated['per_page'] ?? 20)),
-            'Wallet transactions retrieved successfully'
+            'تم تحميل حركات الرصيد'
         );
     }
 }

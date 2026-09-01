@@ -32,23 +32,25 @@ class UrgentTasksController extends Controller
         $pendingOrders = Order::where('status', 'pending')
             ->with(['user', 'course', 'courseCode'])
             ->latest()
+            ->latest('id')
             ->get();
 
         // Get inactive students (users with active = false)
-        $inactiveStudents = User::where('active', false)
-            ->where('role', '!=', 'admin')
+        $inactiveStudents = User::query()->students()
+            ->where('active', false)
             ->latest('updated_at')
+            ->latest('id')
             ->get();
 
         // Get courses without quizzes
         $coursesWithoutQuiz = Course::leftJoin('lists', 'courses.id', '=', 'lists.course_id')
             ->whereNull('lists.id')
             ->select('courses.*')
+            ->orderByDesc('courses.id')
             ->get();
 
         // Check for missing critical data
         $hasGrades = Grade::exists();
-        $hasGroups = true;
         $hasCourses = Course::exists();
 
         // Calculate statistics
@@ -71,7 +73,6 @@ class UrgentTasksController extends Controller
             'coursesWithoutQuiz',
             'stats',
             'hasGrades',
-            'hasGroups',
             'hasCourses',
             'designSettings'
         ));
@@ -96,8 +97,8 @@ class UrgentTasksController extends Controller
      */
     public function inactiveStudents()
     {
-        $inactiveStudents = User::where('active', false)
-            ->where('role', '!=', 'admin')
+        $inactiveStudents = User::query()->students()
+            ->where('active', false)
             ->latest('updated_at')
             ->paginate(20);
 
@@ -174,6 +175,7 @@ class UrgentTasksController extends Controller
      */
     public function activateStudent(Request $request, User $user)
     {
+        abort_unless(strtolower((string) $user->role) === 'client', 404);
         $user->forceFill(['active' => true])->save();
 
         // Redirect back to the referring page

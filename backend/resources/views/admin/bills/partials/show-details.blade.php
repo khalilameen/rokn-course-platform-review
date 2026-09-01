@@ -52,7 +52,7 @@
                             </a>
                             <div>
                                 <small class="text-muted">
-                                    <i class="fa fa-calendar"></i> {{ $bill->order->created_at->format('Y-m-d') }}
+                                    <i class="fa fa-calendar"></i> {{ \App\Support\BusinessClock::format($bill->order->created_at, 'Y-m-d') }}
                                 </small>
                             </div>
                         </div>
@@ -140,8 +140,8 @@
                             <span>تاريخ الدفع:</span>
                         </div>
                         <div class="info-value">
-                            <strong>{{ $bill->paid_at->format('Y-m-d') }}</strong>
-                            <small class="text-muted">{{ $bill->paid_at->format('H:i:s') }}</small>
+                            <strong>{{ \App\Support\BusinessClock::format($bill->paid_at, 'Y-m-d') }}</strong>
+                            <small class="text-muted">{{ \App\Support\BusinessClock::format($bill->paid_at, 'H:i:s') }}</small>
                         </div>
                     </div>
                     @endif
@@ -166,8 +166,8 @@
                             <span>تاريخ الإنشاء:</span>
                         </div>
                         <div class="info-value">
-                            <strong>{{ $bill->created_at->format('Y-m-d') }}</strong>
-                            <small class="text-muted">{{ $bill->created_at->format('H:i:s') }}</small>
+                            <strong>{{ \App\Support\BusinessClock::format($bill->created_at, 'Y-m-d') }}</strong>
+                            <small class="text-muted">{{ \App\Support\BusinessClock::format($bill->created_at, 'H:i:s') }}</small>
                         </div>
                     </div>
 

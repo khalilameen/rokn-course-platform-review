@@ -56,6 +56,7 @@ jest.mock('../src/constants/helpers', () => ({
   AsyncKeys: {USER_DATA: 'USER_DATA'},
   accountScopedStorageKey: jest.fn(async (key: string) => `${key}:account-1`),
   extractApiToken: (session: any) => session?.api_token || null,
+  getCurrentAccountStorageScope: jest.fn(async () => 'account-1'),
   getItem: (key: string) => mockGetItem(key),
   saveItem: (key: string, value: unknown) => mockSaveItem(key, value),
   removeItem: (key: string) => mockRemoveItem(key),
@@ -70,6 +71,13 @@ jest.mock('../src/constants/api', () => ({
 
 jest.mock('../src/navigation/RootNavigationHelper', () => ({
   navigate: (...args: unknown[]) => mockNavigate(...args),
+  openRoknDestination: (destination: {
+    name: string;
+    params?: Record<string, unknown>;
+  }) => {
+    mockNavigate(destination.name, destination.params);
+    return true;
+  },
 }));
 
 import {
@@ -119,6 +127,7 @@ describe('push notification opt-in', () => {
 
     await expect(registerPushDeviceIfEligible()).resolves.toBe(true);
     expect(mockPost).toHaveBeenCalledWith('user/device-token', {
+      device_id: '11111111-1111-4111-8111-111111111111',
       device_token: 'fcm-token',
       device_type: 'android',
       device_os: 'android',
@@ -138,6 +147,7 @@ describe('push notification opt-in', () => {
     expect(mockFirebaseGetToken).toHaveBeenCalledTimes(1);
     expect(mockGetDeviceToken).not.toHaveBeenCalled();
     expect(mockPost).toHaveBeenCalledWith('user/device-token', {
+      device_id: '11111111-1111-4111-8111-111111111111',
       device_token: 'ios-fcm-token',
       device_type: 'ios',
       device_os: 'ios',
@@ -241,7 +251,7 @@ describe('push notification opt-in', () => {
           content: {
             data: {
               notification_type: 'enrolled_stalled',
-              course_id: 'course-72',
+              course_id: '72',
             },
           },
         },
@@ -249,7 +259,7 @@ describe('push notification opt-in', () => {
     } as any);
 
     expect(mockNavigate).toHaveBeenCalledWith('Reels', {
-      courseId: 'course-72',
+      courseId: '72',
     });
   });
 
@@ -262,7 +272,7 @@ describe('push notification opt-in', () => {
       },
     } as any);
 
-    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('Home', undefined);
     expect(mockOpenUrl).not.toHaveBeenCalled();
   });
 });

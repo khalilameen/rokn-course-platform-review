@@ -8,22 +8,35 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    public $withinTransaction = false;
+
     public function up(): void
     {
-        Schema::table('packages', function (Blueprint $table): void {
-            $table->string('google_product_id')->nullable()->unique()->after('coins');
-            $table->string('apple_product_id')->nullable()->unique()->after('google_product_id');
-            $table->boolean('google_enabled')->default(false)->after('apple_product_id');
-            $table->boolean('apple_enabled')->default(false)->after('google_enabled');
-        });
+        foreach (['packages', 'settings', 'users', 'orders'] as $table) {
+            if (! Schema::hasTable($table)) {
+                throw new RuntimeException("Required table [{$table}] is missing.");
+            }
+        }
 
-        Schema::table('settings', function (Blueprint $table): void {
-            $table->decimal('direct_checkout_discount_percent', 5, 2)
-                ->default(10)
-                ->after('currency_code');
-        });
+        $this->addPackageColumn('google_product_id', fn (Blueprint $table) =>
+            $table->string('google_product_id')->nullable()->unique()->after('coins'));
+        $this->addPackageColumn('apple_product_id', fn (Blueprint $table) =>
+            $table->string('apple_product_id')->nullable()->unique()->after('google_product_id'));
+        $this->addPackageColumn('google_enabled', fn (Blueprint $table) =>
+            $table->boolean('google_enabled')->default(false)->after('apple_product_id'));
+        $this->addPackageColumn('apple_enabled', fn (Blueprint $table) =>
+            $table->boolean('apple_enabled')->default(false)->after('google_enabled'));
 
-        Schema::create('store_purchases', function (Blueprint $table): void {
+        if (! Schema::hasColumn('settings', 'direct_checkout_discount_percent')) {
+            Schema::table('settings', function (Blueprint $table): void {
+                $table->decimal('direct_checkout_discount_percent', 5, 2)
+                    ->default(10)
+                    ->after('currency_code');
+            });
+        }
+
+        if (! Schema::hasTable('store_purchases')) {
+            Schema::create('store_purchases', function (Blueprint $table): void {
             $table->id();
             $table->uuid('public_id')->unique();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
@@ -52,9 +65,11 @@ return new class extends Migration
                 ['user_id', 'status', 'verified_at'],
                 'store_purchase_user_timeline'
             );
-        });
+            });
+        }
 
-        Schema::create('store_notification_events', function (Blueprint $table): void {
+        if (! Schema::hasTable('store_notification_events')) {
+            Schema::create('store_notification_events', function (Blueprint $table): void {
             $table->id();
             $table->string('provider', 16);
             $table->string('event_id');
@@ -75,7 +90,8 @@ return new class extends Migration
                 ['provider', 'status', 'received_at'],
                 'store_notification_review_queue'
             );
-        });
+            });
+        }
     }
 
     public function down(): void
@@ -83,19 +99,34 @@ return new class extends Migration
         Schema::dropIfExists('store_notification_events');
         Schema::dropIfExists('store_purchases');
 
-        Schema::table('settings', function (Blueprint $table): void {
-            $table->dropColumn('direct_checkout_discount_percent');
-        });
+        if (Schema::hasTable('settings') && Schema::hasColumn('settings', 'direct_checkout_discount_percent')) {
+            Schema::table('settings', fn (Blueprint $table) =>
+                $table->dropColumn('direct_checkout_discount_percent'));
+        }
 
-        Schema::table('packages', function (Blueprint $table): void {
-            $table->dropUnique(['google_product_id']);
-            $table->dropUnique(['apple_product_id']);
-            $table->dropColumn([
-                'google_product_id',
-                'apple_product_id',
-                'google_enabled',
-                'apple_enabled',
-            ]);
-        });
+        if (! Schema::hasTable('packages')) {
+            return;
+        }
+
+        foreach (['packages_google_product_id_unique', 'packages_apple_product_id_unique'] as $index) {
+            if (Schema::hasIndex('packages', $index)) {
+                Schema::table('packages', fn (Blueprint $table) => $table->dropUnique($index));
+            }
+        }
+
+        $columns = array_values(array_filter(
+            ['google_product_id', 'apple_product_id', 'google_enabled', 'apple_enabled'],
+            static fn (string $column): bool => Schema::hasColumn('packages', $column)
+        ));
+        if ($columns !== []) {
+            Schema::table('packages', fn (Blueprint $table) => $table->dropColumn($columns));
+        }
+    }
+
+    private function addPackageColumn(string $column, callable $definition): void
+    {
+        if (! Schema::hasColumn('packages', $column)) {
+            Schema::table('packages', $definition);
+        }
     }
 };

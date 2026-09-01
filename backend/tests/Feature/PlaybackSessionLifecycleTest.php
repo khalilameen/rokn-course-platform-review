@@ -52,6 +52,8 @@ final class PlaybackSessionLifecycleTest extends TestCase
             ],
         ]);
         self::assertTrue($started['accepted']);
+        self::assertSame(0, $started['previous_sample']['position_seconds']);
+        self::assertNull($started['previous_sample']['recorded_at']);
 
         $duplicate = $service->accept($user, 91, [
             'playback_session_id' => $session->id,
@@ -73,6 +75,8 @@ final class PlaybackSessionLifecycleTest extends TestCase
             'recovery_count' => 1,
         ]);
         self::assertTrue($stopped['accepted']);
+        self::assertSame(0, $stopped['previous_sample']['position_seconds']);
+        self::assertNotNull($stopped['previous_sample']['recorded_at']);
 
         $session->refresh();
         self::assertNotNull($session->ended_at);

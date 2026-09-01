@@ -11,7 +11,7 @@
                     <strong>إضافة معلم جديد</strong>
                 </div>
                 <div class="card-body card-block">
-                    <form action="{{ route('admin.teachers.store') }}" method="POST" enctype="multipart/form-data" class="form-horizontal">
+                    <form action="{{ route('admin.teachers.store') }}" method="POST" enctype="multipart/form-data" class="form-horizontal" id="teacherForm">
                         @csrf
                         @include('admin.teachers._form')
                         
@@ -25,4 +25,8 @@
         </div>
     </div>
 </div>
+@endsection
+
+@section('scripts')
+@include('admin.partials.course-authoring-draft', ['formId' => 'teacherForm'])
 @endsection

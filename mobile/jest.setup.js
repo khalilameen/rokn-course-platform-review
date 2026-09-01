@@ -12,6 +12,17 @@ jest.mock('expo-secure-store', () => ({
   deleteItemAsync: jest.fn(),
 }));
 
+// Expo Crypto is a native ESM module. Contract tests exercise callers rather
+// than the platform bridge, so keep one complete deterministic bridge here.
+jest.mock('expo-crypto', () => ({
+  CryptoDigestAlgorithm: {SHA256: 'SHA-256'},
+  digestStringAsync: jest.fn(async (_algorithm, value) =>
+    require('crypto').createHash('sha256').update(String(value)).digest('hex'),
+  ),
+  getRandomBytesAsync: jest.fn(async length => new Uint8Array(length)),
+  randomUUID: jest.fn(() => '11111111-1111-4111-8111-111111111111'),
+}));
+
 // Native push providers are exercised with scenario-specific factories in the
 // push suite. Keep unrelated contract tests independent from unavailable iOS
 // and Android runtimes.

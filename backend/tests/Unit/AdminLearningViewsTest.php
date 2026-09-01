@@ -64,9 +64,6 @@ final class AdminLearningViewsTest extends TestCase
     public function test_shared_admin_partials_are_used_by_learning_screens(): void
     {
         foreach ([
-            'lessons/index.blade.php',
-            'lessons/create.blade.php',
-            'lessons/edit.blade.php',
             'questions/index.blade.php',
             'questions/create.blade.php',
             'questions/edit.blade.php',
@@ -143,51 +140,6 @@ final class AdminLearningViewsTest extends TestCase
         self::assertStringContainsString('value="DELETE"', $index);
     }
 
-    public function test_lesson_routes_fields_and_video_source_toggle_are_preserved(): void
-    {
-        $index = $this->viewSource('lessons/index.blade.php');
-        $create = $this->viewSource('lessons/create.blade.php');
-        $edit = $this->viewSource('lessons/edit.blade.php');
-        $form = $this->viewSource('lessons/_form.blade.php');
-        $all = $index.$create.$edit.$form;
-
-        foreach ([
-            "['admin.lessons.store']",
-            "route('admin.lessons.update'",
-            "route('admin.lessons.edit'",
-            "route('admin.lessons.destroy'",
-            "route('admin.lessons.index')",
-        ] as $route) {
-            self::assertStringContainsString($route, $all);
-        }
-
-        foreach ([
-            "Form::text('title_ar'",
-            "Form::text('title_en'",
-            'name="list_id"',
-            'name="is_opened"',
-            'name="quiz_id"',
-            "Form::text('priority'",
-            "Form::text('description_ar'",
-            "Form::text('description_en'",
-            'name="thumbnail"',
-            'name="video_source_type"',
-            "Form::text('video_link'",
-            'name="bunny_video"',
-            "Form::text('file_link1'",
-            "Form::text('file_link2'",
-        ] as $field) {
-            self::assertStringContainsString($field, $all);
-        }
-
-        self::assertStringContainsString("id=\"source_youtube\"", $form);
-        self::assertStringContainsString("id=\"source_bunny\"", $form);
-        self::assertStringContainsString('updateVideoSourceVisibility', $form);
-        self::assertStringContainsString("classList.add('is-hidden')", $form);
-        self::assertStringContainsString("classList.remove('is-hidden')", $form);
-        self::assertStringContainsString("config('services.google.maps_browser_key')", $this->viewSource('lessons/exist.blade.php'));
-    }
-
     public function test_question_routes_and_form_fields_are_preserved(): void
     {
         $index = $this->viewSource('questions/index.blade.php');
@@ -219,12 +171,11 @@ final class AdminLearningViewsTest extends TestCase
             "Form::text('choice4'",
             "Form::text('choice5'",
             "Form::text('choice6'",
-            "Form::text('right_answer'",
+            "Form::number('right_answer'",
         ] as $field) {
             self::assertStringContainsString($field, $all);
         }
 
-        self::assertStringContainsString("config('services.google.maps_browser_key')", $this->viewSource('questions/exist.blade.php'));
     }
 
     public function test_coin_method_routes_and_reward_fields_are_preserved(): void
@@ -254,7 +205,6 @@ final class AdminLearningViewsTest extends TestCase
             'coins_amount',
             'action_key',
             'is_active',
-            'is_repeatable',
             'action_url',
             'requires_external_visit',
             'verification_delay_seconds',
@@ -337,16 +287,10 @@ final class AdminLearningViewsTest extends TestCase
             'quiz edit' => ['quizzes/edit.blade.php', true],
             'quiz form partial' => ['quizzes/_form.blade.php', false],
             'quiz question partial' => ['quizzes/question.blade.php', false],
-            'lesson list' => ['lessons/index.blade.php', true],
-            'lesson create' => ['lessons/create.blade.php', true],
-            'lesson edit' => ['lessons/edit.blade.php', true],
-            'lesson form partial' => ['lessons/_form.blade.php', false],
-            'lesson map' => ['lessons/exist.blade.php', true],
             'question list' => ['questions/index.blade.php', true],
             'question create' => ['questions/create.blade.php', true],
             'question edit' => ['questions/edit.blade.php', true],
             'question form partial' => ['questions/_form.blade.php', false],
-            'question map' => ['questions/exist.blade.php', true],
             'coin method list' => ['coin_earning_methods/index.blade.php', true],
             'coin method create' => ['coin_earning_methods/create.blade.php', true],
             'coin method edit' => ['coin_earning_methods/edit.blade.php', true],

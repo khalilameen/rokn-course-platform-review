@@ -13,6 +13,7 @@ class AppDelegate: ExpoAppDelegate {
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
+    RoknDiagnostics.install()
     FirebaseApp.configure()
 
     let delegate = ReactNativeDelegate()

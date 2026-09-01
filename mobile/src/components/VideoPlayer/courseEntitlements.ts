@@ -2,6 +2,7 @@ export type CourseAssistantEntitlement = {
   accessType?: string;
   chatAvailable?: boolean;
   certificateAvailable?: boolean;
+  certificateIncluded?: boolean;
   isDemo?: boolean;
 };
 
@@ -34,7 +35,9 @@ export const includesCourseAssistant = ({
 export const includesCourseCertificate = ({
   accessType,
   certificateAvailable,
+  certificateIncluded,
   isDemo,
 }: CourseAssistantEntitlement) =>
   isDemo === true ||
-  (certificateAvailable === true && !isGrantCourseAccess(accessType));
+  ((certificateIncluded ?? certificateAvailable) === true &&
+    !isGrantCourseAccess(accessType));

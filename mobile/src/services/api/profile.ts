@@ -1,5 +1,11 @@
 import {publicRequest} from '../../constants/api';
-import {ApiRecord, payload, resourceList} from './common';
+import {
+  ApiRecord,
+  firstBoolean,
+  isApiRecord,
+  payload,
+  resourceList,
+} from './common';
 
 type WatchHistoryDto = ApiRecord;
 type PortfolioMediaDto = ApiRecord & {file_type?: unknown; image_url?: unknown};
@@ -19,11 +25,22 @@ const hasEligibleCourse = (
   course: NonNullable<EligibleProjectDto['course']>;
 } => Boolean(item.project_id && item.course?.id);
 
+const profileAvatar = (...values: unknown[]): string | undefined => {
+  const value = values.find(candidate => {
+    const uri = typeof candidate === 'string' ? candidate.trim() : '';
+    return uri && !/\/images\/service\.jpg(?:\?|#|$)/i.test(uri);
+  });
+  return typeof value === 'string' ? value.trim() : undefined;
+};
+
 export type Profile = {
   id: string;
   name: string;
   email: string;
   jobTitle: string;
+  portfolioSlug?: string;
+  portfolioHeadline: string;
+  portfolioUrl?: string;
   avatar?: string;
   watchHistoryEnabled: boolean;
   marketingNotificationsEnabled: boolean;
@@ -31,6 +48,7 @@ export type Profile = {
   videoQualityPreference: string;
   videoFitMode: 'cover' | 'contain';
   playbackSpeed: number;
+  profileRevision: number;
 };
 
 export type PortfolioProfile = {
@@ -67,24 +85,40 @@ export type EligibleProject = {
 };
 
 export const getProfile = async (): Promise<Profile> => {
-  const data = payload(await publicRequest.get('user/profile'));
+  const data = payload<unknown>(await publicRequest.get('user/profile'));
+  if (!isApiRecord(data)) {
+    throw new Error('PROFILE_CONTRACT_INVALID');
+  }
+  if (data.id === null || data.id === undefined) {
+    throw new Error('PROFILE_CONTRACT_INVALID');
+  }
+  const quality = String(data.video_quality_preference || 'auto').toLowerCase();
+  const speed = Number(data.playback_speed);
   return {
     id: String(data.id),
     name: String(data.name || 'طالب ركن'),
     email: String(data.email || ''),
     jobTitle: String(data.job_title || ''),
-    avatar:
-      data.profile_image || data.image
-        ? String(data.profile_image || data.image)
-        : undefined,
-    watchHistoryEnabled: data.watch_history_enabled !== false,
-    marketingNotificationsEnabled: Boolean(
-      data.marketing_notifications_enabled,
-    ),
-    autoplayNextEnabled: data.autoplay_next_enabled !== false,
-    videoQualityPreference: String(data.video_quality_preference || 'auto'),
+    portfolioSlug: data.portfolio_slug
+      ? String(data.portfolio_slug)
+      : undefined,
+    portfolioHeadline: String(data.portfolio_headline || ''),
+    portfolioUrl: data.portfolio_url ? String(data.portfolio_url) : undefined,
+    avatar: profileAvatar(data.profile_image, data.image),
+    watchHistoryEnabled: firstBoolean(data.watch_history_enabled) ?? true,
+    marketingNotificationsEnabled:
+      firstBoolean(data.marketing_notifications_enabled) ?? false,
+    autoplayNextEnabled: firstBoolean(data.autoplay_next_enabled) ?? true,
+    videoQualityPreference: ['auto', '360p', '480p', '720p', '1080p'].includes(
+      quality,
+    )
+      ? quality
+      : 'auto',
     videoFitMode: data.video_fit_mode === 'contain' ? 'contain' : 'cover',
-    playbackSpeed: Number(data.playback_speed || 1),
+    playbackSpeed: [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].includes(speed)
+      ? speed
+      : 1,
+    profileRevision: Math.max(0, Number(data.profile_revision) || 0),
   };
 };
 
@@ -104,14 +138,28 @@ export const updateProfile = async ({
   name,
   jobTitle,
   avatar,
+  portfolioSlug,
+  portfolioHeadline,
+  clientRequestId,
+  expectedProfileRevision,
 }: {
   name: string;
   jobTitle: string;
-  avatar?: {uri: string; type?: string; fileName?: string};
+  avatar?: {uri: string; type?: string; fileName?: string; size?: number};
+  portfolioSlug?: string;
+  portfolioHeadline?: string;
+  clientRequestId: string;
+  expectedProfileRevision: number;
 }): Promise<Profile> => {
   const form = new FormData();
+  form.append('client_request_id', clientRequestId);
+  form.append('expected_profile_revision', String(expectedProfileRevision));
   form.append('name', name);
   form.append('job_title', jobTitle);
+  if (portfolioSlug) form.append('portfolio_slug', portfolioSlug);
+  if (portfolioHeadline !== undefined) {
+    form.append('portfolio_headline', portfolioHeadline);
+  }
   if (avatar?.uri) {
     form.append('profile_image', {
       uri: avatar.uri,
@@ -121,24 +169,56 @@ export const updateProfile = async ({
   }
   // PHP does not reliably populate multipart file uploads for a raw PUT.
   // Preserve the deployed POST alias during the API transition.
-  const data = payload(await publicRequest.post('update_profile', form));
+  const data = payload<unknown>(
+    await publicRequest.post('update_profile', form, {
+      // The global timeout is tuned for JSON reads. A valid 2 MB profile image
+      // on a slow mobile uplink needs a wider transport window; the screen
+      // already prevents duplicate submits while this request is in flight.
+      timeout: 30_000,
+      headers: {'Idempotency-Key': clientRequestId},
+    }),
+  );
+  if (!isApiRecord(data)) {
+    throw new Error('PROFILE_CONTRACT_INVALID');
+  }
+  if (data.id === null || data.id === undefined) {
+    throw new Error('PROFILE_CONTRACT_INVALID');
+  }
+  const quality = String(data.video_quality_preference || 'auto').toLowerCase();
+  const speed = Number(data.playback_speed);
   return {
     id: String(data.id),
     name: String(data.name || name),
     email: String(data.email || ''),
     jobTitle: String(data.job_title || jobTitle),
-    avatar:
-      data.profile_image || data.image
-        ? String(data.profile_image || data.image)
-        : avatar?.uri,
-    watchHistoryEnabled: data.watch_history_enabled !== false,
-    marketingNotificationsEnabled: Boolean(
-      data.marketing_notifications_enabled,
+    portfolioSlug: data.portfolio_slug
+      ? String(data.portfolio_slug)
+      : undefined,
+    portfolioHeadline: String(
+      data.portfolio_headline || portfolioHeadline || '',
     ),
-    autoplayNextEnabled: data.autoplay_next_enabled !== false,
-    videoQualityPreference: String(data.video_quality_preference || 'auto'),
+    portfolioUrl: data.portfolio_url ? String(data.portfolio_url) : undefined,
+    // Only persist an URL acknowledged by the server. A picker/cache URI is a
+    // temporary draft and is deleted after save; treating it as the remote
+    // avatar leaves a broken profile after restart or a rolling-deploy fallback.
+    avatar: profileAvatar(data.profile_image, data.image),
+    watchHistoryEnabled: firstBoolean(data.watch_history_enabled) ?? true,
+    marketingNotificationsEnabled:
+      firstBoolean(data.marketing_notifications_enabled) ?? false,
+    autoplayNextEnabled: firstBoolean(data.autoplay_next_enabled) ?? true,
+    videoQualityPreference: ['auto', '360p', '480p', '720p', '1080p'].includes(
+      quality,
+    )
+      ? quality
+      : 'auto',
     videoFitMode: data.video_fit_mode === 'contain' ? 'contain' : 'cover',
-    playbackSpeed: Number(data.playback_speed || 1),
+    playbackSpeed: [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].includes(speed)
+      ? speed
+      : 1,
+    profileRevision: Math.max(
+      expectedProfileRevision,
+      Number(data.profile_revision) || 0,
+    ),
   };
 };
 
@@ -146,10 +226,17 @@ export const updateProfile = async ({
 export const updateNotificationStatus = async (
   enabled: boolean,
 ): Promise<boolean> => {
-  const data = payload(
+  const data = payload<unknown>(
     await publicRequest.put('user/profile', {notifications_status: enabled}),
   );
-  return Boolean(data.notifications_status);
+  if (!isApiRecord(data)) {
+    throw new Error('PROFILE_NOTIFICATION_CONTRACT_INVALID');
+  }
+  const saved = firstBoolean(data.notifications_status);
+  if (saved === undefined) {
+    throw new Error('PROFILE_NOTIFICATION_CONTRACT_INVALID');
+  }
+  return saved;
 };
 
 export const updatePrivacyPreferences = async ({
@@ -279,7 +366,7 @@ export const getWatchHistory = async (limit = 6): Promise<WatchHistory> => {
       positionSeconds,
       durationSeconds,
       progress,
-      completed: Boolean(item.is_completed),
+      completed: firstBoolean(item.is_completed) ?? false,
       watchedAt: item.watched_at ? String(item.watched_at) : undefined,
     });
 
@@ -287,7 +374,7 @@ export const getWatchHistory = async (limit = 6): Promise<WatchHistory> => {
   }
 
   return {
-    trackingEnabled: data.tracking_enabled !== false,
+    trackingEnabled: firstBoolean(data.tracking_enabled) ?? true,
     items,
   };
 };
@@ -335,7 +422,7 @@ export const getPortfolio = async (): Promise<PortfolioItem[]> => {
         sourceProjectId: item.source_project_id
           ? String(item.source_project_id)
           : undefined,
-        featured: Boolean(item.is_featured),
+        featured: firstBoolean(item.is_featured) ?? false,
       };
     });
 };
@@ -346,14 +433,17 @@ export const createPortfolioItem = async ({
   cover,
   sourceProjectId,
   courseId,
+  clientRequestId,
 }: {
   title: string;
   summary: string;
-  cover?: {uri: string; type?: string; fileName?: string};
+  cover?: {uri: string; type?: string; fileName?: string; size?: number};
   sourceProjectId?: string;
   courseId?: string;
+  clientRequestId: string;
 }): Promise<PortfolioItem> => {
   const form = new FormData();
+  form.append('client_request_id', clientRequestId);
   form.append('title', title);
   form.append('description', summary);
   if (sourceProjectId) form.append('source_project_id', sourceProjectId);
@@ -369,6 +459,7 @@ export const createPortfolioItem = async ({
   const data = payload(
     await publicRequest.post('portfolio', form, {
       timeout: 45000,
+      headers: {'Idempotency-Key': clientRequestId},
     }),
   );
   const media = resourceList<PortfolioMediaDto>(data.media);
@@ -386,7 +477,7 @@ export const createPortfolioItem = async ({
     sourceProjectId: data.source_project_id
       ? String(data.source_project_id)
       : sourceProjectId,
-    featured: Boolean(data.is_featured),
+    featured: firstBoolean(data.is_featured) ?? false,
   };
 };
 
@@ -412,8 +503,19 @@ export const getEligibleProjects = async (): Promise<EligibleProject[]> => {
     }));
 };
 
-export const deletePortfolioItem = (id: string) =>
-  publicRequest.delete(`portfolio/${id}`);
+export const deletePortfolioItem = async (id: string): Promise<void> => {
+  try {
+    await publicRequest.delete(`portfolio/${id}`);
+  } catch (error: unknown) {
+    const status = Number(
+      (error as {status?: unknown; response?: {status?: unknown}})?.status ??
+        (error as {response?: {status?: unknown}})?.response?.status ??
+        0,
+    );
+    // A lost success response leaves nothing to delete on retry.
+    if (status !== 404) throw error;
+  }
+};
 
 export type ProductionProfile = Profile;
 export type ProductionPortfolioProfile = PortfolioProfile;

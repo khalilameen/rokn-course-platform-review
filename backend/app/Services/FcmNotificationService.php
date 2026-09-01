@@ -6,7 +6,10 @@ namespace App\Services;
 
 use App\Models\User;
 use App\Models\UserDeviceToken;
+use App\Support\ArabicDisplayText;
+use App\Support\RoknLocale;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 use Kreait\Firebase\Contract\Messaging;
 use Kreait\Firebase\Messaging\CloudMessage;
 use Kreait\Firebase\Messaging\Notification;
@@ -15,6 +18,9 @@ use Kreait\Firebase\Exception\MessagingException;
 
 class FcmNotificationService
 {
+    public const CIRCUIT_KEY = 'fcm:circuit-open';
+    private const FAILURE_KEY = 'fcm:circuit-failures';
+
     /**
      * Send FCM push notification to all devices of a user via FCM HTTP v1 API.
      *
@@ -74,10 +80,14 @@ class FcmNotificationService
         if ($tokens->isEmpty()) {
             return ['delivered' => false, 'retryable' => false];
         }
+        if (self::circuitIsOpen()) {
+            return ['delivered' => false, 'retryable' => true];
+        }
 
         try {
             $messaging = app(Messaging::class);
         } catch (\Throwable $e) {
+            self::recordFailure('binding');
             Log::warning('FCM messaging service unavailable', [
                 'exception' => $e::class,
             ]);
@@ -94,12 +104,9 @@ class FcmNotificationService
                 continue;
             }
 
-            $isEnglish = str_starts_with(
-                strtolower((string) ($user->preferred_locale ?: 'ar')),
-                'en'
-            );
-            $title = $isEnglish ? $titleEn : $titleAr;
-            $body  = $isEnglish ? $messageEn : $messageAr;
+            $isEnglish = RoknLocale::normalize($user->preferred_locale) === RoknLocale::ENGLISH;
+            $title = $isEnglish ? $titleEn : ArabicDisplayText::format($titleAr);
+            $body = $isEnglish ? $messageEn : ArabicDisplayText::format($messageAr);
 
             $data = [
                 'title_ar' => $titleAr,
@@ -126,16 +133,19 @@ class FcmNotificationService
             try {
                 $messaging->send($message);
                 $attempted = true;
+                self::recordSuccess();
             } catch (NotFound $e) {
                 $staleTokenIds[] = $tokenRecord->id;
             } catch (MessagingException $e) {
                 $retryableFailure = true;
+                self::recordFailure('messaging');
                 Log::warning('FCM send failed for token', [
                     'user_id' => $user->id,
                     'exception' => $e::class,
                 ]);
             } catch (\Throwable $e) {
                 $retryableFailure = true;
+                self::recordFailure('unexpected');
                 Log::error('Unexpected FCM error', [
                     'user_id' => $user->id,
                     'exception' => $e::class,
@@ -163,6 +173,46 @@ class FcmNotificationService
         }
 
         return '';
+    }
+
+    private static function circuitIsOpen(): bool
+    {
+        try {
+            return Cache::has(self::CIRCUIT_KEY);
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    private static function recordFailure(string $reason): void
+    {
+        try {
+            Cache::add(self::FAILURE_KEY, 0, now()->addMinute());
+            $failures = (int) Cache::increment(self::FAILURE_KEY);
+            if ($failures < max(2, (int) config('operations.fcm_circuit_failure_threshold', 3))) {
+                return;
+            }
+            Cache::put(
+                self::CIRCUIT_KEY,
+                ['reason' => $reason, 'opened_at' => now()->toIso8601String()],
+                now()->addSeconds(max(15, (int) config('operations.fcm_circuit_open_seconds', 60)))
+            );
+        } catch (\Throwable $exception) {
+            Log::warning('FCM circuit state could not be recorded.', [
+                'reason' => $reason,
+                'exception' => $exception::class,
+            ]);
+        }
+    }
+
+    private static function recordSuccess(): void
+    {
+        try {
+            Cache::forget(self::FAILURE_KEY);
+            Cache::forget(self::CIRCUIT_KEY);
+        } catch (\Throwable) {
+            // Push delivery remains successful when monitoring state is unavailable.
+        }
     }
 
     /**

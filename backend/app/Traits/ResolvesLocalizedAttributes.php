@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Traits;
 
+use App\Support\RoknLocale;
+
 trait ResolvesLocalizedAttributes
 {
     /**
@@ -13,10 +15,9 @@ trait ResolvesLocalizedAttributes
      */
     protected function localizedValue(string $arabic, string $english, string ...$legacy): ?string
     {
-        $attributes = str_starts_with(
-            strtolower((string) request()->header('Accept-Language', 'ar')),
-            'en'
-        ) ? [$english, $arabic, ...$legacy] : [$arabic, $english, ...$legacy];
+        $attributes = RoknLocale::isArabic()
+            ? [$arabic, $english, ...$legacy]
+            : [$english, $arabic, ...$legacy];
 
         foreach ($attributes as $attribute) {
             $value = trim((string) ($this->attributes[$attribute] ?? ''));

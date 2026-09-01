@@ -1,6 +1,10 @@
-import {useNavigation, useRoute} from '@react-navigation/native';
+import {
+  useFocusEffect,
+  useNavigation,
+  useRoute,
+} from '@react-navigation/native';
 import type {RootNavigation, RootRoute} from '../../navigation/types';
-import {errorPayload} from '../../utils/errorPayload';
+import {learnerErrorMessage} from '../../utils/errorPayload';
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {ScrollView, StatusBar, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
@@ -20,7 +24,10 @@ import type {DemoCoinPackage} from '../../services/demoExperience';
 import {openCoinCheckout} from '../../services/coinCheckout';
 import {
   getWallet,
+  deleteCourseRating,
   purchaseCourse,
+  quoteCoursePurchase,
+  rateCourse,
   redeemCourseCode as redeemCourseAccessCode,
 } from '../../services/roknApi';
 import type {LoginReturnTo} from '../../navigation/types';
@@ -30,6 +37,7 @@ import {
   CourseAccessPlansSection,
   CourseHero,
   CourseIntro,
+  CourseRatingAction,
   StickyCourseAction,
 } from './details/sections';
 import {CourseCodeRedemptionAction} from './details/CourseCodeRedemptionAction';
@@ -47,8 +55,20 @@ import {
 import {useCourseDetailsData} from './details/useCourseDetailsData';
 import {useStickyCourseAction} from './details/useStickyCourseAction';
 import styles from './details/styles';
+import type {CoursePurchaseQuote} from '../../services/roknApi';
+import {normalizeHumanIdentifier} from '../../utils/unicodeText';
+import {trackProductEvent} from '../../services/productAnalytics';
 
 const retentionShownCourses = new Set<string>();
+const rememberRetentionOffer = (courseId: string) => {
+  retentionShownCourses.delete(courseId);
+  retentionShownCourses.add(courseId);
+  while (retentionShownCourses.size > 64) {
+    const oldest = retentionShownCourses.values().next().value;
+    if (typeof oldest !== 'string') break;
+    retentionShownCourses.delete(oldest);
+  }
+};
 
 export default function CourseDetails() {
   const route = useRoute<RootRoute<'CourseDetails'>>();
@@ -67,12 +87,22 @@ export default function CourseDetails() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [courseCode, setCourseCode] = useState('');
+  const [purchaseCouponCode, setPurchaseCouponCode] = useState('');
+  const [couponQuote, setCouponQuote] = useState<CoursePurchaseQuote | null>(
+    null,
+  );
+  const [couponBusy, setCouponBusy] = useState(false);
   const [redemptionVisible, setRedemptionVisible] = useState(false);
   const [grantActivated, setGrantActivated] = useState(false);
   const [codeBusy, setCodeBusy] = useState(false);
+  const [ratingBusy, setRatingBusy] = useState(false);
+  const [submittedRating, setSubmittedRating] = useState<number | null>(null);
   const autoPurchaseHandledRef = useRef(false);
   const autoRedemptionHandledRef = useRef(false);
   const commerceInFlightRef = useRef(false);
+  const ratingInFlightRef = useRef(false);
+  const courseDetailsFocusedOnceRef = useRef(false);
+  const purchaseCompletedTrackedRef = useRef(false);
 
   const {
     experience,
@@ -90,9 +120,9 @@ export default function CourseDetails() {
     remoteSpendableBalance,
     setExperience,
     setRemoteBalance,
+    setRemoteCourse,
     setRemoteOwned,
     setRemotePaidBalance,
-    setRemotePackages,
     setRemoteSpendableBalance,
     setRemoteRewardBalance,
   } = useCourseDetailsData({courseId, isDemoCourse, setNotice});
@@ -103,25 +133,21 @@ export default function CourseDetails() {
     courseDescription,
     coursePrice,
     courseTitle,
-    checkoutPackages,
     durationMinutes,
     hasPreview,
     owned,
     planSpendableBalances,
     pageReady,
+    packages,
     previewReelCount,
     primaryActionLabel,
     purchasePrice,
     rewardContributionLimit,
-    rewardContributionPercent,
     ratingAverage,
     ratingsCount,
     selectedPlan,
-    shortfall,
     spendableBalance,
     studentsCount,
-    sufficientPackage,
-    usableCurrentBalance,
   } = selectCourseDetailsPresentation({
     courseId,
     experience,
@@ -141,12 +167,166 @@ export default function CourseDetails() {
     selectedPlanCode,
   });
 
+  useFocusEffect(
+    useCallback(() => {
+      if (courseDetailsFocusedOnceRef.current && !isDemoCourse) {
+        reloadRemote();
+      }
+      courseDetailsFocusedOnceRef.current = true;
+    }, [isDemoCourse, reloadRemote]),
+  );
+
   useEffect(() => {
     if (!accessPlans.length) return;
     if (!accessPlans.some(plan => plan.code === selectedPlanCode)) {
       setSelectedPlanCode(accessPlans[0].code);
     }
   }, [accessPlans, selectedPlanCode]);
+
+  useEffect(() => {
+    setCouponQuote(null);
+  }, [selectedPlanCode]);
+
+  const appliedCoupon = Boolean(
+    couponQuote &&
+      couponQuote.accessPlanCode === selectedPlan?.code &&
+      couponQuote.originalPrice === purchasePrice &&
+      couponQuote.couponCode === normalizeHumanIdentifier(purchaseCouponCode),
+  );
+  const effectivePurchasePrice = appliedCoupon
+    ? couponQuote?.finalPrice ?? purchasePrice
+    : purchasePrice;
+  const currentPaidBalance = isDemoCourse
+    ? experience?.paidBalance ?? 0
+    : remotePaidBalance ?? 0;
+  const currentRewardBalance = isDemoCourse
+    ? experience?.rewardBalance ?? 0
+    : remoteRewardBalance ?? Math.max(0, balance - currentPaidBalance);
+  const effectiveRewardContributionLimit = Math.min(
+    rewardContributionLimit,
+    Math.max(0, effectivePurchasePrice - (selectedPlan?.minimumPaidCoins ?? 0)),
+  );
+  const effectiveSpendableBalance =
+    currentPaidBalance +
+    Math.min(currentRewardBalance, effectiveRewardContributionLimit);
+  const effectiveShortfall = Math.max(
+    0,
+    effectivePurchasePrice - effectiveSpendableBalance,
+  );
+  const effectivePackages = packages.filter(
+    item => item.coins >= effectiveShortfall,
+  );
+  const effectiveSufficientPackage = effectivePackages[0];
+  const effectiveUsableCurrentBalance = Math.min(
+    effectivePurchasePrice,
+    effectiveSpendableBalance,
+  );
+  const effectiveRewardContributionPercent =
+    effectivePurchasePrice > 0
+      ? Math.floor(
+          (effectiveRewardContributionLimit / effectivePurchasePrice) * 100,
+        )
+      : 0;
+
+  useEffect(() => {
+    setSubmittedRating(remoteCourse?.userRating ?? null);
+  }, [remoteCourse?.userRating]);
+
+  const submitRating = useCallback(
+    async (rating: number) => {
+      const expectedVersion = remoteCourse?.ratingVersion;
+      if (
+        ratingInFlightRef.current ||
+        ratingBusy ||
+        !remoteSession ||
+        !owned ||
+        !remoteCourse?.ratingEligible ||
+        expectedVersion === undefined ||
+        isDemoCourse
+      )
+        return;
+      ratingInFlightRef.current = true;
+      setRatingBusy(true);
+      setNotice('');
+      try {
+        const result = await rateCourse(courseId, rating, expectedVersion);
+        setSubmittedRating(result.rating);
+        setRemoteCourse(current =>
+          current
+            ? {
+                ...current,
+                userRating: result.rating,
+                ratingVersion: result.version,
+                ratingAverage: result.averageRating,
+                ratingsCount: result.ratingsCount,
+              }
+            : current,
+        );
+      } catch (error) {
+        setNotice(learnerErrorMessage(error, 'تعذّر حفظ التقييم'));
+        reloadRemote();
+      } finally {
+        ratingInFlightRef.current = false;
+        setRatingBusy(false);
+      }
+    },
+    [
+      courseId,
+      isDemoCourse,
+      owned,
+      ratingBusy,
+      reloadRemote,
+      remoteCourse,
+      remoteSession,
+      setRemoteCourse,
+    ],
+  );
+
+  const removeRating = useCallback(async () => {
+    if (
+      ratingInFlightRef.current ||
+      ratingBusy ||
+      !submittedRating ||
+      !remoteCourse?.ratingVersion ||
+      isDemoCourse
+    )
+      return;
+    ratingInFlightRef.current = true;
+    setRatingBusy(true);
+    setNotice('');
+    try {
+      const result = await deleteCourseRating(
+        courseId,
+        remoteCourse.ratingVersion,
+      );
+      setSubmittedRating(null);
+      setRemoteCourse(current =>
+        current
+          ? {
+              ...current,
+              userRating: null,
+              ratingVersion: result.version,
+              ratingAverage: result.averageRating,
+              ratingsCount: result.ratingsCount,
+            }
+          : current,
+      );
+    } catch (error) {
+      setNotice(learnerErrorMessage(error, 'تعذّر حذف التقييم'));
+      reloadRemote();
+    } finally {
+      ratingInFlightRef.current = false;
+      setRatingBusy(false);
+    }
+  }, [
+    courseId,
+    isDemoCourse,
+    ratingBusy,
+    reloadRemote,
+    remoteCourse?.ratingVersion,
+    setRemoteCourse,
+    submittedRating,
+  ]);
 
   const heroHeight = selectCourseHeroHeight(layout);
   const showCourseAccessOptions = canChooseCourseAccess({
@@ -200,7 +380,14 @@ export default function CourseDetails() {
       description: courseDescription,
     });
 
-  const startPreview = (reelId?: string) =>
+  const startPreview = (reelId?: string) => {
+    if (!isDemoCourse) {
+      void trackProductEvent({
+        event_name: 'sample_started',
+        screen_key: 'course_details',
+        course_id: courseId,
+      });
+    }
     navigation.navigate('Reels', {
       courseId,
       ...(reelId ? {reelId} : {}),
@@ -210,6 +397,7 @@ export default function CourseDetails() {
       title: courseTitle,
       description: courseDescription,
     });
+  };
 
   const handlePurchaseAction = () => {
     setNotice('');
@@ -223,10 +411,7 @@ export default function CourseDetails() {
     }
     if (!CAN_START_COIN_CHECKOUT && (coursePrice ?? 0) > 0) {
       if (hasPreview) startPreview();
-      else
-        setNotice(
-          'سجّل الدخول بالحساب الذي فُتح عليه الكورس',
-        );
+      else setNotice('سجّل الدخول بالحساب الذي فُتح عليه الكورس');
       return;
     }
     if (coursePrice === null) {
@@ -236,6 +421,13 @@ export default function CourseDetails() {
     if (!isDemoCourse && coursePrice > 0 && remoteBalance === null) {
       setNotice('تعذّر التحقق من رصيدك\nحاول بعد لحظات');
       return;
+    }
+    if (!isDemoCourse) {
+      void trackProductEvent({
+        event_name: 'paywall_viewed',
+        screen_key: 'course_details',
+        course_id: courseId,
+      });
     }
     setDialogStep(
       accessPlans.length > 1
@@ -263,7 +455,10 @@ export default function CourseDetails() {
   useEffect(() => {
     autoPurchaseHandledRef.current = false;
     autoRedemptionHandledRef.current = false;
+    purchaseCompletedTrackedRef.current = false;
     setCourseCode('');
+    setPurchaseCouponCode('');
+    setCouponQuote(null);
     setRedemptionVisible(false);
     setRetentionQueued(false);
     setRetentionVisible(false);
@@ -353,15 +548,22 @@ export default function CourseDetails() {
   }, [dialogStep, owned, retentionQueued]);
 
   const closePurchaseDialog = () => {
-    if (busy) return;
+    if (busy || couponBusy) return;
     const shouldOfferTasks =
       dialogStep !== null &&
       dialogStep !== 'success' &&
       !owned &&
       !retentionShownCourses.has(courseId);
     if (shouldOfferTasks) {
-      retentionShownCourses.add(courseId);
+      rememberRetentionOffer(courseId);
       setRetentionQueued(true);
+    }
+    if (dialogStep !== null && dialogStep !== 'success' && !isDemoCourse) {
+      void trackProductEvent({
+        event_name: 'paywall_dismissed',
+        screen_key: 'course_details',
+        course_id: courseId,
+      });
     }
     setDialogStep(null);
   };
@@ -378,29 +580,81 @@ export default function CourseDetails() {
       return result.purchased;
     }
 
-    const result = await purchaseCourse(courseId, selectedPlan?.code);
+    void trackProductEvent({
+      event_name: 'purchase_started',
+      screen_key: 'course_details',
+      course_id: courseId,
+    });
+
+    const result = await purchaseCourse(
+      courseId,
+      selectedPlan?.code,
+      appliedCoupon ? couponQuote?.couponCode : undefined,
+      effectivePurchasePrice,
+    );
     setRemoteBalance(result.balance);
     setRemoteSpendableBalance(result.spendableBalance);
     setRemotePaidBalance(result.paidBalance);
     setRemoteRewardBalance(result.rewardBalance);
     if (result.kind === 'success') {
+      if (!purchaseCompletedTrackedRef.current) {
+        purchaseCompletedTrackedRef.current = true;
+        void trackProductEvent({
+          event_name: 'purchase_completed',
+          screen_key: 'course_details',
+          course_id: courseId,
+        });
+      }
       setRemoteOwned(true);
       setDialogStep('success');
       return true;
     }
 
-    if (result.packages.length) setRemotePackages(result.packages);
-    setNotice(
-      'لم يصل تأكيد الرصيد بعد\nلا تدفع مرة أخرى\nحاول بعد لحظات',
-    );
+    // Keep the hydrated catalogue already loaded for this distribution. The
+    // insufficient-balance response is only a recommendation and does not
+    // carry native product identities or store-authoritative display prices.
+    setNotice('لم يصل تأكيد الرصيد بعد\nلا تدفع مرة أخرى\nحاول بعد لحظات');
     setDialogStep('topup');
     return false;
+  };
+
+  const applyPurchaseCoupon = async () => {
+    const normalized = normalizeHumanIdentifier(purchaseCouponCode);
+    if (!normalized || couponBusy || busy) return;
+    if (isDemoCourse) {
+      setNotice('كود الخصم غير متاح الآن');
+      return;
+    }
+    setCouponBusy(true);
+    setNotice('');
+    try {
+      const quote = await quoteCoursePurchase(
+        courseId,
+        selectedPlan?.code,
+        normalized,
+      );
+      setPurchaseCouponCode(quote.couponCode);
+      setCouponQuote(quote);
+      const paid = remotePaidBalance ?? 0;
+      const reward = remoteRewardBalance ?? Math.max(0, balance - paid);
+      const allowedReward = Math.min(
+        rewardContributionLimit,
+        Math.max(0, quote.finalPrice - (selectedPlan?.minimumPaidCoins ?? 0)),
+      );
+      const quotedSpendable = paid + Math.min(reward, allowedReward);
+      setDialogStep(quotedSpendable >= quote.finalPrice ? 'confirm' : 'topup');
+    } catch (error: unknown) {
+      setCouponQuote(null);
+      setNotice(learnerErrorMessage(error, 'الكود غير صحيح أو انتهت صلاحيته'));
+    } finally {
+      setCouponBusy(false);
+    }
   };
 
   const buyCoins = async (coinPackage: DemoCoinPackage) => {
     if (
       !CAN_START_COIN_CHECKOUT ||
-      coinPackage.coins < shortfall ||
+      coinPackage.coins < effectiveShortfall ||
       commerceInFlightRef.current
     ) {
       return;
@@ -409,13 +663,16 @@ export default function CourseDetails() {
     setBusy(true);
     setNotice('');
     try {
-      const result = await openCoinCheckout(coinPackage);
+      const result = await openCoinCheckout(coinPackage, {
+        returnTo: {
+          name: 'CourseDetails',
+          params: {courseId, openPurchase: true},
+        },
+      });
       if (result.cancelled) {
-        setNotice('أُغلقت صفحة الدفع\nرصيدك لم يتغير');
+        setNotice('أُغلقت صفحة الدفع\nسنراجع العملية تلقائيًا');
       } else if (result.pending) {
-        setNotice(
-          'الدفع قيد التأكيد\nسنحدّث الرصيد تلقائيًا',
-        );
+        setNotice('الدفع قيد التأكيد\nسنحدّث الرصيد تلقائيًا');
       } else if (result.success) {
         if (result.demo) {
           const state = await getDemoExperience();
@@ -469,7 +726,7 @@ export default function CourseDetails() {
   const redeemCourseCode = async () => {
     if (!CAN_REDEEM_COURSE_ACCESS_CODE) return;
     setGrantActivated(false);
-    const normalizedCode = courseCode.trim().toUpperCase();
+    const normalizedCode = normalizeHumanIdentifier(courseCode);
     if (!normalizedCode) {
       setNotice('اكتب الكود أولًا');
       return;
@@ -507,6 +764,13 @@ export default function CourseDetails() {
         return;
       }
       setRemoteOwned(true);
+      if (!result.alreadyEnrolled) {
+        void trackProductEvent({
+          event_name: 'grant_claimed',
+          screen_key: 'course_details',
+          course_id: courseId,
+        });
+      }
       setGrantActivated(
         result.accessType === 'scholarship' && !result.alreadyEnrolled,
       );
@@ -514,10 +778,8 @@ export default function CourseDetails() {
       setRedemptionVisible(false);
       setDialogStep('success');
     } catch (error: unknown) {
-      const payload = errorPayload(error);
       setNotice(
-        String(payload.message || '') ||
-          'تعذّر تفعيل الكود\nرصيدك لم يتغير',
+        learnerErrorMessage(error, 'تعذّر تفعيل الكود\nلم يتغير رصيدك'),
       );
     } finally {
       commerceInFlightRef.current = false;
@@ -580,12 +842,24 @@ export default function CourseDetails() {
             selectedPlanCode={selectedPlanCode}
             visible={showCourseAccessOptions}
           />
+          <CourseRatingAction
+            busy={ratingBusy}
+            editable={remoteCourse?.ratingEligible === true}
+            onDelete={removeRating}
+            onRate={submitRating}
+            rating={submittedRating}
+            visible={
+              !isDemoCourse &&
+              pageReady &&
+              owned &&
+              remoteSession === true &&
+              (remoteCourse?.ratingEligible === true ||
+                submittedRating !== null)
+            }
+          />
           <CourseCodeRedemptionAction
             onPress={openCodeRedemption}
-            visible={
-              CAN_REDEEM_COURSE_ACCESS_CODE &&
-              showCourseAccessOptions
-            }
+            visible={CAN_REDEEM_COURSE_ACCESS_CODE && showCourseAccessOptions}
           />
           {!!notice && dialogStep === null && !redemptionVisible && (
             <Text style={[styles.notice, styles.inlineNotice]}>{notice}</Text>
@@ -633,14 +907,26 @@ export default function CourseDetails() {
         bottomInset={insets.bottom}
         busy={busy}
         courseTitle={courseTitle}
+        couponApplied={appliedCoupon}
+        couponBusy={couponBusy}
+        couponCode={purchaseCouponCode}
+        couponDiscountAmount={
+          appliedCoupon ? couponQuote?.discountAmount ?? 0 : 0
+        }
         dialogStep={dialogStep}
         grantActivated={grantActivated}
         isTablet={layout.isTablet}
         notice={notice}
+        onApplyCoupon={applyPurchaseCoupon}
         onBuyCoins={buyCoins}
+        onCouponCodeChange={value => {
+          setPurchaseCouponCode(normalizeHumanIdentifier(value));
+          setCouponQuote(null);
+        }}
         onClose={closePurchaseDialog}
         onConfirmPurchase={confirmPurchase}
         onSelectPlan={plan => {
+          setCouponQuote(null);
           setSelectedPlanCode(plan.code);
           setDialogStep(
             (planSpendableBalances[plan.code] ?? 0) >= plan.priceCoins
@@ -652,14 +938,15 @@ export default function CourseDetails() {
           setDialogStep(null);
           startCourse();
         }}
-        packages={checkoutPackages}
-        purchasePrice={purchasePrice}
-        rewardContributionLimit={rewardContributionLimit}
-        rewardContributionPercent={rewardContributionPercent}
+        packages={effectivePackages}
+        originalPurchasePrice={purchasePrice}
+        purchasePrice={effectivePurchasePrice}
+        rewardContributionLimit={effectiveRewardContributionLimit}
+        rewardContributionPercent={effectiveRewardContributionPercent}
         selectedPlan={selectedPlan}
-        shortfall={shortfall}
-        sufficientPackage={sufficientPackage}
-        usableCurrentBalance={usableCurrentBalance}
+        shortfall={effectiveShortfall}
+        sufficientPackage={effectiveSufficientPackage}
+        usableCurrentBalance={effectiveUsableCurrentBalance}
       />
 
       <CourseRetentionDialog

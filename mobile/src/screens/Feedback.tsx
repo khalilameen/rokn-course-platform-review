@@ -1,4 +1,4 @@
-import React, {useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {
   Alert,
   Image,
@@ -8,8 +8,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import {useNavigation, useRoute} from '@react-navigation/native';
-import type {RootNavigation, RootRoute} from '../navigation/types';
+import {useRoute} from '@react-navigation/native';
+import type {RootRoute} from '../navigation/types';
 import {launchImageLibrary, PhotoQuality} from 'react-native-image-picker';
 import {useTranslation} from 'react-i18next';
 
@@ -32,11 +32,29 @@ import {
 } from '../constants/designSystem';
 import {
   FeedbackAttachment,
+  clearProductFeedbackDraft,
+  loadProductFeedbackCases,
+  loadProductFeedbackDraft,
+  loadProductFeedbackReplyDraft,
+  ProductFeedbackCase,
   ProductFeedbackCategory,
+  replyToProductFeedback,
+  saveProductFeedbackDraft,
+  saveProductFeedbackReplyDraft,
   submitProductFeedback,
 } from '../services/productFeedback';
-import {openSupportWhatsApp} from '../services/supportWhatsApp';
-import {DebugBundleShareCard} from '../components/DebugBundleShareCard';
+import {
+  getSupportWhatsAppUrl,
+  openSupportWhatsApp,
+} from '../services/supportWhatsApp';
+import {toArabicDigits} from '../constants/arabicFormatting';
+import {secureRandomUuid} from '../utils/secureRandom';
+import {
+  cacheLearnerDraftFile,
+  removeLearnerDraftFile,
+} from '../services/learnerDraftFiles';
+import {useAppActiveState} from '../hooks/useAppActiveState';
+import {showMediaPickerFailure} from '../services/mediaPickerErrors';
 
 const CATEGORIES: Array<{key: ProductFeedbackCategory; label: string}> = [
   {key: 'problem', label: 'مشكلة'},
@@ -45,8 +63,16 @@ const CATEGORIES: Array<{key: ProductFeedbackCategory; label: string}> = [
   {key: 'playback', label: 'تشغيل الفيديو'},
 ];
 
+const CASE_STATUS: Record<string, string> = {
+  received: 'وصل إلى الدعم',
+  in_progress: 'قيد المراجعة',
+  waiting_for_you: 'بانتظار ردك',
+  resolved: 'تم الحل',
+  closed: 'مغلق',
+};
+
 export default function Feedback() {
-  const navigation = useNavigation<RootNavigation>();
+  const appActive = useAppActiveState();
   const route = useRoute<RootRoute<'Feedback'>>();
   const {i18n} = useTranslation();
   const [category, setCategory] = useState<ProductFeedbackCategory>('problem');
@@ -57,51 +83,333 @@ export default function Feedback() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [sent, setSent] = useState(false);
+  const [supportAvailable, setSupportAvailable] = useState(false);
+  const [draftReady, setDraftReady] = useState(false);
+  const [draftSaveError, setDraftSaveError] = useState(false);
+  const [clientRequestId, setClientRequestId] = useState(secureRandomUuid);
+  const [receiptId, setReceiptId] = useState('');
+  const [receiptPublicId, setReceiptPublicId] = useState('');
+  const [supportCases, setSupportCases] = useState<ProductFeedbackCase[]>([]);
+  const [casesBusy, setCasesBusy] = useState(true);
+  const [casesError, setCasesError] = useState('');
+  const [selectedCaseId, setSelectedCaseId] = useState('');
+  const [replyMessage, setReplyMessage] = useState('');
+  const [replyAttachment, setReplyAttachment] = useState<FeedbackAttachment>();
+  const [replyBusy, setReplyBusy] = useState(false);
+  const [replyError, setReplyError] = useState('');
+  const mountedRef = useRef(true);
+  const submitFlightRef = useRef(false);
+  const pickerFlightRef = useRef(false);
+  const draftSnapshotRef = useRef({
+    attachment,
+    category,
+    clientRequestId,
+    message,
+    updatedAt: Date.now(),
+  });
+  draftSnapshotRef.current = {
+    attachment,
+    category,
+    clientRequestId,
+    message,
+    updatedAt: Date.now(),
+  };
   const canSubmit = useMemo(
     () => message.trim().length >= 10 && !busy,
     [busy, message],
   );
+  const selectedCase = supportCases.find(item => item.publicId === selectedCaseId);
+  const requestedCaseId = route.params?.caseId?.trim().toUpperCase() || '';
+
+  const reloadCases = async () => {
+    setCasesBusy(true);
+    setCasesError('');
+    try {
+      const loaded = await loadProductFeedbackCases();
+      if (!mountedRef.current) return;
+      setSupportCases(loaded);
+      const targetCaseId = requestedCaseId || receiptPublicId;
+      if (targetCaseId && loaded.some(item => item.publicId === targetCaseId)) {
+        setSelectedCaseId(targetCaseId);
+      }
+    } catch {
+      if (mountedRef.current) setCasesError('تعذّر تحديث الحالات الآن');
+    } finally {
+      if (mountedRef.current) setCasesBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    void reloadCases();
+    // The list is refreshed explicitly after every write.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedCaseId]);
+
+  useEffect(() => {
+    let active = true;
+    setReplyError('');
+    setReplyMessage('');
+    setReplyAttachment(current => {
+      void removeLearnerDraftFile(current);
+      return undefined;
+    });
+    if (!selectedCaseId) return () => { active = false; };
+    void loadProductFeedbackReplyDraft(selectedCaseId).then(value => {
+      if (active) setReplyMessage(value);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [selectedCaseId]);
+
+  useEffect(() => {
+    if (!selectedCaseId) return;
+    const timer = setTimeout(() => {
+      void saveProductFeedbackReplyDraft(selectedCaseId, replyMessage);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [replyMessage, selectedCaseId]);
+
+  useEffect(() => {
+    let active = true;
+    void getSupportWhatsAppUrl()
+      .then(() => {
+        if (active) setSupportAvailable(true);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void loadProductFeedbackDraft()
+      .then(draft => {
+        if (!active || !draft) return;
+        setCategory(draft.category);
+        setMessage(draft.message);
+        setAttachment(draft.attachment);
+        setClientRequestId(draft.clientRequestId);
+      })
+      .catch(() => {
+        if (active) setDraftSaveError(true);
+      })
+      .finally(() => {
+        if (active) setDraftReady(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!draftReady || sent) return;
+    const timer = setTimeout(() => {
+      void saveProductFeedbackDraft({
+        attachment,
+        category,
+        clientRequestId,
+        message,
+        updatedAt: Date.now(),
+      })
+        .then(() => {
+          if (mountedRef.current) setDraftSaveError(false);
+        })
+        .catch(() => {
+          if (mountedRef.current) setDraftSaveError(true);
+        });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [attachment, category, clientRequestId, draftReady, message, sent]);
+
+  useEffect(() => {
+    if (appActive || !draftReady || sent) return;
+    void saveProductFeedbackDraft({
+      ...draftSnapshotRef.current,
+      updatedAt: Date.now(),
+    }).catch(() => {
+      if (mountedRef.current) setDraftSaveError(true);
+    });
+  }, [appActive, draftReady, sent]);
+
+  const changeDraft = (change: () => void) => {
+    change();
+    setClientRequestId(secureRandomUuid());
+    setError('');
+  };
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const chooseScreenshot = async () => {
-    const result = await launchImageLibrary({
-      mediaType: 'photo',
-      quality: 0.8 as PhotoQuality,
-      selectionLimit: 1,
-    });
-    const asset = result.assets?.[0];
-    if (!asset?.uri) return;
-    if (Number(asset.fileSize || 0) > 4 * 1024 * 1024) {
-      Alert.alert('الصورة كبيرة', 'اختر صورة أصغر من ٤ ميجابايت');
-      return;
+    if (pickerFlightRef.current || busy) return;
+    pickerFlightRef.current = true;
+    try {
+      const result = await launchImageLibrary({
+        mediaType: 'photo',
+        quality: 0.8 as PhotoQuality,
+        selectionLimit: 1,
+      });
+      if (!mountedRef.current) return;
+      if (result.errorCode === 'permission') {
+        showMediaPickerFailure(result.errorCode);
+        return;
+      }
+      if (result.errorCode) {
+        showMediaPickerFailure(result.errorCode);
+        return;
+      }
+      const asset = result.assets?.[0];
+      if (!asset?.uri) return;
+      if (Number(asset.fileSize || 0) > 4 * 1024 * 1024) {
+        Alert.alert('الصورة كبيرة', 'اختر صورة أصغر من ٤ ميجابايت');
+        return;
+      }
+      const cached = await cacheLearnerDraftFile(
+        'feedback',
+        {
+          fileName: asset.fileName,
+          size: asset.fileSize,
+          type: asset.type,
+          uri: asset.uri,
+        },
+        4 * 1024 * 1024,
+      );
+      const previous = attachment;
+      changeDraft(() =>
+        setAttachment({
+          fileName: cached.fileName,
+          size: cached.size,
+          type: cached.type,
+          uri: cached.uri,
+        }),
+      );
+      await removeLearnerDraftFile(previous);
+    } catch (pickerError: unknown) {
+      if (mountedRef.current) {
+        showMediaPickerFailure(
+          typeof pickerError === 'object' &&
+            pickerError &&
+            'errorCode' in pickerError
+            ? String(pickerError.errorCode)
+            : undefined,
+        );
+      }
+    } finally {
+      pickerFlightRef.current = false;
     }
-    setAttachment({
-      fileName: asset.fileName,
-      type: asset.type,
-      uri: asset.uri,
-    });
+  };
+
+  const removeScreenshot = () => {
+    const previous = attachment;
+    changeDraft(() => setAttachment(undefined));
+    void removeLearnerDraftFile(previous);
+  };
+
+  const chooseReplyScreenshot = async () => {
+    if (pickerFlightRef.current || replyBusy) return;
+    pickerFlightRef.current = true;
+    try {
+      const result = await launchImageLibrary({
+        mediaType: 'photo',
+        quality: 0.8 as PhotoQuality,
+        selectionLimit: 1,
+      });
+      if (!mountedRef.current || result.didCancel) return;
+      if (result.errorCode) {
+        showMediaPickerFailure(result.errorCode);
+        return;
+      }
+      const asset = result.assets?.[0];
+      if (!asset?.uri) return;
+      if (Number(asset.fileSize || 0) > 4 * 1024 * 1024) {
+        Alert.alert('الصورة كبيرة', 'اختر صورة أصغر من ٤ ميجابايت');
+        return;
+      }
+      const cached = await cacheLearnerDraftFile('feedback', {
+        fileName: asset.fileName,
+        size: asset.fileSize,
+        type: asset.type,
+        uri: asset.uri,
+      }, 4 * 1024 * 1024);
+      const previous = replyAttachment;
+      setReplyAttachment(cached);
+      await removeLearnerDraftFile(previous);
+    } catch (pickerError: unknown) {
+      if (mountedRef.current) {
+        showMediaPickerFailure(
+          typeof pickerError === 'object' && pickerError && 'errorCode' in pickerError
+            ? String(pickerError.errorCode)
+            : undefined,
+        );
+      }
+    } finally {
+      pickerFlightRef.current = false;
+    }
   };
 
   const submit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || submitFlightRef.current) return;
+    submitFlightRef.current = true;
     setBusy(true);
     setError('');
     try {
-      await submitProductFeedback({
+      const receipt = await submitProductFeedback({
         attachment,
         category,
+        clientRequestId,
         context: {
           locale: i18n.resolvedLanguage || i18n.language || 'ar',
           sourceScreen: route.params?.sourceScreen || 'feedback',
         },
         message,
       });
+      await clearProductFeedbackDraft().catch(() => undefined);
+      if (!mountedRef.current) return;
+      setReceiptId(receipt.caseNumber);
+      setReceiptPublicId(receipt.publicId);
       setSent(true);
     } catch {
-      setError(
-        'لم تصل الرسالة\nتحقق من الاتصال ثم حاول مرة أخرى\nنصك محفوظ',
-      );
+      if (!mountedRef.current) return;
+      setError('لم تصل الرسالة\nتحقق من الاتصال ثم حاول مرة أخرى\nنصك محفوظ');
     } finally {
-      setBusy(false);
+      submitFlightRef.current = false;
+      if (mountedRef.current) setBusy(false);
+    }
+  };
+
+  const sendCaseReply = async () => {
+    if (!selectedCase || replyBusy || replyMessage.trim().length < 2) return;
+    setReplyBusy(true);
+    setReplyError('');
+    try {
+      const updated = await replyToProductFeedback({
+        accessToken: selectedCase.accessToken,
+        attachment: replyAttachment,
+        clientRequestId: secureRandomUuid(),
+        message: replyMessage,
+        publicId: selectedCase.publicId,
+      });
+      await saveProductFeedbackReplyDraft(selectedCase.publicId, '').catch(() => undefined);
+      if (!mountedRef.current) return;
+      const sentAttachment = replyAttachment;
+      setReplyAttachment(undefined);
+      void removeLearnerDraftFile(sentAttachment);
+      setReplyMessage('');
+      setSupportCases(current => current.map(item =>
+        item.publicId === updated.publicId
+          ? {...updated, accessToken: item.accessToken}
+          : item,
+      ));
+    } catch {
+      if (mountedRef.current) {
+        setReplyError('لم يصل الرد\nتحقق من الاتصال ثم حاول مرة أخرى\nنصك محفوظ');
+      }
+    } finally {
+      if (mountedRef.current) setReplyBusy(false);
     }
   };
 
@@ -112,11 +420,18 @@ export default function Feedback() {
           <ResponsiveFrame>
             <HeaderWithBack title="إرسال ملاحظة" />
             <StatusView
-              actionLabel="العودة"
-              description="وصلتنا رسالتك\nسنتواصل معك عند الحاجة"
-              onAction={() => navigation.goBack()}
-              title="شكرًا لملاحظتك"
+              actionLabel="فتح المتابعة"
+              description="وصلتنا رسالتك\nيمكنك متابعة الرد من هنا"
+              onAction={() => {
+                setSent(false);
+                setSelectedCaseId(receiptPublicId);
+                void reloadCases();
+              }}
+              title="تم إرسال البلاغ"
             />
+            {!!receiptId && (
+              <Text style={styles.receipt}>رقم المتابعة {receiptId}</Text>
+            )}
           </ResponsiveFrame>
         </Content>
       </Container>
@@ -128,25 +443,130 @@ export default function Feedback() {
       <Content noPadding>
         <ResponsiveFrame style={styles.frame}>
           <HeaderWithBack title="إرسال ملاحظة" />
-          <SectionHeading
-            eyebrow="من داخل التطبيق"
-            style={styles.heading}
-            title="ماذا حدث"
-          />
-          <Text style={styles.intro}>
-            اكتب المشكلة أو الاقتراح
-            {'\n'}سنرفق إصدار التطبيق ونوع الجهاز تلقائيًا
-          </Text>
 
-          <View style={styles.categories}>
+          {(casesBusy || supportCases.length > 0 || casesError) && (
+            <PremiumCard style={styles.casesCard}>
+              <View style={styles.casesHeader}>
+                <Text style={styles.label}>حالاتك</Text>
+                <Pressable
+                  accessibilityLabel="تحديث الحالات"
+                  accessibilityRole="button"
+                  disabled={casesBusy}
+                  onPress={() => void reloadCases()}>
+                  <Text style={styles.refreshCases}>{casesBusy ? 'جارٍ التحديث' : 'تحديث'}</Text>
+                </Pressable>
+              </View>
+              {casesBusy && supportCases.length === 0 ? (
+                <Text style={styles.caseMuted}>جارٍ تحميل الحالات</Text>
+              ) : (
+                supportCases.map(item => {
+                  const selected = item.publicId === selectedCaseId;
+                  return (
+                    <Pressable
+                      accessibilityLabel={`الحالة ${item.caseNumber} ${CASE_STATUS[item.status] || 'قيد المتابعة'}`}
+                      accessibilityRole="button"
+                      key={item.publicId}
+                      onPress={() => setSelectedCaseId(selected ? '' : item.publicId)}
+                      style={({pressed}) => [
+                        styles.caseRow,
+                        selected && styles.caseRowSelected,
+                        pressed && styles.pressed,
+                      ]}>
+                      <View style={styles.caseCopy}>
+                        <Text style={styles.caseNumber}>الحالة {item.caseNumber}</Text>
+                        <Text numberOfLines={1} style={styles.caseMessage}>{item.message}</Text>
+                      </View>
+                      <Text style={styles.caseStatus}>{CASE_STATUS[item.status] || 'قيد المتابعة'}</Text>
+                    </Pressable>
+                  );
+                })
+              )}
+              {!!casesError && <Text accessibilityRole="alert" style={styles.error}>{casesError}</Text>}
+
+              {!!selectedCase && (
+                <View style={styles.timeline}>
+                  {selectedCase.messages.map(item => (
+                    <View
+                      key={item.publicId}
+                      style={[
+                        styles.timelineMessage,
+                        item.author === 'support' && styles.timelineSupport,
+                      ]}>
+                      <Text style={styles.timelineAuthor}>
+                        {item.author === 'support' ? 'فريق الدعم' : 'أنت'}
+                      </Text>
+                      <Text style={styles.timelineText}>{item.text}</Text>
+                    </View>
+                  ))}
+                  <TextInput
+                    accessibilityLabel="ردك على الحالة"
+                    maxLength={2000}
+                    multiline
+                    onChangeText={setReplyMessage}
+                    placeholder="اكتب ردك"
+                    placeholderTextColor={Palette.textFaint}
+                    style={styles.replyInput}
+                    textAlignVertical="top"
+                    value={replyMessage}
+                  />
+                  {replyAttachment ? (
+                    <View style={styles.attachmentRow}>
+                      <Image
+                        accessibilityLabel="الصورة المرفقة بالرد"
+                        source={{uri: replyAttachment.uri}}
+                        style={styles.attachmentImage}
+                      />
+                      <Pressable
+                        accessibilityLabel="حذف صورة الرد"
+                        accessibilityRole="button"
+                        onPress={() => {
+                          const previous = replyAttachment;
+                          setReplyAttachment(undefined);
+                          void removeLearnerDraftFile(previous);
+                        }}>
+                        <Text style={styles.removeAttachment}>حذف الصورة</Text>
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <Pressable
+                      accessibilityLabel="إضافة صورة إلى الرد"
+                      accessibilityRole="button"
+                      onPress={() => void chooseReplyScreenshot()}
+                      style={({pressed}) => [styles.replyAttachmentButton, pressed && styles.pressed]}>
+                      <Text style={styles.attachmentButtonText}>أضف صورة</Text>
+                    </Pressable>
+                  )}
+                  {!!replyError && <Text accessibilityRole="alert" style={styles.error}>{replyError}</Text>}
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{busy: replyBusy, disabled: replyBusy || replyMessage.trim().length < 2}}
+                    disabled={replyBusy || replyMessage.trim().length < 2}
+                    onPress={() => void sendCaseReply()}
+                    style={({pressed}) => [
+                      styles.replyButton,
+                      (replyBusy || replyMessage.trim().length < 2) && styles.submitDisabled,
+                      pressed && styles.pressed,
+                    ]}>
+                    <Text style={styles.submitText}>{replyBusy ? 'جارٍ الإرسال' : 'إرسال الرد'}</Text>
+                  </Pressable>
+                </View>
+              )}
+            </PremiumCard>
+          )}
+
+          <SectionHeading style={styles.heading} title="ماذا حدث" />
+          <Text style={styles.intro}>اكتب المشكلة أو الاقتراح بوضوح</Text>
+
+          <View accessibilityRole="radiogroup" style={styles.categories}>
             {CATEGORIES.map(item => {
               const selected = item.key === category;
               return (
                 <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{selected}}
+                  accessibilityLabel={item.label}
+                  accessibilityRole="radio"
+                  accessibilityState={{checked: selected}}
                   key={item.key}
-                  onPress={() => setCategory(item.key)}
+                  onPress={() => changeDraft(() => setCategory(item.key))}
                   style={({pressed}) => [
                     styles.category,
                     selected && styles.categorySelected,
@@ -167,9 +587,11 @@ export default function Feedback() {
           <PremiumCard style={styles.form}>
             <Text style={styles.label}>اكتب التفاصيل</Text>
             <TextInput
+              accessibilityHint="اكتب عشرة أحرف على الأقل"
+              accessibilityLabel="تفاصيل الملاحظة"
               multiline
               maxLength={1600}
-              onChangeText={setMessage}
+              onChangeText={value => changeDraft(() => setMessage(value))}
               placeholder="أين كنت وما الذي ظهر لك"
               placeholderTextColor={Palette.textFaint}
               selectionColor={Palette.primary}
@@ -177,11 +599,14 @@ export default function Feedback() {
               textAlignVertical="top"
               value={message}
             />
-            <Text style={styles.counter}>{message.length} / ١٦٠٠</Text>
+            <Text style={styles.counter}>
+              {toArabicDigits(message.length)} من ١٦٠٠
+            </Text>
 
             {attachment ? (
               <View style={styles.attachmentRow}>
                 <Image
+                  accessibilityLabel="الصورة المرفقة"
                   source={{uri: attachment.uri}}
                   style={styles.attachmentImage}
                 />
@@ -193,13 +618,14 @@ export default function Feedback() {
                     accessibilityLabel="حذف الصورة المرفقة"
                     accessibilityRole="button"
                     hitSlop={8}
-                    onPress={() => setAttachment(undefined)}>
+                    onPress={removeScreenshot}>
                     <Text style={styles.removeAttachment}>حذف الصورة</Text>
                   </Pressable>
                 </View>
               </View>
             ) : (
               <Pressable
+                accessibilityLabel="إضافة صورة توضح المشكلة"
                 accessibilityRole="button"
                 onPress={() => void chooseScreenshot()}
                 style={({pressed}) => [
@@ -213,33 +639,40 @@ export default function Feedback() {
             )}
           </PremiumCard>
 
-          <DebugBundleShareCard />
-
           {!!error && (
             <View>
               <Text accessibilityRole="alert" style={styles.error}>
                 {error}
               </Text>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() =>
-                  void openSupportWhatsApp(
-                    `مرحبًا فريق ركن\n\n${message.trim()}`,
-                  ).catch(() => undefined)
-                }
-                style={({pressed}) => [
-                  styles.supportFallback,
-                  pressed && styles.pressed,
-                ]}>
-                <Text style={styles.supportFallbackText}>
-                  إرسالها للدعم على واتساب
-                </Text>
-              </Pressable>
+              {supportAvailable && (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() =>
+                    void openSupportWhatsApp(
+                      `مرحبًا فريق ركن\n\n${message.trim()}`,
+                    ).catch(() => setSupportAvailable(false))
+                  }
+                  style={({pressed}) => [
+                    styles.supportFallback,
+                    pressed && styles.pressed,
+                  ]}>
+                  <Text style={styles.supportFallbackText}>
+                    إرسالها للدعم على واتساب
+                  </Text>
+                </Pressable>
+              )}
             </View>
           )}
+          {draftSaveError && !error && (
+            <Text accessibilityRole="alert" style={styles.error}>
+              لم تُحفظ المسودة على الجهاز
+              {'\n'}يمكنك إرسالها الآن أو تفريغ بعض المساحة
+            </Text>
+          )}
           <Pressable
+            accessibilityLabel="إرسال الملاحظة"
             accessibilityRole="button"
-            accessibilityState={{disabled: !canSubmit}}
+            accessibilityState={{busy, disabled: !canSubmit}}
             disabled={!canSubmit}
             onPress={() => void submit()}
             style={({pressed}) => [
@@ -248,7 +681,7 @@ export default function Feedback() {
               pressed && styles.pressed,
             ]}>
             <Text style={styles.submitText}>
-              {busy ? 'جارٍ الإرسال…' : 'إرسال'}
+              {busy ? 'جارٍ الإرسال' : 'إرسال'}
             </Text>
           </Pressable>
         </ResponsiveFrame>
@@ -259,6 +692,60 @@ export default function Feedback() {
 
 const styles = StyleSheet.create({
   frame: {paddingBottom: Spacing.section},
+  casesCard: {padding: Spacing.lg, marginTop: Spacing.md},
+  casesHeader: {...rtlRowStyle, alignItems: 'center', justifyContent: 'space-between'},
+  refreshCases: {...Type.caption, color: '#9ABFFF', paddingVertical: Spacing.sm},
+  caseMuted: {...Type.caption, ...textDirection, color: Palette.textMuted, marginTop: Spacing.sm},
+  caseRow: {
+    ...rtlRowStyle,
+    alignItems: 'center',
+    minHeight: Accessibility.minTouchTarget,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Palette.line,
+    paddingVertical: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  caseRowSelected: {backgroundColor: Palette.primarySoft},
+  caseCopy: {flex: 1, alignItems: 'flex-start'},
+  caseNumber: {...Type.bodyStrong, ...textDirection, color: Palette.text},
+  caseMessage: {...Type.caption, ...textDirection, color: Palette.textMuted, marginTop: Spacing.xxs},
+  caseStatus: {...Type.caption, color: '#9ABFFF'},
+  timeline: {marginTop: Spacing.lg},
+  timelineMessage: {
+    alignSelf: 'stretch',
+    borderRadius: Radius.md,
+    backgroundColor: Palette.canvasSoft,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
+  timelineSupport: {backgroundColor: Palette.primarySoft},
+  timelineAuthor: {...Type.caption, ...textDirection, color: Palette.textMuted},
+  timelineText: {...Type.body, ...textDirection, color: Palette.text, marginTop: Spacing.xxs},
+  replyInput: {
+    ...Type.body,
+    ...textDirection,
+    color: Palette.text,
+    minHeight: 100,
+    borderWidth: 1,
+    borderColor: Palette.line,
+    borderRadius: Radius.md,
+    padding: Spacing.md,
+    marginTop: Spacing.sm,
+  },
+  replyButton: {
+    minHeight: Accessibility.minTouchTarget,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: Radius.md,
+    backgroundColor: Palette.primary,
+    marginTop: Spacing.sm,
+  },
+  replyAttachmentButton: {
+    minHeight: Accessibility.minTouchTarget,
+    alignSelf: 'flex-start',
+    justifyContent: 'center',
+    marginTop: Spacing.xs,
+  },
   heading: {marginTop: Spacing.sm},
   intro: {
     ...Type.body,
@@ -360,4 +847,10 @@ const styles = StyleSheet.create({
   submitDisabled: {opacity: 0.45},
   submitText: {...Type.button, color: Palette.text},
   pressed: {opacity: 0.75},
+  receipt: {
+    ...Type.caption,
+    color: Palette.textMuted,
+    textAlign: 'center',
+    marginTop: Spacing.sm,
+  },
 });

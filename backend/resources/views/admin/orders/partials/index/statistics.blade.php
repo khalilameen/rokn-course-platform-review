@@ -1,3 +1,6 @@
+    @if(request()->query())
+        <div class="alert alert-info">الأرقام التالية تخص نتائج الفلاتر الحالية</div>
+    @endif
     <!-- Statistics Cards -->
     <div class="row mb-4">
         <div class="col-lg-2 col-md-4 col-sm-6 mb-3">
@@ -61,10 +64,10 @@
                     <div class="stat-icon-wrapper stat-icon--revenue mx-auto">
                         <i class="ti-money text-white"></i>
                     </div>
-                    <div class="stat-title">إجمالي مبيعات القنوات</div>
+                    <div class="stat-title">إجمالي التحصيل الفعلي</div>
                     <h3 class="stat-value stat-value--amount">{{ number_format($stats['total_amount'], 2) }}</h3>
                     <small class="text-muted">جنيه</small>
-                    <br><small class="text-muted">المؤكد أو التقديري، دون الاختبارات</small>
+                    <br><small class="text-muted">دون الاختبارات أو العمليات المرتجعة</small>
                 </div>
             </div>
         </div>

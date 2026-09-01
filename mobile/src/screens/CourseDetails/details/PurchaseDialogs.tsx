@@ -1,7 +1,9 @@
 import React from 'react';
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -18,6 +20,8 @@ import type {DemoCoinPackage} from '../../../services/demoExperience';
 import type {CourseAccessPlan} from '../../../services/roknApi';
 import {planBenefits} from './selectors';
 import styles from './styles';
+import {useReducedMotion} from '../../../hooks/useReducedMotion';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
 export type DialogStep = 'plans' | 'topup' | 'confirm' | 'success' | null;
 
@@ -95,69 +99,85 @@ export const CourseCodeRedemptionDialog = ({
   onCourseCodeChange,
   onRedeemCourseCode,
   visible,
-}: CourseCodeRedemptionDialogProps) => (
-  <Modal
-    animationType="slide"
-    onRequestClose={() => {
-      if (!codeBusy) onClose();
-    }}
-    transparent
-    visible={visible}>
-    <View style={styles.modalRoot}>
-      <Pressable
-        accessibilityLabel="إغلاق نافذة تفعيل كود الكورس"
-        accessibilityRole="button"
-        accessibilityState={{disabled: codeBusy}}
-        disabled={codeBusy}
-        onPress={onClose}
-        style={styles.modalBackdrop}
-      />
-      <View
-        accessibilityLabel="تفعيل كود جهة تعليمية"
-        accessibilityViewIsModal
-        style={[
-          styles.sheet,
-          styles.codeDialogSheet,
-          {
-            paddingBottom: Math.max(bottomInset, 16) + 10,
-            paddingHorizontal: isTablet ? 28 : 18,
-          },
-        ]}>
-        <View style={styles.sheetHandle} />
-        <Text style={styles.sheetEyebrow}>كود الوصول</Text>
-        <Text style={styles.sheetTitle}>فعّل وصولك إلى هذا الكورس</Text>
-        <Text style={styles.sheetDescription}>
-          أدخل الكود الذي سلّمته لك الجهة التعليمية. لن يبدأ هذا الإجراء أي
-          عملية دفع.
-        </Text>
-        <CourseCodeEntry
-          codeBusy={codeBusy}
-          courseCode={courseCode}
-          onCourseCodeChange={onCourseCodeChange}
-          onRedeemCourseCode={onRedeemCourseCode}
-        />
-        {!!notice && (
-          <Text accessibilityLiveRegion="polite" style={styles.notice}>
-            {notice}
-          </Text>
-        )}
+}: CourseCodeRedemptionDialogProps) => {
+  const reducedMotion = useReducedMotion();
+  const insets = useSafeAreaInsets();
+  const horizontalPadding = isTablet ? 28 : 18;
+  return (
+    <Modal
+      animationType={reducedMotion ? 'none' : 'slide'}
+      onRequestClose={() => {
+        if (!codeBusy) onClose();
+      }}
+      statusBarTranslucent
+      transparent
+      visible={visible}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.modalRoot}>
         <Pressable
-          accessibilityLabel="إغلاق نافذة تفعيل الكود"
+          accessibilityLabel="إغلاق نافذة تفعيل كود الكورس"
           accessibilityRole="button"
           accessibilityState={{disabled: codeBusy}}
           disabled={codeBusy}
           onPress={onClose}
-          style={({pressed}) => [
-            styles.codeDialogClose,
-            pressed && styles.pressed,
-            codeBusy && styles.disabled,
+          style={styles.modalBackdrop}
+        />
+        <View
+          accessibilityLabel="تفعيل كود جهة تعليمية"
+          accessibilityViewIsModal
+          style={[
+            styles.sheet,
+            styles.codeDialogSheet,
+            {
+              paddingBottom: Math.max(bottomInset, 16) + 10,
+              paddingLeft: Math.max(horizontalPadding, insets.left + 12),
+              paddingRight: Math.max(horizontalPadding, insets.right + 12),
+            },
           ]}>
-          <Text style={styles.codeDialogCloseText}>إغلاق</Text>
-        </Pressable>
-      </View>
-    </View>
-  </Modal>
-);
+          <View style={styles.sheetHandle} />
+          <ScrollView
+            automaticallyAdjustKeyboardInsets
+            bounces={false}
+            contentContainerStyle={styles.sheetContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}>
+            <Text style={styles.sheetEyebrow}>كود الوصول</Text>
+            <Text style={styles.sheetTitle}>فعّل وصولك إلى هذا الكورس</Text>
+            <Text style={styles.sheetDescription}>
+              أدخل الكود الذي سلّمته لك الجهة التعليمية
+              {'\n'}لن تبدأ أي عملية دفع
+            </Text>
+            <CourseCodeEntry
+              codeBusy={codeBusy}
+              courseCode={courseCode}
+              onCourseCodeChange={onCourseCodeChange}
+              onRedeemCourseCode={onRedeemCourseCode}
+            />
+            {!!notice && (
+              <Text accessibilityLiveRegion="polite" style={styles.notice}>
+                {notice}
+              </Text>
+            )}
+            <Pressable
+              accessibilityLabel="إغلاق نافذة تفعيل الكود"
+              accessibilityRole="button"
+              accessibilityState={{disabled: codeBusy}}
+              disabled={codeBusy}
+              onPress={onClose}
+              style={({pressed}) => [
+                styles.codeDialogClose,
+                pressed && styles.pressed,
+                codeBusy && styles.disabled,
+              ]}>
+              <Text style={styles.codeDialogCloseText}>إغلاق</Text>
+            </Pressable>
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+};
 
 type CoursePurchaseDialogProps = {
   accessPlans: CourseAccessPlan[];
@@ -165,16 +185,23 @@ type CoursePurchaseDialogProps = {
   bottomInset: number;
   busy: boolean;
   courseTitle: string;
+  couponApplied?: boolean;
+  couponBusy?: boolean;
+  couponCode?: string;
+  couponDiscountAmount?: number;
   dialogStep: DialogStep;
   grantActivated: boolean;
   isTablet: boolean;
   notice: string;
   onBuyCoins: (coinPackage: DemoCoinPackage) => void | Promise<void>;
+  onApplyCoupon?: () => void | Promise<void>;
+  onCouponCodeChange?: (value: string) => void;
   onClose: () => void;
   onConfirmPurchase: () => void | Promise<void>;
   onSelectPlan: (plan: CourseAccessPlan) => void;
   onSuccessStart: () => void;
   packages: DemoCoinPackage[];
+  originalPurchasePrice?: number;
   purchasePrice: number;
   rewardContributionLimit: number;
   rewardContributionPercent: number;
@@ -190,17 +217,24 @@ export const CoursePurchaseDialog = ({
   bottomInset,
   busy,
   courseTitle,
+  couponApplied = false,
+  couponBusy = false,
+  couponCode = '',
+  couponDiscountAmount = 0,
   dialogStep,
   grantActivated,
   isTablet,
   notice,
   onBuyCoins,
+  onApplyCoupon = () => undefined,
+  onCouponCodeChange = () => undefined,
   onClose,
   onConfirmPurchase,
   onSelectPlan,
   onSuccessStart,
   packages,
   purchasePrice,
+  originalPurchasePrice = purchasePrice,
   rewardContributionLimit,
   rewardContributionPercent,
   selectedPlan,
@@ -208,31 +242,43 @@ export const CoursePurchaseDialog = ({
   sufficientPackage,
   usableCurrentBalance,
 }: CoursePurchaseDialogProps) => {
+  const reducedMotion = useReducedMotion();
+  const insets = useSafeAreaInsets();
+  const horizontalPadding = isTablet ? 28 : 18;
   return (
     <Modal
-      animationType="slide"
-      onRequestClose={onClose}
+      animationType={reducedMotion ? 'none' : 'slide'}
+      onRequestClose={() => {
+        if (!busy && !couponBusy) onClose();
+      }}
+      statusBarTranslucent
       transparent
       visible={dialogStep !== null}>
-      <View style={styles.modalRoot}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.modalRoot}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="إغلاق"
-          accessibilityState={{disabled: busy}}
-          disabled={busy}
+          accessibilityState={{disabled: busy || couponBusy}}
+          disabled={busy || couponBusy}
           onPress={onClose}
           style={styles.modalBackdrop}
         />
         <View
+          accessibilityLabel="خيارات شراء الكورس"
+          accessibilityViewIsModal
           style={[
             styles.sheet,
             {
               paddingBottom: Math.max(bottomInset, 16) + 10,
-              paddingHorizontal: isTablet ? 28 : 18,
+              paddingLeft: Math.max(horizontalPadding, insets.left + 12),
+              paddingRight: Math.max(horizontalPadding, insets.right + 12),
             },
           ]}>
           <View style={styles.sheetHandle} />
           <ScrollView
+            automaticallyAdjustKeyboardInsets
             bounces={false}
             contentContainerStyle={styles.sheetContent}
             keyboardShouldPersistTaps="handled"
@@ -242,16 +288,19 @@ export const CoursePurchaseDialog = ({
               <>
                 <Text style={styles.sheetEyebrow}>اختر مستوى الدعم</Text>
                 <Text style={styles.sheetTitle}>
-                  الكورس واحد والدعم على قد احتياجك
+                  الكورس واحد والدعم حسب احتياجك
                 </Text>
                 <Text style={styles.sheetDescription}>
-                  ادفع مقابل الدعم الذي ستستخدمه فعلًا. التعلّم والمشروعات
-                  موجودان في كل اختيار.
+                  ادفع مقابل الدعم الذي ستستخدمه فعلًا
+                  {'\n'}محتوى الكورس موجود في كل اختيار
                 </Text>
                 <View style={styles.planList}>
                   {accessPlans.map(plan => (
                     <Pressable
                       accessibilityRole="button"
+                      accessibilityState={{
+                        selected: plan.code === selectedPlan?.code,
+                      }}
                       key={plan.code}
                       onPress={() => onSelectPlan(plan)}
                       style={({pressed}) => [
@@ -284,11 +333,14 @@ export const CoursePurchaseDialog = ({
                   افتح {selectedPlan?.name || 'الفئة المختارة'} الآن
                 </Text>
                 <Text style={styles.sheetDescription}>
-                  سنكمل الرصيد الناقص ونفتح الفئة تلقائيًا من نفس العملية.
+                  اختر باقة تغطي الرصيد الناقص
+                  {'\n'}وسنفتح الفئة بعد تأكيد الدفع
                 </Text>
                 <View style={styles.topupSummary}>
                   <View style={styles.topupMetric}>
-                    <Text style={styles.summaryLabel}>سعر الكورس</Text>
+                    <Text style={styles.summaryLabel}>
+                      {couponApplied ? 'بعد الخصم' : 'سعر الكورس'}
+                    </Text>
                     <CoinAmount size={18} value={purchasePrice} />
                   </View>
                   <View style={styles.topupMetric}>
@@ -302,10 +354,10 @@ export const CoursePurchaseDialog = ({
                 </View>
                 {rewardContributionLimit < purchasePrice && (
                   <Text style={styles.packageUnavailable}>
-                    عملات الهدايا تغطي حتى {formatArabicNumber(
-                      rewardContributionPercent,
-                    )}٪ من قيمة هذه الفئة، والعملات المدفوعة تُستخدم كاملة. ينقصك{' '}
-                    {formatArabicNumber(shortfall)} عملة.
+                    عملات المكافآت تغطي حتى{' '}
+                    {formatArabicNumber(rewardContributionPercent)}٪ من هذه
+                    الفئة
+                    {'\n'}ينقصك {formatArabicNumber(shortfall)} عملة ركن
                   </Text>
                 )}
                 <View style={styles.packageList}>
@@ -318,38 +370,48 @@ export const CoursePurchaseDialog = ({
                       const isQuickChoice = item.id === sufficientPackage?.id;
 
                       return (
-                      <Pressable
-                        accessibilityLabel={`اشحن ${formatArabicNumber(item.coins)} عملة مقابل ${item.displayPrice || `${formatArabicNumber(item.price)} جنيه`}`}
-                        accessibilityRole="button"
-                        disabled={busy}
-                        key={item.id}
-                        onPress={() => void onBuyCoins(item)}
-                        style={({pressed}) => [
-                          styles.packageCard,
-                          isQuickChoice && styles.packageCardSufficient,
-                          pressed && styles.pressed,
-                          busy && styles.disabled,
-                        ]}>
-                        <View style={styles.packageCopy}>
-                          <View style={styles.planHeader}>
-                            <CoinAmount size={18} value={item.coins} />
-                            {isQuickChoice && (
-                              <Text style={styles.sheetEyebrow}>الاختيار السريع</Text>
-                            )}
+                        <Pressable
+                          accessibilityLabel={`اشحن ${formatArabicNumber(
+                            item.coins,
+                          )} عملة ركن مقابل ${
+                            item.displayPrice ||
+                            `${formatArabicNumber(item.price)} جنيه`
+                          }`}
+                          accessibilityRole="button"
+                          disabled={busy}
+                          key={item.id}
+                          onPress={() => void onBuyCoins(item)}
+                          style={({pressed}) => [
+                            styles.packageCard,
+                            isQuickChoice && styles.packageCardSufficient,
+                            pressed && styles.pressed,
+                            busy && styles.disabled,
+                          ]}>
+                          <View style={styles.packageCopy}>
+                            <View style={styles.planHeader}>
+                              <CoinAmount size={18} value={item.coins} />
+                              {isQuickChoice && (
+                                <Text style={styles.sheetEyebrow}>
+                                  الاختيار السريع
+                                </Text>
+                              )}
+                            </View>
+                            <Text style={styles.packageUnavailable}>
+                              يتبقى {formatArabicNumber(remainingAfterPurchase)}{' '}
+                              عملة ركن بعد فتح الفئة
+                            </Text>
                           </View>
-                          <Text style={styles.packageUnavailable}>
-                            يتبقى {formatArabicNumber(remainingAfterPurchase)} عملة بعد فتح الفئة
+                          <Text style={styles.packagePrice}>
+                            {item.displayPrice ||
+                              `${formatArabicNumber(item.price)} جنيه`}
                           </Text>
-                        </View>
-                        <Text style={styles.packagePrice}>
-                          {item.displayPrice || `${formatArabicNumber(item.price)} ج.م`}
-                        </Text>
-                      </Pressable>
+                        </Pressable>
                       );
                     })
                   ) : (
                     <Text style={styles.packageUnavailable}>
-                      لا توجد حاليًا قيمة شحن تغطي هذه الفئة. لم نبدأ أي دفع ولم يتغير رصيدك.
+                      لا توجد باقة تغطي هذه الفئة الآن
+                      {'\n'}لم يبدأ الدفع ولم يتغير رصيدك
                     </Text>
                   )}
                 </View>
@@ -372,7 +434,7 @@ export const CoursePurchaseDialog = ({
                         ? `حتى ${formatArabicNumber(
                             selectedPlan.chatMessageLimit,
                           )} رسالة مع Rokn AI`
-                        : 'التعلّم والمشروعات دون Rokn AI'}
+                        : 'محتوى الكورس دون Rokn AI'}
                     </Text>
                   </View>
                 )}
@@ -393,31 +455,94 @@ export const CoursePurchaseDialog = ({
                     />
                   </View>
                 </View>
-                {rewardContributionLimit < purchasePrice && (
+                {couponApplied && (
                   <Text style={styles.packageUnavailable}>
-                    الحد المتاح من عملات الهدايا لهذه الفئة هو{' '}
-                    {formatArabicNumber(rewardContributionLimit)} عملة ({formatArabicNumber(
-                      rewardContributionPercent,
-                    )}٪). رصيدك المتاح يكفي، ولن نستخدم أكثر من سعر الفئة.
+                    السعر قبل الخصم {formatArabicNumber(originalPurchasePrice)}{' '}
+                    عملة ركن
+                    {'\n'}وفرت {formatArabicNumber(couponDiscountAmount)} عملة
+                    ركن
                   </Text>
                 )}
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={busy}
-                  onPress={onConfirmPurchase}
-                  style={({pressed}) => [
-                    styles.sheetPrimary,
-                    pressed && styles.primaryButtonPressed,
-                  ]}>
-                  {busy ? (
-                    <ActivityIndicator color={Palette.text} />
-                  ) : (
-                    <Text style={styles.sheetPrimaryText}>
-                      تأكيد فتح الكورس
-                    </Text>
-                  )}
-                </Pressable>
+                {rewardContributionLimit < purchasePrice && (
+                  <Text style={styles.packageUnavailable}>
+                    المتاح من عملات المكافآت لهذه الفئة{' '}
+                    {formatArabicNumber(rewardContributionLimit)} عملة ركن
+                    {'\n'}يعادل {formatArabicNumber(rewardContributionPercent)}٪
+                    من السعر
+                  </Text>
+                )}
               </>
+            )}
+
+            {(dialogStep === 'confirm' || dialogStep === 'topup') && (
+              <View style={styles.codeBox}>
+                <Text style={styles.codeTitle}>كود خصم</Text>
+                <View style={styles.codeRow}>
+                  <TextInput
+                    accessibilityLabel="كود خصم الكورس"
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    editable={!busy && !couponBusy}
+                    maxLength={50}
+                    onChangeText={onCouponCodeChange}
+                    onSubmitEditing={() => void onApplyCoupon()}
+                    placeholder="اكتب الكود"
+                    placeholderTextColor={Palette.textFaint}
+                    returnKeyType="done"
+                    style={styles.codeInput}
+                    value={couponCode}
+                  />
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{
+                      busy: couponBusy,
+                      disabled: busy || couponBusy || !couponCode.trim(),
+                    }}
+                    disabled={busy || couponBusy || !couponCode.trim()}
+                    onPress={() => void onApplyCoupon()}
+                    style={({pressed}) => [
+                      styles.codeButton,
+                      pressed && styles.pressed,
+                      (busy || couponBusy || !couponCode.trim()) &&
+                        styles.disabled,
+                    ]}>
+                    {couponBusy ? (
+                      <ActivityIndicator color={Palette.text} size="small" />
+                    ) : (
+                      <Text style={styles.codeButtonText}>
+                        {couponApplied ? 'مطبق' : 'تطبيق'}
+                      </Text>
+                    )}
+                  </Pressable>
+                </View>
+                {couponApplied && (
+                  <Text style={styles.reviewCode}>
+                    خصم {formatArabicNumber(couponDiscountAmount)} عملة ركن
+                  </Text>
+                )}
+              </View>
+            )}
+
+            {dialogStep === 'confirm' && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{
+                  busy,
+                  disabled: busy || couponBusy,
+                }}
+                disabled={busy || couponBusy}
+                onPress={onConfirmPurchase}
+                style={({pressed}) => [
+                  styles.sheetPrimary,
+                  pressed && styles.primaryButtonPressed,
+                  (busy || couponBusy) && styles.disabled,
+                ]}>
+                {busy ? (
+                  <ActivityIndicator color={Palette.text} />
+                ) : (
+                  <Text style={styles.sheetPrimaryText}>تأكيد فتح الكورس</Text>
+                )}
+              </Pressable>
             )}
 
             {dialogStep === 'success' && (
@@ -426,12 +551,12 @@ export const CoursePurchaseDialog = ({
                   <Text style={styles.successMarkText}>✓</Text>
                 </View>
                 <Text style={[styles.sheetTitle, styles.centerText]}>
-                  {grantActivated ? 'منحتك اتفعّلت' : 'الكورس أصبح لك'}
+                  {grantActivated ? 'تم تفعيل المنحة' : 'تم فتح الكورس'}
                 </Text>
                 <Text style={[styles.sheetDescription, styles.centerText]}>
                   {grantActivated
-                    ? 'الكورس ومشروعاته متاحة لك كاملة\nيمكنك إضافة Rokn AI والشهادة لاحقًا'
-                    : 'حفظنا مكانك، وفتحت الوحدة الأولى. ابدأ الآن أو عد إليها من الصفحة الرئيسية في أي وقت.'}
+                    ? 'محتوى الكورس متاح لك كاملًا\nيمكنك إضافة Rokn AI والشهادة لاحقًا'
+                    : 'الكورس جاهز\nابدأ الآن أو استكمل من الرئيسية'}
                 </Text>
                 <Pressable
                   accessibilityRole="button"
@@ -447,16 +572,20 @@ export const CoursePurchaseDialog = ({
               </>
             )}
 
-            {!!notice && <Text style={styles.notice}>{notice}</Text>}
+            {!!notice && (
+              <Text accessibilityLiveRegion="polite" style={styles.notice}>
+                {notice}
+              </Text>
+            )}
             {busy && dialogStep === 'topup' && (
               <View style={styles.busyRow}>
                 <ActivityIndicator color={Palette.primary} size="small" />
-                <Text style={styles.busyText}>لحظة ونكمل…</Text>
+                <Text style={styles.busyText}>جارٍ فتح الدفع</Text>
               </View>
             )}
           </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 };
@@ -477,64 +606,74 @@ export const CourseRetentionDialog = ({
   onOpenWallet,
   owned,
   retentionVisible,
-}: CourseRetentionDialogProps) => (
-  <Modal
-    animationType="fade"
-    onRequestClose={() => onClose()}
-    transparent
-    visible={retentionVisible && !owned}>
-    <View style={styles.modalRoot}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="إغلاق اقتراح مهام العملات"
-        onPress={() => onClose()}
-        style={styles.modalBackdrop}
-      />
-      <View
-        accessibilityViewIsModal
-        style={[
-          styles.sheet,
-          styles.retentionSheet,
-          {
-            paddingBottom: Math.max(bottomInset, 16) + 10,
-            paddingHorizontal: isTablet ? 28 : 18,
-          },
-        ]}>
-        <View style={styles.sheetHandle} />
-        <View style={styles.retentionContent}>
-          <View style={styles.retentionMark}>
-            <Text style={styles.retentionMarkText}>＋</Text>
-          </View>
-          <Text style={[styles.sheetTitle, styles.centerText]}>
-            يمكنك المتابعة دون شحن الآن
-          </Text>
-          <Text style={[styles.sheetDescription, styles.centerText]}>
-            في مهام مجانية تُنجز مرة واحدة وتضيف عملات لرصيدك. اختر ما يناسبك
-            وارجع للكورس من نفس مكانك.
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              onClose();
-              onOpenWallet();
-            }}
-            style={({pressed}) => [
-              styles.sheetPrimary,
-              pressed && styles.primaryButtonPressed,
-            ]}>
-            <Text style={styles.sheetPrimaryText}>عرض مهام العملات</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => onClose()}
-            style={({pressed}) => [
-              styles.retentionSecondary,
-              pressed && styles.pressed,
-            ]}>
-            <Text style={styles.retentionSecondaryText}>ليس الآن</Text>
-          </Pressable>
+}: CourseRetentionDialogProps) => {
+  const reducedMotion = useReducedMotion();
+  const insets = useSafeAreaInsets();
+  const horizontalPadding = isTablet ? 28 : 18;
+  return (
+    <Modal
+      animationType={reducedMotion ? 'none' : 'fade'}
+      onRequestClose={() => onClose()}
+      statusBarTranslucent
+      transparent
+      visible={retentionVisible && !owned}>
+      <View style={styles.modalRoot}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="إغلاق اقتراح مهام العملات"
+          onPress={() => onClose()}
+          style={styles.modalBackdrop}
+        />
+        <View
+          accessibilityViewIsModal
+          style={[
+            styles.sheet,
+            styles.retentionSheet,
+            {
+              paddingBottom: Math.max(bottomInset, 16) + 10,
+              paddingLeft: Math.max(horizontalPadding, insets.left + 12),
+              paddingRight: Math.max(horizontalPadding, insets.right + 12),
+            },
+          ]}>
+          <View style={styles.sheetHandle} />
+          <ScrollView
+            bounces={false}
+            contentContainerStyle={styles.retentionContent}
+            showsVerticalScrollIndicator={false}>
+            <View style={styles.retentionMark}>
+              <Text style={styles.retentionMarkText}>＋</Text>
+            </View>
+            <Text style={[styles.sheetTitle, styles.centerText]}>
+              يمكنك المتابعة دون شحن الآن
+            </Text>
+            <Text style={[styles.sheetDescription, styles.centerText]}>
+              أنجز مهمة مرة واحدة واحصل على عملات ركن
+              {'\n'}ثم ارجع للكورس من مكانك
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                onClose();
+                onOpenWallet();
+              }}
+              style={({pressed}) => [
+                styles.sheetPrimary,
+                pressed && styles.primaryButtonPressed,
+              ]}>
+              <Text style={styles.sheetPrimaryText}>عرض مهام العملات</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => onClose()}
+              style={({pressed}) => [
+                styles.retentionSecondary,
+                pressed && styles.pressed,
+              ]}>
+              <Text style={styles.retentionSecondaryText}>ليس الآن</Text>
+            </Pressable>
+          </ScrollView>
         </View>
       </View>
-    </View>
-  </Modal>
-);
+    </Modal>
+  );
+};

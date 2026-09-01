@@ -19,13 +19,17 @@ final class PublicPortfolioController extends Controller
         ApiResponseService $responses
     ): JsonResponse {
         $highlight = $request->query('certificate');
-        $portfolio = $service->find($slug, is_string($highlight) ? $highlight : null);
+        $portfolio = is_string($highlight) && $highlight !== ''
+            ? $service->findCredential($highlight)
+            : $service->find($slug);
         if (!$portfolio) {
-            return $responses->error('Portfolio not found', 404);
+            return $responses->error('المعرض غير متاح', 404);
         }
 
         return $responses
-            ->success($portfolio, 'Portfolio retrieved successfully')
-            ->header('X-Robots-Tag', 'noindex, nofollow, noarchive');
+            ->success($portfolio, 'تم تحميل المعرض')
+            ->header('X-Robots-Tag', 'noindex, nofollow, noarchive')
+            ->header('Cache-Control', 'no-store, max-age=0')
+            ->header('Referrer-Policy', 'no-referrer');
     }
 }

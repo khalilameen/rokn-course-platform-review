@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {publicRequest} from '../src/constants/api';
 import {
+  flushProductEvents,
   getProductAnalyticsQueueKey,
   trackProductEvent,
 } from '../src/services/productAnalytics';
@@ -24,15 +25,20 @@ describe('product analytics', () => {
       screen_key: 'course_details',
       course_id: 12,
     });
+    await flushProductEvents();
 
     expect(publicRequest.post).toHaveBeenCalledTimes(1);
     expect(publicRequest.post).toHaveBeenCalledWith(
       'product-events',
-      expect.objectContaining({
-        event_name: 'course_opened',
-        course_id: 12,
-        event_id: expect.stringMatching(/^[a-f0-9-]{36}$/),
-      }),
+      {
+        events: [
+          expect.objectContaining({
+            event_name: 'course_opened',
+            course_id: 12,
+            event_id: expect.stringMatching(/^[a-f0-9-]{36}$/),
+          }),
+        ],
+      },
       {timeout: 6000},
     );
     expect(
@@ -44,6 +50,7 @@ describe('product analytics', () => {
     (publicRequest.post as jest.Mock).mockRejectedValue(new Error('offline'));
 
     await trackProductEvent({event_name: 'home_viewed', screen_key: 'home'});
+    await flushProductEvents();
 
     const queued = await readDurableOutbox<any>(
       await getProductAnalyticsQueueKey(),

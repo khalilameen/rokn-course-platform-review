@@ -2,11 +2,23 @@
 
 namespace App\Models;
 
+use App\Services\PublicAppSettingsService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Cache;
 
 class AppVersion extends Model
 {
+    protected static function booted(): void
+    {
+        $invalidate = static function (): void {
+            Cache::forget('app-release-channels:v2');
+            PublicAppSettingsService::invalidate();
+        };
+        static::saved($invalidate);
+        static::deleted($invalidate);
+    }
+
     protected $fillable = [
         'platform',
         'distribution_channel',

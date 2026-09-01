@@ -134,7 +134,7 @@
                                                             </div>
                                                             <div class="note-date">
                                                                 <i class="fa fa-clock-o"></i>
-                                                                <span>{{ $user->latestNote->created_at->format('Y-m-d') }}</span>
+                                                                <span>{{ \App\Support\BusinessClock::format($user->latestNote->created_at, 'Y-m-d') }}</span>
                                                             </div>
                                                             @if(strlen($user->latestNote->note) > 25)
                                                                 <div class="note-tooltip">{{ $user->latestNote->note }}</div>
@@ -169,6 +169,7 @@
                                                         <form action="{{ route('admin.users.deactive', $user->id) }}" method="POST" class="m-0">
                                                             @csrf
                                                             @method('PATCH')
+                                                            <input type="hidden" name="expected_active" value="{{ $user->active ? 1 : 0 }}">
                                                             <button type="submit" class="dropdown-item-modern border-0 w-100 text-right bg-transparent">
                                                                 <i class="fa {{ $user->active ? 'fa-ban' : 'fa-check' }}"></i>
                                                                 <span>{{ $user->active ? 'تعطيل الحساب' : 'تفعيل الحساب' }}</span>
@@ -215,6 +216,8 @@
             <div class="modal-content modal-content-modern">
                 <form method="POST" action="{{ route('admin.notifications.store') }}">
                     @csrf
+                    <input name="audience" type="hidden" value="all">
+                    <input name="notification_kind" type="hidden" value="marketing">
                     <div class="modal-header modal-header-modern">
                         <h5 class="modal-title" id="broadcastNotificationModalLabel">
                             <i class="fa fa-bell"></i> إرسال إشعار لجميع الطلاب
@@ -228,13 +231,13 @@
                             <label class="font-weight-bold">
                                 <i class="fa fa-tag"></i> عنوان الإشعار <span class="text-danger">*</span>
                             </label>
-                            <input type="text" name="title" class="form-control form-control-modern" placeholder="مثال: إشعار مهم للطلاب..." required value="{{ old('title') }}">
+                            <input type="text" name="title" maxlength="80" class="form-control form-control-modern" placeholder="عنوان قصير" required value="{{ old('title') }}">
                         </div>
                         <div class="form-group mb-0">
                             <label class="font-weight-bold">
                                 <i class="fa fa-comment"></i> نص الإشعار <span class="text-danger">*</span>
                             </label>
-                            <textarea name="message" class="form-control form-control-modern" rows="4" required placeholder="اكتب نص الإشعار هنا...">{{ old('message') }}</textarea>
+                            <textarea name="message" maxlength="240" class="form-control form-control-modern" rows="4" required placeholder="اكتب المطلوب مباشرة">{{ old('message') }}</textarea>
                         </div>
                     </div>
                     <div class="modal-footer">

@@ -37,7 +37,6 @@ class AdminDashboardViewTest extends TestCase
             'ai-settings',
             'access-plans',
             'course-image',
-            'course-lessons',
         ];
 
         self::assertStringContainsString('admin/assets/css/course-editor.css', $editor);
@@ -65,7 +64,6 @@ class AdminDashboardViewTest extends TestCase
             'access_plans[{{ $code }}][price_coins]',
             'access_plans[{{ $code }}][ai_budget_usd]',
             'access_plans[{{ $code }}][project_feedback_level]',
-            'lessons[]',
         ] as $fieldName) {
             self::assertStringContainsString($fieldName, $formSource);
         }
@@ -165,7 +163,6 @@ class AdminDashboardViewTest extends TestCase
             'course-settings',
             'ai-settings',
             'course-image',
-            'course-lessons',
             'scripts',
         ];
 
@@ -191,7 +188,6 @@ class AdminDashboardViewTest extends TestCase
             "Form::checkbox('is_main_course'",
             "Form::checkbox('is_coming_soon'",
             "Form::checkbox('ai_chat_enabled'",
-            'name="lessons[]"',
             'name="image"',
         ] as $contract) {
             self::assertStringContainsString($contract, $source);
@@ -273,7 +269,6 @@ class AdminDashboardViewTest extends TestCase
             'course details' => ['courses/show.blade.php'],
             'course create' => ['courses/create.blade.php'],
             'course edit' => ['courses/edit.blade.php'],
-            'course xml export' => ['courses/exist.blade.php'],
         ];
     }
 
@@ -328,11 +323,6 @@ class AdminDashboardViewTest extends TestCase
                 'show',
                 ['statistics', 'commercial-report', 'scripts'],
                 ['courseStudio', 'publishingAudit', 'studentPreviewToggle', 'admin.courses.sections.reorder'],
-            ],
-            'course xml export' => [
-                'exist',
-                ['course-data', 'scripts'],
-                ['coursesXML', 'downloadXML', 'copyXML'],
             ],
         ];
     }

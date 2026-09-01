@@ -35,6 +35,13 @@
                 </div>
             </div>
             <div class="row form-group">
+                <div class="col col-md-3"><label class="form-control-label">الإتاحة</label></div>
+                <div class="col-12 col-md-9">
+                    <label class="mr-3"><input type="checkbox" name="is_active" value="1" @checked(old('is_active', true))> ظاهرة في الكتالوج</label>
+                    <label><input type="checkbox" name="direct_enabled" value="1" @checked(old('direct_enabled', true))> متاحة عبر كاشير</label>
+                </div>
+            </div>
+            <div class="row form-group">
                 <div class="col col-md-3"><label for="google_product_id" class="form-control-label">منتج Google Play</label></div>
                 <div class="col-12 col-md-9">
                     <input type="text" id="google_product_id" name="google_product_id" class="form-control" value="{{ old('google_product_id') }}" placeholder="rokn.coins.4200">

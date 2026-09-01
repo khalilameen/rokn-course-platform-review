@@ -26,7 +26,7 @@ class ReminderReceiver : BroadcastReceiver() {
     val notificationId = intent.getIntExtra(EXTRA_ID, 9001)
     ReminderScheduleStore.remove(context, notificationId)
     val title = intent.getStringExtra(EXTRA_TITLE) ?: "ركن"
-    val body = intent.getStringExtra(EXTRA_BODY) ?: "خطوتك التالية جاهزة"
+    val body = intent.getStringExtra(EXTRA_BODY) ?: "مقطعك التالي جاهز"
     val courseId = intent.getStringExtra(EXTRA_COURSE_ID)
     val link = intent.getStringExtra(EXTRA_LINK)
     val kind = intent.getStringExtra(EXTRA_KIND) ?: KIND_LEARNING
@@ -221,14 +221,14 @@ class ReminderReceiver : BroadcastReceiver() {
 
     private fun defaultAction(kind: String) = when (kind) {
       "streak_reminder" -> "حافظ على استمراريتك"
-      "continue_course" -> "كمّل الكورس"
-      "course_recommendation" -> "اعرف تفاصيل الكورس"
-      "new_course" -> "شوف الكورس الجديد"
-      "coin_reward" -> "شوف رصيدك"
-      "coin_offer" -> "شوف العرض"
-      "project_update" -> "شوف النتيجة"
+      "continue_course" -> "أكمل الكورس"
+      "course_recommendation" -> "تفاصيل الكورس"
+      "new_course" -> "افتح الكورس"
+      "coin_reward" -> "افتح المحفظة"
+      "coin_offer" -> "افتح العرض"
+      "project_update" -> "افتح النتيجة"
       "certificate_ready" -> "افتح الشهادة"
-      else -> "كمّل من مكانك"
+      else -> "أكمل من مكانك"
     }
 
     private fun isCoin(kind: String) = kind == "coin_reward" || kind == "coin_offer"

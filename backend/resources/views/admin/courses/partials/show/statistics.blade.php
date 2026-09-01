@@ -25,5 +25,15 @@
                     <span class="stat-counter">{{ $activeStudentsCount }}</span>
                     <span class="stat-label">الطلاب النشطون فعليًا</span>
                 </div>
+                @if($ratingSummary)
+                    <div class="stat-card">
+                        <span class="stat-counter">{{ $ratingSummary['average'] !== null ? number_format($ratingSummary['average'], 1) : '—' }}</span>
+                        <span class="stat-label">متوسط {{ number_format($ratingSummary['count']) }} تقييم فعلي</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-counter">{{ number_format($ratingSummary['removed_count']) }}</span>
+                        <span class="stat-label">تقييمات حذفها أصحابها</span>
+                    </div>
+                @endif
             </div>
         </div>

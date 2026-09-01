@@ -7,12 +7,15 @@ namespace App\Listeners;
 use App\Events\CourseCompleted;
 use App\Models\CourseSection;
 use App\Models\CourseEnrollment;
+use App\Models\Course;
 use App\Models\Order;
 use App\Models\Project;
 use App\Models\StudentSectionProgress;
 use App\Models\UserProjectEvaluation;
+use App\Models\User;
 use App\Services\CertificateService;
 use App\Services\CourseChatAccessService;
+use App\Services\CourseSectionSequenceService;
 use App\Services\FinancialProvenanceService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
@@ -24,29 +27,37 @@ final class GenerateCourseCertificate implements ShouldQueue
     public bool $afterCommit = true;
     public int $tries = 3;
     public int $timeout = 120;
+    public bool $failOnTimeout = true;
     public array $backoff = [15, 60, 300];
 
     public function __construct(
         private readonly CertificateService $certificates,
         private readonly CourseChatAccessService $courseAccess,
-        private readonly FinancialProvenanceService $financialProvenance
+        private readonly FinancialProvenanceService $financialProvenance,
+        private readonly CourseSectionSequenceService $sectionSequence
     ) {
     }
 
     public function handle(CourseCompleted $event): void
     {
         try {
+            $user = User::query()->find($event->resolvedUserId());
+            $course = Course::query()->find($event->resolvedCourseId());
+            if (!$user || !$course) {
+                return;
+            }
+
             $enrollment = CourseEnrollment::query()
-                ->where('user_id', $event->user->id)
-                ->where('course_id', $event->course->id)
+                ->where('user_id', $user->id)
+                ->where('course_id', $course->id)
                 ->where('is_active', true)
                 ->first();
             if (!$enrollment) {
                 return;
             }
             if (!$this->courseAccess->hasCertificateAccess(
-                (int) $event->user->id,
-                (int) $event->course->id
+                (int) $user->id,
+                (int) $course->id
             )) {
                 return;
             }
@@ -64,16 +75,17 @@ final class GenerateCourseCertificate implements ShouldQueue
                 return;
             }
 
-            $sectionIds = CourseSection::query()
-                ->where('course_id', $event->course->id)
-                ->pluck('id');
+            $sections = CourseSection::query()
+                ->where('course_id', $course->id)
+                ->get();
+            $sectionIds = $this->sectionSequence->learning($sections)->pluck('id');
 
             if ($sectionIds->isEmpty()) {
                 return;
             }
 
             $completedSections = StudentSectionProgress::query()
-                ->where('user_id', $event->user->id)
+                ->where('user_id', $user->id)
                 ->whereIn('course_section_id', $sectionIds)
                 ->where('is_completed', true)
                 ->distinct('course_section_id')
@@ -91,7 +103,7 @@ final class GenerateCourseCertificate implements ShouldQueue
             // issuance depend on Eloquent inferring the legacy morph columns
             // correctly and was fragile across upgraded installations.
             $graduationProjectId = CourseSection::query()
-                ->where('course_id', $event->course->id)
+                ->where('course_id', $course->id)
                 ->where('section_type', 'project')
                 ->where('sectionable_type', Project::class)
                 ->whereIn('sectionable_id', Project::query()
@@ -106,7 +118,7 @@ final class GenerateCourseCertificate implements ShouldQueue
 
             if ($graduationProject) {
                 $passed = UserProjectEvaluation::query()
-                    ->where('user_id', $event->user->id)
+                    ->where('user_id', $user->id)
                     ->where('project_id', $graduationProject->id)
                     ->where('passed', true)
                     ->exists();
@@ -116,8 +128,8 @@ final class GenerateCourseCertificate implements ShouldQueue
             }
 
             $certificate = $this->certificates->generate(
-                $event->user,
-                $event->course,
+                $user,
+                $course,
                 $graduationProject
             );
 

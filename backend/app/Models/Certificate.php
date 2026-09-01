@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
+use App\Support\RoknPublicUrl;
+
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class Certificate extends Model
 {
@@ -12,17 +14,50 @@ class Certificate extends Model
         'public_id',
         'course_id',
         'project_id',
+        'holder_name',
+        'course_name',
         'image_path',
         'generated_at',
         'status',
         'verification_level',
         'revoked_at',
+        'recovery_attempts',
+        'recovery_next_attempt_at',
+        'recovery_failed_at',
+        'recovery_failure_code',
+        'artifact_checked_at',
     ];
 
     protected $casts = [
         'generated_at' => 'datetime',
         'revoked_at' => 'datetime',
+        'recovery_attempts' => 'integer',
+        'recovery_next_attempt_at' => 'datetime',
+        'recovery_failed_at' => 'datetime',
+        'artifact_checked_at' => 'datetime',
     ];
+
+    protected static function booted(): void
+    {
+        static::creating(function (Certificate $certificate): void {
+            if (!$certificate->public_id) {
+                $certificate->public_id = (string) Str::uuid();
+            }
+        });
+
+        static::updating(function (Certificate $certificate): void {
+            foreach (['public_id', 'holder_name', 'course_name', 'generated_at'] as $attribute) {
+                $original = $certificate->getRawOriginal($attribute);
+                if (
+                    $certificate->isDirty($attribute)
+                    && $original !== null
+                    && trim((string) $original) !== ''
+                ) {
+                    $certificate->setAttribute($attribute, $original);
+                }
+            }
+        });
+    }
 
     public function user()
     {
@@ -31,7 +66,7 @@ class Certificate extends Model
 
     public function course()
     {
-        return $this->belongsTo(Course::class);
+        return $this->belongsTo(Course::class)->withTrashed();
     }
 
     public function project()
@@ -51,29 +86,37 @@ class Certificate extends Model
 
     public function getCertificateUrlAttribute(): string
     {
-        if ($this->image_path === 'pending' || ($this->status ?? 'active') !== 'active') {
+        if (!$this->hasStoredArtifact()) {
             return '';
         }
 
+        return $this->public_id
+            ? RoknPublicUrl::certificateArtifact((string) $this->public_id)
+            : '';
+    }
+
+    public function hasStoredArtifact(): bool
+    {
+        $path = trim((string) $this->image_path);
+        if ($path === '' || $path === 'pending' || ($this->status ?? 'active') !== 'active') {
+            return false;
+        }
+
         try {
-            return Storage::disk((string) config('certificate.disk', 'public'))
-                ->url((string) $this->image_path);
+            return \Illuminate\Support\Facades\Storage::disk((string) config('certificate.disk', 'public'))->exists($path);
         } catch (\Throwable $exception) {
             report($exception);
-            return '';
+            return false;
         }
     }
 
     public function getPortfolioUrlAttribute(): string
     {
-        $user = $this->relationLoaded('user') ? $this->user : $this->user()->first();
-        $slug = $user?->portfolio_slug ?: ('student-' . $this->user_id);
-
-        $parameters = ['slug' => $slug];
-        if ($this->public_id) {
-            $parameters['certificate'] = $this->public_id;
-        }
-
-        return route('portfolio.public', $parameters);
+        // A certificate without its immutable random public identifier is not
+        // shareable yet. Never fall back to a user id or another enumerable
+        // identifier: old/corrupt rows are repaired by certificate recovery.
+        return $this->public_id
+            ? RoknPublicUrl::certificate((string) $this->public_id)
+            : '';
     }
 }

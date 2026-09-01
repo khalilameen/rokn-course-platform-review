@@ -3,6 +3,13 @@ import {
   type LoginReturnTo,
   type LoginReturnToParamlessRoute,
 } from './types';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {serverNowMs} from '../utils/serverClock';
+import {safeRoknRouteId} from './deepLinks';
+import {LOCAL_DEMO_ENABLED} from '../config/runtime';
+
+const PENDING_LOGIN_RETURN_KEY = '@rokn/pending-login-return/v1';
+const PENDING_LOGIN_RETURN_TTL_MS = 15 * 60 * 1000;
 
 type RouteSnapshot = {
   name?: unknown;
@@ -10,9 +17,69 @@ type RouteSnapshot = {
 };
 
 const cleanId = (value: unknown): string | undefined => {
-  if (typeof value !== 'string') return undefined;
-  const valueTrimmed = value.trim();
-  return valueTrimmed.length > 0 ? valueTrimmed : undefined;
+  const normalized = safeRoknRouteId(value);
+  if (normalized) return normalized;
+  const localValue = typeof value === 'string' ? value.trim() : '';
+  return LOCAL_DEMO_ENABLED && /^demo-[a-z0-9-]{1,80}$/i.test(localValue)
+    ? localValue
+    : undefined;
+};
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+/**
+ * Accept only the small route grammar the app itself can create. This is used
+ * both for live navigation and for the one durable hand-off that survives an
+ * OAuth browser process killing the app.
+ */
+export const safeLoginReturnTo = (value: unknown): LoginReturnTo | undefined => {
+  const candidate = asRecord(value);
+  const name = typeof candidate?.name === 'string' ? candidate.name : '';
+  if (
+    LOGIN_RETURN_TO_PARAMLESS_ROUTES.includes(
+      name as LoginReturnToParamlessRoute,
+    )
+  ) {
+    return candidate?.params === undefined
+      ? {name: name as LoginReturnToParamlessRoute}
+      : undefined;
+  }
+
+  if (name !== 'CourseDetails' && name !== 'Reels') return undefined;
+  const params = asRecord(candidate?.params);
+  const courseId = cleanId(params?.courseId);
+  if (!courseId) return undefined;
+
+  if (name === 'CourseDetails') {
+    return {
+      name,
+      params: {
+        courseId,
+        openCodeRedemption: params?.openCodeRedemption === true,
+        openPurchase: params?.openPurchase === true,
+        resumeAfterPreview: params?.resumeAfterPreview === true,
+        resumeReelId: cleanId(params?.resumeReelId),
+      },
+    };
+  }
+
+  const previewCount = Number(params?.previewCount);
+  return {
+    name,
+    params: {
+      courseId,
+      reelId: cleanId(params?.reelId),
+      lessonId: cleanId(params?.lessonId),
+      preview: params?.preview === true,
+      previewCount:
+        Number.isInteger(previewCount) && previewCount > 0
+          ? previewCount
+          : undefined,
+    },
+  };
 };
 
 /**
@@ -67,4 +134,78 @@ export const safeLoginReturnToFromRoute = (
   }
 
   return undefined;
+};
+
+export const savePendingLoginReturnTo = async (value: unknown) => {
+  const returnTo = safeLoginReturnTo(value);
+  if (!returnTo) {
+    await AsyncStorage.removeItem(PENDING_LOGIN_RETURN_KEY);
+    return;
+  }
+  await AsyncStorage.setItem(
+    PENDING_LOGIN_RETURN_KEY,
+    JSON.stringify({returnTo, createdAt: serverNowMs()}),
+  );
+};
+
+export const clearPendingLoginReturnTo = () =>
+  AsyncStorage.removeItem(PENDING_LOGIN_RETURN_KEY);
+
+export type PendingLoginReturnClaim = {
+  returnTo: LoginReturnTo;
+  /** The exact stored envelope. It lets acknowledgement avoid deleting a newer intent. */
+  receipt: string;
+};
+
+/**
+ * Read the interrupted journey without deleting it. Navigation acknowledges
+ * only after its reset was dispatched, so a process death between storage and
+ * navigation replays one harmless canonical route instead of losing it.
+ */
+export const claimPendingLoginReturnTo = async (): Promise<
+  PendingLoginReturnClaim | undefined
+> => {
+  const raw = await AsyncStorage.getItem(PENDING_LOGIN_RETURN_KEY);
+  if (!raw) return undefined;
+  try {
+    const envelope = asRecord(JSON.parse(raw));
+    const createdAt = Number(envelope?.createdAt);
+    const age = serverNowMs() - createdAt;
+    if (
+      !Number.isFinite(createdAt) ||
+      age < -60_000 ||
+      age > PENDING_LOGIN_RETURN_TTL_MS
+    ) {
+      await AsyncStorage.removeItem(PENDING_LOGIN_RETURN_KEY);
+      return undefined;
+    }
+    const returnTo = safeLoginReturnTo(envelope?.returnTo);
+    if (!returnTo) {
+      await AsyncStorage.removeItem(PENDING_LOGIN_RETURN_KEY);
+      return undefined;
+    }
+    return {returnTo, receipt: raw};
+  } catch {
+    await AsyncStorage.removeItem(PENDING_LOGIN_RETURN_KEY);
+    return undefined;
+  }
+};
+
+export const acknowledgePendingLoginReturnTo = async (receipt: string) => {
+  const current = await AsyncStorage.getItem(PENDING_LOGIN_RETURN_KEY);
+  if (current === receipt) {
+    await AsyncStorage.removeItem(PENDING_LOGIN_RETURN_KEY);
+    return true;
+  }
+  return false;
+};
+
+/** Compatibility helper for callers that genuinely need destructive read. */
+export const consumePendingLoginReturnTo = async (): Promise<
+  LoginReturnTo | undefined
+> => {
+  const claim = await claimPendingLoginReturnTo();
+  if (!claim) return undefined;
+  await acknowledgePendingLoginReturnTo(claim.receipt);
+  return claim.returnTo;
 };

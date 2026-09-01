@@ -7,12 +7,15 @@ namespace App\Services;
 use App\Models\Setting;
 use App\Models\Lesson;
 use App\Models\BunnyVideoCleanupCandidate;
+use App\Models\BunnyStorageCleanupCandidate;
 use App\Models\LessonMediaState;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Exception;
 use RuntimeException;
@@ -20,6 +23,9 @@ use Throwable;
 
 class BunnyService
 {
+    public const PROBE_CIRCUIT_KEY = 'bunny:probe-circuit-open';
+    private const PROBE_FAILURE_KEY = 'bunny:probe-circuit-failures';
+
     private ?Setting $settings = null;
 
     /**
@@ -65,21 +71,19 @@ class BunnyService
      */
     private function getCdnHostname(): ?string
     {
-        return config('bunny.cdn_hostname') ?: $this->getSettings()?->bunny_cdn_hostname;
+        return $this->validHostname(
+            config('bunny.cdn_hostname') ?: $this->getSettings()?->bunny_cdn_hostname
+        );
     }
 
     private function getFallbackCdnHostname(): ?string
     {
-        $hostname = strtolower(trim((string) config('bunny.fallback_cdn_hostname')));
-        if ($hostname === '' || $hostname === strtolower((string) $this->getCdnHostname())) {
+        $hostname = $this->validHostname(config('bunny.fallback_cdn_hostname'));
+        if (!$hostname || $hostname === strtolower((string) $this->getCdnHostname())) {
             return null;
         }
 
-        // Configuration is trusted, but refusing paths, ports and schemes here
-        // prevents an accidental value from becoming a signed arbitrary URL.
-        return preg_match('/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/', $hostname)
-            ? $hostname
-            : null;
+        return $hostname;
     }
 
     /**
@@ -102,9 +106,16 @@ class BunnyService
 
     private function getStorageCdnHostname(): ?string
     {
-        $hostname = strtolower(trim((string) config('bunny.storage_cdn_hostname')));
+        return $this->validHostname(config('bunny.storage_cdn_hostname'));
+    }
 
-        return preg_match('/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/', $hostname)
+    private function validHostname(mixed $value): ?string
+    {
+        $hostname = strtolower(trim((string) $value));
+
+        // Refuse schemes, ports, paths and user info before a configured value
+        // can become the authority of a signed URL.
+        return preg_match('/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/', $hostname) === 1
             ? $hostname
             : null;
     }
@@ -236,8 +247,9 @@ class BunnyService
                 return false;
             }
 
-            $remoteGuid = (string) ($response->json('guid') ?? '');
-            return $remoteGuid === '' || hash_equals($videoGuid, $remoteGuid);
+            $details = (array) $response->json();
+
+            return $this->remoteVideoIntegrityError($details, $videoGuid) === null;
         } catch (Throwable $exception) {
             Log::error('Bunny.net video verification exception', [
                 'video_guid' => $videoGuid,
@@ -247,23 +259,215 @@ class BunnyService
         }
     }
 
+    /** @return array{headers: array<string, string>, authorization_expires_at: string, authorization_expires_in_seconds: int} */
+    public function directUploadAuthorization(string $videoGuid): array
+    {
+        $libraryId = trim((string) $this->getLibraryId());
+        $apiKey = trim((string) $this->getApiKey());
+        if (!$this->isEnabled() || $libraryId === '' || $apiKey === '') {
+            throw new RuntimeException('Bunny Stream is not configured.');
+        }
+        $expiresAt = time() + max(300, min(
+            3600,
+            (int) config('bunny.direct_upload_signature_ttl_seconds', 1800)
+        ));
+
+        return [
+            'headers' => [
+                'AuthorizationSignature' => self::directUploadSignature(
+                    $libraryId,
+                    $apiKey,
+                    $expiresAt,
+                    $videoGuid
+                ),
+                'AuthorizationExpire' => (string) $expiresAt,
+                'LibraryId' => $libraryId,
+                'VideoId' => $videoGuid,
+            ],
+            'authorization_expires_at' => date('c', $expiresAt),
+            'authorization_expires_in_seconds' => max(0, $expiresAt - time()),
+        ];
+    }
+
+    public static function directUploadSignature(
+        string $libraryId,
+        string $streamApiKey,
+        int $expiresAt,
+        string $videoGuid
+    ): string {
+        return hash('sha256', $libraryId . $streamApiKey . $expiresAt . $videoGuid);
+    }
+
+    /** Confirm a direct TUS upload contains bytes, not merely a created GUID. */
+    public function verifyDirectUpload(string $videoGuid, int $expectedBytes): bool
+    {
+        for ($attempt = 0; $attempt < 4; $attempt++) {
+            $details = $this->getRemoteVideoDetails($videoGuid);
+            $remoteGuid = strtolower(trim((string) ($details['guid'] ?? '')));
+            $remoteBytes = (int) (
+                $details['storageSize']
+                ?? $details['storageSizeBytes']
+                ?? $details['fileSize']
+                ?? 0
+            );
+            $status = (int) ($details['status'] ?? -1);
+            $tolerance = max(1024 * 1024, (int) ceil($expectedBytes * 0.01));
+            $uploadComplete = ($remoteBytes > 0 && abs($remoteBytes - $expectedBytes) <= $tolerance)
+                || self::providerVideoStatusConfirmsUpload($status);
+            if ($remoteGuid !== ''
+                && hash_equals(strtolower($videoGuid), $remoteGuid)
+                && $uploadComplete
+                && $this->remoteVideoIntegrityError($details, $videoGuid) === null
+                && !self::providerVideoStatusIsFailure($status)) {
+                return true;
+            }
+            if ($attempt < 3) {
+                usleep(350000);
+            }
+        }
+
+        return false;
+    }
+
     /** Read-only provider probe used by Media Health; never publishes content. */
     public function getRemoteVideoDetails(string $videoGuid): ?array
     {
+        $inspection = $this->inspectRemoteVideo($videoGuid);
+
+        return $inspection['state'] === 'ok' ? $inspection['details'] : null;
+    }
+
+    /**
+     * Preserve the difference between a transient control-plane outage and a
+     * provider-confirmed missing object. Playback health must not keep a
+     * deleted GUID marked ready merely because both cases used to return null.
+     *
+     * @return array{state:string,details:?array,http_status:?int}
+     */
+    public function inspectRemoteVideo(string $videoGuid): array
+    {
         if (!$this->isEnabled()) {
-            return null;
+            return ['state' => 'unconfigured', 'details' => null, 'http_status' => null];
+        }
+        if ($this->probeCircuitIsOpen()) {
+            return ['state' => 'circuit_open', 'details' => null, 'http_status' => null];
         }
         try {
             $response = $this->client(10)
                 ->withHeaders(['AccessKey' => $this->getApiKey()])
                 ->get("https://video.bunnycdn.com/library/{$this->getLibraryId()}/videos/{$videoGuid}");
-            return $response->successful() ? (array) $response->json() : null;
+            if ($response->successful()) {
+                $this->recordProbeSuccess();
+                $details = (array) $response->json();
+                $integrityError = $this->remoteVideoIntegrityError($details, $videoGuid);
+
+                return [
+                    'state' => $integrityError ?: 'ok',
+                    'details' => $details,
+                    'http_status' => $response->status(),
+                ];
+            }
+            if (in_array($response->status(), [404, 410], true)) {
+                return ['state' => 'not_found', 'details' => null, 'http_status' => $response->status()];
+            }
+            if (in_array($response->status(), [401, 403, 429], true) || $response->serverError()) {
+                $this->recordProbeFailure('http_' . $response->status());
+            }
+            return [
+                'state' => match (true) {
+                    in_array($response->status(), [401, 403], true) => 'unauthorized',
+                    $response->status() === 429 => 'rate_limited',
+                    default => 'unavailable',
+                },
+                'details' => null,
+                'http_status' => $response->status(),
+            ];
         } catch (Throwable $exception) {
+            $this->recordProbeFailure('connection');
             Log::warning('Bunny media probe failed', [
                 'video_guid' => $videoGuid,
                 'exception' => $exception::class,
             ]);
-            return null;
+            return ['state' => 'unavailable', 'details' => null, 'http_status' => null];
+        }
+    }
+
+    /** Return a stable operational code without exposing provider payloads. */
+    public function remoteVideoIntegrityError(array $details, string $expectedGuid): ?string
+    {
+        $remoteGuid = strtolower(trim((string) ($details['guid'] ?? '')));
+        if ($remoteGuid === '' || !hash_equals(strtolower(trim($expectedGuid)), $remoteGuid)) {
+            return 'provider_guid_mismatch';
+        }
+
+        $remoteLibraryId = trim((string) ($details['videoLibraryId'] ?? ''));
+        $configuredLibraryId = trim((string) $this->getLibraryId());
+        if ($remoteLibraryId === '' || $configuredLibraryId === ''
+            || !hash_equals($configuredLibraryId, $remoteLibraryId)) {
+            return 'provider_library_mismatch';
+        }
+
+        return null;
+    }
+
+    /** Bunny Stream status contract shared by upload and reconciliation. */
+    public static function providerVideoStatusIsPlayable(int $status): bool
+    {
+        // Finished, ResolutionFinished, CaptionsGenerated and
+        // TitleOrDescriptionGenerated all describe an already playable video.
+        return in_array($status, [3, 4, 9, 10], true);
+    }
+
+    public static function providerVideoStatusIsFailure(int $status): bool
+    {
+        return in_array($status, [5, 8], true);
+    }
+
+    public static function providerVideoStatusConfirmsUpload(int $status): bool
+    {
+        // Processing/encoding and later successful events can happen only
+        // after Bunny owns the uploaded bytes. PresignedUploadStarted (6)
+        // deliberately does not prove completion.
+        return in_array($status, [1, 2, 3, 4, 7, 9, 10], true);
+    }
+
+    private function probeCircuitIsOpen(): bool
+    {
+        try {
+            return Cache::has(self::PROBE_CIRCUIT_KEY);
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    private function recordProbeFailure(string $reason): void
+    {
+        try {
+            Cache::add(self::PROBE_FAILURE_KEY, 0, now()->addMinute());
+            $failures = (int) Cache::increment(self::PROBE_FAILURE_KEY);
+            if ($failures < max(2, (int) config('bunny.probe_circuit_failure_threshold', 3))) {
+                return;
+            }
+            Cache::put(
+                self::PROBE_CIRCUIT_KEY,
+                ['reason' => $reason, 'opened_at' => now()->toIso8601String()],
+                now()->addSeconds(max(15, (int) config('bunny.probe_circuit_open_seconds', 60)))
+            );
+        } catch (Throwable $exception) {
+            Log::warning('Bunny probe circuit state could not be recorded.', [
+                'reason' => $reason,
+                'exception' => $exception::class,
+            ]);
+        }
+    }
+
+    private function recordProbeSuccess(): void
+    {
+        try {
+            Cache::forget(self::PROBE_FAILURE_KEY);
+            Cache::forget(self::PROBE_CIRCUIT_KEY);
+        } catch (Throwable) {
+            // Provider success must never be converted into application failure.
         }
     }
 
@@ -331,7 +535,7 @@ class BunnyService
                 'video_link' => null,
             ]);
         } catch (Throwable $exception) {
-            $this->queueVideoCleanup($newVideoGuid, $lesson, 'publish_race_or_failure', 24);
+            $this->queueVideoCleanup($newVideoGuid, $lesson, 'publish_race_or_failure', 24, true);
             Log::warning('Verified Bunny candidate was not published and requires reviewed cleanup', [
                 'lesson_id' => $lesson->getKey(),
                 'video_guid' => $newVideoGuid,
@@ -341,7 +545,7 @@ class BunnyService
         }
 
         if ($oldVideoGuid) {
-            $this->queueVideoCleanup($oldVideoGuid, $lesson, 'superseded_video', 168);
+            $this->queueVideoCleanup($oldVideoGuid, $lesson, 'superseded_video', 168, true);
             Log::info('Superseded Bunny lesson video retained by safety policy', [
                 'lesson_id' => $lesson->getKey(),
                 'video_guid' => $oldVideoGuid,
@@ -374,7 +578,7 @@ class BunnyService
         }
 
         if (!$this->uploadVideo($videoGuid, $file) || !$this->verifyVideoUpload($videoGuid)) {
-            $this->queueVideoCleanup($videoGuid, $lesson, 'unpublished_upload', 24);
+            $this->queueVideoCleanup($videoGuid, $lesson, 'unpublished_upload', 24, true);
             Log::warning('Unpublished Bunny upload retained for safe cleanup', [
                 'lesson_id' => $lesson?->getKey(),
                 'video_guid' => $videoGuid,
@@ -431,7 +635,7 @@ class BunnyService
             return null;
         }
 
-        $expiresAt = time() + 7200;
+        $expiresAt = time() + $this->playbackUrlTtlSeconds();
         $path = "/{$videoGuid}/playlist.m3u8";
         $directoryPath = "/{$videoGuid}/";
         $url = "https://{$cdnHostname}{$path}";
@@ -470,7 +674,7 @@ class BunnyService
             return null;
         }
 
-        $expiresAt = time() + 7200;
+        $expiresAt = time() + $this->playbackUrlTtlSeconds();
         $path = "/{$videoGuid}/playlist.m3u8";
         $directoryPath = "/{$videoGuid}/";
 
@@ -482,6 +686,32 @@ class BunnyService
                 $expiresAt
             ),
             'type' => 'hls',
+            'expires_at' => date('c', $expiresAt),
+        ];
+    }
+
+    /** Issue a thumbnail URL in the same protected Stream directory. */
+    public function getVideoThumbnail(string $videoGuid, string $fileName): ?array
+    {
+        if (!$this->playbackIsSecurelyConfigured()) {
+            return null;
+        }
+        $fileName = basename(trim($fileName));
+        if (preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$/', $fileName) !== 1) {
+            return null;
+        }
+
+        $expiresAt = time() + $this->playbackUrlTtlSeconds();
+        $directoryPath = "/{$videoGuid}/";
+        $filePath = $directoryPath . $fileName;
+
+        return [
+            'url' => $this->generateSignedDirectoryUrl(
+                (string) $this->getCdnHostname(),
+                $filePath,
+                $directoryPath,
+                $expiresAt
+            ),
             'expires_at' => date('c', $expiresAt),
         ];
     }
@@ -539,7 +769,7 @@ class BunnyService
             $cdnHostname = "vz-{$this->getLibraryId()}.b-cdn.net";
         }
 
-        $expiresAt = time() + $expiresInSeconds;
+        $expiresAt = time() + max(600, min(7200, $expiresInSeconds));
         $path = "/{$videoGuid}/playlist.m3u8";
         $directoryPath = "/{$videoGuid}/";
         $signedUrl = $this->getSecurityKey()
@@ -569,6 +799,11 @@ class BunnyService
         return self::advancedToken($securityKey, $path, $expiresAt, $signingData);
     }
 
+    private function playbackUrlTtlSeconds(): int
+    {
+        return max(600, min(7200, (int) config('playback.signed_url_ttl_seconds', 3600)));
+    }
+
     /**
      * Bunny Advanced Token Authentication reference implementation.
      * Keeping the pure token primitive public makes the production signer
@@ -580,6 +815,9 @@ class BunnyService
         int $expiresAt,
         string $signingData = ''
     ): string {
+        // Bunny's current signer uses an HMAC over the exact signature path,
+        // expiry and sorted signing data. The HS256 prefix is part of the
+        // wire token; omitting it produces a valid-looking but rejected URL.
         $digest = hash_hmac(
             'sha256',
             $signaturePath . $expiresAt . $signingData,
@@ -628,7 +866,8 @@ class BunnyService
         string $videoGuid,
         ?Lesson $lesson,
         string $reason,
-        int $delayHours
+        int $delayHours,
+        bool $requiresReview = true
     ): ?BunnyVideoCleanupCandidate {
         $videoGuid = trim($videoGuid);
         if ($videoGuid === '') {
@@ -641,9 +880,9 @@ class BunnyService
                 [
                     'lesson_id' => $lesson && $lesson->exists ? $lesson->getKey() : null,
                     'reason' => $reason,
-                    'requires_review' => true,
+                    'requires_review' => $requiresReview,
                     'eligible_after' => now()->addHours(max(1, $delayHours)),
-                    'reviewed_at' => null,
+                    'reviewed_at' => $requiresReview ? null : now(),
                     'reviewed_by' => null,
                     'remote_deleted_at' => null,
                     'last_error' => null,
@@ -846,6 +1085,30 @@ class BunnyService
         return rtrim("https://{$hostname}", '/') . $path
             . '?token=' . rawurlencode($token)
             . '&expires=' . $expires;
+    }
+
+    public function queueStorageCleanup(string $path, string $reason, int $delayMinutes = 0): void
+    {
+        $normalized = $this->normalizeStorageObjectPath($path);
+        if ($normalized === null) return;
+
+        $attributes = [
+            'path' => $normalized,
+            'reason' => mb_substr($reason, 0, 100),
+            'eligible_after' => now()->addMinutes(max(0, $delayMinutes)),
+            'completed_at' => null,
+            'attempts' => 0,
+            'last_attempt_at' => null,
+            'last_error' => null,
+        ];
+        if (Schema::hasColumn('bunny_storage_cleanup_candidates', 'quarantined_at')) {
+            $attributes['quarantined_at'] = null;
+        }
+
+        BunnyStorageCleanupCandidate::query()->updateOrCreate(
+            ['path_hash' => hash('sha256', $normalized)],
+            $attributes
+        );
     }
 
     private function normalizeStorageObjectPath(string $value): ?string

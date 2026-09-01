@@ -1,7 +1,7 @@
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {useNavigation} from '@react-navigation/native';
 import type {RootNavigation} from '../../navigation/types';
-import {errorPayload} from '../../utils/errorPayload';
+import {learnerErrorMessage} from '../../utils/errorPayload';
 import {
   ActivityIndicator,
   Alert,
@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import {launchImageLibrary} from 'react-native-image-picker';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {useReducedMotion} from '../../hooks/useReducedMotion';
 import Button from '../../components/touchables/Button';
 import {
   MetaPill,
@@ -46,6 +47,18 @@ import {
   readLocalPortfolioDrafts,
   writeLocalPortfolioDrafts,
 } from '../../services/localUiState';
+import {
+  clearPortfolioEditorDraft,
+  readPortfolioEditorDraft,
+  writePortfolioEditorDraft,
+} from '../../services/portfolioDraft';
+import {
+  cacheLearnerDraftFile,
+  removeLearnerDraftFile,
+} from '../../services/learnerDraftFiles';
+import {secureRandomUuid} from '../../utils/secureRandom';
+import {useAppActiveState} from '../../hooks/useAppActiveState';
+import {showMediaPickerFailure} from '../../services/mediaPickerErrors';
 
 type Project = {
   id: string;
@@ -63,7 +76,7 @@ const initialProjects: Project[] = [
   {
     id: 'portfolio-marketplace',
     title: 'تجربة متجر محلي',
-    summary: 'تصميم رحلة شراء أبسط لمتجر يربط الحرفيين بعملائهم.',
+    summary: 'تصميم رحلة شراء أبسط لمتجر يربط الحرفيين بعملائهم',
     cover: require('../../assets/images/demo-course/portfolio-marketplace.jpg'),
     skills: ['UX', 'واجهات', 'نموذج أولي'],
     source: 'demo',
@@ -71,7 +84,7 @@ const initialProjects: Project[] = [
   {
     id: 'portfolio-finance',
     title: 'لوحة متابعة مالية',
-    summary: 'واجهة واضحة تساعد المستقل على فهم دخله ومصروفاته بسرعة.',
+    summary: 'واجهة واضحة تساعد المستقل على فهم دخله ومصروفاته بسرعة',
     cover: require('../../assets/images/demo-course/portfolio-finance.jpg'),
     skills: ['بحث', 'نظم تصميم', 'Figma'],
     source: 'demo',
@@ -79,6 +92,8 @@ const initialProjects: Project[] = [
 ];
 
 export default function Gallery() {
+  const reducedMotion = useReducedMotion();
+  const appActive = useAppActiveState();
   const navigation = useNavigation<RootNavigation>();
   const insets = useSafeAreaInsets();
   const {contentWidth, gutter, gridColumns, gridGap} = useResponsiveLayout();
@@ -106,16 +121,130 @@ export default function Gallery() {
     null,
   );
   const [draftCoverAsset, setDraftCoverAsset] = useState<
-    {uri: string; type?: string; fileName?: string} | undefined
+    {uri: string; type?: string; fileName?: string; size?: number} | undefined
   >();
+  const [draftReady, setDraftReady] = useState(false);
+  const [clientRequestId, setClientRequestId] = useState(secureRandomUuid);
+  const [draftSaveError, setDraftSaveError] = useState(false);
+  const mountedRef = useRef(true);
+  const loadGenerationRef = useRef(0);
+  const eligibleGenerationRef = useRef(0);
+  const addFlightRef = useRef(false);
+  const deleteFlightRef = useRef(false);
+  const pickerFlightRef = useRef(false);
+  const draftSnapshotRef = useRef({
+    clientRequestId,
+    cover: draftCoverAsset,
+    selectedSource: selectedSourceProject || undefined,
+    summary: draftSummary,
+    title: draftTitle,
+    updatedAt: Date.now(),
+  });
+  draftSnapshotRef.current = {
+    clientRequestId,
+    cover: draftCoverAsset,
+    selectedSource: selectedSourceProject || undefined,
+    summary: draftSummary,
+    title: draftTitle,
+    updatedAt: Date.now(),
+  };
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      loadGenerationRef.current += 1;
+      eligibleGenerationRef.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void readPortfolioEditorDraft()
+      .then(draft => {
+        if (!active || !draft) return;
+        setDraftTitle(draft.title);
+        setDraftSummary(draft.summary);
+        setDraftCoverAsset(draft.cover);
+        setDraftCover(draft.cover ? {uri: draft.cover.uri} : null);
+        setSelectedSourceProject(draft.selectedSource || null);
+        setClientRequestId(draft.clientRequestId);
+      })
+      .catch(() => {
+        if (active) setDraftSaveError(true);
+      })
+      .finally(() => {
+        if (active) setDraftReady(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!draftReady) return;
+    const timer = setTimeout(() => {
+      void writePortfolioEditorDraft({
+        clientRequestId,
+        cover: draftCoverAsset,
+        selectedSource: selectedSourceProject || undefined,
+        summary: draftSummary,
+        title: draftTitle,
+        updatedAt: Date.now(),
+      })
+        .then(() => {
+          if (mountedRef.current) setDraftSaveError(false);
+        })
+        .catch(() => {
+          if (mountedRef.current) setDraftSaveError(true);
+        });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [
+    clientRequestId,
+    draftCoverAsset,
+    draftReady,
+    draftSummary,
+    draftTitle,
+    selectedSourceProject,
+  ]);
+
+  useEffect(() => {
+    if (appActive || !draftReady) return;
+    void writePortfolioEditorDraft({
+      ...draftSnapshotRef.current,
+      updatedAt: Date.now(),
+    }).catch(() => {
+      if (mountedRef.current) setDraftSaveError(true);
+    });
+  }, [appActive, draftReady]);
+
+  const changeDraft = (change: () => void) => {
+    change();
+    setClientRequestId(secureRandomUuid());
+  };
 
   const loadProjects = useCallback(async () => {
+    const generation = ++loadGenerationRef.current;
+    const isCurrent = () =>
+      mountedRef.current && generation === loadGenerationRef.current;
     setLoading(true);
-    const sessionAvailable = await hasSession();
+    let sessionAvailable = false;
+    try {
+      sessionAvailable = await hasSession();
+    } catch {
+      if (isCurrent()) {
+        setLoadError('تعذّر تحميل البورتفوليو\nأعد فتح الصفحة');
+        setLoading(false);
+      }
+      return;
+    }
+    if (!isCurrent()) return;
     setServerSession(sessionAvailable);
     if (sessionAvailable) {
       try {
         const items = await getPortfolio();
+        if (!isCurrent()) return;
         setProjects(
           items.map(item => ({
             id: item.id,
@@ -124,7 +253,7 @@ export default function Gallery() {
             cover: item.coverUri
               ? {uri: item.coverUri}
               : require('../../assets/images/courseSliderBackground.jpg'),
-            skills: item.skills.length ? item.skills : ['مشروع عملي'],
+            skills: item.skills,
             source: 'remote' as const,
             courseName: item.courseName,
             courseId: item.courseId,
@@ -133,10 +262,11 @@ export default function Gallery() {
         );
         setLoadError('');
       } catch {
-        setProjects([]);
-        setLoadError('تعذّر تحميل البورتفوليو الآن. مشروعاتك لم تُفقد.');
+        if (isCurrent()) {
+          setLoadError('تعذّر تحميل البورتفوليو\nمشروعاتك محفوظة');
+        }
       } finally {
-        setLoading(false);
+        if (isCurrent()) setLoading(false);
       }
       return;
     }
@@ -151,6 +281,7 @@ export default function Gallery() {
     try {
       setProjects(initialProjects);
       const saved = await readLocalPortfolioDrafts<Project>();
+      if (!isCurrent()) return;
       setProjects([
         ...saved
           .filter(item => item?.id?.startsWith('local-'))
@@ -160,7 +291,7 @@ export default function Gallery() {
     } catch {
       // Invalid local drafts leave verified demo portfolio items visible.
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }, []);
 
@@ -174,55 +305,131 @@ export default function Gallery() {
     );
 
   const pickCover = async () => {
-    const result = await launchImageLibrary({
-      mediaType: 'photo',
-      selectionLimit: 1,
-      quality: 0.8,
-    });
-    const asset = result.assets?.[0];
-    if (asset?.fileSize && asset.fileSize > 8 * 1024 * 1024) {
-      Alert.alert('الصورة كبيرة', 'اختر غلافًا أصغر من ٨ ميجابايت');
-      return;
-    }
-    if (asset?.uri) {
-      setDraftCover({uri: asset.uri});
-      setDraftCoverAsset({
-        uri: asset.uri,
-        type: asset.type,
-        fileName: asset.fileName,
+    if (pickerFlightRef.current || saving) return;
+    pickerFlightRef.current = true;
+    try {
+      const result = await launchImageLibrary({
+        mediaType: 'photo',
+        selectionLimit: 1,
+        quality: 0.8,
       });
+      if (!mountedRef.current) return;
+      if (result.errorCode === 'permission') {
+        showMediaPickerFailure(result.errorCode);
+        return;
+      }
+      if (result.errorCode) {
+        showMediaPickerFailure(result.errorCode);
+        return;
+      }
+      const asset = result.assets?.[0];
+      if (asset?.fileSize && asset.fileSize > 8 * 1024 * 1024) {
+        Alert.alert('الصورة كبيرة', 'اختر غلافًا أصغر من ٨ ميجابايت');
+        return;
+      }
+      if (asset?.uri) {
+        const cached = await cacheLearnerDraftFile(
+          'portfolio',
+          {
+            uri: asset.uri,
+            type: asset.type,
+            fileName: asset.fileName,
+            size: asset.fileSize,
+          },
+          8 * 1024 * 1024,
+        );
+        const previous = draftCoverAsset;
+        changeDraft(() => {
+          setDraftCover({uri: cached.uri});
+          setDraftCoverAsset(cached);
+        });
+        await removeLearnerDraftFile(previous);
+      }
+    } catch (error: unknown) {
+      if (mountedRef.current) {
+        showMediaPickerFailure(
+          typeof error === 'object' && error && 'errorCode' in error
+            ? String(error.errorCode)
+            : undefined,
+        );
+      }
+    } finally {
+      pickerFlightRef.current = false;
     }
   };
 
   const clearDraft = () => {
+    const previous = draftCoverAsset;
     setDraftTitle('');
     setDraftSummary('');
     setDraftCover(null);
     setDraftCoverAsset(undefined);
     setSelectedSourceProject(null);
+    setClientRequestId(secureRandomUuid());
+    setDraftSaveError(false);
+    void Promise.all([
+      clearPortfolioEditorDraft(),
+      removeLearnerDraftFile(previous),
+    ]).catch(() => {
+      if (mountedRef.current) setDraftSaveError(true);
+    });
   };
 
   const openAddProject = useCallback(() => {
     setAdding(true);
     if (!serverSession) return;
+    const generation = ++eligibleGenerationRef.current;
     setEligibleLoading(true);
     void getEligibleProjects()
-      .then(setEligibleProjects)
-      .catch(() => setEligibleProjects([]))
-      .finally(() => setEligibleLoading(false));
+      .then(eligibleItems => {
+        if (
+          mountedRef.current &&
+          eligibleGenerationRef.current === generation
+        ) {
+          setEligibleProjects(eligibleItems);
+        }
+      })
+      .catch(() => {
+        if (
+          mountedRef.current &&
+          eligibleGenerationRef.current === generation
+        ) {
+          setEligibleProjects([]);
+        }
+      })
+      .finally(() => {
+        if (
+          mountedRef.current &&
+          eligibleGenerationRef.current === generation
+        ) {
+          setEligibleLoading(false);
+        }
+      });
   }, [serverSession]);
 
+  const closeAddProject = () => {
+    if (saving) return;
+    eligibleGenerationRef.current += 1;
+    setEligibleLoading(false);
+    setAdding(false);
+  };
+
   const chooseSourceProject = (project: EligibleProject) => {
-    setSelectedSourceProject(project);
-    setDraftTitle(project.title);
-    setDraftSummary(project.summary);
-    setDraftCover(project.courseImage ? {uri: project.courseImage} : null);
-    // Remote course covers are visual previews, not local upload assets.
-    setDraftCoverAsset(undefined);
+    const previous = draftCoverAsset;
+    changeDraft(() => {
+      setSelectedSourceProject(project);
+      setDraftTitle(project.title);
+      setDraftSummary(project.summary);
+      setDraftCover(project.courseImage ? {uri: project.courseImage} : null);
+      // Remote course covers are visual previews, not local upload assets.
+      setDraftCoverAsset(undefined);
+    });
+    void removeLearnerDraftFile(previous);
   };
 
   const addProject = async () => {
-    if (!draftTitle.trim() || saving) return;
+    if (!draftTitle.trim() || saving || addFlightRef.current) return;
+    addFlightRef.current = true;
     setSaving(true);
     try {
       if (serverSession) {
@@ -232,25 +439,27 @@ export default function Gallery() {
           cover: draftCoverAsset,
           sourceProjectId: selectedSourceProject?.projectId,
           courseId: selectedSourceProject?.courseId,
+          clientRequestId,
         });
-        setProjects(current => [
-          {
-            id: item.id,
-            title: item.title,
-            summary: item.summary,
-            cover: item.coverUri
-              ? {uri: item.coverUri}
-              : draftCover ??
-                require('../../assets/images/courseSliderBackground.jpg'),
-            skills: item.skills.length ? item.skills : ['مشروع عملي'],
-            source: 'remote',
-            courseName: item.courseName,
-            courseId: item.courseId,
-            sourceProjectId: item.sourceProjectId,
-          },
-          ...current,
-        ]);
-        if (selectedSourceProject) {
+        if (mountedRef.current)
+          setProjects(current => [
+            {
+              id: item.id,
+              title: item.title,
+              summary: item.summary,
+              cover: item.coverUri
+                ? {uri: item.coverUri}
+                : draftCover ??
+                  require('../../assets/images/courseSliderBackground.jpg'),
+              skills: item.skills,
+              source: 'remote',
+              courseName: item.courseName,
+              courseId: item.courseId,
+              sourceProjectId: item.sourceProjectId,
+            },
+            ...current,
+          ]);
+        if (selectedSourceProject && mountedRef.current) {
           setEligibleProjects(current =>
             current.filter(
               candidate =>
@@ -259,59 +468,81 @@ export default function Gallery() {
           );
         }
       } else {
-        setProjects(current => {
-          const next: Project[] = [
-            {
-              id: `local-${Date.now()}`,
-              title: draftTitle.trim(),
-              summary: draftSummary.trim() || 'مشروع أضفته إلى بورتفوليو ركن.',
-              cover:
-                draftCover ??
-                require('../../assets/images/demo-course/portfolio-marketplace.jpg'),
-              skills: ['مشروع جديد'],
-              source: 'local',
-            },
-            ...current,
-          ];
-          void persistCustomProjects(next);
-          return next;
-        });
+        if (mountedRef.current)
+          setProjects(current => {
+            const next: Project[] = [
+              {
+                id: `local-${Date.now()}`,
+                title: draftTitle.trim(),
+                summary: draftSummary.trim() || 'مشروع أضفته إلى بورتفوليو ركن',
+                cover:
+                  draftCover ??
+                  require('../../assets/images/demo-course/portfolio-marketplace.jpg'),
+                skills: ['مشروع جديد'],
+                source: 'local',
+              },
+              ...current,
+            ];
+            void persistCustomProjects(next).catch(() => {
+              if (mountedRef.current) setDraftSaveError(true);
+            });
+            return next;
+          });
       }
-      clearDraft();
-      setAdding(false);
+      if (mountedRef.current) {
+        clearDraft();
+        setAdding(false);
+      } else {
+        await clearPortfolioEditorDraft().catch(() => undefined);
+      }
     } catch (error: unknown) {
-      const payload = errorPayload(error);
-      Alert.alert(
-        'تعذّر إضافة المشروع',
-        String(
-          payload.message || 'بياناتك محفوظة\nحاول مرة أخرى',
-        ),
-      );
+      if (mountedRef.current) {
+        Alert.alert(
+          'تعذّر إضافة المشروع',
+          learnerErrorMessage(error, 'لم يُضف المشروع\nحاول مرة أخرى'),
+        );
+      }
     } finally {
-      setSaving(false);
+      addFlightRef.current = false;
+      if (mountedRef.current) setSaving(false);
     }
   };
 
   const deleteSelectedProject = async () => {
-    if (!selected || saving || selected.source === 'demo') return;
+    if (
+      !selected ||
+      saving ||
+      selected.source === 'demo' ||
+      deleteFlightRef.current
+    )
+      return;
+    deleteFlightRef.current = true;
     setSaving(true);
     try {
       if (selected.source === 'remote') {
         await deletePortfolioItem(selected.id);
       }
-      setProjects(current => {
-        const next = current.filter(item => item.id !== selected.id);
-        if (selected.source === 'local') void persistCustomProjects(next);
-        return next;
-      });
-      setSelected(null);
+      if (mountedRef.current)
+        setProjects(current => {
+          const next = current.filter(item => item.id !== selected.id);
+          if (selected.source === 'local') {
+            void persistCustomProjects(next).catch(() => {
+              if (mountedRef.current) setDraftSaveError(true);
+            });
+          }
+          return next;
+        });
+      if (mountedRef.current) setSelected(null);
     } catch {
-      Alert.alert(
-        'تعذّر حذف المشروع',
-        'المشروع ما زال محفوظًا\nحاول مرة أخرى',
-      );
+      if (mountedRef.current) {
+        Alert.alert(
+          'تعذّر حذف المشروع',
+          'المشروع ما زال محفوظًا\nحاول مرة أخرى',
+        );
+      }
     } finally {
-      setSaving(false);
+      deleteFlightRef.current = false;
+      if (mountedRef.current) setSaving(false);
     }
   };
 
@@ -342,9 +573,9 @@ export default function Gallery() {
         onAction={openAddProject}
         title="مشاريعي"
       />
-      {loading ? (
-        <StatusView state="loading" title="نرتّب مشروعاتك…" />
-      ) : loadError ? (
+      {loading && !projects.length ? (
+        <StatusView state="loading" title="جارٍ تحميل مشروعاتك" />
+      ) : loadError && !projects.length ? (
         <StatusView
           actionLabel="إعادة المحاولة"
           description={loadError}
@@ -367,53 +598,68 @@ export default function Gallery() {
       ) : !projects.length ? (
         <StatusView
           actionLabel="إضافة أول مشروع"
-          description="أضف عملًا أو أكمل مشروع كورس ليظهر هنا."
+          description="أضف عملًا أو أكمل مشروع كورس ليظهر هنا"
           onAction={openAddProject}
           title="أضف أول مشروع"
         />
       ) : (
-        <View style={[styles.grid, {gap: gridGap}]}>
-          {projects.map(project => (
-            <Pressable
-              accessibilityLabel={`فتح مشروع ${project.title}`}
-              accessibilityRole="button"
-              key={project.id}
-              onPress={() => setSelected(project)}
-              style={({pressed}) => [
-                styles.projectCard,
-                {width: cardWidth},
-                pressed && styles.pressed,
-              ]}>
-              <Image source={project.cover} style={styles.cover} />
-              <View style={styles.projectCopy}>
-                <Text numberOfLines={2} style={styles.projectTitle}>
-                  {formatArabicDisplayText(project.title)}
-                </Text>
-                <Text numberOfLines={2} style={styles.projectSummary}>
-                  {formatArabicDisplayText(project.summary)}
-                </Text>
-                <View style={styles.skillsRow}>
-                  {project.skills.slice(0, 2).map(skill => (
-                    <MetaPill key={skill} label={skill} />
-                  ))}
+        <>
+          {!!loadError && (
+            <Text accessibilityRole="alert" style={styles.loadNotice}>
+              {loadError}
+            </Text>
+          )}
+          <View style={[styles.grid, {gap: gridGap}]}>
+            {projects.map(project => (
+              <Pressable
+                accessibilityLabel={`فتح مشروع ${project.title}`}
+                accessibilityRole="button"
+                key={project.id}
+                onPress={() => setSelected(project)}
+                style={({pressed}) => [
+                  styles.projectCard,
+                  {width: cardWidth},
+                  pressed && styles.pressed,
+                ]}>
+                <Image source={project.cover} style={styles.cover} />
+                <View style={styles.projectCopy}>
+                  <Text numberOfLines={2} style={styles.projectTitle}>
+                    {formatArabicDisplayText(project.title)}
+                  </Text>
+                  <Text numberOfLines={2} style={styles.projectSummary}>
+                    {formatArabicDisplayText(project.summary)}
+                  </Text>
+                  <View style={styles.skillsRow}>
+                    {project.skills.slice(0, 2).map(skill => (
+                      <MetaPill key={skill} label={skill} />
+                    ))}
+                  </View>
                 </View>
-              </View>
-            </Pressable>
-          ))}
-        </View>
+              </Pressable>
+            ))}
+          </View>
+        </>
       )}
 
       <Modal
-        animationType="slide"
+        animationType={reducedMotion ? 'none' : 'slide'}
         onRequestClose={() => setSelected(null)}
+        statusBarTranslucent
         transparent
         visible={!!selected}>
         <View style={styles.overlay}>
-          <View style={styles.sheet}>
-            <ScrollView showsVerticalScrollIndicator={false}>
+          <View accessibilityViewIsModal style={styles.sheet}>
+            <ScrollView
+              contentInsetAdjustmentBehavior="automatic"
+              showsVerticalScrollIndicator={false}>
               {selected && (
                 <>
-                  <Image source={selected.cover} style={styles.detailCover} />
+                  <Image
+                    accessible={false}
+                    importantForAccessibility="no"
+                    source={selected.cover}
+                    style={styles.detailCover}
+                  />
                   <View
                     style={[
                       styles.detailCopy,
@@ -421,6 +667,14 @@ export default function Gallery() {
                         paddingBottom: Math.max(
                           Spacing.xl,
                           insets.bottom + Spacing.md,
+                        ),
+                        paddingLeft: Math.max(
+                          Spacing.xl,
+                          insets.left + Spacing.md,
+                        ),
+                        paddingRight: Math.max(
+                          Spacing.xl,
+                          insets.right + Spacing.md,
                         ),
                       },
                     ]}>
@@ -466,13 +720,18 @@ export default function Gallery() {
       </Modal>
 
       <Modal
-        animationType="slide"
-        onRequestClose={() => setAdding(false)}
+        animationType={reducedMotion ? 'none' : 'slide'}
+        onRequestClose={closeAddProject}
+        statusBarTranslucent
         transparent
         visible={adding}>
         <View style={styles.overlay}>
-          <View style={styles.sheet}>
-            <ScrollView keyboardShouldPersistTaps="handled">
+          <View accessibilityViewIsModal style={styles.sheet}>
+            <ScrollView
+              automaticallyAdjustKeyboardInsets
+              contentInsetAdjustmentBehavior="automatic"
+              keyboardDismissMode="interactive"
+              keyboardShouldPersistTaps="handled">
               <View
                 style={[
                   styles.detailCopy,
@@ -480,6 +739,11 @@ export default function Gallery() {
                     paddingBottom: Math.max(
                       Spacing.xl,
                       insets.bottom + Spacing.md,
+                    ),
+                    paddingLeft: Math.max(Spacing.xl, insets.left + Spacing.md),
+                    paddingRight: Math.max(
+                      Spacing.xl,
+                      insets.right + Spacing.md,
                     ),
                   },
                 ]}>
@@ -535,15 +799,17 @@ export default function Gallery() {
                       </ScrollView>
                     ) : (
                       <Text style={styles.eligibleEmpty}>
-                        أي مشروع تجتازه سيظهر هنا لتضيفه بضغطة.
+                        أي مشروع تجتازه سيظهر هنا لتضيفه بضغطة
                       </Text>
                     )}
                     {selectedSourceProject && (
                       <Pressable
                         accessibilityRole="button"
                         onPress={() => {
-                          setSelectedSourceProject(null);
-                          setDraftCover(null);
+                          changeDraft(() => {
+                            setSelectedSourceProject(null);
+                            setDraftCover(null);
+                          });
                         }}
                         style={styles.manualEntryButton}>
                         <Text style={styles.manualEntryLabel}>
@@ -555,16 +821,22 @@ export default function Gallery() {
                 )}
                 <Text style={styles.fieldLabel}>اسم المشروع</Text>
                 <TextInput
-                  onChangeText={setDraftTitle}
-                  placeholder="مثال: هوية لمقهى محلي"
+                  accessibilityLabel="اسم المشروع"
+                  onChangeText={value =>
+                    changeDraft(() => setDraftTitle(value))
+                  }
+                  placeholder="هوية لمقهى محلي"
                   placeholderTextColor={Palette.textFaint}
                   style={styles.input}
                   value={draftTitle}
                 />
                 <Text style={styles.fieldLabel}>وصف مختصر</Text>
                 <TextInput
+                  accessibilityLabel="وصف المشروع"
                   multiline
-                  onChangeText={setDraftSummary}
+                  onChangeText={value =>
+                    changeDraft(() => setDraftSummary(value))
+                  }
                   placeholder="المشكلة التي حللتها والنتيجة"
                   placeholderTextColor={Palette.textFaint}
                   style={[styles.input, styles.multiline]}
@@ -591,7 +863,7 @@ export default function Gallery() {
                 />
                 <Button
                   disable={saving}
-                  onPress={() => setAdding(false)}
+                  onPress={closeAddProject}
                   title="إلغاء"
                   useGradient={false}
                 />
@@ -600,6 +872,12 @@ export default function Gallery() {
                     color={Palette.primary}
                     style={styles.savingIndicator}
                   />
+                )}
+                {draftSaveError && !saving && (
+                  <Text accessibilityRole="alert" style={styles.draftError}>
+                    لم تُحفظ المسودة على الجهاز
+                    {'\n'}يمكنك المتابعة أو تفريغ بعض المساحة
+                  </Text>
                 )}
               </View>
             </ScrollView>
@@ -612,6 +890,12 @@ export default function Gallery() {
 
 const styles = StyleSheet.create({
   container: {paddingBottom: Spacing.xl},
+  loadNotice: {
+    ...Type.caption,
+    ...textDirection,
+    color: Palette.textMuted,
+    marginTop: Spacing.sm,
+  },
   grid: {
     direction: 'rtl',
     flexDirection: 'row',
@@ -743,11 +1027,17 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
   },
   manualEntryButton: {
-    minHeight: 42,
+    minHeight: 48,
     alignSelf: 'flex-end',
     justifyContent: 'center',
   },
   manualEntryLabel: {...Type.caption, color: Palette.primary},
   savingIndicator: {marginTop: Spacing.sm},
+  draftError: {
+    ...Type.caption,
+    ...textDirection,
+    color: Palette.danger,
+    marginTop: Spacing.sm,
+  },
   pressed: {opacity: 0.8, transform: [{scale: 0.99}]},
 });

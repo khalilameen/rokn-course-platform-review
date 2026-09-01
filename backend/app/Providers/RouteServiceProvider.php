@@ -66,21 +66,40 @@ class RouteServiceProvider extends ServiceProvider
         });
 
         RateLimiter::for('auth-api', function (Request $request) {
-            return Limit::perMinute(12)->by('auth:'.$request->ip());
+            $identity = $this->authAttemptIdentity($request);
+            $ip = $request->ip() ?: 'unknown';
+
+            return [
+                Limit::perMinute(12)->by('auth:identity:'.$identity),
+                Limit::perHour(90)->by('auth:identity-hour:'.$identity),
+                // A shared school connection remains usable while a rotating
+                // identity flood still has a finite origin-wide ceiling.
+                Limit::perMinute(300)->by('auth:ip-minute:'.$ip),
+                Limit::perHour(3000)->by('auth:ip-hour:'.$ip),
+            ];
         });
 
         RateLimiter::for('admin-login-route', function (Request $request) {
             $email = strtolower(trim((string) $request->input('email')));
-            $identity = hash('sha256', $email . '|' . ($request->ip() ?: 'unknown'));
+            $emailIdentity = hash('sha256', $email !== '' ? $email : '__missing__');
+            $ip = $request->ip() ?: 'unknown';
 
-            return Limit::perMinute(12)->by('admin-login-route:' . $identity);
+            return [
+                Limit::perMinute(12)->by('admin-login:email-minute:'.$emailIdentity),
+                Limit::perHour(60)->by('admin-login:email-hour:'.$emailIdentity),
+                Limit::perMinute(120)->by('admin-login:ip-minute:'.$ip),
+            ];
         });
 
         RateLimiter::for('admin-password-reset', function (Request $request) {
             $email = strtolower(trim((string) $request->input('email')));
-            $identity = hash('sha256', $email . '|' . ($request->ip() ?: 'unknown'));
+            $emailIdentity = hash('sha256', $email !== '' ? $email : '__missing__');
+            $ip = $request->ip() ?: 'unknown';
 
-            return Limit::perMinute(5)->by('admin-password-reset:' . $identity);
+            return [
+                Limit::perHour(5)->by('admin-password-reset:email:'.$emailIdentity),
+                Limit::perHour(120)->by('admin-password-reset:ip:'.$ip),
+            ];
         });
 
         RateLimiter::for('admin-mfa', function (Request $request) {
@@ -121,6 +140,33 @@ class RouteServiceProvider extends ServiceProvider
             ];
         });
 
+        RateLimiter::for('store-notification', function (Request $request) {
+            $identity = $this->providerEventIdentity($request, [
+                'message.messageId',
+                'message.message_id',
+                'notificationUUID',
+                'signedPayload',
+            ]);
+            $ip = $request->ip() ?: 'unknown';
+            return [
+                Limit::perMinute(30)->by('store-notification:event:'.$identity),
+                Limit::perMinute(1200)->by('store-notification:ip-minute:'.$ip),
+                Limit::perHour(10000)->by('store-notification:ip-hour:'.$ip),
+            ];
+        });
+
+        RateLimiter::for('whatsapp-webhook', function (Request $request) {
+            $identity = $this->providerEventIdentity($request, [
+                'entry.0.changes.0.value.messages.0.id',
+                'messages.0.id',
+            ]);
+            $ip = $request->ip() ?: 'unknown';
+            return [
+                Limit::perMinute(30)->by('whatsapp-webhook:event:'.$identity),
+                Limit::perMinute(600)->by('whatsapp-webhook:ip-minute:'.$ip),
+            ];
+        });
+
         RateLimiter::for('payment-write', function (Request $request) {
             $identity = $this->rateLimitIdentity($request);
 
@@ -134,13 +180,15 @@ class RouteServiceProvider extends ServiceProvider
         });
 
         RateLimiter::for('client-events', function (Request $request) {
-            $identity = 'client-events:'.($request->ip() ?: 'unknown');
+            $identity = 'client-events:'.$this->rateLimitIdentity($request);
+            $ip = $request->ip() ?: 'unknown';
 
             return [
                 // Distinct buckets are required: sharing one key makes each
                 // request increment both limits and halves the minute quota.
                 Limit::perMinute(30)->by($identity.':minute'),
                 Limit::perDay(500)->by($identity.':day'),
+                Limit::perDay(10000)->by('client-events:ip-day:'.$ip),
             ];
         });
 
@@ -162,16 +210,31 @@ class RouteServiceProvider extends ServiceProvider
         });
 
         RateLimiter::for('catalog-search', function (Request $request) {
+            $identity = $this->rateLimitIdentity($request);
+            $ip = $request->ip() ?: 'unknown';
             return [
-                Limit::perMinute(60)->by('catalog-search:minute:'.($request->ip() ?: 'unknown')),
-                Limit::perDay(1500)->by('catalog-search:day:'.($request->ip() ?: 'unknown')),
+                Limit::perMinute(60)->by('catalog-search:minute:'.$identity),
+                Limit::perDay(1500)->by('catalog-search:day:'.$identity),
+                Limit::perMinute(1200)->by('catalog-search:ip-minute:'.$ip),
+                Limit::perDay(30000)->by('catalog-search:ip-day:'.$ip),
             ];
         });
 
         RateLimiter::for('feedback', function (Request $request) {
+            $identity = $this->rateLimitIdentity($request);
+            $ip = $request->ip() ?: 'unknown';
             return [
-                Limit::perMinute(5)->by('feedback:minute:'.($request->ip() ?: 'unknown')),
-                Limit::perDay(30)->by('feedback:day:'.($request->ip() ?: 'unknown')),
+                Limit::perMinute(5)->by('feedback:minute:'.$identity),
+                Limit::perDay(30)->by('feedback:day:'.$identity),
+                Limit::perDay(3000)->by('feedback:ip-day:'.$ip),
+            ];
+        });
+
+        RateLimiter::for('admin-bulk', function (Request $request) {
+            $userId = optional($request->user())->getAuthIdentifier() ?: 'guest';
+            return [
+                Limit::perMinute(6)->by('admin-bulk:minute:'.$userId),
+                Limit::perHour(60)->by('admin-bulk:hour:'.$userId),
             ];
         });
     }
@@ -191,7 +254,26 @@ class RouteServiceProvider extends ServiceProvider
             return 'token:'.hash('sha256', $bearerToken);
         }
 
+        $installation = strtolower(trim((string) $request->header('X-Rokn-Installation')));
+        if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $installation)) {
+            return 'installation:'.hash('sha256', $installation);
+        }
+
         return 'ip:'.($request->ip() ?: 'unknown');
+    }
+
+    private function authAttemptIdentity(Request $request): string
+    {
+        foreach (['state', 'code_challenge', 'code', 'token', 'email', 'device_id'] as $field) {
+            $value = $request->input($field, $request->query($field));
+            if (!is_scalar($value)) continue;
+            $value = strtolower(trim((string) $value));
+            if ($value !== '') {
+                return $field.':'.hash('sha256', mb_substr($value, 0, 2048));
+            }
+        }
+
+        return $this->rateLimitIdentity($request);
     }
 
     private function kashierOrderIdentity(Request $request): string
@@ -207,6 +289,21 @@ class RouteServiceProvider extends ServiceProvider
         }
 
         return 'missing';
+    }
+
+    /** @param list<string> $fields */
+    private function providerEventIdentity(Request $request, array $fields): string
+    {
+        foreach ($fields as $field) {
+            $value = data_get($request->all(), $field);
+            if (!is_scalar($value)) continue;
+            $value = trim((string) $value);
+            if ($value !== '') {
+                return hash('sha256', mb_substr($value, 0, 4096));
+            }
+        }
+
+        return 'body:'.hash('sha256', (string) $request->getContent());
     }
 
     /**

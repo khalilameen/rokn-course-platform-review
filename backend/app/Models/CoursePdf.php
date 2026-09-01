@@ -21,6 +21,7 @@ class CoursePdf extends Model
         'storage_disk',
         'original_filename',
         'file_size',
+        'content_sha256',
         'order',
         'is_active'
     ];

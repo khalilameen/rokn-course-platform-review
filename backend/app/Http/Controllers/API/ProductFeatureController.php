@@ -17,13 +17,18 @@ final class ProductFeatureController extends Controller
         ProductFeatureFlagService $features,
         ApiResponseService $responses
     ): JsonResponse {
-        $validated = $request->validate([
-            'bucket' => ['sometimes', 'integer', 'min:0', 'max:99'],
-        ]);
-        $snapshot = $features->clientSnapshot((int) ($validated['bucket'] ?? 0));
+        $installation = strtolower(trim((string) $request->header('X-Rokn-Installation')));
+        $subject = preg_match(
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/',
+            $installation
+        ) === 1
+            ? 'installation:'.$installation
+            : 'anonymous:'.hash('sha256', (string) $request->ip().'|'.(string) $request->userAgent());
+        $snapshot = $features->clientSnapshot($subject);
 
         return $responses
-            ->success($snapshot, 'Product features retrieved successfully')
-            ->header('Cache-Control', 'public, max-age=60, stale-if-error=300');
+            ->success($snapshot, 'تم تحميل حالة المزايا')
+            ->header('Cache-Control', 'private, max-age=60, stale-if-error=300')
+            ->header('Vary', 'X-Rokn-Installation');
     }
 }

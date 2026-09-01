@@ -76,12 +76,19 @@
                     <!-- Bunny Video Upload Section -->
                     <div class="form-group" id="bunny_video_section">
                         <label class="form-label" for="bunny_video">ملف الفيديو *</label>
-                        <input type="file" id="bunny_video" name="bunny_video" class="form-control" accept="video/*" data-required="true">
+                        <input type="file" id="bunny_video" class="form-control"
+                               accept="video/mp4,video/quicktime,video/x-msvideo,video/webm"
+                               data-required="true" data-video-required="true">
+                        <input type="hidden" id="bunny_video_claim" name="bunny_video_claim" value="{{ old('bunny_video_claim') }}">
                         <div id="bunny_upload_progress" class="course-section-upload-progress is-hidden">
                             <div class="progress">
                                 <div class="progress-bar" role="progressbar"></div>
                             </div>
                             <small class="text-muted" id="bunny_upload_status">جاري الرفع...</small>
+                            <div class="mt-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="bunny_upload_cancel">إيقاف</button>
+                                <button type="button" class="btn btn-sm btn-outline-primary is-hidden" id="bunny_upload_retry">متابعة الرفع</button>
+                            </div>
                         </div>
                         <small class="text-muted course-section-help">
                             <i class="fa fa-info-circle"></i>

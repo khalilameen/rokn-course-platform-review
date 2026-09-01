@@ -1,6 +1,14 @@
 import {publicRequest} from '../../constants/api';
+import {learnerFacingText} from '../../utils/errorPayload';
 import type {DemoCoinPackage} from '../demoExperience';
-import {payload, resourceList} from './common';
+import {
+  firstBoolean,
+  isApiRecord,
+  nonNegativeNumber,
+  payload,
+  resourceList,
+  requireNonNegativeNumber,
+} from './common';
 import {
   DISTRIBUTION_CHANNEL,
   IS_STORE_DISTRIBUTION,
@@ -51,6 +59,11 @@ type CoinPackageDto = {
     google?: unknown;
     apple?: unknown;
   };
+  channels?: {
+    direct?: unknown;
+    google?: unknown;
+    apple?: unknown;
+  };
 };
 
 type CoinTaskDto = {
@@ -86,60 +99,91 @@ export type RewardResult = {
   rewardBalance: number;
 };
 
+const firstDefined = (...values: unknown[]) =>
+  values.find(value => value !== undefined && value !== null);
+
+const optionalNonNegativeNumber = (
+  value: unknown,
+  fallback: number,
+  field: string,
+) =>
+  value === undefined || value === null
+    ? fallback
+    : requireNonNegativeNumber(value, field);
+
+const financialSnapshot = (data: WalletDto) => {
+  const balance = requireNonNegativeNumber(
+    firstDefined(
+      data.total_balance,
+      data.breakdown?.total_balance,
+      data.balance,
+    ),
+    'WALLET_TOTAL_BALANCE',
+  );
+  const paidBalance = optionalNonNegativeNumber(
+    firstDefined(
+      data.paid_balance,
+      data.purchased_balance,
+      data.breakdown?.paid_balance,
+      data.breakdown?.purchased_balance,
+    ),
+    0,
+    'WALLET_PAID_BALANCE',
+  );
+  const rewardBalance = optionalNonNegativeNumber(
+    firstDefined(data.reward_balance, data.breakdown?.reward_balance),
+    balance - paidBalance,
+    'WALLET_REWARD_BALANCE',
+  );
+  const spendableBalance = optionalNonNegativeNumber(
+    firstDefined(
+      data.course_spendable_balance,
+      data.spendable_balance,
+      data.breakdown?.course_spendable_balance,
+    ),
+    balance,
+    'WALLET_SPENDABLE_BALANCE',
+  );
+
+  if (
+    paidBalance > balance ||
+    rewardBalance > balance ||
+    paidBalance + rewardBalance !== balance ||
+    spendableBalance > balance
+  ) {
+    throw new Error('API_CONTRACT_INVALID_WALLET_BREAKDOWN');
+  }
+
+  return {balance, paidBalance, rewardBalance, spendableBalance};
+};
+
 export const claimDailyReward = async (): Promise<RewardResult> => {
   const data = payload(await publicRequest.post('rewards/daily'));
   return {
-    awarded: Math.max(0, Number(data.awarded || 0)),
-    balance: Math.max(0, Number(data.balance || 0)),
-    rewardBalance: Math.max(0, Number(data.reward_balance || 0)),
+    awarded: requireNonNegativeNumber(data.awarded, 'REWARD_AWARDED'),
+    balance: requireNonNegativeNumber(data.balance, 'REWARD_BALANCE'),
+    rewardBalance: requireNonNegativeNumber(
+      data.reward_balance,
+      'REWARD_BUCKET_BALANCE',
+    ),
   };
 };
 
 export const getWallet = async (): Promise<WalletSnapshot> => {
   const data = payload<WalletDto>(await publicRequest.get('wallet'));
-  const balance = Math.max(
-    0,
-    Number(
-      data.total_balance ?? data.breakdown?.total_balance ?? data.balance ?? 0,
-    ) || 0,
-  );
-  const paidBalance = Math.max(
-    0,
-    Number(
-      data.paid_balance ??
-        data.purchased_balance ??
-        data.breakdown?.paid_balance ??
-        data.breakdown?.purchased_balance ??
-        0,
-    ) || 0,
-  );
+  const {balance, paidBalance, rewardBalance, spendableBalance} =
+    financialSnapshot(data);
   return {
     balance,
     paidBalance,
-    rewardBalance: Math.max(
-      0,
-      Number(
-        data.reward_balance ??
-          data.breakdown?.reward_balance ??
-          balance - paidBalance,
-      ) || 0,
-    ),
-    spendableBalance: Math.max(
-      0,
-      Number(
-        data.course_spendable_balance ??
-          data.spendable_balance ??
-          data.breakdown?.course_spendable_balance ??
-          balance,
-      ) || 0,
-    ),
-    rewardContributionCap: Math.max(
-      0,
-      Number(
-        data.reward_contribution_cap_per_course ??
-          data.breakdown?.reward_contribution_cap_per_course ??
-          0,
-      ) || 0,
+    rewardBalance,
+    spendableBalance,
+    rewardContributionCap: requireNonNegativeNumber(
+      firstDefined(
+        data.reward_contribution_cap_per_course,
+        data.breakdown?.reward_contribution_cap_per_course,
+      ),
+      'WALLET_REWARD_CONTRIBUTION_CAP',
     ),
     spendPolicy: String(data.spend_policy || 'reward_first_then_paid'),
     coinRules: Array.isArray(data.coin_rules)
@@ -151,46 +195,83 @@ export const getWallet = async (): Promise<WalletSnapshot> => {
           .filter(Boolean)
       : [],
     transactions: Array.isArray(data.recent_transactions)
-      ? data.recent_transactions.map(item => ({
-          ...item,
-          id: String(item.id),
-          amount:
-            String(item.direction).toLowerCase() === 'debit'
-              ? -Math.abs(Number(item.amount || 0))
-              : Math.abs(Number(item.amount || 0)),
-        }))
+      ? data.recent_transactions.flatMap(item => {
+          const id = String(item.id ?? '').trim();
+          const amount = nonNegativeNumber(item.amount);
+          if (!id || amount === null) return [];
+          return [
+            {
+              id,
+              amount:
+                String(item.direction).toLowerCase() === 'debit'
+                  ? -amount
+                  : amount,
+              occurred_at: item.occurred_at,
+              category: item.category,
+            },
+          ];
+        })
       : [],
   };
 };
 
 export const getCoinPackages = async (): Promise<DemoCoinPackage[]> => {
-  const data = payload<CoinPackageDto[] | {packages?: unknown}>(
+  const data = payload<unknown>(
     await publicRequest.get('packages'),
   );
   const items = Array.isArray(data)
     ? data
-    : resourceList<CoinPackageDto>(data.packages);
-  const packages = items
-    .filter(item => item.id !== null && item.id !== undefined)
-    .map(item => ({
-      id: String(item.id),
-      coins: Number(item.coins || 0),
-      price: Number(
-        DISTRIBUTION_CHANNEL === 'direct'
-          ? item.direct_price ?? item.price ?? 0
-          : item.price ?? 0,
-      ),
-      label: String(item.name || item.name_ar || item.name_en || 'باقة عملات'),
-      recommended: Boolean(item.recommended),
-      storeProductIds: {
-        google: item.store_products?.google
-          ? String(item.store_products.google)
-          : undefined,
-        apple: item.store_products?.apple
-          ? String(item.store_products.apple)
-          : undefined,
+    : isApiRecord(data)
+    ? resourceList<CoinPackageDto>(data.packages)
+    : (() => {
+        throw new Error('API_CONTRACT_INVALID_COIN_PACKAGES');
+      })();
+  const eligibleItems = items
+    .filter(item => {
+      if (item.id === null || item.id === undefined) return false;
+      if (DISTRIBUTION_CHANNEL === 'direct') {
+        return item.channels?.direct !== false && item.direct_price != null;
+      }
+      if (DISTRIBUTION_CHANNEL === 'play') {
+        return item.channels?.google !== false && Boolean(item.store_products?.google);
+      }
+      return item.channels?.apple !== false && Boolean(item.store_products?.apple);
+    });
+  const packages = eligibleItems.flatMap(item => {
+    const id = String(item.id ?? '').trim();
+    const coins = nonNegativeNumber(item.coins);
+    const price = nonNegativeNumber(
+      DISTRIBUTION_CHANNEL === 'direct'
+        ? item.direct_price ?? item.price
+        : item.price,
+    );
+    if (!id || coins === null || coins <= 0 || price === null || price <= 0) {
+      return [];
+    }
+    return [
+      {
+        id,
+        coins,
+        price,
+        label: learnerFacingText(
+          item.name || item.name_ar || item.name_en,
+          'باقة عملات ركن',
+        ),
+        recommended: firstBoolean(item.recommended) ?? false,
+        storeProductIds: {
+          google: item.store_products?.google
+            ? String(item.store_products.google)
+            : undefined,
+          apple: item.store_products?.apple
+            ? String(item.store_products.apple)
+            : undefined,
+        },
       },
-    }));
+    ];
+  });
+  if (eligibleItems.length > 0 && packages.length === 0) {
+    throw new Error('API_CONTRACT_INVALID_COIN_PACKAGES');
+  }
 
   if (!IS_STORE_DISTRIBUTION) return packages;
   const {hydrateNativeStorePackages} = await import('../nativeStoreBilling');
@@ -211,19 +292,19 @@ export type CoinTask = {
 
 const taskDescription = (requiresExternalVisit: boolean, actionKey: string) => {
   if (actionKey === 'link_whatsapp') {
-    return 'اضغط، ابعت الرسالة الجاهزة، وارجع تلاقي العملات وصلت.';
+    return 'أرسل الرسالة الجاهزة\nستصل العملات بعد الربط';
   }
   if (actionKey.toLowerCase().includes('coin_guide')) {
-    return 'راجع قواعد الرصيد مرة واحدة ثم استلم مكافأتك.';
+    return 'اطّلع على قواعد الرصيد\nثم استلم مكافأتك';
   }
   return requiresExternalVisit
-    ? 'افتح الصفحة ثم ارجع إلى ركن لاستلام المكافأة.'
-    : 'أكمل المهمة مرة واحدة ثم استلم مكافأتك.';
+    ? 'افتح الصفحة\nثم عد إلى ركن لاستلام المكافأة'
+    : 'أكمل المهمة مرة واحدة\nثم استلم مكافأتك';
 };
 
 const truthfulTaskTitle = (title: string, actionKey: string) => {
   const key = actionKey.toLowerCase();
-  if (key.includes('coin_guide')) return 'اعرف كيف يعمل رصيد ركن';
+  if (key.includes('coin_guide')) return 'تعرّف إلى رصيد ركن';
   if (key.includes('instagram')) return 'افتح حساب ركن على Instagram';
   if (key.includes('tiktok')) return 'افتح حساب ركن على TikTok';
   if (key.includes('youtube')) return 'افتح قناة ركن على YouTube';
@@ -236,8 +317,10 @@ export const getCoinTasks = async (): Promise<CoinTask[]> => {
   const data = payload<CoinTaskDto[] | {data?: CoinTaskDto[]}>(response);
   const items = resourceList<CoinTaskDto>(data);
   return items
-    .filter(item => item.id !== null && item.id !== undefined)
-    .map(item => {
+    .flatMap(item => {
+      const serverId = String(item.id ?? '').trim();
+      const reward = nonNegativeNumber(item.coins_amount);
+      if (!/^\d+$/.test(serverId) || reward === null || reward <= 0) return [];
       const state = String(item.task_state || 'available');
       const rawActionKey = String(item.action_key || '');
       const replacesNotificationReward = rawActionKey
@@ -251,14 +334,17 @@ export const getCoinTasks = async (): Promise<CoinTask[]> => {
         : rawActionKey;
       const requiresExternalVisit = replacesNotificationReward
         ? false
-        : Boolean(item.requires_external_visit);
-      const rawTitle = String(item.title_ar || item.title_en || 'مهمة مكافأة');
-      return {
-        id: `production-${item.id}`,
-        serverId: String(item.id),
+        : firstBoolean(item.requires_external_visit) ?? false;
+      const rawTitle = learnerFacingText(
+        item.title_ar || item.title_en,
+        'مهمة مكافأة',
+      );
+      return [{
+        id: `production-${serverId}`,
+        serverId,
         title: truthfulTaskTitle(rawTitle, actionKey),
         description: taskDescription(requiresExternalVisit, actionKey),
-        reward: Number(item.coins_amount || 0),
+        reward,
         url:
           !replacesNotificationReward && item.action_url
             ? String(item.action_url)
@@ -271,11 +357,12 @@ export const getCoinTasks = async (): Promise<CoinTask[]> => {
             : 'available',
         actionKey,
         requiresExternalVisit,
-      };
+      }];
     });
 };
 
 export const startCoinTask = async (task: CoinTask) => {
+  if (!/^\d+$/.test(task.serverId)) throw new Error('INVALID_COIN_TASK_ID');
   const data = payload(
     await publicRequest.post(`coin-earning-methods/${task.serverId}/start`),
   );
@@ -286,12 +373,19 @@ export const startCoinTask = async (task: CoinTask) => {
 };
 
 export const claimCoinTask = async (task: CoinTask) => {
+  if (!/^\d+$/.test(task.serverId)) throw new Error('INVALID_COIN_TASK_ID');
   const data = payload(
     await publicRequest.post('claim-coins', {method_id: Number(task.serverId)}),
   );
   return {
-    balance: Number(data.new_balance || 0),
-    amount: Number(data.earned_amount || task.reward),
+    balance: requireNonNegativeNumber(
+      data.new_balance,
+      'COIN_TASK_NEW_BALANCE',
+    ),
+    amount: requireNonNegativeNumber(
+      data.earned_amount,
+      'COIN_TASK_EARNED_AMOUNT',
+    ),
   };
 };
 

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\PublicAppSettingsService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -50,6 +51,16 @@ class DesignSetting extends Model
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
     ];
+
+    protected static function booted(): void
+    {
+        $invalidate = static function (): void {
+            PublicAppSettingsService::invalidate();
+        };
+        static::saved($invalidate);
+        static::deleted($invalidate);
+        static::restored($invalidate);
+    }
 
     public function getNameAttribute()
     {

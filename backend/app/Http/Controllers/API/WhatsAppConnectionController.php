@@ -30,7 +30,7 @@ final class WhatsAppConnectionController extends Controller
 
         return $this->responses->success(
             $this->present($user->whatsappConnection),
-            'WhatsApp connection retrieved successfully'
+            'تم تحميل حالة ربط واتساب'
         );
     }
 
@@ -93,14 +93,11 @@ final class WhatsAppConnectionController extends Controller
             if ($exception->getMessage() === 'whatsapp_phone_in_use') {
                 $whatsApp->sendTextMessage(
                     $sender,
-                    'رقم واتساب ده مربوط بحساب ركن آخر. افتح المهمة من الحساب الصحيح وحاول تاني.'
+                    "هذا الرقم مرتبط بحساب ركن آخر\nافتح المهمة من الحساب الصحيح"
                 );
             }
 
-            $data = [
-                'matched' => false,
-                'reason' => $exception->getMessage(),
-            ];
+            $data = ['matched' => false];
 
             return $this->responses->success(
                 $data,
@@ -115,7 +112,7 @@ final class WhatsAppConnectionController extends Controller
             try {
                 StudentNotificationService::notifyUser(
                     $result['user'],
-                    StudentNotificationService::TYPE_COINS_CLAIMED,
+                    StudentNotificationService::TYPE_WHATSAPP_CONNECTED,
                     'تم ربط واتساب',
                     'WhatsApp Connected',
                     'أضفنا ' . $result['coins'] . " عملة ركن إلى رصيدك\nافتح المحفظة لمعرفة التفاصيل",
@@ -123,15 +120,16 @@ final class WhatsAppConnectionController extends Controller
                     null,
                     $method ? CoinEarningMethod::class : null,
                     $method?->id,
-                    'whatsapp-linked:' . $result['user']->id
+                    'whatsapp-linked:' . $result['user']->id,
+                    ['coins' => (int) $result['coins']]
                 );
             } catch (\Throwable $exception) {
                 report($exception);
             }
             $whatsApp->sendTextMessage(
                 $sender,
-                'تم ربط حسابك وإضافة ' . $result['coins'] . ' عملة ركن. رصيدك الآن '
-                    . $result['balance'] . ' عملة.'
+                'تم ربط حسابك وإضافة ' . $result['coins'] . " عملة ركن\nرصيدك الآن "
+                    . $result['balance'] . ' عملة'
             );
         }
 
@@ -156,7 +154,7 @@ final class WhatsAppConnectionController extends Controller
         $user = auth('api')->user();
         $connection = $user->whatsappConnection;
         if (!$connection?->verified_at) {
-            return $this->responses->error('اربط واتساب من مهمة العملات أولًا.', 409);
+            return $this->responses->error('اربط واتساب من مهمة العملات أولًا', 409);
         }
         $optIn = (bool) $validated['marketing_opt_in'];
         $connection->forceFill([
@@ -169,7 +167,7 @@ final class WhatsAppConnectionController extends Controller
 
         return $this->responses->success(
             ['connection' => $this->present($connection->fresh())],
-            $optIn ? 'تم تفعيل رسائل واتساب.' : 'تم إيقاف رسائل واتساب.'
+            $optIn ? 'تم تفعيل رسائل واتساب' : 'تم إيقاف رسائل واتساب'
         );
     }
 

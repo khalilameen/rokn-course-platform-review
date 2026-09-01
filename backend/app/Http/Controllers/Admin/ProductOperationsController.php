@@ -22,16 +22,24 @@ use App\Models\Setting;
 use App\Models\StudentNotification;
 use App\Models\StoreNotificationEvent;
 use App\Models\Lesson;
-use App\Models\LessonMediaState;
 use App\Models\PlaybackSession;
+use App\Models\OperationalIncident;
+use App\Models\OutboxEvent;
+use App\Models\WebhookDelivery;
+use App\Jobs\DeliverOutboxEvent;
 use App\Services\ProductionCapabilityService;
+use App\Support\BusinessClock;
 use App\Services\OperationsReadinessService;
 use App\Services\PlaybackOperationsService;
 use App\Services\ProductFeatureFlagService;
 use App\Services\PaymentChannelReportService;
+use App\Services\ProviderOperationalEvidenceService;
+use App\Services\OperationalRuntimeService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 
 class ProductOperationsController extends Controller
@@ -41,11 +49,16 @@ class ProductOperationsController extends Controller
         PlaybackOperationsService $playbackOperationsService,
         OperationsReadinessService $operationsReadiness,
         ProductFeatureFlagService $productFeatureFlags,
-        PaymentChannelReportService $paymentChannels
+        PaymentChannelReportService $paymentChannels,
+        ProviderOperationalEvidenceService $providerEvidenceService,
+        OperationalRuntimeService $operationalRuntime
     ): View
     {
+        [$todayStart, $todayEnd] = BusinessClock::localDayRangeUtc(
+            BusinessClock::now()->format('Y-m-d')
+        );
         $courseAllocation = static function ($query): void {
-            $query->where('status', Order::STATUS_APPROVED)
+            $query->financiallyEffective()
                 ->whereIn('payment_method', [
                     Order::PAYMENT_METHOD_WALLET,
                     Order::PAYMENT_METHOD_WALLET_COINS,
@@ -82,7 +95,7 @@ class ProductOperationsController extends Controller
         ];
 
         $grantUpgradeOrders = Order::query()
-            ->where('status', Order::STATUS_APPROVED)
+            ->financiallyEffective()
             ->where(function ($upgrades): void {
                 $upgrades->where('notes', 'like', 'Full-track upgrade from grant order #%')
                     ->orWhereHas('parentOrder.courseCode', function ($codes): void {
@@ -93,14 +106,33 @@ class ProductOperationsController extends Controller
 
         $hasIntegrityState = Schema::hasTable('lesson_media_states')
             && Schema::hasColumn('lesson_media_states', 'integrity_status');
-        $mediaAttentionCount = LessonMediaState::query()
-            ->where(function ($query) use ($hasIntegrityState): void {
-                $query->whereIn('status', ['unknown', 'processing', 'failed']);
+        $mediaAttentionQuery = Lesson::query()
+            ->where(function ($lessons) use ($hasIntegrityState): void {
+                $lessons
+                    ->where('video_source_type', '<>', 'bunny')
+                    ->orWhereNull('bunny_video_id')
+                    ->orWhere('bunny_video_id', '')
+                    ->orWhereDoesntHave('mediaState')
+                    ->orWhereHas('mediaState', function ($state) use ($hasIntegrityState): void {
+                        $state->whereIn('status', ['unknown', 'processing', 'failed']);
+                        if ($hasIntegrityState) {
+                            $state->orWhereIn('integrity_status', ['attention', 'quarantined']);
+                        }
+                    });
+            });
+        $mediaReadyQuery = Lesson::query()
+            ->where('video_source_type', 'bunny')
+            ->whereNotNull('bunny_video_id')
+            ->where('bunny_video_id', '<>', '')
+            ->whereHas('mediaState', function ($state) use ($hasIntegrityState): void {
+                $state->where('status', 'ready');
                 if ($hasIntegrityState) {
-                    $query->orWhereIn('integrity_status', ['attention', 'quarantined']);
+                    $state->where(function ($integrity): void {
+                        $integrity->whereNull('integrity_status')
+                            ->orWhereNotIn('integrity_status', ['attention', 'quarantined']);
+                    });
                 }
-            })
-            ->count();
+            });
 
         $counts = [
             'courses' => $courses->count(),
@@ -125,12 +157,12 @@ class ProductOperationsController extends Controller
                 ->whereNotNull('attachments_link')
                 ->where('attachments_link', '<>', '')
                 ->count(),
-            'media_ready' => LessonMediaState::query()->where('status', 'ready')->count(),
-            'media_attention' => $mediaAttentionCount
-                + Lesson::query()->where(function ($query): void {
-                    $query->where('video_source_type', '<>', 'bunny')->orWhereNull('bunny_video_id')->orWhere('bunny_video_id', '');
-                })->count(),
-            'playback_sessions_today' => PlaybackSession::query()->where('started_at', '>=', now()->startOfDay())->count(),
+            'media_ready' => $mediaReadyQuery->count(),
+            'media_attention' => (clone $mediaAttentionQuery)->count(),
+            'playback_sessions_today' => PlaybackSession::query()
+                ->where('started_at', '>=', $todayStart)
+                ->where('started_at', '<', $todayEnd)
+                ->count(),
             'financial_anomalies' => Schema::hasTable('financial_anomalies')
                 ? FinancialAnomaly::query()->where('status', FinancialAnomaly::STATUS_OPEN)->count()
                 : 0,
@@ -162,17 +194,8 @@ class ProductOperationsController extends Controller
                 ->get()
             : collect();
 
-        $mediaAttention = Lesson::query()
+        $mediaAttention = (clone $mediaAttentionQuery)
             ->with(['course:id,name_ar,name_en', 'mediaState'])
-            ->where(function ($query) use ($hasIntegrityState): void {
-                $query->whereDoesntHave('mediaState')
-                    ->orWhereHas('mediaState', function ($state) use ($hasIntegrityState): void {
-                        $state->where('status', '<>', 'ready');
-                        if ($hasIntegrityState) {
-                            $state->orWhereIn('integrity_status', ['attention', 'quarantined']);
-                        }
-                    });
-            })
             ->orderByDesc('updated_at')
             ->limit(20)
             ->get();
@@ -201,12 +224,132 @@ class ProductOperationsController extends Controller
         $mediaReconcileStatus = $operationsReadiness->mediaReconcileStatus();
         $backupReadiness = $operationsReadiness->backupReadiness();
         $featureFlags = $productFeatureFlags->operationalSnapshot();
+        $providerEvidence = $providerEvidenceService->report();
+        $runtime = $operationalRuntime->snapshot();
+        $operationalIncidents = Schema::hasTable('operational_incidents')
+            ? OperationalIncident::query()
+                ->where('status', OperationalIncident::STATUS_OPEN)
+                ->orderByRaw("CASE WHEN severity = 'critical' THEN 0 ELSE 1 END")
+                ->orderBy('first_seen_at')
+                ->limit(50)
+                ->get()
+            : collect();
 
         return view('admin.product_operations', compact(
             'courses', 'settings', 'readiness', 'counts', 'finance', 'capabilityReport', 'mediaAttention',
             'playbackOperations', 'mediaReconcileStatus', 'backupReadiness', 'featureFlags',
-            'financialAnomalies', 'paymentChannelReport', 'storeNotificationReviews'
+            'financialAnomalies', 'paymentChannelReport', 'storeNotificationReviews', 'providerEvidence',
+            'runtime', 'operationalIncidents'
         ));
+    }
+
+    public function retryOutbox(Request $request, OutboxEvent $outboxEvent): RedirectResponse
+    {
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'min:8', 'max:190'],
+        ]);
+        $replayed = false;
+        DB::transaction(function () use ($outboxEvent, &$replayed): void {
+            $event = OutboxEvent::query()->lockForUpdate()->findOrFail($outboxEvent->id);
+            abort_unless($event->status === OutboxEvent::STATUS_FAILED, 409);
+            WebhookDelivery::query()
+                ->where('outbox_event_id', $event->id)
+                ->where('status', WebhookDelivery::STATUS_FAILED)
+                ->update([
+                    'status' => WebhookDelivery::STATUS_PENDING,
+                    'available_at' => now(),
+                    'response_code' => null,
+                    'error_fingerprint' => null,
+                    'updated_at' => now(),
+                ]);
+            $event->forceFill([
+                'status' => OutboxEvent::STATUS_PENDING,
+                'available_at' => now(),
+                'dispatched_at' => null,
+                'locked_at' => null,
+                'delivered_at' => null,
+                'last_error_fingerprint' => null,
+            ])->save();
+            $replayed = true;
+            DB::afterCommit(static function () use ($event): void {
+                try {
+                    DeliverOutboxEvent::dispatch($event->id)
+                        ->onQueue((string) config('webhooks.queue', 'webhooks'));
+                    OutboxEvent::query()->whereKey($event->id)->update([
+                        'dispatched_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                } catch (\Throwable $exception) {
+                    Log::warning('Manual outbox replay remains pending after dispatch failure.', [
+                        'outbox_event_id' => $event->id,
+                        'exception' => $exception::class,
+                    ]);
+                }
+            });
+        }, 3);
+
+        Log::warning('Administrator replayed a failed outbox event.', [
+            'outbox_event_id' => $outboxEvent->id,
+            'actor_id' => $request->user()?->getAuthIdentifier(),
+            'reason' => trim((string) $validated['reason']),
+            'replayed' => $replayed,
+        ]);
+
+        return back()->with('success', 'أُعيد الحدث إلى الطابور بنفس هويته دون إنشاء حدث مكرر');
+    }
+
+    public function skipOutbox(Request $request, OutboxEvent $outboxEvent): RedirectResponse
+    {
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'min:8', 'max:190'],
+        ]);
+
+        DB::transaction(function () use ($outboxEvent): void {
+            $event = OutboxEvent::query()->lockForUpdate()->findOrFail($outboxEvent->id);
+            abort_unless($event->status === OutboxEvent::STATUS_FAILED, 409);
+            $event->forceFill([
+                'status' => OutboxEvent::STATUS_SKIPPED,
+                'available_at' => null,
+                'dispatched_at' => null,
+                'locked_at' => null,
+                'delivered_at' => null,
+            ])->save();
+        }, 3);
+
+        Log::critical('Administrator skipped a poison outbox event.', [
+            'outbox_event_id' => $outboxEvent->id,
+            'topic' => $outboxEvent->topic,
+            'aggregate_type' => $outboxEvent->aggregate_type,
+            'aggregate_id' => $outboxEvent->aggregate_id,
+            'actor_id' => $request->user()?->getAuthIdentifier(),
+            'reason' => trim((string) $validated['reason']),
+        ]);
+
+        return back()->with('success', 'تم تجاوز الحدث الفاشل بقرار موثق وسيستكمل الطابور ما بعده');
+    }
+
+    public function acknowledgeFailedJob(Request $request, int $failedJob): RedirectResponse
+    {
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'min:8', 'max:190'],
+        ]);
+        abort_unless(Schema::hasTable('failed_jobs'), 404);
+        $job = DB::table('failed_jobs')
+            ->where('id', $failedJob)
+            ->first(['id', 'queue', 'failed_at']);
+        abort_unless($job, 404);
+
+        $deleted = DB::table('failed_jobs')->where('id', $failedJob)->delete();
+        abort_unless($deleted === 1, 409);
+        Log::warning('Administrator acknowledged a dead-letter job without replay.', [
+            'failed_job_id' => (int) $job->id,
+            'queue' => (string) $job->queue,
+            'failed_at' => $job->failed_at,
+            'actor_id' => $request->user()?->getAuthIdentifier(),
+            'reason' => trim((string) $validated['reason']),
+        ]);
+
+        return back()->with('success', 'أُغلقت المهمة الفاشلة بعد مراجعتها دون إعادة تنفيذها');
     }
 
     public function updateFeature(Request $request, string $feature): RedirectResponse
@@ -218,9 +361,13 @@ class ProductOperationsController extends Controller
             'enabled' => ['required', 'boolean'],
             'rollout_percentage' => ['required', 'integer', 'min:0', 'max:100'],
             'reason' => ['required', 'string', 'min:8', 'max:255'],
-            'expires_at' => ['nullable', 'date', 'after:now'],
+            'expires_at' => ['nullable', 'date'],
         ]);
         $administrator = $request->user();
+        $expiresAt = BusinessClock::localInputToUtc($validated['expires_at'] ?? null);
+        if ($expiresAt !== null && !$expiresAt->isAfter(BusinessClock::utcNow())) {
+            return back()->withInput()->with('error', 'وقت انتهاء الميزة يجب أن يكون في المستقبل');
+        }
         $owner = $administrator?->email
             ?: 'admin:'.(string) ($administrator?->getAuthIdentifier() ?? 'unknown');
 
@@ -231,7 +378,7 @@ class ProductOperationsController extends Controller
                 'rollout_percentage' => (int) $validated['rollout_percentage'],
                 'owner' => $owner,
                 'reason' => trim((string) $validated['reason']),
-                'expires_at' => $validated['expires_at'] ?? null,
+                'expires_at' => $expiresAt,
             ]
         );
 

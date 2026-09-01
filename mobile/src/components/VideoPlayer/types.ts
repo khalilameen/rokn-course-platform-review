@@ -11,8 +11,16 @@ export interface CourseAttachment {
   title: string;
   url: string;
   fileType?: string;
+  mimeType?: string;
   fileSize?: string;
+  fileSizeBytes?: number;
+  downloadVersion?: string;
+  external?: boolean;
   platform: AttachmentPlatform;
+  courseId?: string;
+  moduleId?: string;
+  temporary?: boolean;
+  expiresAt?: string;
 }
 
 export interface CourseReel {
@@ -50,6 +58,25 @@ export type ProjectStatus =
   | 'passed'
   | 'needs_retry';
 
+export interface ProjectFeedbackMessage {
+  id: string;
+  clientRequestId?: string;
+  role: 'assistant' | 'user';
+  status: 'queued' | 'sent' | 'streaming' | 'completed' | 'failed' | 'cancelled';
+  errorCode?: string;
+  text?: string;
+  createdAt?: string;
+}
+
+export interface ProjectFeedbackThread {
+  id: string;
+  feedbackLevel: 'report' | 'enhanced';
+  canReply: boolean;
+  status: string;
+  remainingMessages: number;
+  messages: ProjectFeedbackMessage[];
+}
+
 export interface CourseProject {
   id: string;
   sectionId: string;
@@ -59,16 +86,33 @@ export interface CourseProject {
   status: ProjectStatus;
   isGraduationProject: boolean;
   attachments: CourseAttachment[];
+  feedbackLevel?: 'pass_only' | 'report' | 'enhanced';
+  reportEnabled?: boolean;
+  feedbackThread?: ProjectFeedbackThread;
+}
+
+export interface CourseQuiz {
+  id: string;
+  sectionId: string;
+  moduleId: string;
+  title: string;
+  description?: string;
+  timeMinutes?: number;
+  isLocked: boolean;
+  passed: boolean;
+  scorePercentage?: number;
 }
 
 export interface CourseLearningModule {
   id: string;
   title: string;
+  /** Legacy/demo metadata; production modules intentionally render the title only. */
   description?: string;
   order: number;
   isLocked: boolean;
   attachments: CourseAttachment[];
   reels: CourseReel[];
+  quizzes?: CourseQuiz[];
   project?: CourseProject;
 }
 
@@ -78,7 +122,7 @@ export interface CourseAttachmentPrompt {
   title: string;
   body: string;
   buttonText: string;
-  frequency: 'once_per_module';
+  frequency: 'once_per_course' | 'once_per_module';
 }
 
 export interface CourseLearningData {
@@ -94,6 +138,8 @@ export interface CourseLearningData {
   chatAvailable?: boolean;
   /** Explicit false keeps certificate generation server- and client-locked. */
   certificateAvailable?: boolean;
+  /** The purchased/granted plan includes certificate issuance after completion. */
+  certificateIncluded?: boolean;
   /** Dashboard-controlled discovery prompt; file URLs remain module scoped. */
   attachmentPrompt?: CourseAttachmentPrompt;
 }
@@ -110,6 +156,12 @@ export type CourseFeedItem =
       type: 'project';
       moduleId: string;
       project: CourseProject;
+    }
+  | {
+      key: string;
+      type: 'quiz';
+      moduleId: string;
+      quiz: CourseQuiz;
     };
 
 export interface SelectedProjectFile {
@@ -125,4 +177,15 @@ export interface ChatMessage {
   text: string;
   createdAt: number;
   pending?: boolean;
+  clientRequestId?: string;
+  deliveryStatus?:
+    | 'queued'
+    | 'sent'
+    | 'streaming'
+    | 'completed'
+    | 'failed'
+    | 'cancelled';
+  errorCode?: string;
+  /** Failed/system UI copy is visible but never becomes model context. */
+  contextEligible?: boolean;
 }

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Jobs\RecordQueueHeartbeat;
+use App\Services\RecoveryCheckpointService;
+use App\Services\RecoveryEvidenceService;
 use App\Services\ProductionCapabilityService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Contracts\Console\Kernel as ConsoleKernel;
@@ -18,6 +20,10 @@ use Tests\TestCase;
 final class ProductionCapabilityTest extends TestCase
 {
     private const REQUIRED_QUEUES = ['default', 'notifications', 'ai-feedback', 'webhooks'];
+
+    private string $backupEvidencePath;
+
+    private string $restoreEvidencePath;
 
     protected function setUp(): void
     {
@@ -42,6 +48,93 @@ final class ProductionCapabilityTest extends TestCase
             $table->boolean('google_enabled')->default(false);
             $table->boolean('apple_enabled')->default(false);
             $table->timestamps();
+        });
+        foreach ([
+            'users', 'courses', 'course_modules', 'course_sections', 'lessons',
+            'course_enrollments', 'course_access_plans', 'orders',
+            'wallet_transactions', 'project_submissions', 'exam_attempts',
+            'student_notifications', 'lesson_media_states', 'playback_sessions',
+            'social_oauth_attempts', 'store_purchases',
+        ] as $criticalTable) {
+            Schema::create($criticalTable, function (Blueprint $table) use ($criticalTable): void {
+                $table->id();
+                if ($criticalTable === 'users') {
+                    $table->unsignedBigInteger('profile_revision')->default(1);
+                }
+                if ($criticalTable === 'course_access_plans') {
+                    $table->unsignedInteger('project_followup_message_limit')->default(0);
+                    $table->unsignedInteger('project_followup_token_budget')->default(0);
+                    $table->decimal('project_followup_budget_usd', 10, 4)->default(0);
+                    $table->decimal('project_followup_reserve_usd', 10, 4)->default(0);
+                }
+                if ($criticalTable === 'social_oauth_attempts') {
+                    $table->string('state_hash')->nullable();
+                    $table->string('completion_hash')->nullable();
+                    $table->string('code_challenge')->nullable();
+                    $table->text('encrypted_session_response')->nullable();
+                    $table->timestamp('completion_processing_at')->nullable();
+                }
+            });
+        }
+        Schema::create('api_tokens', function (Blueprint $table): void {
+            $table->id();
+            $table->string('token');
+            $table->unsignedBigInteger('user_id');
+            $table->timestamp('expired_at')->nullable();
+        });
+        Schema::create('social_accounts', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->string('provider');
+            $table->string('provider_user_id');
+        });
+        Schema::create('watching_logs', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('playback_session_id')->nullable();
+            $table->timestamp('playback_session_started_at')->nullable();
+            $table->unsignedBigInteger('last_playback_sequence')->nullable();
+        });
+        Schema::create('student_section_progress', function (Blueprint $table): void {
+            $table->id();
+            $table->timestamp('completed_at')->nullable();
+        });
+        foreach ([
+            'ai_entitlement_usages', 'ai_usage_events', 'project_feedback_threads',
+            'project_feedback_messages', 'course_chat_turns', 'notification_campaigns',
+            'wallet_credit_lots', 'wallet_debit_allocations', 'financial_entitlement_holds',
+            'payment_reconciliation_checkpoints', 'payment_reconciliation_findings',
+            'financial_anomalies', 'coupon_redemptions', 'store_notification_events',
+            'user_whatsapp_connections', 'whatsapp_link_tokens', 'product_feature_flags',
+            'admin_audit_logs', 'operational_incidents',
+        ] as $launchTable) {
+            Schema::create($launchTable, fn (Blueprint $table) => $table->id());
+        }
+        Schema::create('app_versions', function (Blueprint $table): void {
+            $table->id();
+            $table->string('platform');
+            $table->string('distribution_channel')->nullable();
+            $table->string('version_name');
+            $table->unsignedInteger('version_code')->nullable();
+            $table->unsignedInteger('build_number')->nullable();
+            $table->boolean('is_force_update')->default(false);
+            $table->boolean('is_active')->default(true);
+            $table->string('download_url')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('recovery_markers', function (Blueprint $table): void {
+            $table->id();
+            $table->string('scope')->unique();
+            $table->uuid('generation');
+            $table->string('encryption_key_id');
+            $table->text('encrypted_probe');
+            $table->string('probe_hash', 64);
+            $table->timestamp('checkpoint_at')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::table('packages', function (Blueprint $table): void {
+            $table->boolean('is_active')->default(true);
+            $table->boolean('direct_enabled')->default(true);
         });
 
         DB::table('settings')->insert([
@@ -127,7 +220,25 @@ final class ProductionCapabilityTest extends TestCase
             'operations.queue_heartbeat_required_queues' => self::REQUIRED_QUEUES,
             'operations.queue_heartbeat_ttl_seconds' => 600,
             'operations.queue_heartbeat_max_age_seconds' => 180,
+            'operations.recovery_encryption_key_id' => 'production-key-v1',
+            'operations.recovery_evidence_signing_key' => str_repeat('e', 48),
+            'mobile_contract.launch_channels' => ['direct'],
         ]);
+
+        DB::table('app_versions')->insert([
+            'platform' => 'android',
+            'distribution_channel' => 'direct',
+            'version_name' => '1.0.0',
+            'version_code' => 1,
+            'build_number' => null,
+            'is_force_update' => false,
+            'is_active' => true,
+            'download_url' => 'https://rokn.app/downloads/rokn-1.apk',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->prepareRecoveryEvidence();
 
         $this->clearQueueHeartbeats();
     }
@@ -135,9 +246,60 @@ final class ProductionCapabilityTest extends TestCase
     protected function tearDown(): void
     {
         $this->clearQueueHeartbeats();
+        foreach ([
+            'recovery_markers', 'app_versions', 'operational_incidents', 'admin_audit_logs',
+            'product_feature_flags', 'whatsapp_link_tokens', 'user_whatsapp_connections',
+            'store_notification_events', 'coupon_redemptions', 'financial_anomalies',
+            'payment_reconciliation_findings', 'payment_reconciliation_checkpoints',
+            'financial_entitlement_holds', 'wallet_debit_allocations', 'wallet_credit_lots',
+            'notification_campaigns', 'course_chat_turns', 'project_feedback_messages',
+            'project_feedback_threads', 'ai_usage_events', 'ai_entitlement_usages',
+            'student_section_progress', 'watching_logs', 'social_accounts', 'api_tokens',
+            'store_purchases', 'social_oauth_attempts', 'playback_sessions',
+            'lesson_media_states', 'student_notifications', 'exam_attempts',
+            'project_submissions', 'wallet_transactions', 'orders',
+            'course_access_plans', 'course_enrollments', 'lessons',
+            'course_sections', 'course_modules', 'courses', 'users',
+        ] as $criticalTable) {
+            Schema::dropIfExists($criticalTable);
+        }
         Schema::dropIfExists('settings');
         Schema::dropIfExists('packages');
+        @unlink($this->backupEvidencePath);
+        @unlink($this->restoreEvidencePath);
         parent::tearDown();
+    }
+
+    private function prepareRecoveryEvidence(): void
+    {
+        $directory = storage_path('framework/testing/production-capability');
+        $suffix = bin2hex(random_bytes(6));
+        $this->backupEvidencePath = $directory."/backup-{$suffix}.json";
+        $this->restoreEvidencePath = $directory."/restore-{$suffix}.json";
+        config([
+            'operations.backup_evidence_path' => $this->backupEvidencePath,
+            'operations.recovery_evidence_path' => $this->restoreEvidencePath,
+        ]);
+
+        $marker = app(RecoveryCheckpointService::class)->checkpoint();
+        $common = [
+            'marker_generation' => $marker['generation'],
+            'encryption_key_id' => 'production-key-v1',
+        ];
+        $evidence = app(RecoveryEvidenceService::class);
+        $evidence->write($this->backupEvidencePath, $common + [
+            'snapshot_at' => now()->toIso8601String(),
+            'rpo_seconds' => 30,
+            'provider' => 'test',
+        ]);
+        $evidence->write($this->restoreEvidencePath, $common + [
+            'verified_at' => now()->toIso8601String(),
+            'rto_seconds' => 30,
+            'pending_migrations' => 0,
+            'financial_issues' => 0,
+            'missing_objects' => 0,
+            'orphan_records' => 0,
+        ]);
     }
 
     public function test_default_queue_heartbeat_alone_cannot_make_launch_ready(): void

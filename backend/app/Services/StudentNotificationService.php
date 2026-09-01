@@ -19,6 +19,10 @@ class StudentNotificationService
     public const TYPE_COINS_CLAIMED = 'coins_claimed';
     public const TYPE_PACKAGE_PURCHASED = 'package_purchased';
     public const TYPE_COURSE_COMPLETED = 'course_completed';
+    public const TYPE_CERTIFICATE_READY = 'certificate_ready';
+    public const TYPE_INSTITUTIONAL_GRANT = 'institutional_grant';
+    public const TYPE_WHATSAPP_CONNECTED = 'whatsapp_connected';
+    public const TYPE_SUPPORT_CASE_UPDATE = 'support_case_update';
 
     /**
      * Create a StudentNotification for the user and send FCM push.
@@ -32,7 +36,7 @@ class StudentNotificationService
      * @param string|null $link
      * @param string|null $notifiableType
      * @param int|null $notifiableId
-     * @return StudentNotification
+     * @return StudentNotification|null Null when the dashboard disabled this automated template.
      */
     public static function notifyUser(
         User $user,
@@ -44,8 +48,26 @@ class StudentNotificationService
         ?string $link = null,
         ?string $notifiableType = null,
         ?int $notifiableId = null,
-        ?string $deliveryKey = null
-    ): StudentNotification {
+        ?string $deliveryKey = null,
+        array $templateVariables = [],
+        ?string $imageUrl = null
+    ): ?StudentNotification {
+        $copy = app(EngagementMessageService::class)->notificationPayload(
+            $type,
+            $templateVariables,
+            [
+                'title_ar' => $titleAr,
+                'title_en' => $titleEn,
+                'message_ar' => $messageAr,
+                'message_en' => $messageEn,
+                'action_label_ar' => null,
+                'action_label_en' => null,
+                'image_url' => $imageUrl,
+            ]
+        );
+        if ($copy === null) {
+            return null;
+        }
         $deliveryKey = self::normalizeDeliveryKey($deliveryKey ?: (string) Str::uuid());
         $identity = [
             'user_id' => $user->id,
@@ -56,11 +78,14 @@ class StudentNotificationService
                 'notification_type' => $type,
                 'notifiable_type' => $notifiableType,
                 'notifiable_id' => $notifiableId,
-                'title_ar' => $titleAr,
-                'title_en' => $titleEn,
-                'message_ar' => $messageAr,
-                'message_en' => $messageEn,
-                'link' => $link,
+                'title_ar' => $copy['title_ar'],
+                'title_en' => $copy['title_en'],
+                'message_ar' => $copy['message_ar'],
+                'message_en' => $copy['message_en'],
+                'link' => $link ?: ($copy['template_link'] ?? null),
+                'image_url' => $imageUrl ?: ($copy['image_url'] ?? null),
+                'action_label_ar' => $copy['action_label_ar'] ?? null,
+                'action_label_en' => $copy['action_label_en'] ?? null,
                 'is_read' => false,
             ]);
         } catch (QueryException $exception) {
@@ -191,21 +216,25 @@ class StudentNotificationService
         ?int $methodId
     ): void
     {
-        $copy = app(EngagementMessageService::class)->copy(
+        $copy = app(EngagementMessageService::class)->notificationPayload(
             'welcome_bonus_received',
             ['coins' => $coinsAmount],
             [
                 'title_ar' => 'وصلت هديتك',
                 'title_en' => 'Your balance is ready',
-                'message_ar' => 'أضفنا ' . self::arabicDigits($coinsAmount)
-                    . " عملة ركن إلى محفظتك\nاستخدمها داخل التطبيق",
-                'message_en' => 'We added ' . $coinsAmount
-                    . ' Rokn coins to your wallet. They are in-app credits, not cash.',
+                'message_ar' => self::arabicDigits($coinsAmount)
+                    . ' عملة ركن في محفظتك',
+                'message_en' => $coinsAmount . ' Rokn coins are in your wallet',
+                'action_label_ar' => 'افتح المحفظة',
+                'action_label_en' => 'View balance',
             ]
         );
+        if ($copy === null) {
+            return;
+        }
 
-        // title_en is a stable identity for this one-time notification. The
-        // surrounding user lock prevents concurrent first-login duplicates.
+        // The delivery key is the stable identity for this one-time receipt.
+        // The surrounding user lock prevents concurrent first-login duplicates.
         $notification = StudentNotification::firstOrCreate(
             [
                 'user_id' => $user->id,
@@ -219,7 +248,10 @@ class StudentNotificationService
                 'title_en' => $copy['title_en'],
                 'message_ar' => $copy['message_ar'],
                 'message_en' => $copy['message_en'],
-                'link' => null,
+                'link' => $copy['template_link'] ?? null,
+                'image_url' => $copy['image_url'] ?? null,
+                'action_label_ar' => $copy['action_label_ar'] ?? null,
+                'action_label_en' => $copy['action_label_en'] ?? null,
                 'is_read' => false,
             ]
         );

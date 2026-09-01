@@ -21,6 +21,23 @@ Route::get('/apple-app-site-association', [\App\Http\Controllers\AppAssociationC
     ->name('app-association.apple.root');
 
 Route::get('/', [\App\Http\Controllers\LandingPageController::class, 'index'])->name('landing');
+Route::get('/profile', \App\Http\Controllers\AppLinkFallbackController::class)
+    ->name('app-link.profile-fallback');
+Route::get('/wallet', \App\Http\Controllers\AppLinkFallbackController::class)
+    ->name('app-link.wallet-fallback');
+Route::get('/support/{case}', \App\Http\Controllers\AppLinkFallbackController::class)
+    ->where('case', '[0-9A-HJKMNP-TV-Z]{26}')
+    ->name('app-link.support-fallback');
+foreach (['course', 'courses'] as $coursePrefix) {
+    Route::get("/{$coursePrefix}/{course}", \App\Http\Controllers\AppLinkFallbackController::class)
+        ->whereNumber('course');
+    Route::get("/{$coursePrefix}/{course}/watch/{reel?}", \App\Http\Controllers\AppLinkFallbackController::class)
+        ->whereNumber('course')
+        ->whereNumber('reel');
+    Route::get("/{$coursePrefix}/{course}/lesson/{lesson}", \App\Http\Controllers\AppLinkFallbackController::class)
+        ->whereNumber('course')
+        ->whereNumber('lesson');
+}
 Route::get('/about', [\App\Http\Controllers\StaticPageController::class, 'about'])->name('about');
 Route::get('/contact', [\App\Http\Controllers\StaticPageController::class, 'contact'])->name('contact');
 Route::get('/privacy-policy', [\App\Http\Controllers\StaticPageController::class, 'privacy'])->name('privacy');
@@ -32,11 +49,21 @@ Route::post('/account-deletion', [\App\Http\Controllers\AccountDeletionRequestCo
     ->middleware('throttle:5,1')
     ->name('account-deletion.store');
 
+Route::get('/c/{publicId}', [\App\Http\Controllers\PublicCertificateController::class, 'show'])
+    ->whereUuid('publicId')
+    ->middleware('throttle:60,1')
+    ->name('certificate.public');
+Route::get('/c/{publicId}/artifact', [\App\Http\Controllers\PublicCertificateController::class, 'artifact'])
+    ->whereUuid('publicId')
+    ->middleware('throttle:60,1')
+    ->name('certificate.artifact');
 Route::get('/@{slug}', [\App\Http\Controllers\PublicPortfolioController::class, 'show'])
     ->where('slug', '[a-z0-9-]+')
+    ->middleware('throttle:60,1')
     ->name('portfolio.public');
 Route::get('/p/{slug}', [\App\Http\Controllers\PublicPortfolioController::class, 'show'])
     ->where('slug', '[a-z0-9-]+')
+    ->middleware('throttle:60,1')
     ->name('portfolio.public.legacy');
 
 // Retire the legacy numeric profile deep link without resolving a User row.
@@ -66,9 +93,17 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
     Route::get('/', 'HomeController@index')->name('dashboard');
     Route::get('product-operations', 'ProductOperationsController@index')
         ->middleware('admin.only')->name('product-operations.index');
+    Route::get('product-analytics', 'ProductAnalyticsController@index')
+        ->middleware('admin.only')->name('product-analytics.index');
     Route::post('product-operations/features/{feature}', 'ProductOperationsController@updateFeature')
         ->whereIn('feature', ['checkout', 'playback', 'project_uploads', 'ai_chat'])
         ->middleware('admin.only')->name('product-operations.features.update');
+    Route::post('product-operations/outbox/{outboxEvent}/retry', 'ProductOperationsController@retryOutbox')
+        ->whereNumber('outboxEvent')->middleware('admin.only')->name('product-operations.outbox.retry');
+    Route::post('product-operations/outbox/{outboxEvent}/skip', 'ProductOperationsController@skipOutbox')
+        ->whereNumber('outboxEvent')->middleware('admin.only')->name('product-operations.outbox.skip');
+    Route::post('product-operations/failed-jobs/{failedJob}/acknowledge', 'ProductOperationsController@acknowledgeFailedJob')
+        ->whereNumber('failedJob')->middleware('admin.only')->name('product-operations.failed-jobs.acknowledge');
     Route::get('product-operations/playback', 'PlaybackOperationsController@index')
         ->middleware('admin.only')->name('playback-operations.index');
     Route::post('product-operations/playback/{playbackSession}/terminate-stale', 'PlaybackOperationsController@terminateStale')
@@ -79,9 +114,12 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
         ->middleware('admin.only')->name('user-sessions.index');
     Route::delete('user-sessions/{sessionId}', 'UserSessionController@destroy')
         ->whereUuid('sessionId')->middleware('admin.only')->name('user-sessions.destroy');
+    Route::get('feedback/export', 'FeedbackController@export')->middleware('admin.only')->name('feedback.export');
     Route::get('feedback', 'FeedbackController@index')->middleware('admin.only')->name('feedback.index');
     Route::get('feedback/{feedback}', 'FeedbackController@show')->middleware('admin.only')->name('feedback.show');
     Route::patch('feedback/{feedback}', 'FeedbackController@update')->middleware('admin.only')->name('feedback.update');
+    Route::post('feedback/{feedback}/messages', 'FeedbackController@message')->middleware(['admin.only', 'admin.audit'])->name('feedback.message');
+    Route::post('feedback/{feedback}/compensate', 'FeedbackController@compensate')->middleware(['admin.only', 'admin.audit'])->name('feedback.compensate');
     Route::get('feedback/{feedback}/attachments/{attachment}', 'FeedbackController@attachment')->middleware('admin.only')->name('feedback.attachment');
     Route::delete('feedback/{feedback}', 'FeedbackController@destroy')->middleware('admin.only')->name('feedback.destroy');
 
@@ -98,17 +136,23 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
     // Deleting a commercial shell remains administrator-only.
     Route::get('courses/{course}/commercial-report.csv', 'CourseController@exportCommercialReport')
         ->middleware('admin.only')->name('courses.commercial-report.export');
+    Route::post('courses/{courseId}/restore', 'CourseController@restore')
+        ->whereNumber('courseId')->middleware('admin.only')->name('courses.restore');
     Route::resource('courses', 'CourseController')
         ->only(['create', 'store', 'edit', 'update']);
     Route::resource('courses', 'CourseController')
         ->only(['destroy'])
         ->middleware('admin.only');
     Route::resource('courses', 'CourseController')->only(['index', 'show']);
+    Route::post('courses/{course}/media-health/probe', 'MediaHealthController@probeCourse')
+        ->name('courses.media-health.probe');
 
     // Course Sections routes
     Route::post('courses/{course}/sections/reorder', 'CourseSectionController@reorder')->name('courses.sections.reorder');
-    Route::post('courses/{course}/sections/auto-save-quiz', 'CourseSectionController@autoSaveQuiz')->name('courses.sections.autoSaveQuiz');
-    Route::post('courses/{course}/quiz-question/delete', 'CourseSectionController@deleteQuizQuestion')->name('courses.sections.deleteQuizQuestion');
+    Route::post('courses/{course}/sections/video-uploads', 'CourseSectionVideoUploadController@store')
+        ->middleware('throttle:10,1')->name('courses.sections.video-uploads.store');
+    Route::post('courses/{course}/sections/video-uploads/renew', 'CourseSectionVideoUploadController@renew')
+        ->middleware('throttle:60,1')->name('courses.sections.video-uploads.renew');
     Route::resource('courses.sections', 'CourseSectionController');
 
     // Course Modules routes
@@ -121,17 +165,12 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
     Route::post('courses/{course}/pdfs/reorder', 'CoursePdfController@reorder')->name('courses.pdfs.reorder');
     Route::post('courses/{course}/pdfs/{pdf}/toggle-status', 'CoursePdfController@toggleStatus')->name('courses.pdfs.toggle-status');
     Route::get('courses/{course}/pdfs/{pdf}/preview', 'CoursePdfController@preview')->name('courses.pdfs.preview');
-    Route::resource('courses.pdfs', 'CoursePdfController');
-
-    Route::post('quizzes', 'QuizController@store');
+    Route::resource('courses.pdfs', 'CoursePdfController')->except(['show']);
 
     Route::post('quizzes/{quiz}/copy', 'QuizController@copy')->name('quizzes.copy');
 
     Route::resource('quizzes', 'QuizController')->except(['show']);
 
-    Route::post('random-quizzes', 'RandomQuizController@store');
-
-    Route::resource('random-quizzes', 'RandomQuizController')->except(['show']);
 
     // Legacy standalone lessons are read-only redirects. All lesson mutations
     // must go through the course-section workflow, which owns ordering,
@@ -144,11 +183,13 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
     Route::resource('questions', 'QuestionController');
 
     // App Versions routes
-    Route::resource('app-versions', 'AppVersionController')->middleware('admin.only');
+    Route::resource('app-versions', 'AppVersionController')->except(['show'])->middleware('admin.only');
     Route::post('app-versions/{id}/toggle-active', 'AppVersionController@toggleActive')->middleware('admin.only')->name('app-versions.toggle-active');
 
     // Design Settings
-    Route::resource('design-settings', 'DesignSettingController')->middleware('admin.only');
+    Route::resource('design-settings', 'DesignSettingController')
+        ->only(['index', 'store'])
+        ->middleware('admin.only');
 
     Route::post('contacts/{contact}/processing', 'ContactsController@markProcessing')
         ->middleware('admin.only')->name('contacts.processing');
@@ -156,10 +197,15 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
         ->middleware('admin.only')->name('contacts.read');
     Route::post('contacts/{contact}/close-deletion-request', 'ContactsController@closeDeletionRequest')->middleware('admin.only')
         ->name('contacts.close-deletion-request');
+    Route::post('contacts/{contact}/execute-account-deletion', 'ContactsController@executeAccountDeletion')
+        ->middleware(['admin.only', 'throttle:6,1'])
+        ->name('contacts.execute-account-deletion');
     Route::resource('contacts', 'ContactsController', ['only' => ['index', 'show']])->middleware('admin.only');
     Route::delete('contacts/{contact}', 'ContactsController@destroy')->middleware('admin.only')->name('contacts.destroy');
 
-    Route::resource('admin_notifications', 'AdminNotificationsController')->middleware('admin.only');
+    Route::resource('admin_notifications', 'AdminNotificationsController')
+        ->except(['show'])
+        ->middleware('admin.only');
     Route::resource('categories', 'CategoryController')
         ->only(['create', 'store', 'edit', 'update', 'destroy'])
         ->middleware('admin.only');
@@ -167,7 +213,7 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
     Route::resource('grades', 'GradeController')
         ->only(['create', 'store', 'edit', 'update', 'destroy'])
         ->middleware('admin.only');
-    Route::resource('grades', 'GradeController')->only(['index', 'show']);
+    Route::resource('grades', 'GradeController')->only(['index']);
     Route::get('grades/{grade}/courses', 'GradeController@courses')->name('grades.courses');
     Route::resource('coupons', 'CouponController')->except(['show'])->middleware('admin.only');
 
@@ -175,7 +221,7 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
     Route::get('course-codes/get-lessons', 'CourseCodeController@getLessons')->middleware('admin.only')->name('course-codes.get-lessons');
     Route::get('course-codes/export-pdf', 'CourseCodeController@exportToPdf')->middleware('admin.only')->name('course-codes.export-pdf');
     Route::get('course-codes/export', 'CourseCodeController@export')->middleware('admin.only')->name('course-codes.export');
-    Route::post('course-codes/bulk-action', 'CourseCodeController@bulkAction')->middleware('admin.only')->name('course-codes.bulk-action');
+    Route::post('course-codes/bulk-action', 'CourseCodeController@bulkAction')->middleware(['admin.only', 'throttle:admin-bulk'])->name('course-codes.bulk-action');
     Route::resource('course-codes', 'CourseCodeController')->middleware('admin.only');
 
 
@@ -196,17 +242,19 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
 
     Route::resource('users', 'UsersController')->middleware('admin.only');
     Route::resource('packages', 'PackageController')->middleware('admin.only');
-    Route::resource('classifications', 'ClassificationController');
-    Route::resource('paths', 'PathController');
-    Route::resource('levels', 'LevelController');
-    Route::resource('coin-earning-methods', 'CoinEarningMethodController')->middleware('admin.only');
+    Route::resource('classifications', 'ClassificationController')->except(['show']);
+    Route::resource('paths', 'PathController')->except(['show']);
+    Route::resource('levels', 'LevelController')->except(['show']);
+    Route::resource('coin-earning-methods', 'CoinEarningMethodController')
+        ->except(['show'])
+        ->middleware('admin.only');
     Route::post('coin-earning-methods/{coinEarningMethod}/toggle-status', 'CoinEarningMethodController@toggleStatus')->middleware('admin.only')->name('coin-earning-methods.toggle-status');
     Route::post('coin-earning-methods-settings', 'CoinEarningMethodController@updateSettings')->middleware('admin.only')->name('coin-earning-methods.update-settings');
     Route::post('reward-rules', 'CoinEarningMethodController@storeRewardRule')->middleware('admin.only')->name('reward-rules.store');
     Route::put('reward-rules/{rewardRule}', 'CoinEarningMethodController@updateRewardRule')->middleware('admin.only')->name('reward-rules.update');
     Route::delete('reward-rules/{rewardRule}', 'CoinEarningMethodController@destroyRewardRule')->middleware('admin.only')->name('reward-rules.destroy');
     Route::name('users.deactive')->patch('users/{user}/status', 'UsersController@deactive')->middleware('admin.only');
-    Route::name('users.send_notification')->post('users/{user}/send_notification', 'UsersController@sendNotification')->middleware('admin.only');
+    Route::name('users.send_notification')->post('users/{user}/send_notification', 'UsersController@sendNotification')->middleware(['admin.only', 'throttle:admin-bulk']);
     Route::name('users.reset-device')->post('users/{user}/reset-device', 'UsersController@resetDevice')->middleware('admin.only');
 
     /* ====== Student Progress =======*/
@@ -226,8 +274,9 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
     Route::resource('orders', 'OrdersController', ['only' => ['index', 'show']])->middleware('admin.only');
     Route::patch('orders/{order}/status', 'OrdersController@updateStatus')->middleware('admin.only')->name('orders.update-status');
     Route::post('orders/{order}/financial-resolution', 'OrdersController@resolveFinancialReview')->middleware('admin.only')->name('orders.resolve-financial-review');
+    Route::post('orders/{order}/course-compensation', 'OrdersController@compensateCourse')->middleware('admin.only')->name('orders.compensate-course');
     Route::post('orders/{order}/settlement', 'OrdersController@recordSettlement')->middleware('admin.only')->name('orders.record-settlement');
-    Route::post('orders/bulk-status', 'OrdersController@bulkUpdateStatus')->middleware('admin.only')->name('orders.bulk-update-status');
+    Route::post('orders/bulk-status', 'OrdersController@bulkUpdateStatus')->middleware(['admin.only', 'throttle:admin-bulk'])->name('orders.bulk-update-status');
 
     /* ====== Payment Reconciliation Review =======*/
     Route::get('payment-reconciliation/findings', 'PaymentReconciliationFindingController@index')
@@ -245,7 +294,7 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
     /* ====== Bills =======*/
     Route::resource('bills', 'BillsController', ['only' => ['index', 'show']])->middleware('admin.only');
     Route::patch('bills/{bill}/payment-status', 'BillsController@updatePaymentStatus')->middleware('admin.only')->name('bills.update-payment-status');
-    Route::post('bills/bulk-payment-status', 'BillsController@bulkUpdatePaymentStatus')->middleware('admin.only')->name('bills.bulk-update-payment-status');
+    Route::post('bills/bulk-payment-status', 'BillsController@bulkUpdatePaymentStatus')->middleware(['admin.only', 'throttle:admin-bulk'])->name('bills.bulk-update-payment-status');
 
     /* ====== Payment Methods =======*/
     Route::resource('payment-methods', 'PaymentMethodController')->except(['show'])->middleware('admin.only');
@@ -267,15 +316,19 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
     Route::post('/settings/bunny-cleanup/{candidate}/approve', 'SettingsController@approveBunnyCleanup')
         ->middleware('admin.only')->name('settings.bunny-cleanup.approve');
     Route::post('/settings/bunny-cleanup/approve-batch', 'SettingsController@approveBunnyCleanupBatch')
-        ->middleware('admin.only')->name('settings.bunny-cleanup.approve-batch');
+        ->middleware(['admin.only', 'throttle:admin-bulk'])->name('settings.bunny-cleanup.approve-batch');
     Route::get('/student-platform', 'SettingsController@studentPlatform')->middleware('admin.only')->name('student-platform');
 
     /* ====== About =======*/
     Route::name('privacy')->get('privacy', 'AboutsController@privacy')->middleware('admin.only');
     Route::name('policy')->get('policy', 'AboutsController@policy')->middleware('admin.only');
+    Route::name('about')->get('about', 'AboutsController@about')->middleware('admin.only');
     Route::name('abouts.update')->patch('abouts/edit', 'AboutsController@update')->middleware('admin.only');
     /* ====== Send Notification =======*/
-    Route::resource('notifications', 'NotificationsController', ['only' => ['index', 'create', 'store']])->middleware('admin.only');
+    Route::resource('notifications', 'NotificationsController', ['only' => ['index', 'create']])->middleware('admin.only');
+    Route::post('notifications', 'NotificationsController@store')
+        ->middleware(['admin.only', 'throttle:admin-bulk'])
+        ->name('notifications.store');
 
 
 
@@ -293,7 +346,7 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
 // an administrator, so public password registration must never be routable.
 Auth::routes(['register' => false, 'verify' => false]);
 
-Route::get('/home', 'HomeController@index')->name('home');
+Route::get('/home', [\App\Http\Controllers\HomeController::class, 'index'])->name('home');
 
 /*
 |--------------------------------------------------------------------------
@@ -304,10 +357,10 @@ Route::get('/home', 'HomeController@index')->name('home');
 | The webhook route is excluded from CSRF in VerifyCsrfToken.php.
 */
 Route::get('/payment/callback', [\App\Http\Controllers\API\PaymentController::class, 'callback'])
-    ->middleware('throttle:kashier-callback')
+    ->middleware(['recovery.write', 'throttle:kashier-callback'])
     ->name('payment.callback');
 
 Route::post('/payment/webhook', [\App\Http\Controllers\API\PaymentController::class, 'webhook'])
-    ->middleware('throttle:kashier-webhook')
+    ->middleware(['recovery.write', 'throttle:kashier-webhook'])
     ->name('payment.webhook');
 

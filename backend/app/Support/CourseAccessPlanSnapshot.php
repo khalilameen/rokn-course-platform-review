@@ -15,8 +15,8 @@ use LogicException;
  */
 final class CourseAccessPlanSnapshot
 {
-    public const CURRENT_VERSION = 2;
-    public const SUPPORTED_VERSIONS = [1, self::CURRENT_VERSION];
+    public const CURRENT_VERSION = 3;
+    public const SUPPORTED_VERSIONS = [1, 2, self::CURRENT_VERSION];
 
     /** @var list<string> */
     private const REQUIRED_KEYS = [
@@ -69,6 +69,13 @@ final class CourseAccessPlanSnapshot
             if (!array_key_exists('sort_order', $snapshot) || (int) $snapshot['sort_order'] < 0) {
                 throw new LogicException('The access-plan snapshot requires a valid sort order.');
             }
+            if (
+                !array_key_exists('minimum_paid_coins', $snapshot)
+                || !is_numeric($snapshot['minimum_paid_coins'])
+                || (int) $snapshot['minimum_paid_coins'] < 0
+            ) {
+                throw new LogicException('The access-plan snapshot requires a valid paid-coin floor.');
+            }
             foreach ([
                 'ai_budget_usd',
                 'request_reserve_usd',
@@ -83,6 +90,43 @@ final class CourseAccessPlanSnapshot
                         "Version 2 access-plan money [{$moneyKey}] must use a fixed six-decimal string."
                     );
                 }
+            }
+        }
+        if ($version >= 3) {
+            foreach ([
+                'project_followup_message_limit',
+                'project_followup_token_budget',
+                'project_followup_budget_usd',
+                'project_followup_reserve_usd',
+            ] as $key) {
+                if (!array_key_exists($key, $snapshot)) {
+                    throw new LogicException("The access-plan snapshot is missing [{$key}].");
+                }
+            }
+            foreach (['project_followup_budget_usd', 'project_followup_reserve_usd'] as $moneyKey) {
+                if (
+                    !is_string($snapshot[$moneyKey])
+                    || preg_match('/^\d+\.\d{6}$/D', $snapshot[$moneyKey]) !== 1
+                ) {
+                    throw new LogicException(
+                        "Version 3 access-plan money [{$moneyKey}] must use a fixed six-decimal string."
+                    );
+                }
+            }
+            $enhanced = (string) $snapshot['project_feedback_level']
+                === CourseAccessPlan::FEEDBACK_ENHANCED;
+            $followupIsValid = (int) $snapshot['project_followup_message_limit'] > 0
+                && (int) $snapshot['project_followup_token_budget'] >= (int) $snapshot['max_output_tokens']
+                && (float) $snapshot['project_followup_budget_usd'] > 0
+                && (float) $snapshot['project_followup_reserve_usd'] > 0
+                && (float) $snapshot['project_followup_reserve_usd']
+                    <= (float) $snapshot['project_followup_budget_usd'];
+            $followupIsEmpty = (int) $snapshot['project_followup_message_limit'] === 0
+                && (int) $snapshot['project_followup_token_budget'] === 0
+                && (float) $snapshot['project_followup_budget_usd'] === 0.0
+                && (float) $snapshot['project_followup_reserve_usd'] === 0.0;
+            if (($enhanced && !$followupIsValid) || (!$enhanced && !$followupIsEmpty)) {
+                throw new LogicException('The access-plan snapshot contains an invalid project follow-up contract.');
             }
         }
         if ((int) $snapshot['plan_id'] !== $accessPlanId) {
@@ -117,11 +161,70 @@ final class CourseAccessPlanSnapshot
             'project_feedback_budget_usd',
             'project_feedback_reserve_usd',
             'max_output_tokens',
+            ...($version >= 3 ? [
+                'project_followup_message_limit',
+                'project_followup_token_budget',
+                'project_followup_budget_usd',
+                'project_followup_reserve_usd',
+            ] : []),
         ] as $numericKey) {
             if (!is_numeric($snapshot[$numericKey]) || (float) $snapshot[$numericKey] < 0) {
                 throw new LogicException(
                     "The access-plan snapshot contains an invalid [{$numericKey}] value."
                 );
+            }
+        }
+
+        self::assertFeatureContract($snapshot, $version);
+    }
+
+    /** @param array<string,mixed> $snapshot */
+    private static function assertFeatureContract(array $snapshot, int $version): void
+    {
+        $maxOutput = max(0, (int) $snapshot['max_output_tokens']);
+        $chatEnabled = (bool) $snapshot['chat_enabled'];
+        $chatIsValid = (int) $snapshot['chat_message_limit'] > 0
+            && (int) $snapshot['chat_token_budget'] >= $maxOutput
+            && (float) $snapshot['ai_budget_usd'] > 0
+            && (float) $snapshot['request_reserve_usd'] > 0
+            && (float) $snapshot['request_reserve_usd'] <= (float) $snapshot['ai_budget_usd'];
+        $chatIsEmpty = (int) $snapshot['chat_message_limit'] === 0
+            && (int) $snapshot['chat_token_budget'] === 0
+            && (float) $snapshot['ai_budget_usd'] === 0.0
+            && (float) $snapshot['request_reserve_usd'] === 0.0;
+        if (($chatEnabled && !$chatIsValid) || (!$chatEnabled && !$chatIsEmpty)) {
+            throw new LogicException('The access-plan snapshot contains an invalid course-chat contract.');
+        }
+
+        $feedbackLevel = (string) $snapshot['project_feedback_level'];
+        $reportEnabled = in_array(
+            $feedbackLevel,
+            [CourseAccessPlan::FEEDBACK_REPORT, CourseAccessPlan::FEEDBACK_ENHANCED],
+            true
+        );
+        $reportIsValid = (int) $snapshot['project_feedback_token_budget'] >= $maxOutput
+            && (float) $snapshot['project_feedback_budget_usd'] > 0
+            && (float) $snapshot['project_feedback_reserve_usd'] > 0
+            && (float) $snapshot['project_feedback_reserve_usd']
+                <= (float) $snapshot['project_feedback_budget_usd'];
+        $reportIsEmpty = (int) $snapshot['project_feedback_token_budget'] === 0
+            && (float) $snapshot['project_feedback_budget_usd'] === 0.0
+            && (float) $snapshot['project_feedback_reserve_usd'] === 0.0;
+        if (($reportEnabled && !$reportIsValid) || (!$reportEnabled && !$reportIsEmpty)) {
+            throw new LogicException('The access-plan snapshot contains an invalid project-report contract.');
+        }
+        if ((bool) $snapshot['project_output_enabled'] && $feedbackLevel !== CourseAccessPlan::FEEDBACK_ENHANCED) {
+            throw new LogicException('Enhanced project output requires the enhanced project contract.');
+        }
+
+        if ($version >= 2) {
+            $price = max(0, (int) $snapshot['price_coins']);
+            $minimumPaid = (int) $snapshot['minimum_paid_coins'];
+            if ($minimumPaid > $price) {
+                throw new LogicException('The access-plan paid-coin floor exceeds its price.');
+            }
+            if (($chatEnabled || $reportEnabled) && $minimumPaid <= 0) {
+                throw new LogicException('A variable-cost access plan requires a positive paid-coin floor.');
             }
         }
     }

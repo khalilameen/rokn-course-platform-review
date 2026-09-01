@@ -17,6 +17,7 @@ import type {
   CourseReel,
 } from '../../components/VideoPlayer/types';
 import {recordDemoQualifiedStudy} from '../../services/demoExperience';
+import {isLocalDemoId} from '../../config/runtime';
 import {scheduleNextLearningReminder} from '../../services/smartReminders';
 import {
   buildPlaybackEvidence,
@@ -78,6 +79,27 @@ export const useReelsProgress = ({
       );
     },
     [setCourse],
+  );
+
+  const confirmReelCompletion = useCallback(
+    async (reel: CourseReel, evidenceSave: Promise<void>): Promise<boolean> => {
+      if (!course) return false;
+      try {
+        await evidenceSave;
+        await flushPendingPlaybackPositions();
+        const completed = await markSectionComplete(course.id, reel.sectionId);
+        if (!completed) {
+          refs.completionSent.current.delete(reel.sectionId);
+          return false;
+        }
+        updateReelCompletion(reel);
+        return true;
+      } catch {
+        refs.completionSent.current.delete(reel.sectionId);
+        return false;
+      }
+    },
+    [course, refs.completionSent, updateReelCompletion],
   );
 
   const flushDemoStudy = useCallback(
@@ -163,8 +185,6 @@ export const useReelsProgress = ({
         !refs.completionSent.current.has(reel.sectionId)
       ) {
         refs.completionSent.current.add(reel.sectionId);
-        updateReelCompletion(reel);
-        maybeOfferReminders();
         const finalEvidenceSave =
           progressSave ??
           savePlaybackPosition(
@@ -176,23 +196,27 @@ export const useReelsProgress = ({
             true,
             evidence,
           );
-        void finalEvidenceSave
-          .then(flushPendingPlaybackPositions)
-          .then(() => markSectionComplete(course.id, reel.sectionId))
-          .catch(() => undefined);
-        const nextTitle = nextLearningTitle(course, reel);
-        const lastPreviewItem = feedItems[feedItems.length - 1];
-        const isLastPreviewReel =
-          previewMode &&
-          lastPreviewItem?.type === 'reel' &&
-          lastPreviewItem.reel.id === reel.id;
-        if (nextTitle && !isLastPreviewReel) {
-          scheduleNextLearningReminder({
-            nextReelTitle: nextTitle,
-            courseTitle: course.title,
-            courseId: course.id,
-          }).catch(() => undefined);
+        const completeLocally = previewMode || isLocalDemoId(course.id);
+        if (completeLocally) {
+          updateReelCompletion(reel);
         }
+        void confirmReelCompletion(reel, finalEvidenceSave).then(completed => {
+          if (!completed && !completeLocally) return;
+          maybeOfferReminders();
+          const nextTitle = nextLearningTitle(course, reel);
+          const lastPreviewItem = feedItems[feedItems.length - 1];
+          const isLastPreviewReel =
+            previewMode &&
+            lastPreviewItem?.type === 'reel' &&
+            lastPreviewItem.reel.id === reel.id;
+          if (nextTitle && !isLastPreviewReel) {
+            scheduleNextLearningReminder({
+              nextReelTitle: nextTitle,
+              courseTitle: course.title,
+              courseId: course.id,
+            }).catch(() => undefined);
+          }
+        });
       }
     },
     [
@@ -203,6 +227,7 @@ export const useReelsProgress = ({
       playbackSpeed,
       previewMode,
       refs,
+      confirmReelCompletion,
       updateReelCompletion,
     ],
   );
@@ -210,9 +235,32 @@ export const useReelsProgress = ({
   const completeAndAdvance = useCallback(
     (reel: CourseReel) => {
       if (!course) return;
-      updateReelCompletion(reel);
       flushDemoStudy(true);
-      maybeOfferReminders();
+      const completeLocally = previewMode || isLocalDemoId(course.id);
+      if (completeLocally) {
+        updateReelCompletion(reel);
+      }
+      const advance = () => {
+        maybeOfferReminders();
+        const isLastPreviewReel =
+          previewMode && currentIndex >= refs.feedLength.current - 1;
+        const nextTitle = nextLearningTitle(course, reel);
+        if (nextTitle && !isLastPreviewReel) {
+          scheduleNextLearningReminder({
+            nextReelTitle: nextTitle,
+            courseTitle: course.title,
+            courseId: course.id,
+          }).catch(() => undefined);
+        }
+        if (isLastPreviewReel) {
+          setChatVisible(false);
+          setPreviewGateVisible(true);
+          return;
+        }
+        if (autoplay) {
+          scheduleDelayedAction(() => scrollToIndex(currentIndex + 1), 280);
+        }
+      };
       if (!refs.completionSent.current.has(reel.sectionId)) {
         refs.completionSent.current.add(reel.sectionId);
         const position = Math.max(
@@ -221,7 +269,7 @@ export const useReelsProgress = ({
         );
         const duration = Math.max(position, reel.durationSeconds || 0);
         const runtime = refs.playbackRuntime.current[reel.id];
-        void savePlaybackPosition(
+        const evidenceSave = savePlaybackPosition(
           course.id,
           reel.id,
           position,
@@ -229,33 +277,18 @@ export const useReelsProgress = ({
           duration || undefined,
           true,
           buildPlaybackEvidence(reel, runtime, playbackSpeed),
-        )
-          .then(flushPendingPlaybackPositions)
-          .then(() => markSectionComplete(course.id, reel.sectionId))
-          .catch(() => undefined);
-      }
-      const isLastPreviewReel =
-        previewMode && currentIndex >= refs.feedLength.current - 1;
-      const nextTitle = nextLearningTitle(course, reel);
-      if (nextTitle && !isLastPreviewReel) {
-        scheduleNextLearningReminder({
-          nextReelTitle: nextTitle,
-          courseTitle: course.title,
-          courseId: course.id,
-        }).catch(() => undefined);
-      }
-      if (isLastPreviewReel) {
-        setChatVisible(false);
-        setPreviewGateVisible(true);
+        );
+        void confirmReelCompletion(reel, evidenceSave).then(completed => {
+          if (completed || completeLocally) advance();
+        });
         return;
       }
-      if (autoplay) {
-        scheduleDelayedAction(() => scrollToIndex(currentIndex + 1), 280);
-      }
+      if (completeLocally || reel.isCompleted) advance();
     },
     [
       autoplay,
       course,
+      confirmReelCompletion,
       currentIndex,
       flushDemoStudy,
       maybeOfferReminders,

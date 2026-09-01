@@ -33,7 +33,7 @@
                         <div class="col-md-6 mb-3"><div class="admin-detail-label">الكورس</div><div class="admin-detail-value">{{ optional($course)->title ?: 'غير متاح' }}</div></div>
                         <div class="col-md-6 mb-3"><div class="admin-detail-label">رقم المحاولة</div><div class="admin-detail-value admin-code">{{ $submission->public_id }}</div></div>
                         <div class="col-md-3 mb-3"><div class="admin-detail-label">حالة الجهد</div><div class="admin-detail-value">{{ $submission->effort_status }}</div></div>
-                        <div class="col-md-3 mb-3"><div class="admin-detail-label">وقت الإرسال</div><div class="admin-detail-value">{{ optional($submission->submitted_at)->format('Y-m-d H:i') ?: '—' }}</div></div>
+                        <div class="col-md-3 mb-3"><div class="admin-detail-label">وقت الإرسال</div><div class="admin-detail-value">{{ $submission->submitted_at ? \App\Support\BusinessClock::format($submission->submitted_at) : '—' }}</div></div>
                     </div>
 
                     <h5>النص المرسل</h5>
@@ -81,7 +81,7 @@
                 <div class="card-body">
                     <div class="admin-detail-label">مصدر القرار</div><div class="admin-detail-value mb-3">{{ $submission->review_source ?: 'لم يصدر قرار بعد' }}</div>
                     <div class="admin-detail-label">المراجع</div><div class="admin-detail-value mb-3">{{ optional($submission->reviewer)->name ?: 'مراجعة آلية / غير محدد' }}</div>
-                    <div class="admin-detail-label">وقت القرار</div><div class="admin-detail-value mb-3">{{ optional($submission->reviewed_at)->format('Y-m-d H:i:s') ?: '—' }}</div>
+                    <div class="admin-detail-label">وقت القرار</div><div class="admin-detail-value mb-3">{{ $submission->reviewed_at ? \App\Support\BusinessClock::format($submission->reviewed_at, 'Y-m-d H:i:s') : '—' }}</div>
                     <div class="admin-detail-label">النتيجة</div><div class="admin-detail-value mb-3">{{ $submission->score !== null ? $submission->score . '/100' : '—' }}</div>
                     <div class="admin-detail-label">الملاحظة المسجلة</div><div class="mb-3">{{ $submission->feedback ?: '—' }}</div>
                     @if(is_array($history) && count($history))

@@ -16,6 +16,7 @@ const TELEMETRY_HISTORY_KEY = '@rokn/client-events-history/v1';
 const MAX_TELEMETRY_EVENTS = 24;
 const MAX_DIAGNOSTIC_HISTORY = 8;
 const DIAGNOSTIC_HISTORY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const TELEMETRY_REQUEST_TIMEOUT_MS = 8_000;
 
 type ErrorContext = {
   componentStack?: string | null;
@@ -200,21 +201,14 @@ export const reportClientError = (error: Error, context: ErrorContext = {}) => {
     occurred_at: new Date(now).toISOString(),
   };
 
-  // Persist the allowlisted payload before hashing or attempting the network.
-  // A fatal handler can therefore survive an offline launch or a process exit.
   const task = (async () => {
-    await rememberDiagnostic(payload);
-    await enqueueDurableOutbox({
-      storageKey: TELEMETRY_OUTBOX_KEY,
-      id: eventId,
-      payload,
-      maxItems: MAX_TELEMETRY_EVENTS,
-    });
     const errorFingerprint = sha256Hex(fingerprintSource);
+    const durablePayload = {...payload, error_fingerprint: errorFingerprint};
+    await rememberDiagnostic(durablePayload);
     await enqueueDurableOutbox({
       storageKey: TELEMETRY_OUTBOX_KEY,
       id: eventId,
-      payload: {...payload, error_fingerprint: errorFingerprint},
+      payload: durablePayload,
       maxItems: MAX_TELEMETRY_EVENTS,
     });
     await flushOperationalTelemetry();
@@ -228,17 +222,25 @@ export const reportClientError = (error: Error, context: ErrorContext = {}) => {
 const deliverClientEvent = async (
   payload: ClientEventPayload,
 ): Promise<'ack' | 'retry' | 'drop'> => {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    TELEMETRY_REQUEST_TIMEOUT_MS,
+  );
   try {
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {'Content-Type': 'application/json', Accept: 'application/json'},
       body: JSON.stringify(payload),
+      signal: controller.signal,
     });
     const status = Number(response.status || 0);
     if (response.ok || (status >= 200 && status < 300)) return 'ack';
     return status >= 400 && status < 500 ? 'drop' : 'retry';
   } catch {
     return 'retry';
+  } finally {
+    clearTimeout(timeout);
   }
 };
 
@@ -251,6 +253,7 @@ export const flushOperationalTelemetry = () =>
   });
 
 type NativeExitEvent = {
+  event_id?: string;
   error_code?: string;
   error_fingerprint?: string;
   occurred_at?: string;
@@ -258,12 +261,17 @@ type NativeExitEvent = {
 
 export const bootstrapOperationalDiagnostics = async () => {
   const nativeDiagnostics = NativeModules?.RoknDiagnostics as
-    | {consumePendingExitEvent?: () => Promise<NativeExitEvent | null>}
+    | {
+        consumePendingExitEvent?: () => Promise<NativeExitEvent | null>;
+        acknowledgePendingExitEvent?: (eventId: string) => Promise<boolean>;
+      }
     | undefined;
   try {
     const nativeEvent = await nativeDiagnostics?.consumePendingExitEvent?.();
     if (
-      nativeEvent?.error_code &&
+      nativeEvent?.event_id &&
+      /^[0-9a-f-]{36}$/i.test(nativeEvent.event_id) &&
+      nativeEvent.error_code &&
       /^[A-Z0-9._-]{1,64}$/.test(nativeEvent.error_code) &&
       nativeEvent.error_fingerprint &&
       /^[a-f0-9]{64}$/.test(nativeEvent.error_fingerprint) &&
@@ -271,7 +279,7 @@ export const bootstrapOperationalDiagnostics = async () => {
       Number.isFinite(Date.parse(nativeEvent.occurred_at))
     ) {
       const payload: ClientEventPayload = {
-        client_event_id: Crypto.randomUUID(),
+        client_event_id: nativeEvent.event_id,
         event_name: 'app_crash',
         severity: 'fatal',
         app_version: appConfig.expo.version,
@@ -290,6 +298,9 @@ export const bootstrapOperationalDiagnostics = async () => {
         payload,
         maxItems: MAX_TELEMETRY_EVENTS,
       });
+      await nativeDiagnostics
+        ?.acknowledgePendingExitEvent?.(nativeEvent.event_id)
+        .catch(() => false);
     }
   } catch {
     // Invalid native diagnostics do not affect application startup.

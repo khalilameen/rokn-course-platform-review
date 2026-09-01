@@ -32,7 +32,7 @@ return new class extends Migration
                     continue;
                 }
 
-                DB::table('course_access_plans')->insert(array_map(
+                DB::table('course_access_plans')->insertOrIgnore(array_map(
                     static fn (array $plan): array => [
                         'course_id' => $course->id,
                         ...$plan,
@@ -54,8 +54,10 @@ return new class extends Migration
     private function definitions(int $base): array
     {
         $round = static fn (float $value): int => (int) (ceil(max(0, $value) / 50) * 50);
-        $coinValue = max(0.000001, (float) config('course_plans.net_usd_per_paid_coin', .001));
-        $safety = max(1, (float) config('course_plans.ai_cost_safety_multiplier', 2));
+        // Historical backfills must replay to the same rows even if runtime
+        // pricing configuration changes after this migration ships.
+        $coinValue = .001;
+        $safety = 2.0;
         $costToCoins = static fn (float $usd): int => max(
             50,
             $round(($usd * $safety) / $coinValue)

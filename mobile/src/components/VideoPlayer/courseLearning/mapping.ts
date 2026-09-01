@@ -1,6 +1,8 @@
-import {LOCAL_DEMO_ENABLED} from '../../../config/runtime';
+import {isLocalDemoId, LOCAL_DEMO_ENABLED} from '../../../config/runtime';
 import {publicRequest} from '../../../constants/api';
 import {getDemoCoursePlanCode} from '../../../services/demoExperience';
+import {learnerErrorMessage} from '../../../utils/errorPayload';
+import {deadlineFromServerTtl} from '../../../utils/serverClock';
 import {createDemoCourse} from '../demoCourse';
 import type {
   AttachmentPlatform,
@@ -8,8 +10,10 @@ import type {
   CourseLearningData,
   CourseLearningModule,
   CourseProject,
+  CourseQuiz,
   CourseReel,
   ProjectStatus,
+  VideoQuality,
 } from '../types';
 import {retryPendingSectionCompletions} from './playback';
 import {retryPendingProjectSubmissions} from './projects';
@@ -36,6 +40,7 @@ type CoursePayloadDto = DataRecord & {
   latest_submission?: CoursePayloadDto;
   evaluation?: CoursePayloadDto;
   user_evaluation?: CoursePayloadDto;
+  feedback_thread?: CoursePayloadDto;
   video?: CoursePayloadDto;
   module?: CoursePayloadDto;
   modules?: CoursePayloadDto[];
@@ -66,6 +71,8 @@ const mapAttachment = (
   raw: CoursePayloadDto,
   fallbackPlatform: AttachmentPlatform = 'any',
   fallbackId = 'attachment',
+  courseId?: string,
+  moduleId?: string,
 ): CourseAttachment | null => {
   const url =
     raw?.file_url || raw?.url || raw?.link || raw?.download_url || raw?.file;
@@ -73,6 +80,9 @@ const mapAttachment = (
     return null;
   }
   const rawPlatform = normalisePlatform(raw?.platform);
+  const expiresInSeconds = Number(raw?.expires_in_seconds);
+  const localExpiresAt = deadlineFromServerTtl(expiresInSeconds);
+  const fileSizeBytes = Number(raw.file_size_bytes);
   return {
     id: valueAsString(raw?.id, fallbackId),
     title: valueAsString(raw?.title || raw?.name, 'ملف مرفق'),
@@ -81,11 +91,24 @@ const mapAttachment = (
       raw.file_type || raw.type
         ? valueAsString(raw.file_type || raw.type)
         : undefined,
+    mimeType: raw.mime_type ? valueAsString(raw.mime_type) : undefined,
     fileSize:
       raw.file_size || raw.size
         ? valueAsString(raw.file_size || raw.size)
         : undefined,
+    fileSizeBytes:
+      Number.isFinite(fileSizeBytes) && fileSizeBytes > 0
+        ? fileSizeBytes
+        : undefined,
+    downloadVersion: valueAsString(raw.download_version) || undefined,
     platform: rawPlatform === 'any' ? fallbackPlatform : rawPlatform,
+    courseId,
+    moduleId,
+    temporary: valueAsBoolean(raw.download_url_is_temporary),
+    expiresAt:
+      localExpiresAt ||
+      valueAsString(raw.download_url_expires_at || raw.expires_at) ||
+      undefined,
   };
 };
 
@@ -94,10 +117,17 @@ const mapAttachments = (
   platform: AttachmentPlatform,
   fallbackLink?: string,
   moduleId?: string,
+  courseId?: string,
 ): CourseAttachment[] => {
   const attachments = asArray<CoursePayloadDto>(rawAttachments)
     .map((item, index) =>
-      mapAttachment(item, platform, `${moduleId || 'module'}-${index + 1}`),
+      mapAttachment(
+        item,
+        platform,
+        `${moduleId || 'module'}-${index + 1}`,
+        courseId,
+        moduleId,
+      ),
     )
     .filter(Boolean) as CourseAttachment[];
 
@@ -110,6 +140,9 @@ const mapAttachments = (
           : 'ملفات الوحدة',
       url: fallbackLink,
       platform,
+      courseId,
+      moduleId,
+      external: true,
     });
   }
   return attachments;
@@ -143,6 +176,7 @@ const mapProject = (
   section: CoursePayloadDto,
   moduleId: string,
   moduleAttachments: CourseAttachment[],
+  courseId: string,
 ): CourseProject => {
   const content = courseRecord(
     section.content || section.project || section.sectionable,
@@ -155,7 +189,7 @@ const mapProject = (
     content?.evaluation;
   const backendStatus = valueAsString(
     evaluation?.status || section?.status || content?.status,
-    evaluation?.passed
+    valueAsBoolean(evaluation?.passed)
       ? 'passed'
       : evaluation
       ? 'needs_retry'
@@ -164,12 +198,14 @@ const mapProject = (
   const rawStatus: ProjectStatus =
     backendStatus === 'pending' || backendStatus === 'reviewing'
       ? 'reviewing'
-      : backendStatus === 'passed' || evaluation?.can_continue === true
+      : backendStatus === 'passed' || valueAsBoolean(evaluation?.can_continue)
       ? 'passed'
       : backendStatus === 'needs_resubmission' ||
         backendStatus === 'needs_retry' ||
-        evaluation?.needs_resubmission === true
+        valueAsBoolean(evaluation?.needs_resubmission)
       ? 'needs_retry'
+      : evaluation
+      ? 'reviewing'
       : 'not_submitted';
 
   const projectAttachments = mapAttachments(
@@ -177,7 +213,77 @@ const mapProject = (
     'any',
     undefined,
     moduleId,
+    courseId,
   );
+  const allAttachments = Array.from(
+    new Map(
+      [...moduleAttachments, ...projectAttachments].map(
+        attachment =>
+          [
+            `${attachment.id}:${attachment.downloadVersion || attachment.url}`,
+            attachment,
+          ] as const,
+      ),
+    ).values(),
+  );
+  const rawThread = courseRecord(
+    evaluation?.feedback_thread || content?.feedback_thread,
+  );
+  const feedbackLevel = valueAsString(rawThread.feedback_level);
+  const rawProjectFeedback = courseRecord(content?.project_feedback);
+  const projectFeedbackLevel = valueAsString(
+    rawProjectFeedback.level,
+    'pass_only',
+  );
+  const feedbackThread =
+    rawThread.id && ['report', 'enhanced'].includes(feedbackLevel)
+      ? {
+          id: valueAsString(rawThread.id),
+          feedbackLevel: feedbackLevel as 'report' | 'enhanced',
+          canReply: valueAsBoolean(rawThread.can_reply),
+          status: valueAsString(rawThread.status, 'ready'),
+          remainingMessages: Math.max(
+            0,
+            Number(rawThread.remaining_messages) || 0,
+          ),
+          messages: asArray<CoursePayloadDto>(rawThread.messages).flatMap(
+            message => {
+              const role = valueAsString(message.role);
+              const status = valueAsString(message.status);
+              if (
+                !['assistant', 'user'].includes(role) ||
+                ![
+                  'queued',
+                  'sent',
+                  'streaming',
+                  'completed',
+                  'failed',
+                  'cancelled',
+                ].includes(status)
+              ) {
+                return [];
+              }
+              return [
+                {
+                  id: valueAsString(message.id),
+                  clientRequestId:
+                    valueAsString(message.client_request_id) || undefined,
+                  role: role as 'assistant' | 'user',
+                  status: status as
+                    | 'queued'
+                    | 'sent'
+                    | 'streaming'
+                    | 'completed'
+                    | 'failed'
+                    | 'cancelled',
+                  text: valueAsString(message.text) || undefined,
+                  createdAt: valueAsString(message.created_at) || undefined,
+                },
+              ];
+            },
+          ),
+        }
+      : undefined;
 
   return {
     id: valueAsString(
@@ -192,13 +298,39 @@ const mapProject = (
         content?.requirements ||
         content?.description ||
         section?.description,
-      'ارفع محاولتك العملية. المطلوب مجهود حقيقي، وليس إجابة مثالية.',
+      'ارفع محاولتك العملية\nالمطلوب مجهود حقيقي لا إجابة مثالية',
     ),
     status: rawStatus,
-    isGraduationProject: Boolean(
+    isGraduationProject: valueAsBoolean(
       content?.is_graduation_project || section?.is_graduation_project,
     ),
-    attachments: [...moduleAttachments, ...projectAttachments],
+    attachments: allAttachments,
+    feedbackLevel: ['report', 'enhanced'].includes(projectFeedbackLevel)
+      ? (projectFeedbackLevel as 'report' | 'enhanced')
+      : 'pass_only',
+    reportEnabled: valueAsBoolean(rawProjectFeedback.report_enabled),
+    feedbackThread,
+  };
+};
+
+const mapQuiz = (section: CoursePayloadDto, moduleId: string): CourseQuiz => {
+  const content = courseRecord(section.content || section.sectionable);
+  const timeMinutes = Number(content.time_minutes);
+  const scorePercentage = Number(content.score_percentage);
+  return {
+    id: valueAsString(content.id || section.quiz_id || section.id),
+    sectionId: valueAsString(section.id),
+    moduleId,
+    title: valueAsString(section.title || content.title, 'اختبار الوحدة'),
+    description:
+      valueAsString(content.description || section.description) || undefined,
+    timeMinutes:
+      Number.isFinite(timeMinutes) && timeMinutes > 0 ? timeMinutes : undefined,
+    isLocked: valueAsBoolean(section.is_locked),
+    passed: valueAsBoolean(content.is_passed, section.is_completed),
+    scorePercentage: Number.isFinite(scorePercentage)
+      ? scorePercentage
+      : undefined,
   };
 };
 
@@ -259,7 +391,19 @@ export const mapCoursePayload = (
     rawCourse?.entitlement?.certificate_available,
     rawCourse?.entitlement?.certificateAvailable,
   );
+  const certificateIncluded = explicitBoolean(
+    envelope?.certificate_included,
+    envelope?.certificateIncluded,
+    envelope?.entitlement?.certificate_included,
+    envelope?.entitlement?.certificateIncluded,
+    rawCourse?.certificate_included,
+    rawCourse?.certificateIncluded,
+    rawCourse?.entitlement?.certificate_included,
+    rawCourse?.entitlement?.certificateIncluded,
+  );
 
+  const mappedCourseId = valueAsString(rawCourse.id).trim();
+  if (!mappedCourseId) return null;
   let rawModules = asArray<CoursePayloadDto>(rawCourse.modules);
   if (!rawModules.length && asArray(rawCourse.sections).length) {
     const byModule = new Map<string, CoursePayloadDto[]>();
@@ -288,18 +432,51 @@ export const mapCoursePayload = (
         platform,
         valueAsString(module?.attachments_link) || undefined,
         moduleId,
+        mappedCourseId,
       );
       const sections = asArray<CoursePayloadDto>(module?.sections).sort(
         (a, b) => Number(a?.order || 0) - Number(b?.order || 0),
       );
+      const sectionAttachments = sections.flatMap(section =>
+        mapAttachments(
+          section?.attachments,
+          platform,
+          undefined,
+          moduleId,
+          mappedCourseId,
+        ),
+      );
+      const availableAttachments = Array.from(
+        new Map(
+          [...attachments, ...sectionAttachments].map(
+            attachment =>
+              [
+                `${attachment.id}:${
+                  attachment.downloadVersion || attachment.url
+                }`,
+                attachment,
+              ] as const,
+          ),
+        ).values(),
+      );
       const reels: CourseReel[] = [];
+      const quizzes: CourseQuiz[] = [];
       let project: CourseProject | undefined;
       let progressionBlocked = valueAsBoolean(module?.is_locked);
 
       sections.forEach(section => {
         const type = sectionType(section);
         if (type === 'project') {
-          project = mapProject(section, moduleId, attachments);
+          project = mapProject(
+            section,
+            moduleId,
+            availableAttachments,
+            mappedCourseId,
+          );
+          return;
+        }
+        if (type === 'quiz') {
+          quizzes.push(mapQuiz(section, moduleId));
           return;
         }
         if (!['lesson', 'video', 'reel'].includes(type)) {
@@ -312,12 +489,21 @@ export const mapCoursePayload = (
         const videoQualitySources = qualitySources(content);
         const fallbackVideoUrl =
           getFallbackVideoUrl(content) || getFallbackVideoUrl(section);
+        // The broad course response intentionally omits paid playback URLs.
+        // Access is authoritative in `is_locked`; an unlocked source-less row
+        // is waiting for its short-lived playback manifest, not locked.
         const sectionLocked =
-          progressionBlocked || !videoUrl || valueAsBoolean(section?.is_locked);
-        reelNumber += 1;
+          progressionBlocked || valueAsBoolean(section?.is_locked);
         const lessonId = valueAsString(
           content?.id || section?.lesson_id || section?.id,
-        );
+        ).trim();
+        // One malformed row must not create duplicate empty keys or take down
+        // the valid reels around it.
+        if (!lessonId) return;
+        reelNumber += 1;
+        const rawDuration =
+          Number(content?.duration_seconds) ||
+          Number(content?.duration_minutes) * 60;
         reels.push({
           id: lessonId,
           lessonId,
@@ -342,12 +528,12 @@ export const mapCoursePayload = (
                 section.thumbnail_url,
             ) || undefined,
           durationSeconds:
-            Number(content?.duration_seconds) ||
-            (Number(content?.duration_minutes) || 0) * 60 ||
-            undefined,
+            Number.isFinite(rawDuration) && rawDuration > 0
+              ? rawDuration
+              : undefined,
           availableQualities: videoUrl
             ? qualityOptions(content, videoUrl, videoQualitySources)
-            : [],
+            : (['auto'] as VideoQuality[]),
           isPreview:
             Boolean(videoUrl) &&
             valueAsBoolean(
@@ -361,7 +547,10 @@ export const mapCoursePayload = (
               content?.is_free,
             ),
           isLocked: sectionLocked,
-          isCompleted: Boolean(section?.is_completed || section?.completed),
+          isCompleted: valueAsBoolean(
+            section?.is_completed,
+            section?.completed,
+          ),
           reelNumber,
         });
         progressionBlocked = progressionBlocked || sectionLocked;
@@ -370,17 +559,19 @@ export const mapCoursePayload = (
       return {
         id: moduleId,
         title: valueAsString(module?.title, `الوحدة ${moduleIndex + 1}`),
-        description: valueAsString(module?.description),
         order: Number(module?.order || moduleIndex + 1),
         isLocked:
           valueAsBoolean(module?.is_locked) ||
           Boolean(reels.length && reels.every(reel => reel.isLocked)),
-        attachments,
+        attachments: availableAttachments,
         reels,
+        quizzes,
         project,
       };
     })
-    .filter(module => module.reels.length || module.project);
+    .filter(
+      module => module.reels.length || module.quizzes.length || module.project,
+    );
 
   if (!modules.some(module => module.reels.length)) {
     return null;
@@ -394,7 +585,7 @@ export const mapCoursePayload = (
       : null;
 
   return {
-    id: valueAsString(rawCourse.id, 'course'),
+    id: mappedCourseId,
     title: valueAsString(rawCourse.title || rawCourse.name, 'الكورس'),
     image:
       valueAsString(rawCourse.image || rawCourse.thumbnail_url) || undefined,
@@ -403,44 +594,44 @@ export const mapCoursePayload = (
     accessType: accessType || undefined,
     chatAvailable,
     certificateAvailable,
-    attachmentPrompt:
-      rawAttachmentPrompt
-        ? {
-            enabled: valueAsBoolean(rawAttachmentPrompt.enabled),
-            atSeconds: Math.max(
-              0,
-              Number(rawAttachmentPrompt.at_seconds) || 0,
-            ),
-            title: valueAsString(
-              rawAttachmentPrompt.title,
-              'مرفقات تساعدك في التطبيق',
-            ),
-            body: valueAsString(
-              rawAttachmentPrompt.body,
-              'الوحدة دي فيها ملفات جاهزة للتحميل تساعدك تطبق مع الشرح.',
-            ),
-            buttonText: valueAsString(
-              rawAttachmentPrompt.button_text,
-              'عرض المرفقات',
-            ),
-            frequency: 'once_per_module',
-          }
-        : undefined,
+    certificateIncluded:
+      certificateIncluded === undefined
+        ? certificateAvailable
+        : certificateIncluded,
+    attachmentPrompt: rawAttachmentPrompt
+      ? {
+          enabled: valueAsBoolean(rawAttachmentPrompt.enabled),
+          atSeconds: Math.max(0, Number(rawAttachmentPrompt.at_seconds) || 0),
+          title: valueAsString(
+            rawAttachmentPrompt.title,
+            'مرفقات تساعدك في التطبيق',
+          ),
+          body: valueAsString(
+            rawAttachmentPrompt.body,
+            'هذه الوحدة تتضمن ملفات تساعدك على التطبيق',
+          ),
+          buttonText: valueAsString(
+            rawAttachmentPrompt.button_text,
+            'عرض المرفقات',
+          ),
+          frequency:
+            valueAsString(rawAttachmentPrompt.frequency) === 'once_per_course'
+              ? 'once_per_course'
+              : 'once_per_module',
+        }
+      : undefined,
   };
 };
 
 export const loadCourseLearningData = async (
   courseId?: string | number,
-  options: {reconcilePending?: boolean} = {},
+  options: {reconcilePending?: boolean; signal?: AbortSignal} = {},
 ): Promise<{
   course: CourseLearningData;
   usedFallback: boolean;
   error?: string;
 }> => {
-  if (
-    LOCAL_DEMO_ENABLED &&
-    (!courseId || String(courseId).startsWith('demo'))
-  ) {
+  if (LOCAL_DEMO_ENABLED && (!courseId || isLocalDemoId(courseId))) {
     const demoId = courseId ? String(courseId) : 'demo-freelance-course';
     const planCode = await getDemoCoursePlanCode(demoId);
     return {
@@ -457,10 +648,10 @@ export const loadCourseLearningData = async (
     };
   }
   if (!courseId) {
-    throw new Error('رابط الكورس غير مكتمل');
+    throw new Error('COURSE_ID_MISSING');
   }
   if (String(courseId).startsWith('demo')) {
-    throw new Error('الكورس ده مش متاح دلوقتي');
+    throw new Error('DEMO_COURSE_UNAVAILABLE');
   }
 
   // Do not block opening the course while a previously interrupted project
@@ -471,21 +662,24 @@ export const loadCourseLearningData = async (
   }
 
   try {
-    const response = await publicRequest.get(`courses/${courseId}/details`);
+    const response = await publicRequest.get(`courses/${courseId}/details`, {
+      signal: options.signal,
+    });
     const mapped = mapCoursePayload(response.data);
     if (!mapped) {
-      throw new Error('لم تُنشر مقاطع هذا الكورس بعد');
+      throw new Error('COURSE_CONTENT_UNPUBLISHED');
     }
     return {course: mapped, usedFallback: false};
   } catch (caught: unknown) {
-    const failure = asRecord(caught);
-    const failureData = asRecord(failure.data);
-    const error = {
-      data: {message: valueAsString(failureData.message)},
-      message: valueAsString(failure.message),
+    const error = new Error('COURSE_LEARNING_UNAVAILABLE') as Error & {
+      cause?: unknown;
+      learnerMessage?: string;
     };
-    throw new Error(
-      error?.data?.message || error?.message || 'تعذّر تحميل الكورس الآن',
+    error.cause = caught;
+    error.learnerMessage = learnerErrorMessage(
+      caught,
+      'تعذّر تحميل الكورس الآن',
     );
+    throw error;
   }
 };

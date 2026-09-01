@@ -4,17 +4,11 @@ export type AppLanguage = string | {code?: string};
 
 export interface SettingsState {
   language: AppLanguage;
-  city_name: string;
-  device_token: string;
-  voip_token: string;
   appLoaded: boolean;
 }
 
 const initialState: SettingsState = {
   language: '',
-  city_name: '',
-  device_token: '',
-  voip_token: '',
   appLoaded: false,
 };
 
@@ -24,15 +18,6 @@ const settingsSlice = createSlice({
   reducers: {
     setLanguage: (state, action: PayloadAction<AppLanguage>) => {
       state.language = action.payload;
-    },
-    setCityName: (state, action: PayloadAction<string>) => {
-      state.city_name = action.payload;
-    },
-    setDeviceToken: (state, action: PayloadAction<string>) => {
-      state.device_token = action.payload;
-    },
-    setVoipToken: (state, action: PayloadAction<string>) => {
-      state.voip_token = action.payload;
     },
     setAppLoaded: (state, action: PayloadAction<boolean>) => {
       state.appLoaded = action.payload;
@@ -45,9 +30,6 @@ const settingsSlice = createSlice({
 
 export const {
   setLanguage,
-  setCityName,
-  setDeviceToken,
-  setVoipToken,
   EmptyAppLoaded,
   setAppLoaded,
 } = settingsSlice.actions;

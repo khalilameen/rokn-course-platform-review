@@ -21,6 +21,7 @@ import {
   useResponsiveLayout,
 } from '../../constants/designSystem';
 import {formatArabicDisplayText} from '../../constants/arabicFormatting';
+import {learnerFacingText} from '../../utils/errorPayload';
 
 export const ResponsiveFrame = ({
   children,
@@ -73,12 +74,14 @@ export const SectionHeading = ({
 }) => (
   <View style={[styles.headingRow, style]}>
     <View style={styles.headingCopy}>
-      {!!eyebrow && <Text style={styles.eyebrow}>{formatArabicDisplayText(eyebrow)}</Text>}
-      <Text style={styles.headingTitle}>
+      {!!eyebrow && (
+        <Text style={styles.eyebrow}>{formatArabicDisplayText(eyebrow)}</Text>
+      )}
+      <Text accessibilityRole="header" style={styles.headingTitle}>
         {formatArabicDisplayText(title)}
       </Text>
     </View>
-    {!!actionLabel && (
+    {!!actionLabel && !!onAction && (
       <Pressable
         accessibilityRole="button"
         hitSlop={8}
@@ -104,31 +107,56 @@ export const StatusView = ({
   description?: string;
   actionLabel?: string;
   onAction?: () => void;
-}) => (
-  <View accessibilityRole={state === 'error' ? 'alert' : undefined} style={styles.status}>
-    {state === 'loading' ? (
-      <ActivityIndicator color={Palette.primary} size="small" />
-    ) : (
-      <View
-        style={[
-          styles.statusMark,
-          state === 'error' && styles.statusMarkError,
-        ]}>
-        <View style={styles.statusMarkInner} />
-      </View>
-    )}
-    <Text style={styles.statusTitle}>{formatArabicDisplayText(title)}</Text>
-    {!!description && <Text style={styles.statusDescription}>{formatArabicDisplayText(description)}</Text>}
-    {!!actionLabel && (
-      <Pressable
-        accessibilityRole="button"
-        onPress={onAction}
-        style={({pressed}) => [styles.statusAction, pressed && styles.pressed]}>
-        <Text style={styles.statusActionLabel}>{formatArabicDisplayText(actionLabel)}</Text>
-      </Pressable>
-    )}
-  </View>
-);
+}) => {
+  const visibleTitle =
+    state === 'error'
+      ? learnerFacingText(title, 'تعذّر إكمال الطلب')
+      : formatArabicDisplayText(title);
+  const visibleDescription = description
+    ? state === 'error'
+      ? learnerFacingText(description, 'حاول مرة أخرى')
+      : formatArabicDisplayText(description)
+    : '';
+  const visibleAction = actionLabel
+    ? state === 'error'
+      ? learnerFacingText(actionLabel, 'حاول مرة أخرى')
+      : formatArabicDisplayText(actionLabel)
+    : '';
+
+  return (
+    <View
+      accessibilityLiveRegion={state === 'loading' ? 'polite' : undefined}
+      accessibilityRole={state === 'error' ? 'alert' : undefined}
+      style={styles.status}>
+      {state === 'loading' ? (
+        <ActivityIndicator color={Palette.primary} size="small" />
+      ) : (
+        <View
+          style={[
+            styles.statusMark,
+            state === 'error' && styles.statusMarkError,
+          ]}>
+          <View style={styles.statusMarkInner} />
+        </View>
+      )}
+      <Text style={styles.statusTitle}>{visibleTitle}</Text>
+      {!!visibleDescription && (
+        <Text style={styles.statusDescription}>{visibleDescription}</Text>
+      )}
+      {!!visibleAction && !!onAction && (
+        <Pressable
+          accessibilityRole="button"
+          onPress={onAction}
+          style={({pressed}) => [
+            styles.statusAction,
+            pressed && styles.pressed,
+          ]}>
+          <Text style={styles.statusActionLabel}>{visibleAction}</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+};
 
 export const MetaPill = ({
   label,
@@ -206,7 +234,11 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     maxWidth: '44%',
   },
-  textActionLabel: {...Type.caption, ...textDirection, color: Palette.textMuted},
+  textActionLabel: {
+    ...Type.caption,
+    ...textDirection,
+    color: Palette.textMuted,
+  },
   pressed: {opacity: 0.72, transform: [{scale: 0.985}]},
   status: {
     alignItems: 'center',
@@ -230,7 +262,12 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: Palette.primary,
   },
-  statusTitle: {...Type.bodyStrong, ...textDirection, color: Palette.text, textAlign: 'center'},
+  statusTitle: {
+    ...Type.bodyStrong,
+    ...textDirection,
+    color: Palette.text,
+    textAlign: 'center',
+  },
   statusDescription: {
     ...Type.caption,
     writingDirection: 'rtl',
@@ -262,5 +299,8 @@ const styles = StyleSheet.create({
   primaryPillLabel: {color: '#8BB5FF'},
   coinPillLabel: {color: '#F1CB76'},
   successPillLabel: {color: '#79D6AE'},
-  divider: {height: StyleSheet.hairlineWidth, backgroundColor: Palette.lineSoft},
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: Palette.lineSoft,
+  },
 });

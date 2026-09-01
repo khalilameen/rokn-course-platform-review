@@ -86,12 +86,12 @@
                     </h3>
                     <div class="enrollment-date">
                         <i class="fa fa-calendar"></i>
-                        تاريخ الالتحاق: {{ $courseProgress['enrollment']->enrolled_at->format('Y-m-d') }}
+                        تاريخ الالتحاق: {{ \App\Support\BusinessClock::format($courseProgress['enrollment']->enrolled_at, 'Y-m-d') }}
                     </div>
                     @if($courseProgress['progress']['last_activity'])
                         <div class="last-activity-badge">
                             <i class="fa fa-clock"></i>
-                            آخر نشاط: {{ $courseProgress['progress']['last_activity']->diffForHumans() }}
+                            آخر نشاط {{ \App\Support\BusinessClock::relative($courseProgress['progress']['last_activity']) }}
                         </div>
                     @endif
                 </div>
@@ -168,7 +168,7 @@
                                 <span>النوع: {{ $typeLabels[$section['type']] ?? $section['type'] }}</span>
                                 @if($section['completed_at'])
                                     <span class="me-3 section-completed-at">
-                                        اكتمل في: {{ \Carbon\Carbon::parse($section['completed_at'])->format('Y-m-d H:i') }}
+                                        اكتمل في: {{ \App\Support\BusinessClock::format($section['completed_at']) }}
                                     </span>
                                 @endif
                             </div>

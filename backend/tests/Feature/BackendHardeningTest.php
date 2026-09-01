@@ -10,6 +10,7 @@ use App\Http\Resources\BaseCourseResource;
 use App\Http\Middleware\WebsiteVisitorCount;
 use App\Listeners\AwardLevelBadge;
 use App\Models\Course;
+use App\Models\CourseAccessPlan;
 use App\Models\CourseCode;
 use App\Models\Contact;
 use App\Models\Order;
@@ -19,6 +20,7 @@ use App\Models\User;
 use App\Models\WalletTransaction;
 use App\Services\ProjectSubmissionService;
 use App\Services\CourseChatAccessService;
+use App\Services\CourseChatTurnService;
 use App\Services\WalletService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Schema\Blueprint;
@@ -38,18 +40,28 @@ final class BackendHardeningTest extends TestCase
 {
     /** @var list<string> */
     private array $tables = [
+        'social_oauth_attempts',
+        'product_feature_flags',
         'contacts', 'user_level', 'levels', 'user_project_evaluations', 'project_submissions',
         'course_code_usages', 'course_codes',
-        'projects', 'wallet_transactions', 'course_enrollments', 'orders',
+        'projects', 'wallet_transactions', 'ai_usage_events', 'ai_entitlement_usages',
+        'course_enrollments', 'orders', 'course_access_plans',
         'classification_course', 'classifications', 'course_teacher', 'photos',
         'course_ratings', 'grades',
-        'lessons', 'course_sections', 'courses', 'paths', 'settings', 'users',
+        'course_chat_turns', 'lesson_media_states', 'lessons', 'course_sections', 'courses', 'paths', 'settings', 'users',
     ];
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->createSchema();
+        DB::table('product_feature_flags')->insert([
+            'key' => 'ai_chat',
+            'enabled' => true,
+            'rollout_percentage' => 100,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
         Cache::flush();
         $this->withoutMiddleware(WebsiteVisitorCount::class);
     }
@@ -376,7 +388,7 @@ final class BackendHardeningTest extends TestCase
         $this->actingAs($admin)
             ->get(route('admin.project-submissions.download', $submission))
             ->assertOk()
-            ->assertDownload('answer.pdf');
+            ->assertDownload('rokn-file.pdf');
 
         $submission->update(['submission_file' => '../outside-project-submissions.txt']);
         $this->actingAs($admin)
@@ -407,7 +419,10 @@ final class BackendHardeningTest extends TestCase
             'updated_at' => now(),
         ]);
         $project = Project::query()->findOrFail($projectId);
-        $file = UploadedFile::fake()->create('answer.pdf', 4, 'application/pdf');
+        $file = UploadedFile::fake()->createWithContent(
+            'answer.pdf',
+            "%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"
+        );
 
         $submission = app(ProjectSubmissionService::class)->submit(
             $student,
@@ -430,7 +445,7 @@ final class BackendHardeningTest extends TestCase
         $this->actingAs($admin)
             ->get(route('admin.project-submissions.download', $submission))
             ->assertOk()
-            ->assertDownload('answer.pdf');
+            ->assertDownload('rokn-file.pdf');
 
         Storage::disk('project-shared')->deleteDirectory('');
     }
@@ -593,6 +608,15 @@ final class BackendHardeningTest extends TestCase
         $user = $this->user();
         $course = $this->course();
         $grantOrder = $this->order($user, $course, Order::PAYMENT_METHOD_COURSE_CODE, 0, 0);
+        $grantCode = CourseCode::query()->create([
+            'code' => 'GRANT-CHAT-' . $course->id,
+            'type' => 'course',
+            'course_id' => $course->id,
+            'is_grant' => true,
+            'is_active' => true,
+            'max_uses' => 10,
+        ]);
+        $grantOrder->forceFill(['course_code_id' => $grantCode->id])->save();
         $enrollmentId = DB::table('course_enrollments')->insertGetId([
             'user_id' => $user->id,
             'course_id' => $course->id,
@@ -609,7 +633,12 @@ final class BackendHardeningTest extends TestCase
             ->assertJsonPath('code', 'chat_upgrade_required');
 
         $paidOrder = $this->order($user, $course, Order::PAYMENT_METHOD_WALLET_COINS, 4000, 4000);
-        DB::table('course_enrollments')->where('id', $enrollmentId)->update(['order_id' => $paidOrder->id]);
+        $plan = $this->paidPlanTerms($course);
+        DB::table('course_enrollments')->where('id', $enrollmentId)->update([
+            'order_id' => $paidOrder->id,
+            'access_plan_id' => $plan['id'],
+            'access_plan_snapshot' => json_encode($plan['snapshot'], JSON_THROW_ON_ERROR),
+        ]);
         config()->set('openrouter.api_key', 'test-key');
         config()->set('openrouter.default_model', 'test/model');
         config()->set('openrouter.allowed_models', ['test/model']);
@@ -629,6 +658,15 @@ final class BackendHardeningTest extends TestCase
         $user = $this->user();
         $course = $this->course(['ai_model_type' => 'test/model']);
         $grantOrder = $this->order($user, $course, Order::PAYMENT_METHOD_COURSE_CODE, 0, 0);
+        $grantCode = CourseCode::query()->create([
+            'code' => 'GRANT-DETAILS-' . $course->id,
+            'type' => 'course',
+            'course_id' => $course->id,
+            'is_grant' => true,
+            'is_active' => true,
+            'max_uses' => 10,
+        ]);
+        $grantOrder->forceFill(['course_code_id' => $grantCode->id])->save();
         DB::table('course_enrollments')->insert([
             'user_id' => $user->id,
             'course_id' => $course->id,
@@ -651,8 +689,11 @@ final class BackendHardeningTest extends TestCase
         self::assertFalse($grantPayload['metadata']['chat_available']);
 
         $paidOrder = $this->order($user, $course, Order::PAYMENT_METHOD_WALLET_COINS, 4000, 4000);
+        $plan = $this->paidPlanTerms($course);
         DB::table('course_enrollments')->where('user_id', $user->id)->update([
             'order_id' => $paidOrder->id,
+            'access_plan_id' => $plan['id'],
+            'access_plan_snapshot' => json_encode($plan['snapshot'], JSON_THROW_ON_ERROR),
         ]);
 
         $paidAccess = app(CourseChatAccessService::class)->entitlementFor($user->id, $course->id);
@@ -686,10 +727,13 @@ final class BackendHardeningTest extends TestCase
         $user = $this->user();
         $course = $this->course();
         $order = $this->order($user, $course, Order::PAYMENT_METHOD_WALLET_COINS, 4000, 4000);
+        $plan = $this->paidPlanTerms($course);
         DB::table('course_enrollments')->insert([
             'user_id' => $user->id,
             'course_id' => $course->id,
             'order_id' => $order->id,
+            'access_plan_id' => $plan['id'],
+            'access_plan_snapshot' => json_encode($plan['snapshot'], JSON_THROW_ON_ERROR),
             'is_active' => true,
             'access_granted_at' => now(),
             'created_at' => now(),
@@ -715,6 +759,54 @@ final class BackendHardeningTest extends TestCase
         Http::assertSentCount(1);
     }
 
+    public function test_course_chat_context_is_server_owned_and_scoped(): void
+    {
+        $user = $this->user();
+        $course = $this->course();
+        $turns = app(CourseChatTurnService::class);
+        $first = $turns->begin(
+            $user->id,
+            $course->id,
+            null,
+            null,
+            '1f87903b-6035-4d5d-bb12-c6f796a71f47',
+            'أريد كتابة عرض خدمة',
+            'ar',
+            'prompt-v1'
+        );
+        $turns->complete($first, 'ابدأ بالنتيجة التي تقدمها');
+        $current = $turns->begin(
+            $user->id,
+            $course->id,
+            null,
+            null,
+            '16e28c35-c2db-437d-aa3a-094111bec808',
+            'وماذا أفعل بعدها؟',
+            'ar',
+            'prompt-v1'
+        );
+
+        self::assertSame([
+            ['role' => 'user', 'content' => 'أريد كتابة عرض خدمة'],
+            ['role' => 'assistant', 'content' => 'ابدأ بالنتيجة التي تقدمها'],
+        ], $turns->context(
+            $user->id,
+            $course->id,
+            null,
+            'ar',
+            'prompt-v1',
+            $current->id
+        ));
+        self::assertSame([], $turns->context(
+            $user->id,
+            $course->id,
+            null,
+            'en',
+            'prompt-v1',
+            $current->id
+        ));
+    }
+
     public function test_social_completion_rejects_untrusted_provider_and_consumes_code_once(): void
     {
         $code = str_repeat('a', 64);
@@ -724,11 +816,18 @@ final class BackendHardeningTest extends TestCase
             '+/',
             '-_'
         ), '=');
-        Cache::put('social-oauth-complete:' . hash('sha256', $code), [
+        DB::table('social_oauth_attempts')->insert([
+            'state_hash' => hash('sha256', 'state-'.$code),
+            'completion_hash' => hash('sha256', $code),
             'provider' => 'untrusted-provider',
             'encrypted_token' => Crypt::encryptString('provider-token'),
             'code_challenge' => $challenge,
-        ], now()->addMinute());
+            'return_to' => 'rokn://auth',
+            'state_expires_at' => now()->addMinute(),
+            'completion_expires_at' => now()->addMinute(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
         $this->postJson('/api/v1/social-auth/complete', [
             'code' => $code,
@@ -736,7 +835,9 @@ final class BackendHardeningTest extends TestCase
         ])
             ->assertStatus(410)
             ->assertJsonPath('code', 'social_login_expired');
-        self::assertFalse(Cache::has('social-oauth-complete:' . hash('sha256', $code)));
+        self::assertNotNull(DB::table('social_oauth_attempts')
+            ->where('completion_hash', hash('sha256', $code))
+            ->value('completion_consumed_at'));
     }
 
     public function test_same_level_can_be_awarded_once_per_course_without_silent_duplicates(): void
@@ -803,7 +904,8 @@ final class BackendHardeningTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        $response = $this->getJson('/api/v1/mobile-main-page')
+        $response = $this->withHeader('Accept-Language', 'ar')
+            ->getJson('/api/v1/mobile-main-page')
             ->assertOk()
             ->assertJsonPath('success', true);
 
@@ -894,6 +996,10 @@ final class BackendHardeningTest extends TestCase
 
     private function course(array $overrides = []): Course
     {
+        $teacher = $this->user([
+            'email' => uniqid('teacher-', true) . '@example.com',
+            'role' => 'teacher',
+        ]);
         $id = DB::table('courses')->insertGetId(array_merge([
             'name_ar' => 'كورس تجريبي',
             'name_en' => 'Test course',
@@ -901,8 +1007,11 @@ final class BackendHardeningTest extends TestCase
             'description_en' => 'Description',
             'price' => 4000,
             'parent_id' => null,
+            'teacher_id' => $teacher->id,
             'is_main_course' => false,
             'is_coming_soon' => false,
+            'is_catalog_visible' => true,
+            'image' => 'courses/test-cover.jpg',
             'ai_model_type' => null,
             'chat_ai_prompt' => 'اشرح مباشرة',
             'tokens_number' => 200,
@@ -914,7 +1023,82 @@ final class BackendHardeningTest extends TestCase
             'updated_at' => now(),
         ], $overrides));
 
+        DB::table('course_sections')->insert([
+            'course_id' => $id,
+            'section_type' => 'project',
+            'title_ar' => 'محتوى الكورس',
+            'order' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('photos')->insert([
+            'photoable_type' => Course::class,
+            'photoable_id' => $id,
+            'path' => 'courses/test-cover.jpg',
+            'type' => 'featured',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('course_teacher')->insert([
+            'course_id' => $id,
+            'teacher_id' => $teacher->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $classificationId = DB::table('classifications')->insertGetId([
+            'name_ar' => 'التعلّم',
+            'name_en' => 'Learning',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('classification_course')->insert([
+            'classification_id' => $classificationId,
+            'course_id' => $id,
+        ]);
+        DB::table('course_access_plans')->insert([
+            'course_id' => $id,
+            'code' => CourseAccessPlan::GUIDED,
+            'name_ar' => 'التعلّم بإرشاد',
+            'name_en' => 'Guided learning',
+            'price_coins' => 4000,
+            'minimum_paid_coins' => 1,
+            'chat_enabled' => true,
+            'chat_message_limit' => 25,
+            'chat_token_budget' => 12000,
+            'ai_budget_usd' => '0.450000',
+            'request_reserve_usd' => '0.015000',
+            'project_feedback_token_budget' => 0,
+            'project_feedback_budget_usd' => '0.000000',
+            'project_feedback_reserve_usd' => '0.000000',
+            'project_followup_message_limit' => 0,
+            'project_followup_token_budget' => 0,
+            'project_followup_budget_usd' => '0.000000',
+            'project_followup_reserve_usd' => '0.000000',
+            'max_output_tokens' => 320,
+            'project_feedback_level' => CourseAccessPlan::FEEDBACK_PASS_ONLY,
+            'project_output_enabled' => false,
+            'certificate_enabled' => true,
+            'is_active' => true,
+            'sort_order' => 20,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
         return Course::query()->findOrFail($id);
+    }
+
+    /** @return array{id:int,snapshot:array<string,mixed>} */
+    private function paidPlanTerms(Course $course): array
+    {
+        $plan = CourseAccessPlan::query()
+            ->where('course_id', $course->id)
+            ->where('code', CourseAccessPlan::GUIDED)
+            ->firstOrFail();
+
+        return [
+            'id' => (int) $plan->id,
+            'snapshot' => app(\App\Services\CourseAccessPlanService::class)->snapshot($plan),
+        ];
     }
 
     private function order(User $user, Course $course, string $method, int $amount, int $coins): Order
@@ -929,6 +1113,7 @@ final class BackendHardeningTest extends TestCase
             'paid_coins' => $coins,
             'reward_coins' => 0,
             'status' => Order::STATUS_APPROVED,
+            'financial_status' => Order::FINANCIAL_SETTLED,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -938,6 +1123,32 @@ final class BackendHardeningTest extends TestCase
 
     private function createSchema(): void
     {
+        Schema::create('product_feature_flags', function (Blueprint $table): void {
+            $table->id();
+            $table->string('key')->unique();
+            $table->boolean('enabled')->default(false);
+            $table->unsignedTinyInteger('rollout_percentage')->default(100);
+            $table->string('owner')->nullable();
+            $table->text('reason')->nullable();
+            $table->timestamp('expires_at')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('social_oauth_attempts', function (Blueprint $table): void {
+            $table->id();
+            $table->char('state_hash', 64)->unique();
+            $table->char('completion_hash', 64)->nullable()->unique();
+            $table->string('provider', 24);
+            $table->string('return_to');
+            $table->string('code_challenge', 128)->nullable();
+            $table->text('encrypted_token')->nullable();
+            $table->text('encrypted_session_response')->nullable();
+            $table->timestamp('state_expires_at');
+            $table->timestamp('state_consumed_at')->nullable();
+            $table->timestamp('completion_expires_at')->nullable();
+            $table->timestamp('completion_processing_at')->nullable();
+            $table->timestamp('completion_consumed_at')->nullable();
+            $table->timestamps();
+        });
         Schema::create('users', function (Blueprint $table): void {
             $table->id();
             $table->string('name')->nullable();
@@ -962,6 +1173,27 @@ final class BackendHardeningTest extends TestCase
             $table->boolean('enforce_course_section_order')->default(true);
             $table->timestamps();
         });
+        Schema::create('course_chat_turns', function (Blueprint $table): void {
+            $table->id();
+            $table->uuid('public_id')->unique();
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('course_id');
+            $table->unsignedBigInteger('enrollment_id')->nullable();
+            $table->unsignedBigInteger('lesson_id')->nullable();
+            $table->unsignedBigInteger('usage_event_id')->nullable();
+            $table->uuid('client_request_id');
+            $table->char('request_fingerprint', 64);
+            $table->char('prompt_version', 40);
+            $table->string('language', 12)->default('ar');
+            $table->string('status', 16)->default('queued');
+            $table->string('error_code', 64)->nullable();
+            $table->text('question');
+            $table->text('answer')->nullable();
+            $table->timestamp('completed_at')->nullable();
+            $table->timestamp('expires_at');
+            $table->timestamps();
+            $table->unique(['user_id', 'client_request_id']);
+        });
         Schema::create('paths', function (Blueprint $table): void {
             $table->id();
             $table->string('title_ar')->nullable();
@@ -982,6 +1214,7 @@ final class BackendHardeningTest extends TestCase
             $table->text('description_ar')->nullable();
             $table->text('description_en')->nullable();
             $table->string('image')->nullable();
+            $table->unsignedBigInteger('teacher_id')->nullable();
             $table->decimal('price', 10, 2)->nullable();
             $table->decimal('price_before_discount', 10, 2)->nullable();
             $table->unsignedBigInteger('parent_id')->nullable();
@@ -990,6 +1223,7 @@ final class BackendHardeningTest extends TestCase
             $table->string('type')->default('course');
             $table->string('course_type')->default('online');
             $table->boolean('is_main_course')->default(false);
+            $table->unsignedInteger('home_sort_order')->default(0);
             $table->boolean('is_coming_soon')->default(false);
             $table->boolean('is_catalog_visible')->default(false);
             $table->string('ai_model_type')->nullable();
@@ -1042,6 +1276,7 @@ final class BackendHardeningTest extends TestCase
             $table->unsignedInteger('max_uses')->default(1);
             $table->unsignedInteger('used_count')->default(0);
             $table->boolean('is_active')->default(true);
+            $table->boolean('is_grant')->default(false);
             $table->text('description')->nullable();
             $table->json('allowed_email_domains')->nullable();
             $table->timestamps();
@@ -1061,6 +1296,22 @@ final class BackendHardeningTest extends TestCase
             $table->unsignedBigInteger('list_id')->nullable();
             $table->string('title')->nullable();
             $table->boolean('is_opened')->default(false);
+            $table->timestamps();
+        });
+        Schema::create('lesson_media_states', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('lesson_id')->unique();
+            $table->string('provider', 32)->default('bunny');
+            $table->string('provider_media_id')->nullable();
+            $table->string('status', 24)->default('unknown');
+            $table->string('protocol', 16)->nullable();
+            $table->unsignedInteger('duration_seconds')->nullable();
+            $table->json('available_qualities')->nullable();
+            $table->json('manifest')->nullable();
+            $table->timestamp('last_probe_at')->nullable();
+            $table->string('last_error_code', 64)->nullable();
+            $table->text('last_error_message')->nullable();
+            $table->unsignedSmallInteger('retry_count')->default(0);
             $table->timestamps();
         });
         Schema::create('photos', function (Blueprint $table): void {
@@ -1091,6 +1342,10 @@ final class BackendHardeningTest extends TestCase
             $table->id();
             $table->unsignedBigInteger('user_id');
             $table->unsignedBigInteger('course_id')->nullable();
+            $table->unsignedBigInteger('access_plan_id')->nullable();
+            $table->json('access_plan_snapshot')->nullable();
+            $table->unsignedBigInteger('parent_order_id')->nullable();
+            $table->unsignedBigInteger('course_code_id')->nullable();
             $table->unsignedBigInteger('package_id')->nullable();
             $table->unsignedInteger('package_coins')->nullable();
             $table->string('payment_method');
@@ -1103,6 +1358,8 @@ final class BackendHardeningTest extends TestCase
             $table->unsignedInteger('paid_coins')->nullable();
             $table->unsignedInteger('reward_coins')->nullable();
             $table->string('status');
+            $table->string('financial_status')->default(Order::FINANCIAL_SETTLED);
+            $table->timestamp('reversed_at')->nullable();
             $table->timestamps();
             $table->softDeletes();
         });
@@ -1111,10 +1368,79 @@ final class BackendHardeningTest extends TestCase
             $table->unsignedBigInteger('user_id');
             $table->unsignedBigInteger('course_id');
             $table->unsignedBigInteger('order_id')->nullable();
+            $table->unsignedBigInteger('access_plan_id')->nullable();
+            $table->json('access_plan_snapshot')->nullable();
+            $table->unsignedBigInteger('access_plan_order_id')->nullable();
             $table->boolean('is_active')->default(true);
             $table->timestamp('enrolled_at')->nullable();
             $table->timestamp('expires_at')->nullable();
             $table->timestamp('access_granted_at')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('course_access_plans', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('course_id');
+            $table->string('code', 32);
+            $table->string('name_ar', 120);
+            $table->string('name_en', 120)->nullable();
+            $table->unsignedInteger('price_coins');
+            $table->unsignedInteger('minimum_paid_coins')->default(0);
+            $table->boolean('chat_enabled')->default(false);
+            $table->unsignedInteger('chat_message_limit')->default(0);
+            $table->unsignedBigInteger('chat_token_budget')->default(0);
+            $table->decimal('ai_budget_usd', 12, 6)->default(0);
+            $table->decimal('request_reserve_usd', 12, 6)->default(0);
+            $table->unsignedBigInteger('project_feedback_token_budget')->default(0);
+            $table->decimal('project_feedback_budget_usd', 12, 6)->default(0);
+            $table->decimal('project_feedback_reserve_usd', 12, 6)->default(0);
+            $table->unsignedInteger('project_followup_message_limit')->default(0);
+            $table->unsignedBigInteger('project_followup_token_budget')->default(0);
+            $table->decimal('project_followup_budget_usd', 12, 6)->default(0);
+            $table->decimal('project_followup_reserve_usd', 12, 6)->default(0);
+            $table->unsignedInteger('max_output_tokens')->default(320);
+            $table->string('model_override')->nullable();
+            $table->string('project_feedback_level', 24)->default('pass_only');
+            $table->boolean('project_output_enabled')->default(false);
+            $table->boolean('certificate_enabled')->default(true);
+            $table->boolean('is_active')->default(true);
+            $table->unsignedSmallInteger('sort_order')->default(10);
+            $table->timestamps();
+            $table->unique(['course_id', 'code']);
+        });
+        Schema::create('ai_entitlement_usages', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('enrollment_id');
+            $table->unsignedBigInteger('access_plan_id')->nullable();
+            $table->string('feature', 40);
+            $table->unsignedInteger('used_requests')->default(0);
+            $table->unsignedInteger('reserved_requests')->default(0);
+            $table->unsignedBigInteger('used_tokens')->default(0);
+            $table->unsignedBigInteger('reserved_tokens')->default(0);
+            $table->decimal('used_cost_usd', 12, 6)->default(0);
+            $table->decimal('reserved_cost_usd', 12, 6)->default(0);
+            $table->timestamps();
+            $table->unique(['enrollment_id', 'feature']);
+        });
+        Schema::create('ai_usage_events', function (Blueprint $table): void {
+            $table->id();
+            $table->uuid('request_id')->unique();
+            $table->unsignedBigInteger('enrollment_id');
+            $table->unsignedBigInteger('access_plan_id')->nullable();
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('course_id');
+            $table->string('feature', 40);
+            $table->string('model')->nullable();
+            $table->string('status', 20)->default('reserved');
+            $table->timestamp('reservation_expires_at')->nullable();
+            $table->unsignedInteger('reserved_tokens')->default(0);
+            $table->decimal('reserved_cost_usd', 12, 6)->default(0);
+            $table->unsignedInteger('prompt_tokens')->default(0);
+            $table->unsignedInteger('completion_tokens')->default(0);
+            $table->unsignedInteger('total_tokens')->default(0);
+            $table->decimal('cost_usd', 12, 6)->default(0);
+            $table->string('provider_request_id')->nullable();
+            $table->json('metadata')->nullable();
+            $table->timestamp('completed_at')->nullable();
             $table->timestamps();
         });
         Schema::create('wallet_transactions', function (Blueprint $table): void {

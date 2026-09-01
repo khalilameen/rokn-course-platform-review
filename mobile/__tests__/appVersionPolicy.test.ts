@@ -1,5 +1,6 @@
 import {
   createVersionCheckPayload,
+  MOBILE_API_CAPABILITIES,
   parseAppVersionResponse,
   trustedUpdateUrl,
 } from '../src/services/appVersionPolicy';
@@ -18,6 +19,8 @@ describe('app update policy', () => {
       platform: 'android',
       version: 15,
       distribution_channel: 'play',
+      api_contract_version: 1,
+      capabilities: MOBILE_API_CAPABILITIES,
     });
     expect(
       createVersionCheckPayload({
@@ -32,6 +35,8 @@ describe('app update policy', () => {
       version: '1.0.14',
       build_number: 14,
       distribution_channel: 'appstore',
+      api_contract_version: 1,
+      capabilities: MOBILE_API_CAPABILITIES,
     });
   });
 
@@ -60,7 +65,7 @@ describe('app update policy', () => {
     ['play', 'https://play.google.com/store/apps/details?id=com.rokn'],
     ['appstore', 'https://apps.apple.com/eg/app/rokn/id123'],
     ['direct', 'https://rokn.app/downloads/Rokn.apk'],
-    ['direct', 'https://www.rokn.com/releases/Rokn.apk'],
+    ['direct', 'https://www.rokn.app/releases/Rokn.apk'],
   ] as const)('allows the %s channel store host', (channel, url) => {
     expect(trustedUpdateUrl(url, channel)).toBe(url);
   });
@@ -70,6 +75,11 @@ describe('app update policy', () => {
     ['play', 'https://play.google.com.evil.example/store/apps/com.rokn'],
     ['appstore', 'https://itunes.apple.com/app/rokn'],
     ['direct', 'https://cdn.example/Rokn.apk'],
+    ['play', 'https://play.google.com/store/apps/details?id=another.app'],
+    ['play', 'https://play.google.com/about'],
+    ['appstore', 'https://apps.apple.com/eg/developer/rokn/id123'],
+    ['direct', 'https://rokn.app/downloads/latest'],
+    ['direct', 'https://rokn.com/releases/Rokn.apk'],
     ['direct', 'http://rokn.app/Rokn.apk'],
   ] as const)('rejects an unsafe %s channel URL', (channel, url) => {
     expect(trustedUpdateUrl(url, channel)).toBeNull();
@@ -93,6 +103,8 @@ describe('app update policy', () => {
       ),
     ).toMatchObject({
       latestVersion: '1.0.15',
+      latestVersionCode: null,
+      latestBuildNumber: null,
       message: 'نسخة أحدث وأخف',
       isBlocking: true,
       hasUnsafeDownloadUrl: false,

@@ -19,10 +19,10 @@
                 <p class="mb-0 opacity-75">تنظيم الوحدات والدروس والمشاريع</p>
             </div>
             <div>
-                <a href="{{ route('admin.courses.modules.create', $course) }}" class="btn-modern">
+                @if($course->is_coming_soon)<a href="{{ route('admin.courses.modules.create', $course) }}" class="btn-modern">
                     <i class="fa fa-folder-plus"></i>
                     إضافة وحدة جديدة
-                </a>
+                </a>@endif
             </div>
         </div>
 
@@ -58,15 +58,16 @@
                             <span class="badge badge-light ml-2">{{ $module->sections->count() }} أقسام</span>
                         </div>
                         <div class="module-actions">
-                            <a href="{{ route('admin.courses.sections.create', [$course, 'module_id' => $module->id]) }}" class="btn btn-sm btn-primary">
+                            @if($course->is_coming_soon)<a href="{{ route('admin.courses.sections.create', [$course, 'module_id' => $module->id]) }}" class="btn btn-sm btn-primary">
                                 <i class="fa fa-plus"></i> إضافة قسم
-                            </a>
+                            </a>@endif
                             <a href="{{ route('admin.courses.modules.edit', [$course, $module]) }}" class="btn btn-sm btn-info text-white">
                                 <i class="fa fa-edit"></i>
                             </a>
                             <form action="{{ route('admin.courses.modules.destroy', [$course, $module]) }}" method="POST" class="course-section-inline-form" onsubmit="return confirm('هل أنت متأكد من حذف الوحدة؟ سيتم حذف الأقسام المرتبطة بها أو فك ارتباطها.');">
                                 @csrf
                                 @method('DELETE')
+                                <input type="hidden" name="authoring_version" value="{{ $course->authoring_version }}">
                                 <button type="submit" class="btn btn-sm btn-danger">
                                     <i class="fa fa-trash"></i>
                                 </button>
@@ -104,15 +105,6 @@
             </div>
         @endif
         
-        @if($ungroupedSections->count() == 0 && $modules->count() > 0)
-             <div class="mt-4 pt-3 border-top">
-                 <h5 class="text-muted mb-3"><i class="fa fa-plus-circle"></i> إضافة قسم عام (خارج الوحدات)</h5>
-                 <a href="{{ route('admin.courses.sections.create', $course) }}" class="btn btn-outline-secondary">
-                     <i class="fa fa-plus"></i> إضافة قسم عام
-                 </a>
-             </div>
-        @endif
-
     </div>
 </div>
 
@@ -120,6 +112,25 @@
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js" integrity="sha384-eeLEhtwdMwD3X9y+8P3Cn7Idl/M+w8H4uZqkgD/2eJVkWIN1yKzEj6XegJ9dL3q0" crossorigin="anonymous"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    let authoringVersion = Number(@json((int) $course->authoring_version));
+    const csrf = @json(csrf_token());
+    const saveOrder = (key, url, payload, successMessage) =>
+        window.RoknAdminRequest.serializeMutation(key, async () => {
+            try {
+                const data = await window.RoknAdminRequest.request(url, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf},
+                    body: JSON.stringify({...payload, authoring_version: authoringVersion}),
+                });
+                authoringVersion = Number(data.authoring_version || authoringVersion);
+                document.querySelectorAll('[name="authoring_version"]').forEach(input => input.value = authoringVersion);
+                showNotification(successMessage, 'success');
+            } catch (error) {
+                if (error.code === 'cancelled') return;
+                showNotification(error.message || 'تعذّر حفظ الترتيب', 'error');
+                setTimeout(() => location.reload(), 1200);
+            }
+        });
     
     // 1. Modules Sorting
     const modulesList = document.getElementById('modules-list');
@@ -137,17 +148,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     });
                 });
 
-                fetch('{{ route("admin.courses.modules.reorder", $course) }}', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                    },
-                    body: JSON.stringify({ modules: modules })
-                }).then(res => res.json())
-                  .then(data => {
-                      if(data.success) showNotification('تم ترتيب الوحدات بنجاح', 'success');
-                  });
+                void saveOrder(
+                    'course-outline-order',
+                    '{{ route("admin.courses.modules.reorder", $course) }}',
+                    {modules},
+                    'تم ترتيب الوحدات بنجاح'
+                );
             }
         });
     }
@@ -174,17 +180,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     });
                 });
 
-                fetch('{{ route("admin.courses.sections.reorder", $course) }}', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                    },
-                    body: JSON.stringify({ sections: sections })
-                }).then(res => res.json())
-                  .then(data => {
-                      if(data.success) showNotification('تم تحديث الأقسام بنجاح', 'success');
-                  });
+                void saveOrder(
+                    'course-outline-order',
+                    '{{ route("admin.courses.sections.reorder", $course) }}',
+                    {sections},
+                    'تم تحديث الأقسام بنجاح'
+                );
             }
         });
     });

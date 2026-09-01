@@ -27,7 +27,7 @@ final class OperatingCostPool extends Model
     public const DRIVERS = [
         'playback_gb' => 'حسب جيجابايت المشاهدة المقدرة',
         'playback_minutes' => 'حسب دقائق المشاهدة',
-        'active_students' => 'حسب اشتراكات الكورسات خلال الفترة',
+        'active_students' => 'حسب تسجيلات الكورسات خلال الفترة',
     ];
 
     protected $fillable = [

@@ -8,9 +8,14 @@ use App\Models\Course;
 use App\Models\ItemList;
 use App\Models\User;
 use Carbon\Carbon;
+use App\Support\BusinessClock;
 
 final readonly class CourseLeaderboardService
 {
+    public function __construct(private CourseSectionSequenceService $sectionSequence)
+    {
+    }
+
     /**
      * @return array{message: string, data: array<string, mixed>}
      */
@@ -21,11 +26,12 @@ final readonly class CourseLeaderboardService
             ->whereHas('sections')
             ->findOrFail($courseId);
 
-        $lastFriday = Carbon::now();
+        $lastFriday = BusinessClock::now();
         while ($lastFriday->dayOfWeek !== Carbon::FRIDAY) {
             $lastFriday->subDay();
         }
-        $lastFridayDate = $lastFriday->endOfDay()->toDateTimeString();
+        $lastFridayDate = $lastFriday->addDay()->startOfDay()->utc();
+        $learningSections = $this->sectionSequence->learning($course->sections);
 
         $students = User::query()
             ->whereHas('enrollments', function ($enrollments) use ($courseId): void {
@@ -33,20 +39,20 @@ final readonly class CourseLeaderboardService
                     ->where('is_active', true);
             })
             ->with([
-                'sectionProgress' => function ($progress) use ($course, $lastFridayDate): void {
-                    $progress->whereIn('course_section_id', $course->sections->pluck('id'))
+                'sectionProgress' => function ($progress) use ($learningSections, $lastFridayDate): void {
+                    $progress->whereIn('course_section_id', $learningSections->pluck('id'))
                         ->where('is_completed', true)
-                        ->where('updated_at', '<=', $lastFridayDate);
+                        ->where('completed_at', '<', $lastFridayDate);
                 },
                 'examAttempts' => function ($attempts) use ($courseId, $lastFridayDate): void {
                     $attempts->where('course_id', $courseId)
                         ->where('status', 'completed')
-                        ->where('completed_at', '<=', $lastFridayDate);
+                        ->where('completed_at', '<', $lastFridayDate);
                 },
             ])
             ->get();
 
-        $totalSections = $course->sections->count();
+        $totalSections = $learningSections->count();
         $coursePayload = [
             'id' => $course->id,
             'title' => $course->name_ar ?? $course->name_en,
@@ -64,7 +70,7 @@ final readonly class CourseLeaderboardService
             );
 
             return [
-                'message' => 'No enrolled students found for this course',
+                'message' => 'لا يوجد طلاب في هذا الكورس بعد',
                 'data' => [
                     'course' => $coursePayload,
                     'best_students' => [],
@@ -94,7 +100,7 @@ final readonly class CourseLeaderboardService
         unset($student);
 
         return [
-            'message' => 'Best students retrieved successfully',
+            'message' => 'تم تحميل قائمة الطلاب',
             'data' => [
                 'course' => $coursePayload + [
                     'is_very_short_course' => $isVeryShortCourse,
@@ -123,7 +129,7 @@ final readonly class CourseLeaderboardService
         $totalExams = $examAttempts->count();
         $passedExams = $examAttempts->where('is_passed', true)->count();
         $firstCompletionDate = $isFullyCompleted
-            ? $completedSections->max('updated_at')
+            ? $completedSections->max('completed_at')
             : null;
 
         return [
@@ -172,8 +178,9 @@ final readonly class CourseLeaderboardService
         $rightCompleted = $right['progress']['is_fully_completed'];
 
         if ($leftCompleted && $rightCompleted) {
-            return $left['progress']['first_completion_date']
-                <=> $right['progress']['first_completion_date'];
+            return ($left['progress']['first_completion_date']
+                <=> $right['progress']['first_completion_date'])
+                ?: ($left['user_id'] <=> $right['user_id']);
         }
         if ($leftCompleted) {
             return -1;
@@ -182,8 +189,9 @@ final readonly class CourseLeaderboardService
             return 1;
         }
 
-        return $right['progress']['progress_percentage']
-            <=> $left['progress']['progress_percentage'];
+        return ($right['progress']['progress_percentage']
+            <=> $left['progress']['progress_percentage'])
+            ?: ($left['user_id'] <=> $right['user_id']);
     }
 
     /**
@@ -208,7 +216,8 @@ final readonly class CourseLeaderboardService
             }
         }
 
-        return $right['exam_performance']['total_correct_answers']
-            <=> $left['exam_performance']['total_correct_answers'];
+        return ($right['exam_performance']['total_correct_answers']
+            <=> $left['exam_performance']['total_correct_answers'])
+            ?: ($left['user_id'] <=> $right['user_id']);
     }
 }

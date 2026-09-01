@@ -2,12 +2,18 @@ import React, {memo} from 'react';
 import {ImageBackground, StyleSheet, Text, View} from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import {DemoCourse} from '../../data/demoContent';
-import {formatArabicDisplayText} from '../../constants/arabicFormatting';
+import {
+  formatArabicDisplayText,
+  formatArabicMinutes,
+  formatArabicNumber,
+  formatArabicStudents,
+} from '../../constants/arabicFormatting';
 import {
   Palette,
   Radius,
   Spacing,
   Type,
+  rtlRowStyle,
   textDirection,
   useResponsiveLayout,
 } from '../../constants/designSystem';
@@ -37,11 +43,13 @@ const CarouselItem = ({
           locations={[0.15, 0.58, 1]}
           style={styles.gradient}>
           <View style={styles.copy}>
-            <MetaPill
-              label="كورس الأسبوع"
-              style={styles.weekPill}
-              tone="primary"
-            />
+            {!!course.label && (
+              <MetaPill
+                label={formatArabicDisplayText(course.label)}
+                style={styles.weekPill}
+                tone={course.labelTone}
+              />
+            )}
             <Text numberOfLines={2} style={styles.title}>
               {formatArabicDisplayText(course.title)}
             </Text>
@@ -50,12 +58,33 @@ const CarouselItem = ({
                 {formatArabicDisplayText(course.description)}
               </Text>
             )}
+            {(Boolean(course.durationMinutes) ||
+              Boolean(course.ratingsCount && course.ratingAverage) ||
+              Boolean(course.studentsCount)) && (
+              <View style={styles.metaRow}>
+                {!!course.durationMinutes && (
+                  <Text style={styles.metaText}>
+                    {formatArabicMinutes(Math.round(course.durationMinutes))}
+                  </Text>
+                )}
+                {!!course.ratingsCount && !!course.ratingAverage && (
+                  <Text style={styles.metaText}>
+                    ★ {formatArabicNumber(course.ratingAverage)}
+                  </Text>
+                )}
+                {!!course.studentsCount && (
+                  <Text style={styles.metaText}>
+                    {formatArabicStudents(course.studentsCount)}
+                  </Text>
+                )}
+              </View>
+            )}
             <View style={styles.ctaRow}>
               <Button
                 accessibilityLabel={formatArabicDisplayText(`عرض ${course.title}`)}
                 onPress={onButtonPress}
                 style={styles.button}
-                title="ابدأ التعلّم الآن"
+                title={course.owned ? 'استكمل الكورس' : 'عرض الكورس'}
               />
             </View>
           </View>
@@ -103,6 +132,13 @@ const styles = StyleSheet.create({
     marginLeft: 'auto',
     marginTop: Spacing.xs,
   },
+  metaRow: {
+    ...rtlRowStyle,
+    alignItems: 'center',
+    gap: Spacing.md,
+    marginTop: Spacing.sm,
+  },
+  metaText: {...Type.caption, color: Palette.textMuted},
   weekPill: {alignSelf: 'flex-start'},
   ctaRow: {width: '100%', alignItems: 'center', marginTop: Spacing.xs},
   button: {minWidth: 184, marginTop: 0},

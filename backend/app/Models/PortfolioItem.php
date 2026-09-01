@@ -8,6 +8,8 @@ class PortfolioItem extends Model
 {
     protected $fillable = [
         'user_id',
+        'client_request_id',
+        'request_fingerprint',
         'course_id',
         'source_project_id',
         'title',
@@ -37,12 +39,14 @@ class PortfolioItem extends Model
 
     public function mediaFiles()
     {
-        return $this->hasMany(PortfolioMedia::class)->orderBy('sort_order');
+        return $this->hasMany(PortfolioMedia::class)
+            ->orderBy('sort_order')
+            ->orderBy('id');
     }
 
     public function course()
     {
-        return $this->belongsTo(Course::class);
+        return $this->belongsTo(Course::class)->withTrashed();
     }
 
     public function sourceProject()

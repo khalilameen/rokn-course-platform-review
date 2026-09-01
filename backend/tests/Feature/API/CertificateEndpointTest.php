@@ -6,6 +6,7 @@ namespace Tests\Feature\API;
 
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
@@ -14,8 +15,17 @@ use Illuminate\Support\Str;
  */
 class CertificateEndpointTest extends ApiTestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Storage::fake('public');
+        config()->set('certificate.disk', 'public');
+        Storage::disk('public')->put('certificates/test-certificate.png', 'certificate');
+    }
+
     public function test_can_list_certificates(): void
     {
+        $this->grantCourseAccess();
         $publicId = (string) Str::uuid();
         DB::table('certificates')->insert([
             'public_id' => $publicId,
@@ -67,6 +77,7 @@ class CertificateEndpointTest extends ApiTestCase
 
     public function test_can_view_course_certificate(): void
     {
+        $this->grantCourseAccess();
         $publicId = (string) Str::uuid();
         DB::table('certificates')->insert([
             'public_id' => $publicId,
@@ -90,5 +101,18 @@ class CertificateEndpointTest extends ApiTestCase
     {
         $this->getJson('/api/v1/certificates')->assertUnauthorized();
         $this->getJson("/api/v1/certificates/{$this->courseId}")->assertUnauthorized();
+    }
+
+    private function grantCourseAccess(): void
+    {
+        DB::table('course_enrollments')->insert([
+            'user_id' => $this->user->id,
+            'course_id' => $this->courseId,
+            'is_active' => true,
+            'enrolled_at' => now(),
+            'access_granted_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 }

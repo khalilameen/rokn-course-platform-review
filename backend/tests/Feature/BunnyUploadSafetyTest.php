@@ -93,7 +93,10 @@ final class BunnyUploadSafetyTest extends TestCase
                 return Http::response([], 200);
             }
             if ($request->method() === 'GET') {
-                return Http::response(['guid' => 'new-guid'], 200);
+                return Http::response([
+                    'guid' => 'new-guid',
+                    'videoLibraryId' => '123',
+                ], 200);
             }
 
             self::fail('Replacement must never delete a remote video inline.');

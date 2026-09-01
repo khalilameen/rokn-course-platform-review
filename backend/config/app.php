@@ -69,7 +69,11 @@ return [
     |
     */
 
-    'timezone' => env('APP_TIMEZONE', 'Africa/Cairo'),
+    // Storage, expiry checks, queues, and cross-service timestamps are UTC.
+    // Business days and dashboard datetime-local inputs use the explicit
+    // timezone below so daylight-saving changes never alter persisted data.
+    'timezone' => env('APP_TIMEZONE', 'UTC'),
+    'business_timezone' => env('BUSINESS_TIMEZONE', 'Africa/Cairo'),
 
     /*
     |--------------------------------------------------------------------------

@@ -1,10 +1,21 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {publicRequest} from '../../constants/api';
+import {secureRandomUuid} from '../../utils/secureRandom';
+import {normalizeHumanIdentifier} from '../../utils/unicodeText';
+import {
+  accountScopedStorageKey,
+  removeItem,
+  saveItem,
+} from '../../constants/helpers';
 import type {DemoCoinPackage} from '../demoExperience';
 import {
   ApiRecord,
+  firstBoolean,
   isApiRecord,
+  nonNegativeNumber,
   payload,
   resourceList,
+  requireNonNegativeNumber,
   valueAsBoolean,
 } from './common';
 
@@ -25,6 +36,13 @@ type CourseAuthorizationDto = {
   recommended_packages?: CoinPackageDto[];
   purchased_balance?: unknown;
   reward_balance?: unknown;
+  original_price?: unknown;
+  discount_amount?: unknown;
+  final_price?: unknown;
+  coupon?: {
+    code?: unknown;
+    discount_percentage?: unknown;
+  } | null;
 };
 
 type CourseRedemptionDto = {
@@ -52,6 +70,140 @@ type CourseUpgradeQuoteDto = CourseAuthorizationDto & {
   target_message_limit?: unknown;
 };
 
+type PersistedCoursePurchaseAttempt = {
+  courseId: number;
+  accessPlanCode: string;
+  couponCode: string;
+  idempotencyKey: string;
+};
+
+const COURSE_PURCHASE_ATTEMPT_KEY = '@rokn/course-purchase-attempt/v2';
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+let coursePurchaseStorageTail: Promise<void> = Promise.resolve();
+
+const withCoursePurchaseStorageLock = <T>(
+  operation: () => Promise<T>,
+): Promise<T> => {
+  const result = coursePurchaseStorageTail.then(operation, operation);
+  coursePurchaseStorageTail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+};
+
+const coursePurchaseStorageKey = (
+  courseId: number,
+  accessPlanCode: string,
+  couponCode: string,
+) =>
+  accountScopedStorageKey(
+    `${COURSE_PURCHASE_ATTEMPT_KEY}:${courseId}:${accessPlanCode}:${encodeURIComponent(
+      couponCode || 'none',
+    )}`,
+  );
+
+const readCoursePurchaseAttempt = async (
+  storageKey: string,
+  courseId: number,
+  accessPlanCode: string,
+  couponCode: string,
+): Promise<PersistedCoursePurchaseAttempt | null> => {
+  const raw = await AsyncStorage.getItem(storageKey);
+  if (raw === null) return null;
+  let value: ApiRecord;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isApiRecord(parsed)) throw new Error('INVALID_SHAPE');
+    value = parsed;
+  } catch {
+    throw new Error('COURSE_PURCHASE_RECOVERY_RECORD_INVALID');
+  }
+  const storedCourseId = Number(value.courseId ?? value.course_id);
+  const storedPlan = String(
+    value.accessPlanCode ?? value.access_plan_code ?? '',
+  ).trim();
+  const storedCoupon = String(
+    value.couponCode ?? value.coupon_code ?? '',
+  ).trim();
+  const idempotencyKey = String(
+    value.idempotencyKey ?? value.idempotency_key ?? '',
+  ).toLowerCase();
+  if (
+    storedCourseId !== courseId ||
+    storedPlan !== accessPlanCode ||
+    storedCoupon !== couponCode ||
+    !UUID_PATTERN.test(idempotencyKey)
+  ) {
+    // Losing or replacing this key after an uncertain response could charge
+    // twice. Leave the bytes untouched so recovery/support can inspect them.
+    throw new Error('COURSE_PURCHASE_RECOVERY_RECORD_INVALID');
+  }
+  return {
+    courseId,
+    accessPlanCode,
+    couponCode,
+    idempotencyKey,
+  };
+};
+
+const getOrCreateCoursePurchaseKey = async (
+  courseId: number,
+  accessPlanCode: string,
+  couponCode: string,
+): Promise<string> =>
+  withCoursePurchaseStorageLock(async () => {
+    const storageKey = await coursePurchaseStorageKey(
+      courseId,
+      accessPlanCode,
+      couponCode,
+    );
+    const stored = await readCoursePurchaseAttempt(
+      storageKey,
+      courseId,
+      accessPlanCode,
+      couponCode,
+    );
+    if (stored) {
+      return stored.idempotencyKey;
+    }
+
+    const idempotencyKey = secureRandomUuid();
+    const persisted = await saveItem(storageKey, {
+      courseId,
+      accessPlanCode,
+      couponCode,
+      idempotencyKey,
+    } satisfies PersistedCoursePurchaseAttempt);
+    if (!persisted) throw new Error('COURSE_PURCHASE_IDEMPOTENCY_UNAVAILABLE');
+
+    return idempotencyKey;
+  });
+
+const clearCoursePurchaseKey = async (
+  courseId: number,
+  accessPlanCode: string,
+  couponCode: string,
+  expectedIdempotencyKey: string,
+) =>
+  withCoursePurchaseStorageLock(async () => {
+    const storageKey = await coursePurchaseStorageKey(
+      courseId,
+      accessPlanCode,
+      couponCode,
+    );
+    const stored = await readCoursePurchaseAttempt(
+      storageKey,
+      courseId,
+      accessPlanCode,
+      couponCode,
+    );
+    if (stored?.idempotencyKey === expectedIdempotencyKey) {
+      await removeItem(storageKey);
+    }
+  });
+
 const errorBody = (error: unknown): ApiRecord => {
   if (!isApiRecord(error)) return {};
   if (isApiRecord(error.data)) return error.data;
@@ -61,6 +213,64 @@ const errorBody = (error: unknown): ApiRecord => {
   return {};
 };
 
+const numericCourseId = (courseId: string): number => {
+  const parsed = Number(courseId);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error('API_CONTRACT_INVALID_COURSE_ID');
+  }
+  return parsed;
+};
+
+const mapFinancialPackages = (value: unknown): DemoCoinPackage[] => {
+  const candidates = resourceList<CoinPackageDto>(value);
+  const packages = candidates.flatMap(item => {
+    const id = String(item.id ?? '').trim();
+    const coins = nonNegativeNumber(item.coins);
+    const price = nonNegativeNumber(item.price);
+    if (!id || coins === null || coins <= 0 || price === null || price <= 0) {
+      return [];
+    }
+    return [
+      {
+        id,
+        coins,
+        price,
+        label: String(item.name_ar || item.name_en || 'باقة عملات'),
+      },
+    ];
+  });
+  if (candidates.length > 0 && packages.length === 0) {
+    throw new Error('API_CONTRACT_INVALID_RECOMMENDED_PACKAGES');
+  }
+  return packages;
+};
+
+const mapBalanceBreakdown = (data: CourseAuthorizationDto) => {
+  const balance = requireNonNegativeNumber(
+    data.total_balance ?? data.remaining_balance ?? data.current_coins,
+    'COURSE_PURCHASE_TOTAL_BALANCE',
+  );
+  const spendableBalance = requireNonNegativeNumber(
+    data.spendable_balance,
+    'COURSE_PURCHASE_SPENDABLE_BALANCE',
+  );
+  const paidBalance = requireNonNegativeNumber(
+    data.purchased_balance,
+    'COURSE_PURCHASE_PAID_BALANCE',
+  );
+  const rewardBalance = requireNonNegativeNumber(
+    data.reward_balance,
+    'COURSE_PURCHASE_REWARD_BALANCE',
+  );
+  if (
+    paidBalance + rewardBalance !== balance ||
+    spendableBalance > balance
+  ) {
+    throw new Error('API_CONTRACT_INVALID_COURSE_PURCHASE_BALANCE');
+  }
+  return {balance, spendableBalance, paidBalance, rewardBalance};
+};
+
 export type CoursePurchaseResult =
   | {
       kind: 'success';
@@ -68,6 +278,8 @@ export type CoursePurchaseResult =
       spendableBalance: number;
       paidBalance: number;
       rewardBalance: number;
+      originalPrice: number;
+      discountAmount: number;
     }
   | {
       kind: 'insufficient';
@@ -79,28 +291,113 @@ export type CoursePurchaseResult =
       packages: DemoCoinPackage[];
     };
 
+export type CoursePurchaseQuote = {
+  accessPlanCode?: string;
+  originalPrice: number;
+  discountAmount: number;
+  finalPrice: number;
+  couponCode: string;
+  discountPercentage: number;
+};
+
+export const quoteCoursePurchase = async (
+  courseId: string,
+  accessPlanCode: string | undefined,
+  couponCode: string,
+): Promise<CoursePurchaseQuote> => {
+  const normalizedCoupon = normalizeHumanIdentifier(couponCode);
+  const courseIdValue = numericCourseId(courseId);
+  const data = payload<CourseAuthorizationDto>(
+    await publicRequest.post('courses/purchase-quote', {
+      course_id: courseIdValue,
+      ...(accessPlanCode ? {access_plan_code: accessPlanCode} : {}),
+      coupon_code: normalizedCoupon,
+    }),
+  );
+  const originalPrice = requireNonNegativeNumber(
+    data.original_price,
+    'COURSE_QUOTE_ORIGINAL_PRICE',
+  );
+  const discountAmount = requireNonNegativeNumber(
+    data.discount_amount,
+    'COURSE_QUOTE_DISCOUNT_AMOUNT',
+  );
+  const finalPrice = requireNonNegativeNumber(
+    data.final_price,
+    'COURSE_QUOTE_FINAL_PRICE',
+  );
+  const discountPercentage = requireNonNegativeNumber(
+    data.coupon?.discount_percentage ?? 0,
+    'COURSE_QUOTE_DISCOUNT_PERCENTAGE',
+  );
+  if (
+    discountAmount > originalPrice ||
+    finalPrice + discountAmount !== originalPrice ||
+    discountPercentage > 100
+  ) {
+    throw new Error('API_CONTRACT_INVALID_COURSE_QUOTE');
+  }
+  return {
+    accessPlanCode: accessPlanCode || undefined,
+    originalPrice,
+    discountAmount,
+    finalPrice,
+    couponCode: normalizeHumanIdentifier(data.coupon?.code || normalizedCoupon),
+    discountPercentage,
+  };
+};
+
 export const purchaseCourse = async (
   courseId: string,
   accessPlanCode?: string,
+  couponCode?: string,
+  expectedPrice?: number,
 ): Promise<CoursePurchaseResult> => {
+  const courseIdValue = numericCourseId(courseId);
+  const normalizedPlanCode = accessPlanCode || 'default';
+  const normalizedCouponCode = normalizeHumanIdentifier(couponCode);
+  const idempotencyKey = await getOrCreateCoursePurchaseKey(
+    courseIdValue,
+    normalizedPlanCode,
+    normalizedCouponCode,
+  );
   try {
     const data = payload<CourseAuthorizationDto>(
       await publicRequest.post('courses/authorize', {
-        course_id: Number(courseId),
+        course_id: courseIdValue,
         ...(accessPlanCode ? {access_plan_code: accessPlanCode} : {}),
+        ...(normalizedCouponCode ? {coupon_code: normalizedCouponCode} : {}),
+        ...(Number.isFinite(expectedPrice)
+          ? {expected_price: Math.max(0, Math.trunc(expectedPrice as number))}
+          : {}),
+        idempotency_key: idempotencyKey,
       }),
+    );
+    const balances = mapBalanceBreakdown(data);
+    const originalPrice = requireNonNegativeNumber(
+      data.original_price,
+      'COURSE_PURCHASE_ORIGINAL_PRICE',
+    );
+    const discountAmount = requireNonNegativeNumber(
+      data.discount_amount,
+      'COURSE_PURCHASE_DISCOUNT_AMOUNT',
+    );
+    if (discountAmount > originalPrice) {
+      throw new Error('API_CONTRACT_INVALID_COURSE_PURCHASE_PRICE');
+    }
+    // Only discard the durable replay key once the authoritative financial
+    // response itself has been validated.
+    await clearCoursePurchaseKey(
+      courseIdValue,
+      normalizedPlanCode,
+      normalizedCouponCode,
+      idempotencyKey,
     );
     return {
       kind: 'success',
-      balance: Number(data.total_balance ?? data.remaining_balance ?? 0),
-      spendableBalance: Number(
-        data.spendable_balance ??
-          data.total_balance ??
-          data.remaining_balance ??
-          0,
-      ),
-      paidBalance: Math.max(0, Number(data.purchased_balance || 0)),
-      rewardBalance: Math.max(0, Number(data.reward_balance || 0)),
+      ...balances,
+      originalPrice,
+      discountAmount,
     };
   } catch (error: unknown) {
     const body = errorBody(error);
@@ -108,21 +405,19 @@ export const purchaseCourse = async (
       ? (body.data as CourseAuthorizationDto)
       : {};
     if (body.code === 'insufficient_coins' || data.deficit !== undefined) {
+      const balances = mapBalanceBreakdown(data);
+      const deficit = requireNonNegativeNumber(
+        data.deficit,
+        'COURSE_PURCHASE_DEFICIT',
+      );
+      if (deficit <= 0) {
+        throw new Error('API_CONTRACT_INVALID_COURSE_PURCHASE_DEFICIT');
+      }
       return {
         kind: 'insufficient',
-        balance: Number(data.total_balance ?? data.current_coins ?? 0),
-        spendableBalance: Number(
-          data.spendable_balance ?? data.current_coins ?? 0,
-        ),
-        paidBalance: Math.max(0, Number(data.purchased_balance || 0)),
-        rewardBalance: Math.max(0, Number(data.reward_balance || 0)),
-        deficit: Number(data.deficit || 0),
-        packages: (data.recommended_packages || []).map(item => ({
-          id: String(item.id),
-          coins: Number(item.coins || 0),
-          price: Number(item.price || 0),
-          label: String(item.name_ar || item.name_en || 'باقة عملات'),
-        })),
+        ...balances,
+        deficit,
+        packages: mapFinancialPackages(data.recommended_packages),
       };
     }
     throw error;
@@ -133,13 +428,30 @@ export const redeemCourseCode = async (
   code: string,
   expectedCourseId?: string,
 ) => {
+  const normalizedCode = normalizeHumanIdentifier(code);
+  if (!normalizedCode || normalizedCode.length > 100) {
+    throw new Error('INVALID_COURSE_CODE');
+  }
+  const expectedCourseIdValue = expectedCourseId
+    ? numericCourseId(expectedCourseId)
+    : undefined;
   const response = await publicRequest.post('course-codes/redeem', {
-    code: code.trim().toUpperCase(),
-    course_id: expectedCourseId,
+    code: normalizedCode,
+    course_id: expectedCourseIdValue,
   });
   const data = payload<CourseRedemptionDto>(response);
+  const returnedCourseId =
+    data.course?.id === null || data.course?.id === undefined
+      ? null
+      : String(data.course.id);
+  if (
+    expectedCourseIdValue !== undefined &&
+    returnedCourseId !== String(expectedCourseIdValue)
+  ) {
+    throw new Error('COURSE_CODE_CONTRACT_MISMATCH');
+  }
   return {
-    code: String(data.code || code).toUpperCase(),
+    code: normalizeHumanIdentifier(data.code || normalizedCode),
     type: String(data.type || ''),
     accessType: data.access_type ? String(data.access_type) : undefined,
     learningAccess: valueAsBoolean(data.learning_access),
@@ -149,10 +461,7 @@ export const redeemCourseCode = async (
       data.certificate_available === undefined
         ? undefined
         : valueAsBoolean(data.certificate_available),
-    courseId:
-      data.course?.id === null || data.course?.id === undefined
-        ? null
-        : String(data.course.id),
+    courseId: returnedCourseId,
     courseName: data.course?.name ? String(data.course.name) : '',
   };
 };
@@ -177,60 +486,124 @@ export type CourseChatUpgradeQuote = {
 
 const mapCourseChatUpgradeQuote = (
   data: CourseUpgradeQuoteDto,
-): CourseChatUpgradeQuote => ({
-  alreadyUpgraded: Boolean(data.already_upgraded),
-  chatAvailable: Boolean(data.chat_available),
-  certificateAvailable: Boolean(data.certificate_available),
-  aiIncluded: Boolean(data.ai_included),
-  courseId: data.course_id ? String(data.course_id) : undefined,
-  courseTitle: data.course_title ? String(data.course_title) : undefined,
-  price: Math.max(0, Number(data.upgrade_price || 0)),
-  totalBalance: Math.max(0, Number(data.total_balance || 0)),
-  spendableBalance: Math.max(0, Number(data.spendable_balance || 0)),
-  deficit: Math.max(0, Number(data.deficit || 0)),
-  rewardContributionCap: Math.max(
-    0,
-    Number(data.reward_contribution_cap_per_course || 0),
-  ),
-  packages: resourceList<CoinPackageDto>(data.recommended_packages).map(
-    item => ({
-      id: String(item.id),
-      coins: Number(item.coins || 0),
-      price: Number(item.price || 0),
-      label: String(item.name_ar || item.name_en || 'باقة عملات'),
-    }),
-  ),
-  targetPlanCode: data.target_plan_code
-    ? String(data.target_plan_code)
-    : undefined,
-  targetPlanName: data.target_plan_name
-    ? String(data.target_plan_name)
-    : undefined,
-  targetMessageLimit:
+): CourseChatUpgradeQuote => {
+  const alreadyUpgraded = firstBoolean(data.already_upgraded) ?? false;
+  if (alreadyUpgraded) {
+    return {
+      alreadyUpgraded: true,
+      chatAvailable: firstBoolean(data.chat_available) ?? true,
+      certificateAvailable:
+        firstBoolean(data.certificate_available) ?? false,
+      aiIncluded: firstBoolean(data.ai_included) ?? true,
+      courseId: data.course_id ? String(data.course_id) : undefined,
+      courseTitle: data.course_title ? String(data.course_title) : undefined,
+      price: 0,
+      totalBalance: 0,
+      spendableBalance: 0,
+      deficit: 0,
+      rewardContributionCap: 0,
+      packages: [],
+      targetPlanCode: data.target_plan_code
+        ? String(data.target_plan_code)
+        : undefined,
+      targetPlanName: data.target_plan_name
+        ? String(data.target_plan_name)
+        : undefined,
+    };
+  }
+  const price = requireNonNegativeNumber(
+    data.upgrade_price,
+    'COURSE_UPGRADE_PRICE',
+  );
+  const totalBalance = requireNonNegativeNumber(
+    data.total_balance,
+    'COURSE_UPGRADE_TOTAL_BALANCE',
+  );
+  const spendableBalance = requireNonNegativeNumber(
+    data.spendable_balance,
+    'COURSE_UPGRADE_SPENDABLE_BALANCE',
+  );
+  const deficit = requireNonNegativeNumber(
+    data.deficit,
+    'COURSE_UPGRADE_DEFICIT',
+  );
+  const rewardContributionCap = requireNonNegativeNumber(
+    data.reward_contribution_cap_per_course,
+    'COURSE_UPGRADE_REWARD_CAP',
+  );
+  if (
+    spendableBalance > totalBalance ||
+    deficit !== Math.max(0, price - spendableBalance)
+  ) {
+    throw new Error('API_CONTRACT_INVALID_COURSE_UPGRADE_QUOTE');
+  }
+  const targetMessageLimit =
     data.target_message_limit === null ||
     data.target_message_limit === undefined
       ? undefined
-      : Math.max(0, Number(data.target_message_limit) || 0),
-});
+      : requireNonNegativeNumber(
+          data.target_message_limit,
+          'COURSE_UPGRADE_MESSAGE_LIMIT',
+        );
+
+  return {
+    alreadyUpgraded: false,
+    chatAvailable: firstBoolean(data.chat_available) ?? false,
+    certificateAvailable: firstBoolean(data.certificate_available) ?? false,
+    aiIncluded: firstBoolean(data.ai_included) ?? false,
+    courseId: data.course_id ? String(data.course_id) : undefined,
+    courseTitle: data.course_title ? String(data.course_title) : undefined,
+    price,
+    totalBalance,
+    spendableBalance,
+    deficit,
+    rewardContributionCap,
+    packages: mapFinancialPackages(data.recommended_packages),
+    targetPlanCode: data.target_plan_code
+      ? String(data.target_plan_code)
+      : undefined,
+    targetPlanName: data.target_plan_name
+      ? String(data.target_plan_name)
+      : undefined,
+    targetMessageLimit,
+  };
+};
 
 export const getCourseChatUpgradeQuote = async (
   courseId: string,
 ): Promise<CourseChatUpgradeQuote> =>
   mapCourseChatUpgradeQuote(
-    payload(await publicRequest.get(`courses/${courseId}/full-track-upgrade`)),
+    payload(
+      await publicRequest.get(
+        `courses/${numericCourseId(courseId)}/full-track-upgrade`,
+      ),
+    ),
   );
 
 export const purchaseCourseChatUpgrade = async (
   courseId: string,
   targetPlanCode?: string,
-): Promise<CourseChatUpgradeQuote> =>
-  mapCourseChatUpgradeQuote(
+  expectedPrice?: number,
+): Promise<CourseChatUpgradeQuote> => {
+  const normalizedTargetPlan = String(targetPlanCode || '')
+    .trim()
+    .toLowerCase();
+  if (
+    !['guided', 'mentor'].includes(normalizedTargetPlan) ||
+    !Number.isSafeInteger(expectedPrice) ||
+    Number(expectedPrice) < 0
+  ) {
+    throw new Error('COURSE_UPGRADE_INTENT_INVALID');
+  }
+  return mapCourseChatUpgradeQuote(
     payload(
-      await publicRequest.post(`courses/${courseId}/full-track-upgrade`, {
-        ...(targetPlanCode ? {target_plan_code: targetPlanCode} : {}),
+      await publicRequest.post(`courses/${numericCourseId(courseId)}/full-track-upgrade`, {
+        target_plan_code: normalizedTargetPlan,
+        expected_price: expectedPrice,
       }),
     ),
   );
+};
 
 export const getFullTrackUpgradeQuote = getCourseChatUpgradeQuote;
 export const purchaseFullTrackUpgrade = purchaseCourseChatUpgrade;

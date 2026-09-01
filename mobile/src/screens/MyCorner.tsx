@@ -1,7 +1,7 @@
 import {useFocusEffect, useNavigation} from '@react-navigation/native';
 import type {RootNavigation} from '../navigation/types';
 import React, {useCallback, useEffect, useState} from 'react';
-import {Image, Pressable, StyleSheet, Text, View} from 'react-native';
+import {Pressable, StyleSheet, Text, View} from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import TabBar from '../components/TabBar';
 import {Container, Content} from '../components/containers/Containers';
@@ -24,6 +24,7 @@ import {
   Type,
   rtlRowStyle,
   textDirection,
+  useResponsiveLayout,
 } from '../constants/designSystem';
 import {
   DEMO_COURSE_ID,
@@ -44,12 +45,18 @@ import type {
   WatchHistory,
 } from '../services/roknApi';
 import StreakFlame from '../components/ui/StreakFlame';
+import {CourseArtwork} from '../components/ui/CourseArtwork';
 import {
   formatArabicDisplayText,
   formatArabicNumber,
 } from '../constants/arabicFormatting';
 import {LOCAL_DEMO_ENABLED} from '../config/runtime';
 import {friendlyNetworkMessage} from '../services/networkExperience';
+import {
+  roknCalendarDay,
+  shiftRoknCalendarDay,
+} from '../constants/roknCalendar';
+import {serverNow} from '../utils/serverClock';
 
 const juniorBadgeImage = require('../assets/images/badges/junior.png');
 const midLevelBadgeImage = require('../assets/images/badges/mid-level.png');
@@ -72,33 +79,35 @@ const localBadgeImage = (title: string) => {
 
 const lastSevenDays = (activeDays: string[]) =>
   Array.from({length: 7}, (_, index) => {
-    const date = new Date();
-    date.setHours(12, 0, 0, 0);
-    date.setDate(date.getDate() - (6 - index));
-    const key = date.toISOString().slice(0, 10);
+    const key = shiftRoknCalendarDay(
+      roknCalendarDay(serverNow()),
+      -(6 - index),
+    );
     return {
       key,
-      day: date.toLocaleDateString('ar-EG', {weekday: 'narrow'}),
+      day: new Date(`${key}T12:00:00Z`).toLocaleDateString('ar-EG', {
+        weekday: 'narrow',
+        timeZone: 'Africa/Cairo',
+      }),
       complete: activeDays.includes(key),
     };
   });
 
 const currentStreakFromDays = (activeDays: string[]) => {
   const active = new Set(activeDays);
-  const cursor = new Date();
-  cursor.setHours(12, 0, 0, 0);
-  const today = cursor.toISOString().slice(0, 10);
-  if (!active.has(today)) cursor.setDate(cursor.getDate() - 1);
+  const today = roknCalendarDay(serverNow());
+  let cursor = active.has(today) ? today : shiftRoknCalendarDay(today, -1);
   let count = 0;
-  while (active.has(cursor.toISOString().slice(0, 10))) {
+  while (active.has(cursor)) {
     count += 1;
-    cursor.setDate(cursor.getDate() - 1);
+    cursor = shiftRoknCalendarDay(cursor, -1);
   }
   return count;
 };
 
 export default function MyCorner() {
   const navigation = useNavigation<RootNavigation>();
+  const {largeText} = useResponsiveLayout();
   const [experience, setExperience] = useState<DemoExperienceState | null>(
     null,
   );
@@ -154,7 +163,6 @@ export default function MyCorner() {
           })
           .catch(error => {
             if (!active) return;
-            setWatchHistory(null);
             setWatchHistoryError(friendlyNetworkMessage(error, 'سجل المشاهدة'));
           })
           .finally(() => {
@@ -192,8 +200,8 @@ export default function MyCorner() {
             }
             setDashboardError(
               cachedDashboard
-                ? 'نعرض آخر تقدم محفوظ. سنحدّثه عند عودة الاتصال.'
-                : `${friendlyNetworkMessage(error, 'كورساتك')} تقدمك محفوظ.`,
+                ? 'نعرض آخر تقدم محفوظ\nسنحدّثه عند عودة الاتصال'
+                : `${friendlyNetworkMessage(error, 'كورساتك')}\nتقدمك محفوظ`,
             );
           }
         } finally {
@@ -300,7 +308,11 @@ export default function MyCorner() {
         },
       ];
   const week = lastSevenDays(learning.activityDays);
-  const currentStreak = currentStreakFromDays(learning.activityDays);
+  const currentStreak =
+    serverSession === true &&
+    Number.isFinite(learningDashboard?.currentStreakDays)
+      ? Math.max(0, Number(learningDashboard?.currentStreakDays))
+      : currentStreakFromDays(learning.activityDays);
   return (
     <Container noPadding>
       <Content noPadding>
@@ -322,7 +334,8 @@ export default function MyCorner() {
                 : 'أنهيتها'
             }
           />
-          {serverSession === null || dashboardLoading ? (
+          {serverSession === null ||
+          (dashboardLoading && !learningDashboard) ? (
             <LearningDashboardSkeleton />
           ) : serverSession === false && !LOCAL_DEMO_ENABLED ? (
             <StatusView
@@ -341,7 +354,7 @@ export default function MyCorner() {
               actionLabel="فتح الرئيسية"
               description={
                 dashboardError ||
-                'الكورسات التي تفتحها ستظهر هنا مع آخر نقطة وصلت إليها.'
+                'الكورسات التي تفتحها ستظهر هنا مع آخر نقطة وصلت إليها'
               }
               onAction={() => navigation.navigate('Home')}
               state={dashboardError ? 'error' : 'empty'}
@@ -390,35 +403,48 @@ export default function MyCorner() {
                       />
                     )}
                     <Pressable
-                      accessibilityLabel={`${statusLabel}: ${course.title}`}
+                      accessibilityLabel={formatArabicDisplayText(
+                        `${statusLabel}: ${course.title}${
+                          hasAccess && course.progress > 0
+                            ? `، اكتمل ${Math.round(course.progress)}٪`
+                            : ''
+                        }`,
+                      )}
                       accessibilityRole="button"
                       onPress={() =>
-                        navigation.navigate(
-                          hasAccess ? 'Reels' : 'CourseDetails',
-                          {
-                            courseId: course.id,
-                            ...(hasAccess &&
-                            (course.nextLessonId || course.lastLessonId)
-                              ? {
-                                  lessonId:
-                                    course.nextLessonId || course.lastLessonId,
-                                }
-                              : {}),
-                          },
-                        )
+                        course.nextSectionType &&
+                        course.nextSectionType !== 'lesson'
+                          ? navigation.navigate('CourseDetails', {
+                              courseId: course.id,
+                            })
+                          : navigation.navigate(
+                              hasAccess ? 'Reels' : 'CourseDetails',
+                              {
+                                courseId: course.id,
+                                ...(hasAccess &&
+                                (course.nextLessonId || course.lastLessonId)
+                                  ? {
+                                      lessonId:
+                                        course.nextLessonId ||
+                                        course.lastLessonId,
+                                    }
+                                  : {}),
+                              },
+                            )
                       }
                       style={({pressed}) => [
                         styles.courseCard,
                         isPrimaryResume && styles.primaryResumeCard,
                         pressed && styles.pressed,
                       ]}>
-                      <Image
-                        source={
-                          course.imageUrl
-                            ? {uri: course.imageUrl}
-                            : serverSession === true
+                      <CourseArtwork
+                        fallback={
+                          serverSession === true
                             ? require('../assets/images/courseSliderBackground.jpg')
                             : require('../assets/images/demo-course/ui-freelance-cover.jpg')
+                        }
+                        source={
+                          course.imageUrl ? {uri: course.imageUrl} : undefined
                         }
                         style={styles.courseCover}
                       />
@@ -434,7 +460,9 @@ export default function MyCorner() {
                       />
                       <View style={styles.courseCopy}>
                         <MetaPill label={statusLabel} tone="primary" />
-                        <Text numberOfLines={2} style={styles.courseTitle}>
+                        <Text
+                          numberOfLines={largeText ? 4 : 2}
+                          style={styles.courseTitle}>
                           {formatArabicDisplayText(course.title)}
                         </Text>
                         <Text style={styles.nextLesson}>
@@ -443,14 +471,10 @@ export default function MyCorner() {
                               ? 'راجع أي مقطع وقتما تريد'
                               : hasProgress
                               ? course.nextLessonTitle
-                                ? `التالي: ${course.nextLessonTitle}`
+                                ? `التالي\n${course.nextLessonTitle}`
                                 : course.lastLessonTitle
                                 ? `أكمل بعد ${course.lastLessonTitle}`
-                                : `المقطع التالي رقم ${Math.min(
-                                    course.completedSections + 1,
-                                    course.totalSections ||
-                                      course.completedSections + 1,
-                                  )}`
+                                : 'أكمل من مكانك'
                               : 'ابدأ بالمقطع الأول'
                             : 'افتح صفحة الكورس وراجع تفاصيله'}
                         </Text>
@@ -467,9 +491,7 @@ export default function MyCorner() {
                             <Text style={styles.progressLabel}>
                               {course.completedSections
                                 ? formatArabicDisplayText(
-                                    `${Math.round(course.progress)}٪ · ${
-                                      course.completedSections
-                                    } من ${course.totalSections || '—'} مقطع`,
+                                    `اكتمل ${Math.round(course.progress)}٪`,
                                   )
                                 : 'جاهز للبدء'}
                             </Text>
@@ -493,7 +515,7 @@ export default function MyCorner() {
                 style={styles.section}
                 title="آخر ما شاهدته"
               />
-              {watchHistoryLoading ? (
+              {watchHistoryLoading && !watchHistory?.items.length ? (
                 <View style={styles.historyList}>
                   {[0, 1].map(item => (
                     <View key={item} style={styles.historySkeletonRow}>
@@ -509,15 +531,23 @@ export default function MyCorner() {
                     </View>
                   ))}
                 </View>
-              ) : watchHistoryError ? (
+              ) : watchHistoryError && !watchHistory?.items.length ? (
                 <View accessibilityRole="alert" style={styles.offlineNote}>
                   <Text style={styles.offlineNoteText}>
                     {watchHistoryError}
                   </Text>
                 </View>
               ) : (
-                <View style={styles.historyList}>
-                  {(watchHistory?.items || []).map(item => (
+                <>
+                  {!!watchHistoryError && (
+                    <View accessibilityRole="alert" style={styles.offlineNote}>
+                      <Text style={styles.offlineNoteText}>
+                        {watchHistoryError}
+                      </Text>
+                    </View>
+                  )}
+                  <View style={styles.historyList}>
+                    {(watchHistory?.items || []).map(item => (
                     <Pressable
                       accessibilityLabel={`استكمال ${item.lessonTitle}`}
                       accessibilityRole="button"
@@ -533,19 +563,24 @@ export default function MyCorner() {
                         styles.historyRow,
                         pressed && styles.pressed,
                       ]}>
-                      <Image
+                      <CourseArtwork
+                        fallback={require('../assets/images/courseSliderBackground.jpg')}
                         source={
                           item.lessonThumbnail || item.courseImage
                             ? {uri: item.lessonThumbnail || item.courseImage}
-                            : require('../assets/images/courseSliderBackground.jpg')
+                            : undefined
                         }
                         style={styles.historyThumb}
                       />
                       <View style={styles.historyCopy}>
-                        <Text numberOfLines={2} style={styles.historyTitle}>
+                        <Text
+                          numberOfLines={largeText ? 4 : 2}
+                          style={styles.historyTitle}>
                           {formatArabicDisplayText(item.lessonTitle)}
                         </Text>
-                        <Text numberOfLines={1} style={styles.historyCourse}>
+                        <Text
+                          numberOfLines={largeText ? 2 : 1}
+                          style={styles.historyCourse}>
                           {formatArabicDisplayText(item.courseTitle)}
                         </Text>
                         <View style={styles.historyProgressTrack}>
@@ -559,8 +594,9 @@ export default function MyCorner() {
                       </View>
                       <Text style={styles.historyAction}>أكمل</Text>
                     </Pressable>
-                  ))}
-                </View>
+                    ))}
+                  </View>
+                </>
               )}
             </>
           ) : null}
@@ -574,14 +610,13 @@ export default function MyCorner() {
                     key={badge.id}
                     style={[
                       styles.badgeCard,
+                      largeText && styles.badgeCardLargeText,
                       !earnedProfessionalBadge && styles.badgeCardLocked,
                     ]}>
-                    <Image
-                      resizeMode="contain"
+                    <CourseArtwork
+                      fallback={localBadgeImage(badge.title)}
                       source={
-                        badge.imageUrl
-                          ? {uri: badge.imageUrl}
-                          : localBadgeImage(badge.title)
+                        badge.imageUrl ? {uri: badge.imageUrl} : undefined
                       }
                       style={styles.badgeArtwork}
                     />
@@ -825,8 +860,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  badgeCardLargeText: {width: '100%'},
   badgeCardLocked: {opacity: 0.62},
-  badgeArtwork: {width: 108, height: 108},
+  badgeArtwork: {width: 108, height: 108, resizeMode: 'contain'},
   badgeTitle: {...Type.section, color: Palette.text, marginTop: Spacing.xs},
   badgeCourse: {
     ...Type.caption,

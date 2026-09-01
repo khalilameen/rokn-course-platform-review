@@ -6,20 +6,20 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Models\CourseEnrollment;
-use App\Models\CourseSection;
 use App\Models\Order;
 use App\Models\Bill;
 use App\Models\StudentSectionProgress;
-use App\Models\WatchingLog;
 use App\Models\PaymentMethod;
 use App\Services\CourseChatAccessService;
+use App\Services\LatestWatchResumeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 final class CourseAuthorizationController extends Controller
 {
     public function __construct(
-        private readonly CourseChatAccessService $courseAccess
+        private readonly CourseChatAccessService $courseAccess,
+        private readonly LatestWatchResumeService $latestResume
     ) {
     }
 
@@ -30,7 +30,7 @@ final class CourseAuthorizationController extends Controller
      */
     public function getPaymentMethods(): JsonResponse
     {
-        $paymentMethods = PaymentMethod::where('is_active', true)->get()
+        $paymentMethods = PaymentMethod::active()->configured()->get()
             ->map(function ($method) {
                 return [
                     'id' => $method->id,
@@ -43,7 +43,7 @@ final class CourseAuthorizationController extends Controller
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Payment methods retrieved successfully',
+            'message' => 'تم تحميل طرق الدفع',
             'data' => $paymentMethods
         ]);
     }
@@ -58,10 +58,30 @@ final class CourseAuthorizationController extends Controller
     {
         $user = auth('api')->user();
 
-        $enrollments = CourseEnrollment::with(['course.sections', 'order'])
+        $enrollments = CourseEnrollment::with([
+                'course.sections' => fn ($sections) => $sections
+                    ->orderBy('order')
+                    ->orderBy('id'),
+                'order',
+            ])
             ->where('user_id', $user->id)
             ->where('is_active', true)
-            ->get();
+            ->where(function ($query): void {
+                $query->whereNull('expires_at')->orWhere('expires_at', '>', now());
+            })
+            ->whereHas('course', function ($courses): void {
+                $courses->where('is_coming_soon', false)->whereHas('sections');
+            })
+            ->latest('access_granted_at')
+            ->latest('id')
+            ->get()
+            ->filter(fn (CourseEnrollment $enrollment): bool =>
+                $this->courseAccess->hasLearningAccess(
+                    (int) $enrollment->user_id,
+                    (int) $enrollment->course_id
+                )
+            )
+            ->values();
 
         $allSectionIds = $enrollments->flatMap(function ($enrollment) {
             return $enrollment->course->sections->pluck('id');
@@ -82,27 +102,22 @@ final class CourseAuthorizationController extends Controller
         // One compact query supplies resume position and real "started" state.
         // It remains separate from academic completion, which is still governed
         // exclusively by StudentSectionProgress and project rules.
-        $latestWatchByCourse = WatchingLog::query()
-            ->where('user_id', $user->id)
-            ->whereIn('course_id', $enrollments->pluck('course_id'))
-            ->orderByRaw('COALESCE(watched_at, updated_at) DESC')
-            ->get([
-                'id', 'course_id', 'lesson_id', 'course_section_id',
-                'position_seconds', 'duration_seconds', 'watched_at', 'updated_at',
-            ])
-            ->unique('course_id')
-            ->keyBy('course_id');
+        $latestWatchByCourse = $this->latestResume->forUser(
+            (int) $user->id,
+            $enrollments->pluck('course_id')
+        );
 
         // Pre-load certificate course IDs in a single query (avoids N+1)
         $certificateCourseIds = \App\Models\Certificate::where('user_id', $user->id)
             ->whereIn('course_id', $enrollments->pluck('course_id'))
+            ->where('status', 'active')
             ->pluck('course_id')
             ->flip();
 
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Enrollments retrieved successfully',
+            'message' => 'تم تحميل كورساتك',
             'data' => $enrollments->map(function ($enrollment) use (
                 $completedSectionIds,
                 $certificateCourseIds,
@@ -224,26 +239,6 @@ final class CourseAuthorizationController extends Controller
         $user = auth('api')->user();
         $courseId = $request->course_id;
 
-        // Check direct enrollment
-        $enrollment = CourseEnrollment::where('user_id', $user->id)
-            ->where('course_id', $courseId)
-            ->where('is_active', true)
-            ->first();
-
-        $hasAccess = $enrollment && $enrollment->isActive();
-
-        // If no direct access, check parent course access
-        if (!$hasAccess) {
-            $parentAccess = $this->checkParentCourseAccess(
-                (int) $user->id,
-                (int) $courseId
-            );
-            if ($parentAccess['has_access']) {
-                $hasAccess = true;
-                $enrollment = $parentAccess['enrollment'];
-            }
-        }
-
         // Keep this legacy endpoint on the same entitlement contract as the
         // course-details resource. Direct enrollment rows can also represent
         // course-code/institutional grants, so they must not be labelled paid.
@@ -251,12 +246,18 @@ final class CourseAuthorizationController extends Controller
             (int) $user->id,
             (int) $courseId
         );
-        $hasAccess = $entitlement['has_learning_access'];
+        $enrollment = $entitlement['has_learning_access']
+            ? $this->courseAccess->activeEnrollmentFor(
+                (int) $user->id,
+                (int) $courseId
+            )
+            : null;
+        $hasAccess = $enrollment !== null;
 
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Access check completed',
+            'message' => 'تم التحقق من الوصول',
             'data' => [
                 'has_access' => $hasAccess,
                 'access_type' => $entitlement['access_type'],
@@ -271,47 +272,6 @@ final class CourseAuthorizationController extends Controller
             ]
         ]);
     }
-
-    /**
-     * Check if user has access to a course through parent course enrollment.
-     *
-     * @param int $userId The user ID
-     * @param int $courseId The course ID to check access for
-     * @return array Array containing access status and enrollment info
-     */
-    private function checkParentCourseAccess(int $userId, int $courseId): array
-    {
-        // Find all parent courses that contain this course as a section
-        $parentCourseIds = CourseSection::where('sectionable_type', 'App\Models\Course')
-            ->where('sectionable_id', $courseId)
-            ->pluck('course_id')
-            ->toArray();
-
-        // If no parent courses found, return false
-        if (empty($parentCourseIds)) {
-            return ['has_access' => false, 'enrollment' => null];
-        }
-
-        // Check if user is enrolled in any of the parent courses
-        $parentEnrollment = CourseEnrollment::where('user_id', $userId)
-            ->whereIn('course_id', $parentCourseIds)
-            ->where('is_active', true)
-            ->where(function ($query) {
-                $query->whereNull('expires_at')->orWhere('expires_at', '>', now());
-            })
-            ->first();
-
-        if (!$parentEnrollment || !$parentEnrollment->isActive()) {
-            return ['has_access' => false, 'enrollment' => null];
-        }
-
-        return [
-            'has_access' => true,
-            'enrollment' => $parentEnrollment
-        ];
-    }
-
-
 
     /**
      * Get user's course purchase orders.
@@ -337,17 +297,26 @@ final class CourseAuthorizationController extends Controller
             return response()->json([
                 'status' => 200,
                 'success' => true,
-                'message' => 'Course orders retrieved successfully',
+                'message' => 'تم تحميل عمليات شراء الكورسات',
                 'data' => [
                     'orders' => $orders->map(function ($order) {
+                        $course = $order->course;
                         return [
                             'id' => $order->id,
-                            'course' => [
-                                'id' => $order->course->id,
-                                'title' => $order->course->name_ar,
-                                'title_en' => $order->course->name_en,
-                                'image' => $order->course->image,
-                                'price' => $order->course->price
+                            'course' => $course ? [
+                                'id' => $course->id,
+                                'title' => $course->name_ar,
+                                'title_en' => $course->name_en,
+                                'image' => $course->image,
+                                'price' => $course->price,
+                                'retired' => (bool) $course->trashed(),
+                            ] : [
+                                'id' => $order->course_id,
+                                'title' => 'كورس ركن',
+                                'title_en' => null,
+                                'image' => null,
+                                'price' => $order->amount,
+                                'retired' => true,
                             ],
                             'payment_method' => $order->payment_method,
                             'payment_method_display' => $this->getPaymentMethodDisplay($order->payment_method),
@@ -362,6 +331,8 @@ final class CourseAuthorizationController extends Controller
                             ] : null,
                             'status' => $order->status,
                             'status_display' => $this->getOrderStatusDisplay($order->status),
+                            'financial_status' => $order->financial_status,
+                            'reversed_at' => $order->reversed_at,
                             'course_code' => $order->courseCode ? [
                                 'code' => $order->courseCode->code,
                                 'type' => $order->courseCode->type
@@ -393,11 +364,12 @@ final class CourseAuthorizationController extends Controller
                 ]
             ]);
         } catch (\Exception $e) {
+            $this->rethrowExpectedRequestException($e);
             report($e);
             return response()->json([
                 'status' => 500,
                 'success' => false,
-                'message' => 'Failed to retrieve course orders',
+                'message' => 'تعذّر تحميل عمليات شراء الكورسات',
                 'data' => null,
             ], 500);
         }
@@ -426,7 +398,7 @@ final class CourseAuthorizationController extends Controller
             return response()->json([
                 'status' => 200,
                 'success' => true,
-                'message' => 'Billing history retrieved successfully',
+                'message' => 'تم تحميل سجل الدفع',
                 'data' => [
                     'bills' => $bills->map(function ($bill) {
                         return [
@@ -448,7 +420,9 @@ final class CourseAuthorizationController extends Controller
                                 'coupon' => $bill->order->coupon ? [
                                     'code' => $bill->order->coupon->code
                                 ] : null,
-                                'status' => $bill->order->status
+                                'status' => $bill->order->status,
+                                'financial_status' => $bill->order->financial_status,
+                                'reversed_at' => $bill->order->reversed_at,
                             ] : null,
                             'amount' => $bill->amount,
                             'tax_amount' => $bill->tax_amount,
@@ -474,11 +448,12 @@ final class CourseAuthorizationController extends Controller
                 ]
             ]);
         } catch (\Exception $e) {
+            $this->rethrowExpectedRequestException($e);
             report($e);
             return response()->json([
                 'status' => 500,
                 'success' => false,
-                'message' => 'Failed to retrieve billing history',
+                'message' => 'تعذّر تحميل سجل الدفع',
                 'data' => null,
             ], 500);
         }
@@ -491,11 +466,11 @@ final class CourseAuthorizationController extends Controller
     {
         switch ($paymentMethod) {
             case 'online':
-                return 'Online Payment';
+                return 'دفع إلكتروني';
             case 'course_code':
-                return 'Course Code';
+                return 'كود جهة تعليمية';
             case 'wallet':
-                return 'Wallet Transfer';
+                return 'محفظة ركن';
             default:
                 return ucfirst((string) $paymentMethod);
         }
@@ -508,13 +483,13 @@ final class CourseAuthorizationController extends Controller
     {
         switch ($status) {
             case 'pending':
-                return 'Pending Approval';
+                return 'قيد المراجعة';
             case 'approved':
-                return 'Approved';
+                return 'مقبول';
             case 'rejected':
-                return 'Rejected';
+                return 'مرفوض';
             case 'cancelled':
-                return 'Cancelled';
+                return 'ملغي';
             default:
                 return ucfirst((string) $status);
         }
@@ -527,13 +502,13 @@ final class CourseAuthorizationController extends Controller
     {
         switch ($status) {
             case 'pending':
-                return 'Pending Payment';
+                return 'بانتظار الدفع';
             case 'paid':
-                return 'Paid';
+                return 'مدفوع';
             case 'failed':
-                return 'Payment Failed';
+                return 'تعذّر الدفع';
             case 'refunded':
-                return 'Refunded';
+                return 'تم رد المبلغ';
             default:
                 return ucfirst((string) $status);
         }

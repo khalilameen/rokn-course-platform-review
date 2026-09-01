@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Models\Course;
 use App\Models\CourseAccessPlan;
 use App\Models\CourseEnrollment;
+use App\Support\CourseAccessPlanSnapshot;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -84,7 +85,7 @@ final readonly class CourseAccessPlanService
     public function snapshot(CourseAccessPlan $plan, ?CarbonInterface $purchasedAt = null): array
     {
         return [
-            'version' => 2,
+            'version' => 3,
             'plan_id' => (int) $plan->id,
             'code' => (string) $plan->code,
             'name_ar' => (string) $plan->name_ar,
@@ -100,6 +101,10 @@ final readonly class CourseAccessPlanService
             'project_feedback_token_budget' => (int) $plan->project_feedback_token_budget,
             'project_feedback_budget_usd' => $this->formatUsd($plan->project_feedback_budget_usd),
             'project_feedback_reserve_usd' => $this->formatUsd($plan->project_feedback_reserve_usd),
+            'project_followup_message_limit' => (int) $plan->project_followup_message_limit,
+            'project_followup_token_budget' => (int) $plan->project_followup_token_budget,
+            'project_followup_budget_usd' => $this->formatUsd($plan->project_followup_budget_usd),
+            'project_followup_reserve_usd' => $this->formatUsd($plan->project_followup_reserve_usd),
             'max_output_tokens' => (int) $plan->max_output_tokens,
             'model_override' => $plan->model_override,
             'project_feedback_level' => (string) $plan->project_feedback_level,
@@ -114,12 +119,24 @@ final readonly class CourseAccessPlanService
         $snapshot = is_array($enrollment->access_plan_snapshot)
             ? $enrollment->access_plan_snapshot
             : null;
-        if ($snapshot && !empty($snapshot['code'])) {
-            return $snapshot;
+        if (!$snapshot || !$enrollment->access_plan_id) {
+            return null;
         }
-        $plan = $this->planForEnrollment($enrollment);
 
-        return $plan ? $this->snapshot($plan) : null;
+        try {
+            CourseAccessPlanSnapshot::assertValidForPlan(
+                (int) $enrollment->access_plan_id,
+                $snapshot
+            );
+        } catch (\LogicException) {
+            // Purchased terms are a receipt. Falling back to the mutable live
+            // plan would silently rewrite limits, cost ceilings and benefits
+            // for an old order. An incomplete legacy receipt therefore loses
+            // variable/tier benefits until it is explicitly repaired.
+            return null;
+        }
+
+        return $snapshot;
     }
 
     /** Public value contract; provider names and dollar budgets never leak to the learner. */
@@ -132,7 +149,18 @@ final readonly class CourseAccessPlanService
             'minimum_paid_coins' => $plan->minimum_paid_coins,
             'chat_enabled' => $plan->chat_enabled,
             'chat_message_limit' => $plan->chat_message_limit,
+            'chat_token_budget' => $plan->chat_token_budget,
+            'ai_budget_usd' => $plan->ai_budget_usd,
+            'request_reserve_usd' => $plan->request_reserve_usd,
+            'max_output_tokens' => $plan->max_output_tokens,
             'project_feedback_level' => $plan->project_feedback_level,
+            'project_feedback_token_budget' => $plan->project_feedback_token_budget,
+            'project_feedback_budget_usd' => $plan->project_feedback_budget_usd,
+            'project_feedback_reserve_usd' => $plan->project_feedback_reserve_usd,
+            'project_followup_message_limit' => $plan->project_followup_message_limit,
+            'project_followup_token_budget' => $plan->project_followup_token_budget,
+            'project_followup_budget_usd' => $plan->project_followup_budget_usd,
+            'project_followup_reserve_usd' => $plan->project_followup_reserve_usd,
             'project_output_enabled' => $plan->project_output_enabled,
             'certificate_enabled' => $plan->certificate_enabled,
         ]);
@@ -142,18 +170,65 @@ final readonly class CourseAccessPlanService
     public function publicPayloadFromTerms(array $terms): array
     {
         $feedback = (string) ($terms['project_feedback_level'] ?? 'pass_only');
+        if (!in_array($feedback, CourseAccessPlan::PROJECT_FEEDBACK_LEVELS, true)) {
+            $feedback = CourseAccessPlan::FEEDBACK_PASS_ONLY;
+        }
+
+        $maxOutputTokens = max(1, (int) ($terms['max_output_tokens'] ?? 0));
+        $chatBudget = max(0, (float) ($terms['ai_budget_usd'] ?? 0));
+        $chatReserve = max(0, (float) ($terms['request_reserve_usd'] ?? 0));
+        $chatEnabled = (bool) ($terms['chat_enabled'] ?? false)
+            && max(0, (int) ($terms['chat_message_limit'] ?? 0)) > 0
+            && max(0, (int) ($terms['chat_token_budget'] ?? 0)) >= $maxOutputTokens
+            && $chatBudget > 0
+            && $chatReserve > 0
+            && $chatReserve <= $chatBudget;
+        $reportBudget = max(0, (float) ($terms['project_feedback_budget_usd'] ?? 0));
+        $reportReserve = max(0, (float) ($terms['project_feedback_reserve_usd'] ?? 0));
+        $reportEnabled = in_array($feedback, [
+            CourseAccessPlan::FEEDBACK_REPORT,
+            CourseAccessPlan::FEEDBACK_ENHANCED,
+        ], true)
+            && max(0, (int) ($terms['project_feedback_token_budget'] ?? 0)) >= $maxOutputTokens
+            && $reportBudget > 0
+            && $reportReserve > 0
+            && $reportReserve <= $reportBudget;
+        $followupBudget = max(0, (float) ($terms['project_followup_budget_usd'] ?? 0));
+        $followupReserve = max(0, (float) ($terms['project_followup_reserve_usd'] ?? 0));
+        $threadEnabled = $feedback === CourseAccessPlan::FEEDBACK_ENHANCED
+            && $reportEnabled
+            && max(0, (int) ($terms['project_followup_message_limit'] ?? 0)) > 0
+            && max(0, (int) ($terms['project_followup_token_budget'] ?? 0)) >= $maxOutputTokens
+            && $followupBudget > 0
+            && $followupReserve > 0
+            && $followupReserve <= $followupBudget;
+        $effectiveFeedback = !$reportEnabled
+            ? CourseAccessPlan::FEEDBACK_PASS_ONLY
+            : ($threadEnabled
+                ? CourseAccessPlan::FEEDBACK_ENHANCED
+                : CourseAccessPlan::FEEDBACK_REPORT);
 
         return [
             'code' => (string) ($terms['code'] ?? ''),
             'name' => (string) ($terms['name_ar'] ?? ''),
             'price_coins' => max(0, (int) ($terms['price_coins'] ?? 0)),
             'minimum_paid_coins' => max(0, (int) ($terms['minimum_paid_coins'] ?? 0)),
-            'chat_enabled' => (bool) ($terms['chat_enabled'] ?? false),
-            'chat_message_limit' => max(0, (int) ($terms['chat_message_limit'] ?? 0)),
-            'project_feedback_level' => $feedback,
-            'project_report_enabled' => in_array($feedback, ['report', 'enhanced'], true),
-            'project_output_enabled' => (bool) ($terms['project_output_enabled'] ?? false),
-            'certificate_enabled' => (bool) ($terms['certificate_enabled'] ?? true),
+            'chat_enabled' => $chatEnabled,
+            'chat_message_limit' => $chatEnabled
+                ? max(0, (int) ($terms['chat_message_limit'] ?? 0))
+                : 0,
+            'project_feedback_level' => $effectiveFeedback,
+            'project_report_enabled' => $reportEnabled,
+            'project_thread_reply_enabled' => $threadEnabled,
+            'project_message_limit' => $threadEnabled
+                ? max(0, (int) ($terms['project_followup_message_limit'] ?? 0))
+                : 0,
+            'project_token_budget' => $threadEnabled
+                ? max(0, (int) ($terms['project_followup_token_budget'] ?? 0))
+                : 0,
+            'project_output_enabled' => $threadEnabled
+                && (bool) ($terms['project_output_enabled'] ?? false),
+            'certificate_enabled' => (bool) ($terms['certificate_enabled'] ?? false),
         ];
     }
 
@@ -211,6 +286,7 @@ final readonly class CourseAccessPlanService
         ): void {
             // Plan updates and purchases serialize on the course row.
             $lockedCourse = Course::query()->lockForUpdate()->findOrFail($course->id);
+            $lockedCourse->forceFill(['price' => (int) $prices[CourseAccessPlan::BASIC]])->save();
 
             foreach ($allowedCodes as $position => $code) {
                 $row = is_array($input[$code] ?? null) ? $input[$code] : [];
@@ -230,6 +306,10 @@ final readonly class CourseAccessPlanService
                 $chatReserve = max(0, (float) ($row['request_reserve_usd'] ?? 0));
                 $projectBudget = max(0, (float) ($row['project_feedback_budget_usd'] ?? 0));
                 $projectReserve = max(0, (float) ($row['project_feedback_reserve_usd'] ?? 0));
+                $followupMessageLimit = max(0, (int) ($row['project_followup_message_limit'] ?? 0));
+                $followupTokenBudget = max(0, (int) ($row['project_followup_token_budget'] ?? 0));
+                $followupBudget = max(0, (float) ($row['project_followup_budget_usd'] ?? 0));
+                $followupReserve = max(0, (float) ($row['project_followup_reserve_usd'] ?? 0));
                 $maxOutputTokens = max(
                     80,
                     min(
@@ -250,14 +330,13 @@ final readonly class CourseAccessPlanService
                 }
                 $hasVariableCost = $chatEnabled || $feedback !== 'pass_only';
                 $priceCoins = max(0, (int) ($row['price_coins'] ?? 0));
-                $maximumPaidFloor = max(0, $priceCoins - (int) $prices['basic']);
                 if (
-                    $minimumPaidCoins > $maximumPaidFloor
+                    $minimumPaidCoins > $priceCoins
                     || ($hasVariableCost && $minimumPaidCoins <= 0)
                 ) {
                     throw ValidationException::withMessages([
                         "access_plans.{$code}.minimum_paid_coins" => [
-                            'الفئة ذات التكلفة المتغيرة تحتاج حدًا مدفوعًا موجبًا لا يزيد عن فرق سعرها عن فئة التعلّم.',
+                            'الفئة ذات التكلفة المتغيرة تحتاج حدًا مدفوعًا موجبًا لا يزيد عن سعرها.',
                         ],
                     ]);
                 }
@@ -269,6 +348,17 @@ final readonly class CourseAccessPlanService
                 )) {
                     throw ValidationException::withMessages([
                         "access_plans.{$code}" => ['ميزانية تقرير المشروع أو حجزه غير صالحين لهذه الخطة.'],
+                    ]);
+                }
+                if ($feedback === 'enhanced' && (
+                    $followupMessageLimit < 1
+                    || $followupTokenBudget < $maxOutputTokens
+                    || $followupBudget <= 0
+                    || $followupReserve <= 0
+                    || $followupReserve > $followupBudget
+                )) {
+                    throw ValidationException::withMessages([
+                        "access_plans.{$code}" => ['حدود محادثة تقرير المشروع أو حجزها غير صالحة لهذه الخطة.'],
                     ]);
                 }
 
@@ -287,6 +377,10 @@ final readonly class CourseAccessPlanService
                         : 0,
                     'project_feedback_budget_usd' => $feedback !== 'pass_only' ? $projectBudget : 0,
                     'project_feedback_reserve_usd' => $feedback !== 'pass_only' ? $projectReserve : 0,
+                    'project_followup_message_limit' => $feedback === 'enhanced' ? $followupMessageLimit : 0,
+                    'project_followup_token_budget' => $feedback === 'enhanced' ? $followupTokenBudget : 0,
+                    'project_followup_budget_usd' => $feedback === 'enhanced' ? $followupBudget : 0,
+                    'project_followup_reserve_usd' => $feedback === 'enhanced' ? $followupReserve : 0,
                     'max_output_tokens' => $maxOutputTokens,
                     'model_override' => $model !== '' ? $model : null,
                     'project_feedback_level' => $feedback,
@@ -314,7 +408,7 @@ final readonly class CourseAccessPlanService
     {
         $guidedPrice = $base + $this->costToCoins(.45 + .20, $round);
         $mentorPrice = max(
-            $base + $this->costToCoins(1.50 + .60, $round),
+            $base + $this->costToCoins(1.50 + .60 + .30, $round),
             $guidedPrice + 1000
         );
         return [
@@ -333,6 +427,10 @@ final readonly class CourseAccessPlanService
                 'project_feedback_token_budget' => 0,
                 'project_feedback_budget_usd' => 0,
                 'project_feedback_reserve_usd' => 0,
+                'project_followup_message_limit' => 0,
+                'project_followup_token_budget' => 0,
+                'project_followup_budget_usd' => 0,
+                'project_followup_reserve_usd' => 0,
                 'project_feedback_level' => 'pass_only',
                 'project_output_enabled' => false,
                 'certificate_enabled' => true,
@@ -354,6 +452,10 @@ final readonly class CourseAccessPlanService
                 'project_feedback_token_budget' => 6000,
                 'project_feedback_budget_usd' => .20,
                 'project_feedback_reserve_usd' => .04,
+                'project_followup_message_limit' => 0,
+                'project_followup_token_budget' => 0,
+                'project_followup_budget_usd' => 0,
+                'project_followup_reserve_usd' => 0,
                 'project_feedback_level' => 'report',
                 'project_output_enabled' => false,
                 'certificate_enabled' => true,
@@ -365,7 +467,7 @@ final readonly class CourseAccessPlanService
                 'name_ar' => 'التعلّم بمتابعة',
                 'name_en' => 'Supported learning',
                 'price_coins' => $mentorPrice,
-                'minimum_paid_coins' => $this->costToCoins(1.50 + .60, $round),
+                'minimum_paid_coins' => $this->costToCoins(1.50 + .60 + .30, $round),
                 'chat_enabled' => true,
                 'chat_message_limit' => 80,
                 'chat_token_budget' => 42000,
@@ -375,6 +477,10 @@ final readonly class CourseAccessPlanService
                 'project_feedback_token_budget' => 16000,
                 'project_feedback_budget_usd' => .60,
                 'project_feedback_reserve_usd' => .08,
+                'project_followup_message_limit' => 20,
+                'project_followup_token_budget' => 12000,
+                'project_followup_budget_usd' => .30,
+                'project_followup_reserve_usd' => .025,
                 'project_feedback_level' => 'enhanced',
                 'project_output_enabled' => true,
                 'certificate_enabled' => true,

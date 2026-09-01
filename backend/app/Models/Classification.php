@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Traits\InvalidatesCourseCatalogue;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Classification extends Model
 {
-    use HasFactory;
+    use HasFactory, InvalidatesCourseCatalogue;
 
     protected $fillable = ['name_ar', 'name_en', 'show_on_home', 'home_order'];
 

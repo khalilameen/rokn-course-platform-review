@@ -43,7 +43,7 @@ final class ExamController extends Controller
                 return response()->json([
                     'status' => 403,
                     'success' => false,
-                    'message' => 'You are not authorized to access this exam. Please enroll in the course first.',
+                    'message' => 'هذا الاختبار غير متاح لحسابك',
                     'data' => null,
                 ], 403);
             }
@@ -52,13 +52,21 @@ final class ExamController extends Controller
             if (!$attempt instanceof ExamAttempt) {
                 throw new LogicException('Exam lifecycle did not return an attempt.');
             }
+            $answeredQuestionIds = $result['resumed']
+                ? $attempt->answers()
+                    ->orderBy('answered_at')
+                    ->pluck('question_id')
+                    ->map(fn ($id): int => (int) $id)
+                    ->values()
+                    ->all()
+                : [];
 
             return response()->json([
                 'status' => 200,
                 'success' => true,
                 'message' => $result['resumed']
-                    ? 'Resuming existing exam attempt'
-                    : 'Exam started successfully',
+                    ? 'تم استكمال المحاولة'
+                    : 'بدأ الاختبار',
                 'data' => [
                     'exam_attempt_id' => $attempt->id,
                     'status' => $attempt->status,
@@ -67,17 +75,18 @@ final class ExamController extends Controller
                     'answered_questions' => $result['resumed']
                         ? $attempt->answered_questions
                         : 0,
+                    'answered_question_ids' => $answeredQuestionIds,
                 ],
             ]);
         } catch (Throwable $exception) {
+            $this->rethrowExpectedRequestException($exception);
             report($exception);
 
             return response()->json([
                 'status' => 500,
                 'success' => false,
-                'message' => 'Failed to start exam',
+                'message' => "تعذّر بدء الاختبار\nحاول مرة أخرى",
                 'data' => null,
-                'error' => 'Internal server error',
             ], 500);
         }
     }
@@ -101,7 +110,7 @@ final class ExamController extends Controller
                 return response()->json([
                     'status' => 404,
                     'success' => false,
-                    'message' => 'Exam attempt not found or already completed',
+                    'message' => 'انتهت هذه المحاولة أو لم تعد متاحة',
                     'data' => null,
                 ], 404);
             }
@@ -110,9 +119,21 @@ final class ExamController extends Controller
                 return response()->json([
                     'status' => 404,
                     'success' => false,
-                    'message' => 'Question not found in this exam',
+                    'message' => 'السؤال غير متاح',
                     'data' => null,
                 ], 404);
+            }
+
+            if ($result['state'] === 'answer_conflict') {
+                return response()->json([
+                    'status' => 409,
+                    'success' => false,
+                    'message' => 'تم حفظ إجابة أخرى لهذا السؤال بالفعل',
+                    'data' => [
+                        'code' => 'quiz_answer_conflict',
+                        'selected_answer' => $result['answer']?->selected_answer,
+                    ],
+                ], 409);
             }
 
             $examAttempt = $result['attempt'];
@@ -128,7 +149,7 @@ final class ExamController extends Controller
             return response()->json([
                 'status' => 200,
                 'success' => true,
-                'message' => 'Answer submitted successfully',
+                'message' => 'تم حفظ الإجابة',
                 'data' => [
                     'answer_id' => $examAnswer->id,
                     'answered_questions' => $examAttempt->answered_questions,
@@ -137,14 +158,14 @@ final class ExamController extends Controller
                 ],
             ]);
         } catch (Throwable $exception) {
+            $this->rethrowExpectedRequestException($exception);
             report($exception);
 
             return response()->json([
                 'status' => 500,
                 'success' => false,
-                'message' => 'Failed to submit answer',
+                'message' => "تعذّر حفظ الإجابة\nحاول مرة أخرى",
                 'data' => null,
-                'error' => 'Internal server error',
             ], 500);
         }
     }
@@ -167,7 +188,7 @@ final class ExamController extends Controller
                 return response()->json([
                     'status' => 404,
                     'success' => false,
-                    'message' => 'Exam attempt not found',
+                    'message' => 'المحاولة غير متاحة',
                     'data' => null,
                 ], 404);
             }
@@ -177,7 +198,7 @@ final class ExamController extends Controller
             return response()->json([
                 'status' => 200,
                 'success' => true,
-                'message' => 'Exam progress retrieved successfully',
+                'message' => 'تم تحميل تقدم الاختبار',
                 'data' => [
                     'exam_attempt_id' => $examAttempt->id,
                     'status' => $examAttempt->status,
@@ -192,14 +213,14 @@ final class ExamController extends Controller
                 ],
             ]);
         } catch (\Exception $e) {
+            $this->rethrowExpectedRequestException($e);
             report($e);
 
             return response()->json([
                 'status' => 500,
                 'success' => false,
-                'message' => 'Failed to get exam progress',
+                'message' => "تعذّر تحميل الاختبار\nحاول مرة أخرى",
                 'data' => null,
-                'error' => 'Internal server error',
             ], 500);
         }
     }
@@ -222,7 +243,7 @@ final class ExamController extends Controller
                 return response()->json([
                     'status' => 404,
                     'success' => false,
-                    'message' => 'Exam attempt not found or already completed',
+                    'message' => 'انتهت هذه المحاولة أو لم تعد متاحة',
                     'data' => null,
                 ], 404);
             }
@@ -230,7 +251,7 @@ final class ExamController extends Controller
             return response()->json([
                 'status' => 200,
                 'success' => true,
-                'message' => 'Exam completed successfully',
+                'message' => 'اكتمل الاختبار',
                 'data' => [
                     'exam_attempt_id' => $examAttempt->id,
                     'status' => $examAttempt->status,
@@ -245,14 +266,14 @@ final class ExamController extends Controller
                 ],
             ]);
         } catch (Throwable $exception) {
+            $this->rethrowExpectedRequestException($exception);
             report($exception);
 
             return response()->json([
                 'status' => 500,
                 'success' => false,
-                'message' => 'Failed to end exam',
+                'message' => "تعذّر إنهاء الاختبار\nحاول مرة أخرى",
                 'data' => null,
-                'error' => 'Internal server error',
             ], 500);
         }
     }
@@ -272,15 +293,17 @@ final class ExamController extends Controller
                 ->where('user_id', $user->id)
                 ->completed()
                 ->orderBy('completed_at', 'desc')
+                ->orderByDesc('id')
                 ->paginate($validated['per_page'] ?? 15);
 
             $exams->getCollection()->transform(function ($exam) {
+                $quiz = $exam->quizSnapshot();
                 return [
                     'id' => $exam->id,
                     'quiz_id' => $exam->quiz_id,
-                    'quiz_title' => $exam->quiz->title,
-                    'quiz_description' => $exam->quiz->description,
-                    'quiz_image' => $exam->quiz->image,
+                    'quiz_title' => $quiz['title'],
+                    'quiz_description' => $quiz['description'],
+                    'quiz_image' => $quiz['image'],
                     'attempt_number' => $exam->attempt_number,
                     'started_at' => $exam->started_at,
                     'completed_at' => $exam->completed_at,
@@ -297,7 +320,7 @@ final class ExamController extends Controller
             return response()->json([
                 'status' => 200,
                 'success' => true,
-                'message' => 'Exam history retrieved successfully',
+                'message' => 'تم تحميل سجل الاختبارات',
                 'data' => [
                     'exams' => $exams->items(),
                     'pagination' => [
@@ -311,14 +334,14 @@ final class ExamController extends Controller
                 ],
             ]);
         } catch (\Exception $e) {
+            $this->rethrowExpectedRequestException($e);
             report($e);
 
             return response()->json([
                 'status' => 500,
                 'success' => false,
-                'message' => 'Failed to get exam history',
+                'message' => "تعذّر تحميل سجل الاختبارات\nحاول مرة أخرى",
                 'data' => null,
-                'error' => 'Internal server error',
             ], 500);
         }
     }
@@ -343,7 +366,7 @@ final class ExamController extends Controller
                 return response()->json([
                     'status' => 404,
                     'success' => false,
-                    'message' => 'Exam results not found',
+                    'message' => 'نتيجة الاختبار غير متاحة',
                     'data' => null,
                 ], 404);
             }
@@ -374,17 +397,18 @@ final class ExamController extends Controller
                     'answered_at' => $answer ? $answer->answered_at : null,
                 ];
             });
+            $quiz = $examAttempt->quizSnapshot();
 
             return response()->json([
                 'status' => 200,
                 'success' => true,
-                'message' => 'Exam results retrieved successfully',
+                'message' => 'تم تحميل نتيجة الاختبار',
                 'data' => [
                     'exam_attempt_id' => $examAttempt->id,
                     'quiz_id' => $examAttempt->quiz_id,
-                    'quiz_title' => $examAttempt->quiz->title,
-                    'quiz_description' => $examAttempt->quiz->description,
-                    'quiz_image' => $examAttempt->quiz->image,
+                    'quiz_title' => $quiz['title'],
+                    'quiz_description' => $quiz['description'],
+                    'quiz_image' => $quiz['image'],
                     'attempt_number' => $examAttempt->attempt_number,
                     'started_at' => $examAttempt->started_at,
                     'completed_at' => $examAttempt->completed_at,
@@ -399,14 +423,14 @@ final class ExamController extends Controller
                 ],
             ]);
         } catch (\Exception $e) {
+            $this->rethrowExpectedRequestException($e);
             report($e);
 
             return response()->json([
                 'status' => 500,
                 'success' => false,
-                'message' => 'Failed to get exam results',
+                'message' => "تعذّر تحميل النتيجة\nحاول مرة أخرى",
                 'data' => null,
-                'error' => 'Internal server error',
             ], 500);
         }
     }
@@ -425,9 +449,11 @@ final class ExamController extends Controller
                 ->where('user_id', $user->id)
                 ->completed()
                 ->orderBy('completed_at', 'desc')
+                ->orderByDesc('id')
                 ->paginate($validated['per_page'] ?? 5);
 
             $exams->getCollection()->transform(function ($examAttempt) {
+                $quiz = $examAttempt->quizSnapshot();
                 $questionsWithAnswers = collect($examAttempt->exam_data)->map(function (
                     $questionData
                 ) use ($examAttempt) {
@@ -454,9 +480,9 @@ final class ExamController extends Controller
                 return [
                     'exam_attempt_id' => $examAttempt->id,
                     'quiz_id' => $examAttempt->quiz_id,
-                    'quiz_title' => $examAttempt->quiz->title,
-                    'quiz_description' => $examAttempt->quiz->description,
-                    'quiz_image' => $examAttempt->quiz->image,
+                    'quiz_title' => $quiz['title'],
+                    'quiz_description' => $quiz['description'],
+                    'quiz_image' => $quiz['image'],
                     'attempt_number' => $examAttempt->attempt_number,
                     'started_at' => $examAttempt->started_at,
                     'completed_at' => $examAttempt->completed_at,
@@ -474,7 +500,7 @@ final class ExamController extends Controller
             return response()->json([
                 'status' => 200,
                 'success' => true,
-                'message' => 'All exam results retrieved successfully',
+                'message' => 'تم تحميل نتائج الاختبارات',
                 'data' => [
                     'exams' => $exams->items(),
                     'pagination' => [
@@ -488,14 +514,14 @@ final class ExamController extends Controller
                 ],
             ]);
         } catch (\Exception $e) {
+            $this->rethrowExpectedRequestException($e);
             report($e);
 
             return response()->json([
                 'status' => 500,
                 'success' => false,
-                'message' => 'Failed to get all exam results',
+                'message' => "تعذّر تحميل النتائج\nحاول مرة أخرى",
                 'data' => null,
-                'error' => 'Internal server error',
             ], 500);
         }
     }
@@ -513,13 +539,13 @@ final class ExamController extends Controller
                     'nullable',
                     static function (string $attribute, mixed $value, \Closure $fail): void {
                         if (!is_array($value) && !is_string($value)) {
-                            $fail('The security event details must be text or an object.');
+                            $fail('تفاصيل المتابعة غير صالحة');
                             return;
                         }
 
                         $encoded = json_encode($value);
                         if ($encoded === false || strlen($encoded) > 8192) {
-                            $fail('The security event details are too large.');
+                            $fail('تفاصيل المتابعة طويلة جدًا');
                         }
                     },
                 ],
@@ -540,7 +566,7 @@ final class ExamController extends Controller
                 return response()->json([
                     'status' => 404,
                     'success' => false,
-                    'message' => 'Exam attempt not found',
+                    'message' => 'المحاولة غير متاحة',
                     'data' => null,
                 ], 404);
             }
@@ -555,20 +581,20 @@ final class ExamController extends Controller
             return response()->json([
                 'status' => 200,
                 'success' => true,
-                'message' => 'Security event logged successfully',
+                'message' => 'تم حفظ حالة الاختبار',
                 'data' => [
                     'security_log_id' => $securityLog->id,
                 ],
             ]);
         } catch (\Exception $e) {
+            $this->rethrowExpectedRequestException($e);
             report($e);
 
             return response()->json([
                 'status' => 500,
                 'success' => false,
-                'message' => 'Failed to log security event',
+                'message' => 'تعذّر حفظ حالة الاختبار',
                 'data' => null,
-                'error' => 'Internal server error',
             ], 500);
         }
     }

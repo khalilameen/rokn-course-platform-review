@@ -3,10 +3,11 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Models\Coupon;
+use App\Models\Course;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\CouponRequest;
-
-use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use App\Support\BusinessClock;
 
 class CouponController extends Controller
 {
@@ -17,7 +18,11 @@ class CouponController extends Controller
      */
     public function index()
     {
-        $coupons  = Coupon::get();
+        $coupons = Coupon::query()
+            ->with('course:id,name_ar')
+            ->withCount('redemptions')
+            ->latest()
+            ->get();
 
         return view('admin.coupons.index', compact('coupons'));
     }
@@ -29,7 +34,8 @@ class CouponController extends Controller
      */
     public function create()
     {
-        return view('admin.coupons.create');
+        $courses = Course::query()->orderBy('name_ar')->get(['id', 'name_ar']);
+        return view('admin.coupons.create', compact('courses'));
     }
 
     /**
@@ -40,7 +46,9 @@ class CouponController extends Controller
      */
     public function store(CouponRequest $request)
     {
-        $coupon = Coupon::create($request->input());
+        $payload = $request->safe()->except('image');
+        $payload['starts_at'] = BusinessClock::localInputToUtc($payload['starts_at'] ?? null);
+        $coupon = Coupon::create($payload);
         if ($request->hasFile('image')) {
             $file = $request->file('image');
             $coupon->storeImage($file, 'coupons', 'featured');
@@ -57,7 +65,8 @@ class CouponController extends Controller
      */
     public function edit(Coupon $coupon)
     {
-         return view('admin.coupons.edit', compact('coupon'));
+         $courses = Course::query()->orderBy('name_ar')->get(['id', 'name_ar']);
+         return view('admin.coupons.edit', compact('coupon', 'courses'));
     }
 
     /**
@@ -67,9 +76,17 @@ class CouponController extends Controller
      * @param  \App\Coupon  $coupon
      * @return \Illuminate\Http\Response
      */
-    public function update(Request $request, Coupon $coupon)
+    public function update(CouponRequest $request, Coupon $coupon)
     {
-        $coupon->update($request->input());
+        try {
+            $payload = $request->safe()->except('image');
+            $payload['starts_at'] = BusinessClock::localInputToUtc($payload['starts_at'] ?? null);
+            $coupon->update($payload);
+        } catch (\DomainException $exception) {
+            throw ValidationException::withMessages([
+                'code' => [$exception->getMessage()],
+            ]);
+        }
         if ($request->hasFile('image')) {
             $file = $request->file('image');
             $coupon->replaceImage($file, 'coupons', 'featured');

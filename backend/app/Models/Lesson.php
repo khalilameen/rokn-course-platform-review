@@ -71,8 +71,23 @@ class Lesson extends Model
          return $this->belongsTo('App\Models\Course','list_id','id');
     }
 
+    /** Only lessons that still belong to a live, top-level learning graph. */
+    public function scopePublishedLearningGraph($query)
+    {
+        return $query
+            ->whereHas('course', function ($courses): void {
+                $courses->where('is_coming_soon', false)
+                    ->whereNull('parent_id')
+                    ->whereHas('sections')
+                    ->whereDoesntHave('courseSection');
+            })
+            ->whereHas('courseSection', function ($sections): void {
+                $sections->whereColumn('course_sections.course_id', 'lessons.list_id');
+            });
+    }
+
     public function itemList(){
-         return $this->belongsTo('App\Models\ItemList','id','list_id');
+         return $this->belongsTo('App\Models\ItemList','list_id','id');
     }
 
     public function courseSection()
@@ -97,7 +112,7 @@ class Lesson extends Model
     }
 
     public function quiz(){
-         return $this->hasOne('App\Models\ItemList','id', 'quiz_id');
+         return $this->belongsTo('App\Models\ItemList','quiz_id', 'id');
     }
 }
 

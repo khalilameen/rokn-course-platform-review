@@ -1,7 +1,5 @@
-import {Linking} from 'react-native';
 import {getPublicAppSettings} from './publicAppSettings';
-
-let cachedUrl = '';
+import {openExternalUrlOnce} from './systemActions';
 
 const safeWhatsAppUrl = (value: unknown) => {
   const raw = String(value ?? '').trim();
@@ -13,31 +11,26 @@ const safeWhatsAppUrl = (value: unknown) => {
 };
 
 export const getSupportWhatsAppUrl = async () => {
-  if (cachedUrl) return cachedUrl;
+  const settings = await getPublicAppSettings();
+  const managedUrl = safeWhatsAppUrl(
+    settings?.support_whatsapp_url ??
+      settings?.social_media?.whatsapp,
+  );
+  if (managedUrl) return managedUrl;
+
   const environmentUrl = safeWhatsAppUrl(
     process.env.EXPO_PUBLIC_SUPPORT_WHATSAPP_URL,
   );
-  if (environmentUrl) {
-    cachedUrl = environmentUrl;
-    return cachedUrl;
-  }
-
-  const settings = await getPublicAppSettings();
-  cachedUrl = safeWhatsAppUrl(
-    settings?.support_whatsapp_url ??
-      settings?.social_media?.whatsapp ??
-      settings?.whatsapp,
-  );
-  if (!cachedUrl) throw new Error('SUPPORT_WHATSAPP_UNAVAILABLE');
-  return cachedUrl;
+  if (!environmentUrl) throw new Error('SUPPORT_WHATSAPP_UNAVAILABLE');
+  return environmentUrl;
 };
 
 export const openSupportWhatsApp = async (
-  message = 'مرحبًا فريق ركن، أحتاج مساعدة في التطبيق.',
+  message = 'مرحبًا فريق ركن\nأحتاج مساعدة في التطبيق',
 ) => {
   const supportUrl = await getSupportWhatsAppUrl();
   const separator = supportUrl.includes('?') ? '&' : '?';
-  await Linking.openURL(
+  await openExternalUrlOnce(
     `${supportUrl}${separator}text=${encodeURIComponent(message)}`,
   );
 };

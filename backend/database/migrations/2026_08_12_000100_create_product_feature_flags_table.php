@@ -5,8 +5,14 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration {
+    public $withinTransaction = false;
+
     public function up(): void
     {
+        if (Schema::hasTable('product_feature_flags')) {
+            return;
+        }
+
         Schema::create('product_feature_flags', function (Blueprint $table): void {
             $table->id();
             $table->string('key', 64)->unique();

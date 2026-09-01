@@ -49,8 +49,13 @@ final class ProductEventController extends Controller
         }
 
         $validatedEvents = [];
+        $validationErrors = [];
         foreach ($rawEvents as $index => $rawEvent) {
             if (!is_array($rawEvent)) {
+                if ($isBatch) {
+                    $validationErrors['events.'.$index.'.event'] = ['يجب أن يكون الحدث عنصرًا منظمًا'];
+                    continue;
+                }
                 throw ValidationException::withMessages([
                     $this->field($isBatch, $index, 'event') => ['Each product event must be an object.'],
                 ]);
@@ -58,6 +63,12 @@ final class ProductEventController extends Controller
 
             $unknown = array_values(array_diff(array_keys($rawEvent), self::EVENT_FIELDS));
             if ($unknown !== []) {
+                if ($isBatch) {
+                    $validationErrors['events.'.$index.'.payload'] = [
+                        'Unsupported product-event fields: '.implode(', ', $unknown),
+                    ];
+                    continue;
+                }
                 throw ValidationException::withMessages([
                     $this->field($isBatch, $index, 'payload') => [
                         'Unsupported product-event fields: '.implode(', ', $unknown),
@@ -98,38 +109,48 @@ final class ProductEventController extends Controller
                 if (!$isBatch) {
                     throw $exception;
                 }
-
-                $messages = [];
-                foreach ($exception->errors() as $field => $errorsForField) {
-                    $messages['events.'.$index.'.'.$field] = $errorsForField;
+                foreach ($exception->errors() as $field => $messages) {
+                    $validationErrors['events.'.$index.'.'.$field] = $messages;
                 }
-                throw ValidationException::withMessages($messages);
             }
+        }
+
+        if ($validationErrors !== []) {
+            throw ValidationException::withMessages($validationErrors);
         }
 
         /** @var User|null $user */
         $user = $request->user('api');
         $accepted = 0;
         $duplicates = 0;
+        $conflicts = 0;
 
-        try {
-            foreach ($validatedEvents as $event) {
+        foreach ($validatedEvents as $event) {
+            try {
                 $record = $events->record($event, $user);
                 $record->wasRecentlyCreated ? $accepted++ : $duplicates++;
+            } catch (ProductEventConflictException) {
+                if (!$isBatch) {
+                    return $responses->error(
+                        'معرّف الحدث مستخدم لطلب مختلف',
+                        409,
+                        null,
+                        ['code' => 'event_id_conflict']
+                    );
+                }
+                // One poisoned/reused id must not discard the valid events that
+                // follow it in the same durable batch. The conflicting item is
+                // terminal, while the rest remain independently idempotent.
+                $conflicts++;
             }
-        } catch (ProductEventConflictException) {
-            return $responses->error(
-                'event_id was already used for a different product event.',
-                409,
-                ['accepted' => false],
-                ['accepted' => false]
-            );
         }
 
         $result = [
             'accepted' => true,
             'accepted_count' => $accepted,
             'duplicate_count' => $duplicates,
+            'conflict_count' => $conflicts,
+            'invalid_count' => 0,
         ];
 
         return $responses->success(

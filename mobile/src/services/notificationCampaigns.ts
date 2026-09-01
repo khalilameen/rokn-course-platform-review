@@ -9,6 +9,7 @@ export const notificationKinds = [
   'project_update',
   'certificate_ready',
   'account_update',
+  'support_update',
 ] as const;
 
 export type NotificationKind = (typeof notificationKinds)[number];
@@ -24,12 +25,17 @@ const kindAliases: Record<string, NotificationKind> = {
   continue_course: 'continue_course',
   enrolled_stalled: 'continue_course',
   course_enrolled: 'continue_course',
+  institutional_grant: 'continue_course',
+  new_course_lesson: 'continue_course',
+  new_quiz: 'continue_course',
+  course_update: 'continue_course',
   course_promotion: 'course_recommendation',
   course_recommendation: 'course_recommendation',
   new_course: 'new_course',
   wallet_credit: 'coin_reward',
   coins_claimed: 'coin_reward',
   package_purchased: 'coin_reward',
+  whatsapp_connected: 'coin_reward',
   coin_reward: 'coin_reward',
   reward: 'coin_reward',
   wallet_offer: 'coin_offer',
@@ -41,6 +47,9 @@ const kindAliases: Record<string, NotificationKind> = {
   course_completed: 'certificate_ready',
   account: 'account_update',
   account_update: 'account_update',
+  support: 'support_update',
+  support_case_update: 'support_update',
+  support_update: 'support_update',
 };
 
 export const normalizeNotificationKind = (value: unknown): NotificationKind =>
@@ -57,6 +66,7 @@ export const notificationDefaultAction: Record<NotificationKind, string> = {
   project_update: 'افتح النتيجة',
   certificate_ready: 'افتح الشهادة',
   account_update: 'افتح ركن',
+  support_update: 'افتح البلاغ',
 };
 
 export const isCoinNotification = (kind: NotificationKind) =>

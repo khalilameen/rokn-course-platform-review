@@ -64,6 +64,19 @@ class CourseCodeEndpointTest extends ApiTestCase
             'name_en' => 'Second course',
             'price' => 100,
             'active' => true,
+            'is_coming_soon' => false,
+            'is_catalog_visible' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('course_sections')->insert([
+            'course_id' => $secondCourseId,
+            'title_ar' => 'قسم تجريبي',
+            'title_en' => 'Test section',
+            'section_type' => 'lesson',
+            'order' => 1,
+            'sort_order' => 1,
+            'is_free' => false,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -87,7 +100,7 @@ class CourseCodeEndpointTest extends ApiTestCase
         $this->actingAs($this->user, 'api')->postJson('/api/v1/course-codes/redeem', [
             'code' => 'SECOND-GRANT',
             'course_id' => $secondCourseId,
-        ])->assertStatus(400)->assertJsonPath('code', 'grant_already_claimed');
+        ])->assertStatus(409)->assertJsonPath('code', 'grant_already_claimed');
 
         $this->assertDatabaseCount('course_grant_claims', 1);
         $this->assertDatabaseHas('course_codes', [

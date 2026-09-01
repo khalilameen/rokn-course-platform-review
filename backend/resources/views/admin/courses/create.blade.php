@@ -34,6 +34,7 @@
 
         <!-- Form -->
         {!! Form::open(['method' => 'POST', 'files' => true, 'route' => ['admin.courses.store'], 'id' => 'courseForm']) !!}
+        <input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) Str::uuid()) }}">
 
         <div class="form-sections">
             @include('admin.courses.partials.create.basic-information')
@@ -44,7 +45,6 @@
 
             @include('admin.courses.partials.create.course-image')
 
-            @include('admin.courses.partials.create.course-lessons')
         </div>
 
         <!-- Actions Section -->
@@ -67,4 +67,5 @@
 
 @section('scripts')
 @include('admin.courses.partials.create.scripts')
+@include('admin.partials.course-authoring-draft', ['formId' => 'courseForm'])
 @endsection

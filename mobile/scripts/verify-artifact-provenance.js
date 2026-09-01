@@ -8,6 +8,7 @@ const {spawnSync} = require('child_process');
 const PRODUCTION_API_BASE =
   'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/';
 const PRODUCTION_API_HOST = new URL(PRODUCTION_API_BASE).host;
+const PRODUCTION_APPLICATION_ID = 'com.rokn';
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
 const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -247,6 +248,19 @@ const verify = (
   if (!['play', 'direct'].includes(evidence.channel)) {
     failures.push('Artifact channel must be play or direct.');
   }
+  if (evidence.applicationId !== PRODUCTION_APPLICATION_ID) {
+    failures.push(`Production application id must be ${PRODUCTION_APPLICATION_ID}.`);
+  }
+  if (evidence.publicDistributionEligible !== true) {
+    failures.push('Artifact is not marked eligible for public distribution.');
+  }
+  const expectedSignerRole =
+    evidence.channel === 'direct' ? 'release-app-signing' : 'play-upload';
+  if (evidence.signerRole !== expectedSignerRole) {
+    failures.push(
+      `Artifact signer role must be ${expectedSignerRole} for ${evidence.channel}.`,
+    );
+  }
   const versionCode = Number(evidence.versionCode);
   if (
     !/^\d+$/.test(String(evidence.versionCode || '')) ||
@@ -302,6 +316,12 @@ const verify = (
       inspected = inspectors.inspectApk(artifact);
       if (inspected.versionCode !== String(evidence.versionCode)) {
         failures.push('APK manifest versionCode does not match provenance.');
+      }
+      if (
+        inspected.applicationId !== PRODUCTION_APPLICATION_ID ||
+        inspected.applicationId !== evidence.applicationId
+      ) {
+        failures.push('APK application id is not the production package.');
       }
       if (
         pinned.applicationId &&

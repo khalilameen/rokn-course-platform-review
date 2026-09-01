@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {isLocalDemoId} from '../../../config/runtime';
 import {
   accountScopedStorageKey,
   getCurrentAccountStorageScope,
@@ -8,6 +9,7 @@ import {asArray} from './shared';
 
 const PLAYER_STATE_KEY = '@rokn/course-player/v3';
 export const WATCH_HISTORY_ENABLED_KEY = 'PREF_WATCH_HISTORY';
+const MAX_LOCAL_RESUME_ENTRIES = 300;
 const playerStateQueues = new Map<string, Promise<unknown>>();
 
 type PersistedPlayerState = {
@@ -32,20 +34,75 @@ const EMPTY_STATE: PersistedPlayerState = {
   activityDays: [],
 };
 
+const compactResumeState = (
+  rawPositions: unknown,
+  rawLastWatchedAt: unknown,
+) => {
+  const positionsSource =
+    rawPositions &&
+    typeof rawPositions === 'object' &&
+    !Array.isArray(rawPositions)
+      ? (rawPositions as Record<string, unknown>)
+      : {};
+  const watchedSource =
+    rawLastWatchedAt &&
+    typeof rawLastWatchedAt === 'object' &&
+    !Array.isArray(rawLastWatchedAt)
+      ? (rawLastWatchedAt as Record<string, unknown>)
+      : {};
+  const keys = Array.from(
+    new Set([...Object.keys(positionsSource), ...Object.keys(watchedSource)]),
+  )
+    .map((key, index) => ({
+      index,
+      key,
+      watchedAt: Date.parse(String(watchedSource[key] || '')) || 0,
+    }))
+    .sort(
+      (left, right) =>
+        right.watchedAt - left.watchedAt || right.index - left.index,
+    )
+    .slice(0, MAX_LOCAL_RESUME_ENTRIES);
+
+  const positions: Record<string, number> = {};
+  const lastWatchedAt: Record<string, string> = {};
+  keys.forEach(({key, watchedAt}) => {
+    const seconds = Number(positionsSource[key]);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      positions[key] = seconds;
+    }
+    if (watchedAt > 0) {
+      lastWatchedAt[key] = new Date(watchedAt).toISOString();
+    }
+  });
+  return {positions, lastWatchedAt};
+};
+
+const compactPlayerState = (
+  state: PersistedPlayerState,
+): PersistedPlayerState => ({
+  ...state,
+  ...compactResumeState(state.positions, state.lastWatchedAt),
+  activityDays: Array.from(new Set(state.activityDays)).slice(-60),
+});
+
 export const readPlayerState = async (
   scopedStorageKey?: string,
 ): Promise<PersistedPlayerState> => {
   try {
-    const value = await AsyncStorage.getItem(
-      scopedStorageKey || (await accountScopedStorageKey(PLAYER_STATE_KEY)),
-    );
+    const storageKey =
+      scopedStorageKey || (await accountScopedStorageKey(PLAYER_STATE_KEY));
+    const value = await AsyncStorage.getItem(storageKey);
     if (!value) {
       return {...EMPTY_STATE};
     }
     const parsed = JSON.parse(value);
-    return {
-      positions: parsed?.positions || {},
-      lastWatchedAt: parsed?.lastWatchedAt || {},
+    const compactResume = compactResumeState(
+      parsed?.positions,
+      parsed?.lastWatchedAt,
+    );
+    const state = compactPlayerState({
+      ...compactResume,
       completedSections: asArray(parsed?.completedSections),
       savedLessons: asArray(parsed?.savedLessons),
       savedFolderLessons:
@@ -63,7 +120,16 @@ export const readPlayerState = async (
       passedProjects: asArray(parsed?.passedProjects),
       provisionalProjects: asArray(parsed?.provisionalProjects),
       activityDays: asArray(parsed?.activityDays),
-    };
+    });
+    if (
+      Object.keys(parsed?.positions || {}).length > MAX_LOCAL_RESUME_ENTRIES ||
+      Object.keys(parsed?.lastWatchedAt || {}).length >
+        MAX_LOCAL_RESUME_ENTRIES ||
+      asArray(parsed?.activityDays).length > state.activityDays.length
+    ) {
+      await AsyncStorage.setItem(storageKey, JSON.stringify(state));
+    }
+    return state;
   } catch {
     return {...EMPTY_STATE};
   }
@@ -78,10 +144,10 @@ const mergeStringArrays = (left: string[], right: string[]) =>
  */
 export const migrateGuestLearningState = async (
   guestScope: string,
-): Promise<void> => {
+): Promise<boolean> => {
   const accountScope = await getCurrentAccountStorageScope();
   if (!guestScope || guestScope === accountScope) {
-    return;
+    return false;
   }
   const sourceKey = `${PLAYER_STATE_KEY}:${guestScope}`;
   const targetKey = `${PLAYER_STATE_KEY}:${accountScope}`;
@@ -90,72 +156,77 @@ export const migrateGuestLearningState = async (
     targetKey,
   ]);
   if (!sourceValue) {
-    return;
+    return true;
   }
+  let source: Partial<PersistedPlayerState>;
+  let target: Partial<PersistedPlayerState>;
   try {
-    const source = JSON.parse(sourceValue) as Partial<PersistedPlayerState>;
-    const target = targetValue
+    source = JSON.parse(sourceValue) as Partial<PersistedPlayerState>;
+    target = targetValue
       ? (JSON.parse(targetValue) as Partial<PersistedPlayerState>)
       : {};
-    const sourceFolders = source.savedFolderLessons || {};
-    const targetFolders = target.savedFolderLessons || {};
-    const folderIds = new Set([
-      ...Object.keys(sourceFolders),
-      ...Object.keys(targetFolders),
-    ]);
-    const savedFolderLessons = Object.fromEntries(
-      Array.from(folderIds).map(folderId => [
-        folderId,
-        mergeStringArrays(
-          asArray(sourceFolders[folderId]),
-          asArray(targetFolders[folderId]),
-        ),
-      ]),
-    );
-    const next: PersistedPlayerState = {
-      positions: {...(source.positions || {}), ...(target.positions || {})},
-      lastWatchedAt: {
-        ...(source.lastWatchedAt || {}),
-        ...(target.lastWatchedAt || {}),
-      },
-      completedSections: mergeStringArrays(
-        asArray(source.completedSections),
-        asArray(target.completedSections),
-      ),
-      savedLessons: mergeStringArrays(
-        asArray(source.savedLessons),
-        asArray(target.savedLessons),
-      ),
-      savedFolderLessons,
-      passedProjects: asArray<string>(target.passedProjects).filter(
-        id => !id.startsWith('demo'),
-      ),
-      provisionalProjects: asArray<string>(target.provisionalProjects).filter(
-        id => !id.startsWith('demo'),
-      ),
-      activityDays: mergeStringArrays(
-        asArray(source.activityDays),
-        asArray(target.activityDays),
-      ).slice(-60),
-    };
-    await AsyncStorage.setItem(targetKey, JSON.stringify(next));
-    await AsyncStorage.removeItem(sourceKey);
   } catch {
-    // Discard a damaged guest cache during sign-in.
+    // Keep a damaged guest cache for a later app migration.
+    return false;
   }
+  const sourceFolders = source.savedFolderLessons || {};
+  const targetFolders = target.savedFolderLessons || {};
+  const folderIds = new Set([
+    ...Object.keys(sourceFolders),
+    ...Object.keys(targetFolders),
+  ]);
+  const savedFolderLessons = Object.fromEntries(
+    Array.from(folderIds).map(folderId => [
+      folderId,
+      mergeStringArrays(
+        asArray(sourceFolders[folderId]),
+        asArray(targetFolders[folderId]),
+      ),
+    ]),
+  );
+  const next = compactPlayerState({
+    positions: {...(source.positions || {}), ...(target.positions || {})},
+    lastWatchedAt: {
+      ...(source.lastWatchedAt || {}),
+      ...(target.lastWatchedAt || {}),
+    },
+    completedSections: mergeStringArrays(
+      asArray(source.completedSections),
+      asArray(target.completedSections),
+    ),
+    savedLessons: mergeStringArrays(
+      asArray(source.savedLessons),
+      asArray(target.savedLessons),
+    ),
+    savedFolderLessons,
+    passedProjects: asArray<string>(target.passedProjects).filter(
+      id => !id.startsWith('demo'),
+    ),
+    provisionalProjects: asArray<string>(target.provisionalProjects).filter(
+      id => !id.startsWith('demo'),
+    ),
+    activityDays: mergeStringArrays(
+      asArray(source.activityDays),
+      asArray(target.activityDays),
+    ).slice(-60),
+  });
+  await AsyncStorage.setItem(targetKey, JSON.stringify(next));
+  return true;
 };
 
 export const updatePlayerState = async (
   update: (state: PersistedPlayerState) => PersistedPlayerState,
+  scopedStorageKey?: string,
 ) => {
   // Resolve the account once per operation. A global queue that recalculates
   // the key at write time can leak progress from account A into account B if
   // logout/login happens while an update is waiting.
-  const storageKey = await accountScopedStorageKey(PLAYER_STATE_KEY);
+  const storageKey =
+    scopedStorageKey || (await accountScopedStorageKey(PLAYER_STATE_KEY));
   const previous = playerStateQueues.get(storageKey) ?? Promise.resolve();
   const operation = previous.then(async () => {
     const current = await readPlayerState(storageKey);
-    const next = update(current);
+    const next = compactPlayerState(update(current));
     await AsyncStorage.setItem(storageKey, JSON.stringify(next));
     return next;
   });
@@ -167,6 +238,16 @@ export const updatePlayerState = async (
     }
   });
   return operation;
+};
+
+export const updatePlayerStateForScope = async (
+  accountScope: string,
+  update: (state: PersistedPlayerState) => PersistedPlayerState,
+) => {
+  if (!/^[a-z0-9_-]+$/i.test(accountScope)) {
+    throw new Error('INVALID_ACCOUNT_STORAGE_SCOPE');
+  }
+  return updatePlayerState(update, `${PLAYER_STATE_KEY}:${accountScope}`);
 };
 
 export const getLocalLearningState = readPlayerState;
@@ -202,14 +283,22 @@ export const applyLocalLearningState = async (
   course: CourseLearningData,
 ): Promise<CourseLearningData> => {
   const state = await readPlayerState();
+  const canAuthoriseLocally = isLocalDemoId(course.id);
   let previousProjectPassed = true;
   return {
     ...course,
     modules: course.modules.map((module, index) => {
-      const moduleUnlocked = index === 0 || previousProjectPassed;
+      // Local state remembers presentation and retryable writes. It is never
+      // an entitlement for production content: only the API may expose a
+      // module and its signed media source.
+      const locallyUnlocked = index === 0 || previousProjectPassed;
+      const moduleUnlocked = canAuthoriseLocally
+        ? locallyUnlocked
+        : !module.isLocked;
       const projectPassed = module.project
         ? module.project.status === 'passed' ||
-          state.passedProjects.includes(module.project.id)
+          (canAuthoriseLocally &&
+            state.passedProjects.includes(module.project.id))
         : true;
       const projectProvisional = module.project
         ? state.provisionalProjects.includes(module.project.id)
@@ -219,10 +308,9 @@ export const applyLocalLearningState = async (
         const isCompleted =
           reel.isCompleted || state.completedSections.includes(reel.sectionId);
         const locallyReached = reelIndex === 0 || allPreviousReelsCompleted;
-        const isLocked =
-          !moduleUnlocked ||
-          !reel.videoUrl.trim() ||
-          (reel.isLocked && !locallyReached);
+        const isLocked = canAuthoriseLocally
+          ? !moduleUnlocked || !reel.videoUrl.trim() || !locallyReached
+          : !moduleUnlocked || reel.isLocked;
         allPreviousReelsCompleted = allPreviousReelsCompleted && isCompleted;
         return {
           ...reel,
@@ -247,7 +335,7 @@ export const applyLocalLearningState = async (
       };
       // Reviewing is a visible saved state, not an entitlement. Only an
       // authoritative pass may expose the following module and its media.
-      previousProjectPassed = moduleUnlocked && projectPassed;
+      previousProjectPassed = locallyUnlocked && projectPassed;
       return nextModule;
     }),
   };

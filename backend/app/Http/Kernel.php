@@ -23,6 +23,7 @@ class Kernel extends HttpKernel
         // request against the previous request's static trusted-host state.
         \App\Http\Middleware\TrustHosts::class,
         \App\Http\Middleware\TrustProxies::class,
+        \App\Http\Middleware\AssignRequestIdentity::class,
         \App\Http\Middleware\SecurityHeaders::class,
         \Illuminate\Http\Middleware\HandleCors::class,
         \App\Http\Middleware\PreventRequestsDuringMaintenance::class,
@@ -71,13 +72,14 @@ class Kernel extends HttpKernel
         'guest' => \App\Http\Middleware\RedirectIfAuthenticated::class,
         'password.confirm' => \Illuminate\Auth\Middleware\RequirePassword::class,
         'signed' => \Illuminate\Routing\Middleware\ValidateSignature::class,
-        'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
+        'throttle' => \App\Http\Middleware\ResilientThrottleRequests::class,
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'admin' => GrantAdminAccess::class,
         'admin.only' => \App\Http\Middleware\RequireAdministrator::class,
         'admin.mfa' => \App\Http\Middleware\RequireAdminMfa::class,
         'admin.audit' => \App\Http\Middleware\AuditAdminMutation::class,
         'product.feature' => \App\Http\Middleware\RequireProductFeature::class,
+        'recovery.write' => \App\Http\Middleware\PauseDuringRecovery::class,
         'WebsiteVisitorCount' => WebsiteVisitorCount::class,
     ];
 }

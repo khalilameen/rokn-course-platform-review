@@ -39,6 +39,10 @@ trait HasApiTokens
                 if (Schema::hasColumn($table, 'session_id')) {
                     $attributes['session_id'] = (string) Str::uuid();
                 }
+                if (Schema::hasColumn($table, 'device_id')) {
+                    $deviceId = trim((string) request()->input('device_id'));
+                    $attributes['device_id'] = Str::isUuid($deviceId) ? $deviceId : null;
+                }
                 if (Schema::hasColumn($table, 'platform')) {
                     $platform = strtolower($this->safeSessionHeader(
                         'X-Rokn-Platform',

@@ -114,8 +114,8 @@
                                                     @endif
                                                 </td>
                                                 <td>
-                                                    <span class="d-block">{{ $result->completed_at->format('Y/m/d') }}</span>
-                                                    <small class="text-muted">{{ $result->completed_at->format('H:i') }}</small>
+                                                    <span class="d-block">{{ \App\Support\BusinessClock::format($result->completed_at, 'Y/m/d') }}</span>
+                                                    <small class="text-muted">{{ \App\Support\BusinessClock::format($result->completed_at, 'H:i') }}</small>
                                                 </td>
                                                 <td>
                                                     <span class="badge badge-info">

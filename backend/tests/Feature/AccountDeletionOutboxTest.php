@@ -8,6 +8,7 @@ use App\Jobs\DeleteAccountFile;
 use App\Models\AccountFileDeletion;
 use App\Models\User;
 use App\Services\AccountDeletionService;
+use App\Services\StoredFileReferenceService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
@@ -99,14 +100,16 @@ final class AccountDeletionOutboxTest extends TestCase
         self::assertNull(User::withTrashed()->findOrFail($user->id)->profile_image);
         Queue::assertPushed(DeleteAccountFile::class, fn ($job) => $job->deletionId === $outbox->id);
 
-        app(DeleteAccountFile::class, ['deletionId' => $outbox->id])->handle();
+        app(DeleteAccountFile::class, ['deletionId' => $outbox->id])
+            ->handle(app(StoredFileReferenceService::class));
         Storage::disk('public')->assertMissing('profiles/private.jpg');
         $outbox->refresh();
         self::assertSame(AccountFileDeletion::STATUS_COMPLETED, $outbox->status);
         self::assertNull($outbox->path);
 
         // The worker is safely idempotent after completion.
-        app(DeleteAccountFile::class, ['deletionId' => $outbox->id])->handle();
+        app(DeleteAccountFile::class, ['deletionId' => $outbox->id])
+            ->handle(app(StoredFileReferenceService::class));
         self::assertSame(AccountFileDeletion::STATUS_COMPLETED, $outbox->fresh()->status);
     }
 }

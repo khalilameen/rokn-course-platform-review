@@ -12,6 +12,13 @@ use App\Models\User;
 
 final readonly class UserPathProgressService
 {
+    public function __construct(
+        private FinancialProvenanceService $financialProvenance,
+        private CourseSectionSequenceService $sectionSequence
+    )
+    {
+    }
+
     /**
      * @return array<int, array<string, mixed>>
      */
@@ -21,14 +28,22 @@ final readonly class UserPathProgressService
             ->where('user_id', $user->id)
             ->active()
             ->whereHas('course', function ($courses): void {
-                $courses->whereNotNull('path_id');
+                $courses->whereNotNull('path_id')
+                    ->whereNull('parent_id')
+                    ->where('is_coming_soon', false)
+                    ->whereHas('sections')
+                    ->whereDoesntHave('courseSection');
             })
             ->with([
                 'course.coursePath',
                 'course.level',
                 'course.sections',
             ])
-            ->get();
+            ->get()
+            ->reject(fn (CourseEnrollment $enrollment): bool =>
+                $this->financialProvenance->enrollmentHasActiveHold($enrollment, ['course'])
+            )
+            ->values();
 
         $grouped = $enrollments->groupBy(function (CourseEnrollment $enrollment): mixed {
             return $enrollment->course->path_id;
@@ -56,7 +71,9 @@ final readonly class UserPathProgressService
                 ->first()?->level;
 
             $sectionIds = $courses
-                ->flatMap(fn (Course $course) => $course->sections->pluck('id'))
+                ->flatMap(fn (Course $course) => $this->sectionSequence
+                    ->learning($course->sections)
+                    ->pluck('id'))
                 ->unique()
                 ->values();
             $totalSections = $sectionIds->count();
@@ -65,7 +82,8 @@ final readonly class UserPathProgressService
                     ->where('user_id', $user->id)
                     ->whereIn('course_section_id', $sectionIds->all())
                     ->where('is_completed', true)
-                    ->count()
+                    ->distinct('course_section_id')
+                    ->count('course_section_id')
                 : 0;
             $progressPercentage = $totalSections > 0
                 ? round(($completedSections / $totalSections) * 100, 2)
@@ -120,6 +138,10 @@ final readonly class UserPathProgressService
             ];
         }
 
-        return $data;
+        usort($data, static fn (array $left, array $right): int =>
+            ((int) ($left['path']['id'] ?? 0)) <=> ((int) ($right['path']['id'] ?? 0))
+        );
+
+        return array_values($data);
     }
 }

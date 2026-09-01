@@ -46,7 +46,9 @@ export const Container: FC<containerProps> = ({children, style, noPadding}) => {
         {paddingHorizontal: noPadding ? undefined : sharedHorizontalVal},
         style,
       ]}>
-      <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
+      <SafeAreaView
+        edges={['top', 'right', 'bottom', 'left']}
+        style={styles.safeArea}>
         {children}
       </SafeAreaView>
     </LinearGradient>
@@ -71,12 +73,15 @@ export const Content: FC<contentProps> = ({
   }, [controls]);
   return (
     <ScrollView
+      automaticallyAdjustKeyboardInsets
+      contentInsetAdjustmentBehavior="automatic"
       refreshControl={refreshControl}
       ref={contentRef}
       style={[styles.scroll, style]}
       scrollEnabled={true}
       nestedScrollEnabled={true}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="interactive"
       onScroll={onScroll}
       scrollEventThrottle={scrollEventThrottle}
       contentContainerStyle={[

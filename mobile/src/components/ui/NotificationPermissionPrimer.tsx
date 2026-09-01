@@ -1,6 +1,7 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Image,
   Linking,
   Modal,
@@ -25,6 +26,7 @@ import {
 import {areSmartRemindersSupported} from '../../services/smartReminders';
 import {MoreBellIcon} from '../../assets/SVG';
 import {RoknCoinStack} from './RoknCoin';
+import {useReducedMotion} from '../../hooks/useReducedMotion';
 
 type PrimerPhase = 'idle' | 'requesting' | 'denied';
 
@@ -93,39 +95,72 @@ export default function NotificationPermissionPrimer({
   onEnable,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
   const {width, fontScale} = useResponsiveLayout();
   const [phase, setPhase] = useState<PrimerPhase>('idle');
+  const requestFlightRef = useRef(false);
+  const awaitingSettingsRef = useRef(false);
+  const settingsBackgroundedRef = useRef(false);
   const supported = areSmartRemindersSupported();
   const stackBenefits = width < 400 || fontScale > 1.15;
 
   useEffect(() => {
-    if (!visible) setPhase('idle');
+    if (!visible) {
+      requestFlightRef.current = false;
+      awaitingSettingsRef.current = false;
+      settingsBackgroundedRef.current = false;
+      setPhase('idle');
+    }
   }, [visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const subscription = AppState.addEventListener('change', state => {
+      if (!awaitingSettingsRef.current) return;
+      if (state === 'inactive' || state === 'background') {
+        settingsBackgroundedRef.current = true;
+        return;
+      }
+      if (state !== 'active' || !settingsBackgroundedRef.current) return;
+      awaitingSettingsRef.current = false;
+      settingsBackgroundedRef.current = false;
+      requestFlightRef.current = true;
+      void onEnable()
+        .then(granted => {
+          if (granted) onClose();
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          requestFlightRef.current = false;
+        });
+    });
+    return () => subscription.remove();
+  }, [onClose, onEnable, visible]);
 
   const copy = useMemo(() => {
     if (!supported) {
       return {
-        eyebrow: 'تقدمك محفوظ',
+        eyebrow: '',
         title: 'الإشعارات غير متاحة',
-        body: 'تابع التعلم دون إشعارات',
-        footnote: 'ستجد التحديثات داخل ركن',
-        action: 'تمام',
+        body: 'ستجد تحديثاتك داخل ركن',
+        footnote: '',
+        action: 'إغلاق',
       };
     }
     if (phase === 'denied') {
       return {
-        eyebrow: 'من إعدادات الهاتف',
+        eyebrow: '',
         title: 'الإشعارات متوقفة',
         body: 'اسمح بإشعارات ركن من إعدادات الهاتف',
-        footnote: 'يمكنك المتابعة دونها',
+        footnote: '',
         action: 'فتح إعدادات الهاتف',
       };
     }
     return {
-      eyebrow: 'ما يهمك فقط',
-      title: 'لا تفوّت مقطعك التالي',
-      body: 'اعرف موعد التعلم والمكافآت والكورسات الجديدة',
-      footnote: 'تحكم في الإشعارات من الإعدادات',
+      eyebrow: '',
+      title: 'فعّل الإشعارات',
+      body: 'اعرف الجديد ومواعيد التعلم والمكافآت',
+      footnote: 'يمكنك تغييرها لاحقًا',
       action: 'فعّل الإشعارات',
     };
   }, [phase, supported]);
@@ -135,17 +170,23 @@ export default function NotificationPermissionPrimer({
   };
 
   const handlePrimary = async () => {
-    if (phase === 'requesting') return;
+    if (phase === 'requesting' || requestFlightRef.current) return;
+    requestFlightRef.current = true;
     if (!supported) {
       onClose();
+      requestFlightRef.current = false;
       return;
     }
     if (phase === 'denied') {
       try {
+        awaitingSettingsRef.current = true;
+        settingsBackgroundedRef.current = false;
         await Linking.openSettings();
-        onClose();
       } catch {
+        awaitingSettingsRef.current = false;
         // Keep the explanation visible if the OS settings page is unavailable.
+      } finally {
+        requestFlightRef.current = false;
       }
       return;
     }
@@ -159,12 +200,14 @@ export default function NotificationPermissionPrimer({
       }
     } catch {
       setPhase('denied');
+    } finally {
+      requestFlightRef.current = false;
     }
   };
 
   return (
     <Modal
-      animationType="fade"
+      animationType={reducedMotion ? 'none' : 'fade'}
       onRequestClose={close}
       statusBarTranslucent
       transparent
@@ -177,6 +220,8 @@ export default function NotificationPermissionPrimer({
             {
               paddingTop: Math.max(insets.top, Spacing.lg),
               paddingBottom: Math.max(insets.bottom, Spacing.lg),
+              paddingLeft: Math.max(insets.left + Spacing.md, Spacing.md),
+              paddingRight: Math.max(insets.right + Spacing.md, Spacing.md),
             },
           ]}
           keyboardShouldPersistTaps="handled"
@@ -196,12 +241,13 @@ export default function NotificationPermissionPrimer({
                 </View>
                 <View style={styles.brandCopy}>
                   <Text style={styles.brandTitle}>إشعارات ركن</Text>
-                  <Text style={styles.brandSubtitle}>أنت اللي تختارها</Text>
+                  <Text style={styles.brandSubtitle}>التعلّم والمكافآت</Text>
                 </View>
               </View>
               <Pressable
                 accessibilityLabel="إغلاق"
                 accessibilityRole="button"
+                accessibilityState={{disabled: phase === 'requesting'}}
                 disabled={phase === 'requesting'}
                 hitSlop={8}
                 onPress={close}
@@ -244,7 +290,9 @@ export default function NotificationPermissionPrimer({
               </View>
             )}
 
-            <Text style={styles.eyebrow}>{copy.eyebrow}</Text>
+            {!!copy.eyebrow && (
+              <Text style={styles.eyebrow}>{copy.eyebrow}</Text>
+            )}
             <Text accessibilityRole="header" style={styles.title}>
               {copy.title}
             </Text>
@@ -252,6 +300,10 @@ export default function NotificationPermissionPrimer({
 
             <Pressable
               accessibilityRole="button"
+              accessibilityState={{
+                busy: phase === 'requesting',
+                disabled: phase === 'requesting',
+              }}
               disabled={phase === 'requesting'}
               onPress={() => void handlePrimary()}
               style={({pressed}) => [
@@ -262,17 +314,20 @@ export default function NotificationPermissionPrimer({
               {phase === 'requesting' ? (
                 <View style={styles.loadingRow}>
                   <ActivityIndicator color="#FFFFFF" size="small" />
-                  <Text style={styles.primaryText}>لحظة واحدة</Text>
+                  <Text style={styles.primaryText}>جارٍ التفعيل</Text>
                 </View>
               ) : (
                 <Text style={styles.primaryText}>{copy.action}</Text>
               )}
             </Pressable>
 
-            <Text style={styles.footnote}>{copy.footnote}</Text>
+            {!!copy.footnote && (
+              <Text style={styles.footnote}>{copy.footnote}</Text>
+            )}
             {supported && (
               <Pressable
                 accessibilityRole="button"
+                accessibilityState={{disabled: phase === 'requesting'}}
                 disabled={phase === 'requesting'}
                 onPress={close}
                 style={({pressed}) => [

@@ -1,6 +1,10 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import type {VideoQuality} from '../../components/VideoPlayer/types';
-import {getItem, saveItem} from '../../constants/helpers';
+import {
+  accountScopedStorageKey,
+  getItem,
+  saveItem,
+} from '../../constants/helpers';
 import {
   getProfile,
   hasSession,
@@ -17,9 +21,11 @@ export const usePlaybackPreferences = (serverSession: boolean | null) => {
   playbackSpeedRef.current = playbackSpeed;
 
   useEffect(() => {
+    const qualityKey = accountScopedStorageKey('VIDEO_QUALITY');
+    const speedKey = accountScopedStorageKey('VIDEO_PLAYBACK_SPEED');
     void Promise.all([
-      getItem('VIDEO_QUALITY'),
-      getItem('VIDEO_PLAYBACK_SPEED'),
+      qualityKey.then(getItem),
+      speedKey.then(getItem),
     ])
       .then(async ([savedQuality, savedSpeed]) => {
         const profile = (await hasSession())
@@ -29,8 +35,8 @@ export const usePlaybackPreferences = (serverSession: boolean | null) => {
           savedQuality = profile.videoQualityPreference;
           savedSpeed = profile.playbackSpeed;
           await Promise.all([
-            saveItem('VIDEO_QUALITY', savedQuality),
-            saveItem('VIDEO_PLAYBACK_SPEED', savedSpeed),
+            qualityKey.then(key => saveItem(key, savedQuality)),
+            speedKey.then(key => saveItem(key, savedSpeed)),
           ]);
         }
         setDataSaver(savedQuality === 'data_saver');
@@ -47,11 +53,9 @@ export const usePlaybackPreferences = (serverSession: boolean | null) => {
         ) {
           setSelectedQuality(normalizedQuality as VideoQuality);
         }
-        if (
-          typeof savedSpeed === 'number' &&
-          [0.75, 1, 1.25, 1.5, 2].includes(savedSpeed)
-        ) {
-          setPlaybackSpeed(savedSpeed);
+        const normalizedSpeed = Number(savedSpeed);
+        if ([0.75, 1, 1.25, 1.5, 2].includes(normalizedSpeed)) {
+          setPlaybackSpeed(normalizedSpeed);
         }
       })
       .finally(() => setPlaybackPreferencesReady(true));
@@ -61,7 +65,9 @@ export const usePlaybackPreferences = (serverSession: boolean | null) => {
     (quality: VideoQuality) => {
       setDataSaver(false);
       setSelectedQuality(quality);
-      void saveItem('VIDEO_QUALITY', quality);
+      void accountScopedStorageKey('VIDEO_QUALITY').then(key =>
+        saveItem(key, quality),
+      );
       if (serverSession) {
         void updatePlaybackPreferences({
           videoQualityPreference: quality,
@@ -74,7 +80,9 @@ export const usePlaybackPreferences = (serverSession: boolean | null) => {
   const changePlaybackSpeed = useCallback(
     (speed: number) => {
       setPlaybackSpeed(speed);
-      void saveItem('VIDEO_PLAYBACK_SPEED', speed);
+      void accountScopedStorageKey('VIDEO_PLAYBACK_SPEED').then(key =>
+        saveItem(key, speed),
+      );
       if (serverSession) {
         void updatePlaybackPreferences({playbackSpeed: speed}).catch(
           () => undefined,

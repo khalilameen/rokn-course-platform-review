@@ -14,6 +14,7 @@ export {
   flushPendingPlaybackPositions,
   markSectionComplete,
   openPlaybackSession,
+  persistLocalPlaybackPosition,
   reportPlaybackSessionEvent,
   retryPendingPlaybackPositions,
   retryPendingSectionCompletions,
@@ -29,6 +30,8 @@ export {
   createSavedFolderOption,
   deleteSavedFolderOption,
   getSavedFolderOptions,
+  migrateGuestSavedCollections,
+  reconcileServerSavedLessons,
   removeLessonFromSavedFolder,
   saveLessonToFolder,
   toggleWatchLater,
@@ -36,10 +39,24 @@ export {
 export type {SavedFolderOption} from './courseLearning/savedCollections';
 export {
   clearCurrentAccountLearningFiles,
+  quiesceLearningRuntime,
   retryPendingProjectSubmissions,
+  loadProjectFeedbackThread,
+  sendProjectFeedbackMessage,
   submitProjectAttempt,
   unlockAfterProject,
 } from './courseLearning/projects';
+export {
+  finishCourseQuiz,
+  loadCourseQuiz,
+  startCourseQuiz,
+  submitCourseQuizAnswer,
+} from './courseLearning/quizzes';
+export type {
+  QuizData,
+  QuizQuestion,
+  QuizResult,
+} from './courseLearning/quizzes';
 export type {
   ProjectSubmissionOutcome,
   ProjectSubmissionRetryOutcome,
@@ -47,4 +64,5 @@ export type {
 export {
   askCourseAssistant,
   courseIncludesAssistant,
+  loadCourseAssistantHistory,
 } from './courseLearning/assistant';

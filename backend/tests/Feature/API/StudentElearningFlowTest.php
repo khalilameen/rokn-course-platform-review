@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Tests\Feature\API;
 
 use App\Models\User;
+use App\Models\Lesson;
+use App\Services\LearningEvidenceService;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -14,6 +16,36 @@ use Illuminate\Support\Facades\DB;
  */
 class StudentElearningFlowTest extends ApiTestCase
 {
+    public function test_learning_evidence_uses_the_accepted_playback_session_sample(): void
+    {
+        DB::table('lessons')->where('id', 10)->update(['duration_minutes' => 2]);
+        DB::table('course_sections')->where('id', $this->sectionId)->update([
+            'sectionable_type' => Lesson::class,
+            'sectionable_id' => 10,
+            'section_type' => 'lesson',
+        ]);
+        $lesson = Lesson::with('courseSection')->findOrFail(10);
+        $service = app(LearningEvidenceService::class);
+
+        $service->recordHeartbeat($this->user, $lesson, 0, 120);
+        $this->travel(10)->seconds();
+        $firstSession = $service->recordHeartbeat($this->user, $lesson, 10, 120);
+        self::assertSame(10, $firstSession['verified_seconds']);
+
+        $newSession = $service->recordHeartbeat($this->user, $lesson, 90, 120, [
+            'position_seconds' => 0,
+            'recorded_at' => null,
+        ]);
+        self::assertSame(10, $newSession['verified_seconds']);
+
+        $this->travel(10)->seconds();
+        $continuedSession = $service->recordHeartbeat($this->user, $lesson, 100, 120, [
+            'position_seconds' => 90,
+            'recorded_at' => now()->subSeconds(10),
+        ]);
+        self::assertSame(20, $continuedSession['verified_seconds']);
+    }
+
     public function test_one_second_client_duration_cannot_unlock_a_lesson_with_unknown_server_duration(): void
     {
         DB::table('lessons')->where('id', 10)->update(['duration_minutes' => 0]);
@@ -181,7 +213,8 @@ class StudentElearningFlowTest extends ApiTestCase
         // 6. Student submits course rating and checks profile
         $rateResponse = $this->actingAs($student, 'api')->postJson("/api/v1/courses/{$this->courseId}/rate", [
             'rating' => 5,
-            'comment' => 'ممتازة جدا وشرح رائع'
+            'comment' => 'ممتازة جدا وشرح رائع',
+            'version' => 0,
         ]);
         $rateResponse->assertStatus(200);
 

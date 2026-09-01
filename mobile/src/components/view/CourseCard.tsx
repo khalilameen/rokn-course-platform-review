@@ -9,12 +9,18 @@ import {
   View,
 } from 'react-native';
 import {Fonts, PixelPerfect} from '../../constants/styleConstants';
-import {formatArabicDisplayText} from '../../constants/arabicFormatting';
+import {
+  formatArabicDisplayText,
+  formatArabicMinutes,
+  formatArabicNumber,
+  formatArabicStudents,
+} from '../../constants/arabicFormatting';
 import {
   Palette,
   Radius,
   Spacing,
   Type,
+  rtlRowStyle,
   textDirection,
   useResponsiveLayout,
 } from '../../constants/designSystem';
@@ -30,6 +36,10 @@ export interface Course {
   instructor?: string;
   image?: ImageSourcePropType;
   coinPrice?: number;
+  durationMinutes?: number;
+  ratingAverage?: number;
+  ratingsCount?: number;
+  studentsCount?: number;
   progress?: number;
   owned?: boolean;
   published?: boolean;
@@ -44,10 +54,25 @@ interface CourseCardProps {
 const CourseCard = memo<CourseCardProps>(
   ({item, width}) => {
     const navigation = useNavigation<RootNavigation>();
-    const {railCardWidth} = useResponsiveLayout();
+    const {largeText, railCardWidth} = useResponsiveLayout();
     const isAvailable = item.published !== false;
     const opensLearning = isAvailable && item.owned === true;
     const progress = Math.max(0, Math.min(100, Number(item.progress || 0)));
+    const accessibilitySummary = [
+      item.title,
+      item.durationMinutes
+        ? formatArabicMinutes(Math.round(item.durationMinutes))
+        : undefined,
+      item.ratingsCount && item.ratingAverage
+        ? `التقييم ${formatArabicNumber(item.ratingAverage)} من ٥`
+        : undefined,
+      item.studentsCount
+        ? formatArabicStudents(item.studentsCount)
+        : undefined,
+      item.owned && progress > 0 ? `اكتمل ${Math.round(progress)}٪` : undefined,
+    ]
+      .filter(Boolean)
+      .join('، ');
 
     return (
       <Pressable
@@ -60,7 +85,7 @@ const CourseCard = memo<CourseCardProps>(
             ? 'بطاقة معاينة لكورس سيتوفر قريبًا'
             : 'بطاقة معاينة للكورس'
         }
-        accessibilityLabel={formatArabicDisplayText(item.title)}
+        accessibilityLabel={formatArabicDisplayText(accessibilitySummary)}
         accessibilityRole="button"
         accessibilityState={{disabled: !isAvailable}}
         disabled={!isAvailable}
@@ -106,13 +131,34 @@ const CourseCard = memo<CourseCardProps>(
             </View>
           )}
         </View>
-        <Text numberOfLines={2} style={styles.courseTitle}>
+        <Text numberOfLines={largeText ? 4 : 2} style={styles.courseTitle}>
           {formatArabicDisplayText(item.title)}
         </Text>
         {!!item.instructor && (
-          <Text numberOfLines={1} style={styles.instructor}>
+          <Text numberOfLines={largeText ? 2 : 1} style={styles.instructor}>
             {formatArabicDisplayText(item.instructor)}
           </Text>
+        )}
+        {(Boolean(item.durationMinutes) ||
+          Boolean(item.ratingsCount && item.ratingAverage) ||
+          Boolean(item.studentsCount)) && (
+          <View style={styles.publicMetaRow}>
+            {!!item.durationMinutes && (
+              <Text style={styles.publicMetaText}>
+                {formatArabicMinutes(Math.round(item.durationMinutes))}
+              </Text>
+            )}
+            {!!item.ratingsCount && !!item.ratingAverage && (
+              <Text style={styles.publicMetaText}>
+                ★ {formatArabicNumber(item.ratingAverage)}
+              </Text>
+            )}
+            {!!item.studentsCount && (
+              <Text style={styles.publicMetaText}>
+                {formatArabicStudents(item.studentsCount)}
+              </Text>
+            )}
+          </View>
         )}
         {(item.published === false || item.owned) && (
           <View style={styles.metaRow}>
@@ -175,6 +221,19 @@ const styles = StyleSheet.create({
     color: Palette.textMuted,
     width: '100%',
     alignSelf: 'stretch',
+  },
+  publicMetaRow: {
+    ...rtlRowStyle,
+    width: '100%',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginTop: Spacing.xxs,
+    flexWrap: 'wrap',
+  },
+  publicMetaText: {
+    ...Type.caption,
+    color: Palette.textMuted,
+    fontFamily: Fonts.medium,
   },
   metaRow: {
     width: '100%',

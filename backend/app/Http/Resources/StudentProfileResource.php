@@ -2,11 +2,28 @@
 
 namespace App\Http\Resources;
 
+use App\Models\ExamAttempt;
+use App\Models\StudentSectionProgress;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Str;
 
 class StudentProfileResource extends JsonResource
 {
+    private bool $includeLearningSnapshot = true;
+
+    /**
+     * Authentication and preference mutations only need the account snapshot.
+     * Keeping the learning graph out of those latency-sensitive responses also
+     * prevents a large course history from turning a successful login into a
+     * client timeout.
+     */
+    public function withoutLearningSnapshot(): static
+    {
+        $this->includeLearningSnapshot = false;
+
+        return $this;
+    }
+
     /**
      * Transform the resource into an array.
      *
@@ -15,7 +32,15 @@ class StudentProfileResource extends JsonResource
      */
     public function toArray($request)
     {
-        $orders_count = $this->ordersCount();
+        if ($this->includeLearningSnapshot) {
+            $this->prepareProfileSnapshot();
+        }
+        $attributes = $this->resource->getAttributes();
+        $examAttempts = (int) ($attributes['profile_exam_attempts_count'] ?? 0);
+        $completedExams = (int) ($attributes['profile_completed_exams_count'] ?? 0);
+        $passedExams = (int) ($attributes['profile_passed_exams_count'] ?? 0);
+        $completedLessons = (int) ($attributes['profile_completed_sections_count'] ?? 0);
+        $accessedLessons = (int) ($attributes['profile_accessed_sections_count'] ?? 0);
 
         return [
             'id' => (integer)$this->id,
@@ -24,9 +49,13 @@ class StudentProfileResource extends JsonResource
             'wallet_coins' => (float)$this->wallet_coins,
             'wallet_purchased_coins' => (int) min(max(0, (int) $this->wallet_coins), max(0, (int) $this->wallet_purchased_coins)),
             'wallet_reward_coins' => (int) max(0, (int) $this->wallet_coins - min(max(0, (int) $this->wallet_coins), max(0, (int) $this->wallet_purchased_coins))),
-            'image' => $this->image ? $this->image : url('/images/service.jpg'),
+            'image' => $this->profile_image_url,
             'profile_image' => $this->profile_image_url,
+            'profile_revision' => (int) $this->profile_revision,
             'job_title' => $this->job_title,
+            'portfolio_slug' => $this->portfolio_slug,
+            'portfolio_headline' => $this->portfolio_headline,
+            'portfolio_url' => $this->profile_deeplink,
             'profile_deeplink' => $this->profile_deeplink,
             'email' => $this->publicEmail(),
             'gender' => (string)$this->gender,
@@ -42,31 +71,116 @@ class StudentProfileResource extends JsonResource
             'video_quality_preference' => (string) ($this->video_quality_preference ?: 'auto'),
             'video_fit_mode' => (string) ($this->video_fit_mode ?: 'cover'),
             'playback_speed' => (float) ($this->playback_speed ?: 1),
-            'orders_count' => $orders_count,
+            'orders_count' => $this->when(
+                $this->includeLearningSnapshot,
+                (int) ($attributes['profile_orders_count'] ?? 0)
+            ),
             'active' => (bool) $this->active,
             'social_provider' => (string)$this->social_provider,
             'phone_verified' => !is_null($this->phone_verified_at),
             'phone_verified_at' => $this->phone_verified_at,
-            'courses' => $this->getAuthorizedCourses(),
-            'enrolled_courses' => $this->getEnrolledCourses(),
-            'exam_statistics' => [
-                'total_attempts' => $this->exam_attempts_count,
-                'completed_exams' => $this->completed_exams_count,
-                'average_score' => $this->average_exam_score,
-                'passed_exams' => $this->exam_statistics['passed_exams'] ?? 0,
-                'failed_exams' => $this->exam_statistics['failed_exams'] ?? 0,
-                'completion_rate' => $this->exam_statistics['completion_rate'] ?? 0
-            ],
-            'lesson_progress' => [
-                'completed_lessons' => $this->completed_lessons_count,
-                'total_lessons_accessed' => $this->lesson_progress_statistics['total_lessons_accessed'] ?? 0,
-                'completion_rate' => $this->lesson_progress_statistics['completion_rate'] ?? 0
-            ],
-            'interests' => $this->getInterestsSafely(),
-            'earned_badges' => $this->getEarnedBadgesSafely(),
+            'courses' => $this->when(
+                $this->includeLearningSnapshot,
+                fn () => $this->getAuthorizedCourses()
+            ),
+            'enrolled_courses' => $this->when(
+                $this->includeLearningSnapshot,
+                fn () => $this->getEnrolledCourses()
+            ),
+            'exam_statistics' => $this->when($this->includeLearningSnapshot, [
+                'total_attempts' => $examAttempts,
+                'completed_exams' => $completedExams,
+                'average_score' => round((float) ($attributes['profile_average_exam_score'] ?? 0), 2),
+                'passed_exams' => $passedExams,
+                'failed_exams' => max(0, $completedExams - $passedExams),
+                'completion_rate' => $examAttempts > 0
+                    ? round(($completedExams / $examAttempts) * 100, 2)
+                    : 0,
+            ]),
+            'lesson_progress' => $this->when($this->includeLearningSnapshot, [
+                'completed_lessons' => $completedLessons,
+                'total_lessons_accessed' => $accessedLessons,
+                'completion_rate' => $accessedLessons > 0
+                    ? round(($completedLessons / $accessedLessons) * 100, 2)
+                    : 0,
+            ]),
+            'interests' => $this->when(
+                $this->includeLearningSnapshot,
+                fn () => $this->getInterestsSafely()
+            ),
+            'earned_badges' => $this->when(
+                $this->includeLearningSnapshot,
+                fn () => $this->getEarnedBadgesSafely()
+            ),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];
+    }
+
+    private function prepareProfileSnapshot(): void
+    {
+        $user = $this->resource;
+        if ((bool) ($user->getAttributes()['profile_snapshot_prepared'] ?? false)) {
+            return;
+        }
+
+        try {
+            $user->loadMissing([
+                'interests:id,name_ar,name_en',
+                'earnedLevels:id,name_ar,name_en,badge_image',
+                'enrollments.course',
+            ]);
+            $courses = $user->enrollments
+                ->pluck('course')
+                ->filter()
+                ->unique('id')
+                ->values();
+            $courses->loadMissing([
+                'photo',
+                'classifications',
+                'teachers',
+                'coursePath',
+                'accessPlans' => fn ($plans) => $plans->where('is_active', true),
+            ]);
+            $courses->loadCount(['sections', 'ratings', 'activeEnrollments']);
+            $courses->loadAvg('ratings', 'rating');
+
+            $exam = ExamAttempt::query()
+                ->where('user_id', $user->id)
+                ->selectRaw('COUNT(*) as attempts_count')
+                ->selectRaw('SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as completed_count', [ExamAttempt::STATUS_COMPLETED])
+                ->selectRaw('SUM(CASE WHEN status = ? AND is_passed = ? THEN 1 ELSE 0 END) as passed_count', [ExamAttempt::STATUS_COMPLETED, 1])
+                ->selectRaw('AVG(CASE WHEN status = ? THEN score_percentage ELSE NULL END) as average_score', [ExamAttempt::STATUS_COMPLETED])
+                ->first();
+            $progress = StudentSectionProgress::query()
+                ->where('user_id', $user->id)
+                ->selectRaw('COUNT(*) as accessed_count')
+                ->selectRaw('SUM(CASE WHEN is_completed = ? THEN 1 ELSE 0 END) as completed_count', [1])
+                ->first();
+
+            $user->setAttribute('profile_orders_count', $user->orders()->count());
+            $user->setAttribute('profile_exam_attempts_count', (int) ($exam?->attempts_count ?? 0));
+            $user->setAttribute('profile_completed_exams_count', (int) ($exam?->completed_count ?? 0));
+            $user->setAttribute('profile_passed_exams_count', (int) ($exam?->passed_count ?? 0));
+            $user->setAttribute('profile_average_exam_score', (float) ($exam?->average_score ?? 0));
+            $user->setAttribute('profile_accessed_sections_count', (int) ($progress?->accessed_count ?? 0));
+            $user->setAttribute('profile_completed_sections_count', (int) ($progress?->completed_count ?? 0));
+        } catch (\Throwable $exception) {
+            report($exception);
+            foreach ([
+                'profile_orders_count',
+                'profile_exam_attempts_count',
+                'profile_completed_exams_count',
+                'profile_passed_exams_count',
+                'profile_average_exam_score',
+                'profile_accessed_sections_count',
+                'profile_completed_sections_count',
+            ] as $attribute) {
+                $user->setAttribute($attribute, 0);
+            }
+        }
+
+        $user->setAttribute('profile_snapshot_prepared', true);
     }
 
     private function publicEmail(): ?string
@@ -147,20 +261,18 @@ class StudentProfileResource extends JsonResource
      */
     protected function getAuthorizedCourses()
     {
-        // Get active course enrollments for this user
-        $enrollments = \App\Models\CourseEnrollment::where('user_id', $this->id)
-            ->where('is_active', true)
-            ->where(function($query) {
-                $query->whereNull('expires_at')
-                      ->orWhere('expires_at', '>', now());
-            })
-            ->with('course')
-            ->get();
+        $enrollments = $this->relationLoaded('enrollments')
+            ? $this->enrollments
+            : $this->enrollments()
+                ->with(['course.accessPlans' => fn ($plans) => $plans->where('is_active', true)])
+                ->get();
 
-        // Extract courses from enrollments
-        $courses = $enrollments->map(function($enrollment) {
-            return $enrollment->course;
-        })->filter(); // Remove null courses
+        $courses = $enrollments
+            ->filter(fn ($enrollment) => $enrollment->isActive())
+            ->pluck('course')
+            ->filter()
+            ->unique('id')
+            ->values();
 
         app(\App\Services\CourseDurationService::class)->attachMany($courses);
 
@@ -174,7 +286,9 @@ class StudentProfileResource extends JsonResource
      */
     protected function getEnrolledCourses()
     {
-        $enrollments = $this->enrollments()->with('course')->get();
+        $enrollments = $this->relationLoaded('enrollments')
+            ? $this->enrollments
+            : $this->enrollments()->with('course')->get();
         
         return $enrollments->map(function ($enrollment) {
             return [

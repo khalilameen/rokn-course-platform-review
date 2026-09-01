@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use Database\Seeders\Concerns\GuardsDevelopmentFixtures;
 use App\Models\CoinEarningMethod;
 use App\Models\Course;
 use App\Models\CourseModule;
@@ -23,8 +24,12 @@ use Illuminate\Support\Facades\Schema;
 
 class RoknExperienceDemoSeeder extends Seeder
 {
+    use GuardsDevelopmentFixtures;
+
     public function run(): void
     {
+        $this->guardDevelopmentFixtures();
+
         DB::transaction(function (): void {
             $grade = Grade::firstOrCreate(
                 ['name_en' => 'Professional Skills'],

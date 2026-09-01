@@ -16,7 +16,9 @@ class Attachment extends Model
         'file_path',
         'storage_disk',
         'file_type',
+        'mime_type',
         'file_size',
+        'content_sha256',
         'order',
     ];
 
@@ -28,14 +30,13 @@ class Attachment extends Model
         return $this->morphTo();
     }
 
-    /**
-     * Get the file URL.
-     */
-    public function getFileUrlAttribute()
+    /** Course attachments never have a durable public URL. */
+    public function getFileUrlAttribute(): ?string
     {
-        return $this->storage_disk === 'public'
-            ? asset('storage/' . ltrim((string) $this->file_path, '/'))
-            : null;
+        // Access-aware resources issue a short-lived signed download URL after
+        // checking the current enrollment. Keeping this accessor fail-closed
+        // prevents a future serializer from exposing a legacy public-disk path.
+        return null;
     }
 
     public function getStorageDiskAttribute($value): string

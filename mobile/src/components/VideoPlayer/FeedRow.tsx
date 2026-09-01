@@ -1,15 +1,12 @@
-import React, {useCallback, useState} from 'react';
-import {StyleSheet, View} from 'react-native';
-import {
-  CourseLearningData,
-  CourseFeedItem,
-  VideoQuality,
-} from './types';
+import React, {useCallback, useRef, useState} from 'react';
+import {ActivityIndicator, Image, StyleSheet, View} from 'react-native';
+import {CourseLearningData, CourseFeedItem, VideoQuality} from './types';
 import VideoComponent from './VideoComponent';
 import FeedFooter from './FeedFooter';
 import FeedHeader from './FeedHeader';
 import FeedSideBar from './FeedSideBar';
 import ProjectTransition from './ProjectTransition';
+import QuizTransition from './QuizTransition';
 import type {
   ProjectSubmissionOutcome,
   SavedFolderOption,
@@ -26,10 +23,12 @@ interface FeedRowProps {
   pageHeight: number;
   frameWidth: number;
   isVisible: boolean;
+  playbackBlocked: boolean;
   shouldMountVideo: boolean;
   playbackSpeed: number;
   selectedQuality: VideoQuality;
   saved: boolean;
+  savePending: boolean;
   initialPosition: number;
   topInset: number;
   bottomInset: number;
@@ -46,8 +45,11 @@ interface FeedRowProps {
   onPlaybackMetrics: (metrics: PlaybackRuntimeMetrics) => void;
   onSubmitProject: (
     file: import('./types').SelectedProjectFile,
+    note?: string,
   ) => Promise<ProjectSubmissionOutcome>;
   onContinueAfterProject?: () => void;
+  onQuizPassed: () => Promise<void> | void;
+  onContinueAfterQuiz?: () => void;
 }
 
 const FeedRow = ({
@@ -57,10 +59,12 @@ const FeedRow = ({
   pageHeight,
   frameWidth,
   isVisible,
+  playbackBlocked,
   shouldMountVideo,
   playbackSpeed,
   selectedQuality,
   saved,
+  savePending,
   initialPosition,
   topInset,
   bottomInset,
@@ -77,14 +81,34 @@ const FeedRow = ({
   onPlaybackMetrics,
   onSubmitProject,
   onContinueAfterProject,
+  onQuizPassed,
+  onContinueAfterQuiz,
 }: FeedRowProps) => {
   const [currentTime, setCurrentTime] = useState(0);
+  const attachmentClockRef = useRef(0);
+  const [localOverlayVisible, setLocalOverlayVisible] = useState(false);
+  const attachmentPromptAt = course.attachmentPrompt?.enabled
+    ? Math.max(0, Number(course.attachmentPrompt.atSeconds || 0))
+    : null;
   const handleProgress = useCallback(
     (time: number, duration: number) => {
-      setCurrentTime(time);
+      // VideoComponent owns the frame-by-frame playback clock. FeedRow only
+      // needs a coarse clock until the one-time attachment prompt threshold;
+      // mirroring every progress event here rerendered the full side rail and
+      // bottom sheets throughout every reel on low-end phones.
+      if (
+        attachmentPromptAt !== null &&
+        attachmentClockRef.current <= attachmentPromptAt
+      ) {
+        const next = Math.min(attachmentPromptAt, Math.max(0, Math.floor(time)));
+        if (next !== attachmentClockRef.current) {
+          attachmentClockRef.current = next;
+          setCurrentTime(next);
+        }
+      }
       onProgress(time, duration);
     },
-    [onProgress],
+    [attachmentPromptAt, onProgress],
   );
 
   if (item.type === 'project') {
@@ -92,6 +116,7 @@ const FeedRow = ({
     return (
       <View style={[styles.page, {width: pageWidth, height: pageHeight}]}>
         <ProjectTransition
+          active={isVisible}
           project={item.project}
           moduleTitle={module?.title || ''}
           width={pageWidth}
@@ -100,6 +125,27 @@ const FeedRow = ({
           bottomInset={bottomInset}
           onSubmit={onSubmitProject}
           onContinue={onContinueAfterProject}
+        />
+      </View>
+    );
+  }
+
+  if (item.type === 'quiz') {
+    const module = course.modules.find(entry => entry.id === item.moduleId);
+    return (
+      <View style={[styles.page, {width: pageWidth, height: pageHeight}]}>
+        <QuizTransition
+          courseId={course.id}
+          quiz={item.quiz}
+          moduleTitle={module?.title || ''}
+          width={pageWidth}
+          height={pageHeight}
+          topInset={topInset}
+          bottomInset={bottomInset}
+          onPassed={async () => {
+            await onQuizPassed();
+            onContinueAfterQuiz?.();
+          }}
         />
       </View>
     );
@@ -114,13 +160,15 @@ const FeedRow = ({
 
   return (
     <View style={[styles.page, {width: pageWidth, height: pageHeight}]}>
-      <View style={[styles.videoFrame, {width: frameWidth, height: pageHeight}]}>
+      <View
+        style={[styles.videoFrame, {width: frameWidth, height: pageHeight}]}>
         {shouldMountVideo ? (
           <VideoComponent
             data={item.reel}
             width={frameWidth}
             height={pageHeight}
             isVisible={isVisible}
+            playbackBlocked={playbackBlocked || localOverlayVisible}
             playbackSpeed={playbackSpeed}
             selectedQuality={effectiveQuality}
             initialPosition={initialPosition}
@@ -132,7 +180,21 @@ const FeedRow = ({
             onPlaybackMetrics={onPlaybackMetrics}
           />
         ) : (
-          <View style={StyleSheet.absoluteFill} />
+          <View style={[StyleSheet.absoluteFill, styles.sourcePending]}>
+            {!!item.reel.thumbnailUrl && (
+              <Image
+                accessibilityElementsHidden
+                accessibilityIgnoresInvertColors
+                importantForAccessibility="no"
+                blurRadius={3}
+                source={{uri: item.reel.thumbnailUrl}}
+                style={StyleSheet.absoluteFill}
+              />
+            )}
+            {isVisible && !item.reel.isLocked && (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            )}
+          </View>
         )}
         {isVisible && (
           <>
@@ -142,6 +204,7 @@ const FeedRow = ({
               selectedQuality={effectiveQuality}
               qualityOptions={availableQualities}
               onQualityChange={onQualityChange}
+              onOpenChange={setLocalOverlayVisible}
               topInset={topInset}
             />
             <FeedSideBar
@@ -149,10 +212,12 @@ const FeedRow = ({
               currentReel={item.reel}
               currentFeedKey={item.key}
               isSaved={saved}
+              savePending={savePending}
               bottomInset={bottomInset}
               onToggleSave={onToggleSave}
               onBeforeOpenSave={onBeforeOpenSave}
               onOpenChat={onOpenChat}
+              onOverlayVisibilityChange={setLocalOverlayVisible}
               onSelectFeedItem={onSelectFeedItem}
               currentTime={currentTime}
             />
@@ -176,5 +241,9 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
     backgroundColor: '#030507',
+  },
+  sourcePending: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

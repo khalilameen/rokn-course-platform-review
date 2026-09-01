@@ -4,9 +4,15 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Models\PaymentMethod;
+use App\Services\ArabicSearchNormalizer;
+use App\Services\SocialAuthProviderRegistry;
+use App\Services\RecoveryEvidenceService;
+use App\Services\AppReleasePolicyService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
@@ -15,21 +21,41 @@ class ProductionPreflight extends Command
 {
     protected $signature = 'rokn:preflight
         {--connectivity : Verify the configured database and shared cache at runtime}
-        {--configuration-only : Skip post-migration legacy-data release gates}';
+        {--configuration-only : Skip post-migration legacy-data release gates}
+        {--allow-mixed-release : Permit old-shape rows only while the previous release still serves traffic}
+        {--schema-only : Verify only the current release database contract}';
 
     protected $description = 'Fail a Rokn production deployment when required configuration is missing or unsafe';
 
     public function handle(): int
     {
-        $failures = $this->configurationFailures();
-
-        if (!(bool) $this->option('configuration-only')) {
+        if ((bool) $this->option('schema-only')) {
             $failures = [
-                ...$failures,
-                ...$this->legacyPublicAssetFailures(),
-                ...$this->publishedVideoFailures(),
-                ...$this->financialProvenanceFailures(),
+                ...$this->pendingMigrationFailures(),
+                ...$this->requiredProductSchemaFailures(),
             ];
+            if (!(bool) $this->option('allow-mixed-release')) {
+                $failures = [...$failures, ...$this->releaseOverlapFailures()];
+            }
+        } else {
+            $failures = $this->configurationFailures();
+
+            if (!(bool) $this->option('configuration-only')) {
+                $failures = [
+                    ...$failures,
+                    ...$this->pendingMigrationFailures(),
+                    ...$this->requiredProductSchemaFailures(),
+                    ...$this->mobileReleaseFailures(),
+                    ...$this->legacyPublicAssetFailures(),
+                    ...$this->developmentFixtureFailures(),
+                    ...$this->publishedVideoFailures(),
+                    ...$this->financialProvenanceFailures(),
+                    ...$this->recoveryEvidenceFailures(),
+                ];
+                if (!(bool) $this->option('allow-mixed-release')) {
+                    $failures = [...$failures, ...$this->releaseOverlapFailures()];
+                }
+            }
         }
 
         if ((bool) $this->option('connectivity')) {
@@ -51,6 +77,281 @@ class ProductionPreflight extends Command
     }
 
     /** @return list<string> */
+    private function releaseOverlapFailures(): array
+    {
+        try {
+            $failures = [];
+            if (
+                Schema::hasTable('exam_attempts')
+                && Schema::hasTable('lists')
+                && Schema::hasColumns('exam_attempts', [
+                    'quiz_title',
+                    'quiz_description',
+                    'quiz_image',
+                ])
+            ) {
+                $repairable = DB::table('exam_attempts as attempt')
+                    ->join('lists as quiz', 'quiz.id', '=', 'attempt.quiz_id')
+                    ->whereNull('attempt.quiz_title')
+                    ->count();
+                if ($repairable > 0) {
+                    $failures[] = sprintf(
+                    '%d exam attempt snapshot(s) were written by the previous release; run rokn:release-finalize after old workers drain.',
+                    $repairable
+                    );
+                }
+            }
+
+            if (
+                Schema::hasTable('saved_folders')
+                && Schema::hasColumn('saved_folders', 'normalized_name')
+            ) {
+                $repairableFolders = DB::table('saved_folders')
+                    ->whereNull('normalized_name')
+                    ->count();
+                if ($repairableFolders > 0) {
+                    $failures[] = sprintf(
+                        '%d saved folder(s) were written by the previous release; run rokn:release-finalize after old workers drain.',
+                        $repairableFolders
+                    );
+                }
+            }
+
+            $staleCourseSearch = $this->staleCourseSearchCount();
+            if ($staleCourseSearch > 0) {
+                $failures[] = sprintf(
+                    '%d course search row(s) were written by the previous release; run rokn:release-finalize after old workers drain.',
+                    $staleCourseSearch
+                );
+            }
+
+            return $failures;
+        } catch (Throwable) {
+            return ['Mixed-release backfill verification could not complete.'];
+        }
+    }
+
+    private function staleCourseSearchCount(): int
+    {
+        if (
+            !Schema::hasTable('courses')
+            || !Schema::hasColumns('courses', [
+                'name_ar', 'name_en', 'description_ar', 'description_en',
+                'search_keywords_ar', 'search_keywords_en',
+                'search_title_normalized', 'search_terms_normalized',
+            ])
+        ) {
+            return 0;
+        }
+
+        $normalizer = app(ArabicSearchNormalizer::class);
+        $stale = 0;
+        foreach (
+            DB::table('courses')
+                ->select([
+                    'id', 'name_ar', 'name_en', 'description_ar', 'description_en',
+                    'search_keywords_ar', 'search_keywords_en',
+                    'search_title_normalized', 'search_terms_normalized',
+                ])
+                ->lazyById(250) as $course
+        ) {
+            $title = implode(' ', array_filter([
+                $course->name_ar,
+                $course->name_en,
+            ], static fn ($value): bool => trim((string) $value) !== ''));
+            $terms = implode(' ', array_filter([
+                $course->name_ar,
+                $course->name_en,
+                $course->description_ar,
+                $course->description_en,
+                $course->search_keywords_ar,
+                $course->search_keywords_en,
+            ], static fn ($value): bool => trim((string) $value) !== ''));
+            if (
+                !hash_equals(
+                    (string) $course->search_title_normalized,
+                    $normalizer->normalize($title)
+                )
+                || !hash_equals(
+                    (string) $course->search_terms_normalized,
+                    $normalizer->normalize($terms)
+                )
+            ) {
+                $stale++;
+            }
+        }
+
+        return $stale;
+    }
+
+    /** @return list<string> */
+    private function pendingMigrationFailures(): array
+    {
+        try {
+            $migrator = app('migrator');
+            $files = $migrator->getMigrationFiles(database_path('migrations'));
+            $ran = array_fill_keys($migrator->getRepository()->getRan(), true);
+            $pending = array_values(array_filter(
+                array_keys($files),
+                static fn (string $migration): bool => !isset($ran[$migration])
+            ));
+
+            return $pending === []
+                ? []
+                : [sprintf(
+                    'The release has %d pending database migration(s); traffic must not switch to this artifact.',
+                    count($pending)
+                )];
+        } catch (Throwable) {
+            return ['The migration ledger could not be verified; traffic must not switch to this artifact.'];
+        }
+    }
+
+    /** @return list<string> */
+    private function mobileReleaseFailures(): array
+    {
+        $readiness = app(AppReleasePolicyService::class)->launchReadiness();
+        if ($readiness['ready']) {
+            return [];
+        }
+
+        if ($readiness['required_channels'] === []) {
+            return ['MOBILE_RELEASE_REQUIRED_CHANNELS must name at least one launch channel.'];
+        }
+
+        $failures = [];
+        foreach ($readiness['required_channels'] as $channel) {
+            $status = $readiness['channels'][$channel] ?? null;
+            if (!(bool) ($status['ready'] ?? false)) {
+                $failures[] = sprintf(
+                    'Mobile release channel %s is not launch-ready (%s). Publish an active release with the correct build identity and official URL.',
+                    $channel,
+                    (string) ($status['reason'] ?? 'unknown'),
+                );
+            }
+        }
+
+        return $failures;
+    }
+
+    /** @return list<string> */
+    private function requiredProductSchemaFailures(): array
+    {
+        $families = [
+            'social sign-in' => ['social_accounts', 'social_oauth_attempts'],
+            'course access and AI' => [
+                'course_access_plans',
+                'ai_entitlement_usages',
+                'ai_usage_events',
+                'course_chat_turns',
+            ],
+            'playback' => ['lesson_media_states', 'playback_sessions', 'lesson_watch_evidence'],
+            'project delivery' => ['project_submissions', 'project_feedback_threads', 'project_feedback_messages'],
+            'notifications' => ['student_notifications', 'notification_campaigns', 'user_device_tokens'],
+            'wallet and rewards' => ['wallet_transactions', 'user_coin_task_attempts', 'reward_rules'],
+            'WhatsApp linking' => ['user_whatsapp_connections', 'whatsapp_link_tokens'],
+            'store billing' => ['store_purchases', 'store_notification_events'],
+            'discounts' => ['coupon_redemptions'],
+            'operations' => [
+                'admin_audit_logs',
+                'product_feature_flags',
+                'operational_incidents',
+                'bunny_storage_cleanup_candidates',
+                'recovery_markers',
+            ],
+            'support feedback' => ['feedback_reports', 'feedback_attachments', 'support_case_messages', 'support_case_events'],
+            'learning continuity' => [
+                'student_section_progress',
+                'watching_logs',
+                'saved_folders',
+                'saved_folder_lessons',
+            ],
+            'learner identity artifacts' => ['portfolio_items', 'certificates'],
+            'resumable authoring' => ['bunny_direct_uploads', 'profile_update_receipts'],
+        ];
+
+        $failures = [];
+        foreach ($families as $family => $tables) {
+            $missing = array_values(array_filter(
+                $tables,
+                static fn (string $table): bool => !Schema::hasTable($table)
+            ));
+            if ($missing !== []) {
+                $failures[] = sprintf(
+                    'The %s schema is incomplete. Missing: %s. Run all forward migrations before release.',
+                    $family,
+                    implode(', ', $missing)
+                );
+            }
+        }
+
+        $requiredColumns = [
+            'student_section_progress' => ['completed_at'],
+            'watching_logs' => [
+                'playback_session_id',
+                'playback_session_started_at',
+                'last_playback_sequence',
+            ],
+            'saved_folders' => ['normalized_name', 'client_request_id'],
+            'feedback_reports' => [
+                'client_request_id', 'request_fingerprint', 'guest_access_hash',
+                'requester_email', 'order_id', 'version', 'first_response_due_at',
+                'last_user_message_at', 'last_staff_message_at', 'closed_at',
+                'reopened_at', 'retention_until', 'resolution_kind',
+            ],
+            'feedback_attachments' => ['support_case_message_id', 'sha256', 'scan_status'],
+            'certificates' => [
+                'public_id',
+                'holder_name',
+                'course_name',
+                'recovery_attempts',
+                'recovery_next_attempt_at',
+                'recovery_failed_at',
+                'recovery_failure_code',
+            ],
+            'course_access_plans' => [
+                'project_followup_message_limit',
+                'project_followup_token_budget',
+                'project_followup_budget_usd',
+                'project_followup_reserve_usd',
+            ],
+            'packages' => ['is_active', 'direct_enabled'],
+            'courses' => [
+                'authoring_version', 'authoring_request_id', 'deleted_at',
+                'search_title_normalized', 'search_terms_normalized',
+            ],
+            'course_ratings' => ['version'],
+            'portfolio_items' => ['client_request_id', 'request_fingerprint'],
+            'portfolio_media' => [
+                'client_request_id',
+                'content_sha256',
+                'mime_type',
+                'size_bytes',
+                'original_name',
+            ],
+            'users' => ['profile_revision'],
+        ];
+        foreach ($requiredColumns as $table => $columns) {
+            if (!Schema::hasTable($table)) {
+                continue;
+            }
+            $missing = array_values(array_filter(
+                $columns,
+                static fn (string $column): bool => !Schema::hasColumn($table, $column)
+            ));
+            if ($missing !== []) {
+                $failures[] = sprintf(
+                    'The %s schema is stale. Missing columns: %s. Run all forward migrations before release.',
+                    $table,
+                    implode(', ', $missing)
+                );
+            }
+        }
+
+        return $failures;
+    }
+
+    /** @return list<string> */
     private function configurationFailures(): array
     {
         $failures = [];
@@ -63,7 +364,14 @@ class ProductionPreflight extends Command
         $appUrl = trim((string) config('app.url'));
         $appHost = strtolower((string) parse_url($appUrl, PHP_URL_HOST));
         $appDomain = strtolower(trim((string) config('app.app_domain')));
+        $publicWebUrl = rtrim(trim((string) config('public_links.base_url')), '/');
+        $publicWebHost = strtolower((string) parse_url($publicWebUrl, PHP_URL_HOST));
         $appKey = trim((string) config('app.key'));
+        $recoverySigningKey = trim((string) config('operations.recovery_evidence_signing_key'));
+        $backupEvidencePath = trim((string) config('operations.backup_evidence_path'));
+        $restoreEvidencePath = trim((string) config('operations.recovery_evidence_path'));
+        $absolutePath = static fn (string $path): bool => str_starts_with($path, DIRECTORY_SEPARATOR)
+            || preg_match('/^[A-Za-z]:[\\\\\/]/', $path) === 1;
         $redisHost = strtolower(trim((string) config('database.redis.default.host')));
         $firebaseCredentials = trim((string) config('firebase.credentials.file'));
         $firebaseCredentialsBase64 = trim((string) config('firebase.credentials.base64'));
@@ -83,9 +391,17 @@ class ProductionPreflight extends Command
             && filled($firebaseCredentialsData['client_email'] ?? null)
             && filled($firebaseCredentialsData['private_key'] ?? null);
         $trustedProxies = array_values(array_filter((array) config('trusted_proxies.proxies', [])));
+        $usesDynamicTrustedEdge = $trustedProxies === ['*']
+            && (bool) config('trusted_proxies.allow_dynamic_edge', false);
         $coursePdfDisk = trim((string) config('course_pdfs.disk'));
         $coursePdfDiskConfig = $coursePdfDisk !== '' ? config("filesystems.disks.{$coursePdfDisk}") : null;
         $coursePdfDriver = is_array($coursePdfDiskConfig) ? strtolower((string) ($coursePdfDiskConfig['driver'] ?? '')) : '';
+        $publicDiskConfig = config('filesystems.disks.public');
+        $attachmentDiskName = trim((string) config('course_attachments.disk'));
+        $attachmentDiskConfig = $attachmentDiskName !== ''
+            ? config("filesystems.disks.{$attachmentDiskName}")
+            : null;
+        $feedbackDiskConfig = config('filesystems.disks.feedback');
         $androidPackage = trim((string) config('app_links.android_package'));
         $androidFingerprints = array_values(array_unique(array_filter(array_map(
             static fn ($value): string => strtoupper(trim((string) $value)),
@@ -106,11 +422,49 @@ class ProductionPreflight extends Command
             static fn ($value): string => trim((string) $value),
             (array) config('social_auth.return_urls', [])
         ))));
-        $facebookGraphVersion = trim((string) config('services.facebook.graph_version'));
+        $socialProviders = app(SocialAuthProviderRegistry::class);
+        $declaredSocialProviders = $socialProviders->declared();
+        $swaggerApiMiddleware = (array) config('l5-swagger.routes.middleware.api', []);
+        $swaggerDocsMiddleware = (array) config('l5-swagger.routes.middleware.docs', []);
 
         $require(config('app.env') === 'production', 'APP_ENV must be production.');
         $require(config('app.debug') === false, 'APP_DEBUG must be false.');
+        $require(
+            config('l5-swagger.generate_always') === false,
+            'L5_SWAGGER_GENERATE_ALWAYS must be false in production.'
+        );
+        $require(
+            in_array('admin.only', $swaggerApiMiddleware, true)
+                && in_array('admin.mfa', $swaggerApiMiddleware, true)
+                && in_array('admin.only', $swaggerDocsMiddleware, true)
+                && in_array('admin.mfa', $swaggerDocsMiddleware, true),
+            'Swagger UI and generated contracts must require an administrator with MFA.'
+        );
+        $require(
+            config('demo.seed_enabled') === false,
+            'ROKN_SEED_DEMO must be false in production.'
+        );
         $require($appKey !== '' && !str_contains($appKey, 'AAAAAAA'), 'APP_KEY must be a real, non-placeholder key.');
+        $require(
+            trim((string) config('operations.recovery_encryption_key_id')) !== '',
+            'RECOVERY_ENCRYPTION_KEY_ID must identify the APP_KEY generation used by encrypted production data.'
+        );
+        $require(
+            strlen($recoverySigningKey) >= 32,
+            'RECOVERY_EVIDENCE_SIGNING_KEY must be a separate stable secret of at least 32 characters.'
+        );
+        $require(
+            $recoverySigningKey === '' || !hash_equals($appKey, $recoverySigningKey),
+            'RECOVERY_EVIDENCE_SIGNING_KEY must not reuse APP_KEY.'
+        );
+        $require(
+            $absolutePath($backupEvidencePath)
+                && $absolutePath($restoreEvidencePath)
+                && $backupEvidencePath !== $restoreEvidencePath,
+            'BACKUP_EVIDENCE_PATH and RECOVERY_EVIDENCE_PATH must be distinct absolute durable paths.'
+        );
+        $require((int) config('operations.recovery_rpo_minutes') > 0, 'RECOVERY_RPO_MINUTES must be positive.');
+        $require((int) config('operations.recovery_rto_minutes') > 0, 'RECOVERY_RTO_MINUTES must be positive.');
         $require(
             str_starts_with($appUrl, 'https://')
                 && $appHost !== ''
@@ -121,7 +475,19 @@ class ProductionPreflight extends Command
             $appDomain !== '' && !in_array($appDomain, ['localhost', 'example.com'], true),
             'APP_DOMAIN must be the real public application domain.'
         );
-        $require(config('app.timezone') === 'Africa/Cairo', 'APP_TIMEZONE must be Africa/Cairo.');
+        $require(
+            str_starts_with($publicWebUrl, 'https://')
+                && $publicWebHost === $appDomain
+                && in_array($publicWebHost, $trustedHosts, true),
+            'PUBLIC_WEB_URL must be the trusted branded HTTPS APP_DOMAIN used by QR and app links.'
+        );
+        $require(config('app.timezone') === 'UTC', 'APP_TIMEZONE must be UTC.');
+        $require(config('app.business_timezone') === 'Africa/Cairo', 'BUSINESS_TIMEZONE must be Africa/Cairo.');
+        $databaseTimezone = (string) config('database.connections.' . config('database.default') . '.timezone');
+        $require(
+            in_array($databaseTimezone, ['+00:00', 'UTC'], true),
+            'DB_TIMEZONE must be UTC (+00:00).'
+        );
         $require(
             $trustedHosts !== []
                 && collect($trustedHosts)->every(fn (string $host): bool => $this->validPublicHost($host))
@@ -163,6 +529,24 @@ class ProductionPreflight extends Command
         $require(in_array(config('database.default'), ['mysql', 'pgsql'], true), 'Production DB_CONNECTION must be mysql or pgsql.');
         $require(config('cache.default') === 'redis', 'CACHE_DRIVER must be redis.');
         $require(config('queue.default') === 'redis', 'QUEUE_CONNECTION must be redis.');
+        $require(
+            (int) config('queue.connections.redis.retry_after') >= 330,
+            'REDIS_QUEUE_RETRY_AFTER must exceed the longest 300-second job timeout with recovery headroom.'
+        );
+        $require(
+            config('queue.failed.driver') === 'database',
+            'QUEUE_FAILED_DRIVER must persist dead-letter jobs in the database.'
+        );
+        $queueChannels = [
+            (string) config('queue.connections.redis.queue', 'default'),
+            (string) config('queue.channels.notifications'),
+            (string) config('queue.channels.ai_feedback'),
+            (string) config('webhooks.queue'),
+        ];
+        $require(
+            count(array_unique(array_filter($queueChannels))) === 4,
+            'default, notifications, ai-feedback and webhooks must use isolated queue names.'
+        );
         $require(config('session.driver') === 'redis', 'SESSION_DRIVER must be redis.');
         $require(config('session.secure') === true, 'SESSION_SECURE_COOKIE must be true.');
         $require(
@@ -170,8 +554,11 @@ class ProductionPreflight extends Command
             'API_TOKEN_ALLOW_LEGACY_TRANSPORTS must be false; production accepts Bearer tokens only.'
         );
         $require(
-            $trustedProxies !== [] && collect($trustedProxies)->every(fn ($proxy) => $this->validTrustedProxy((string) $proxy)),
-            'TRUSTED_PROXIES must contain explicit edge IPs/CIDRs and must not trust the whole internet.'
+            $usesDynamicTrustedEdge || (
+                $trustedProxies !== []
+                && collect($trustedProxies)->every(fn ($proxy) => $this->validTrustedProxy((string) $proxy))
+            ),
+            'TRUSTED_PROXIES must contain explicit edge IPs/CIDRs, or use * with TRUSTED_PROXIES_ALLOW_DYNAMIC_EDGE=true only on a managed private origin.'
         );
         $require(
             $redisHost !== '' && !in_array($redisHost, ['127.0.0.1', 'localhost'], true),
@@ -181,28 +568,50 @@ class ProductionPreflight extends Command
         $require($this->configured('bunny.stream_api_key'), 'BUNNY_STREAM_API_KEY is required.');
         $require($this->configured('bunny.library_id'), 'BUNNY_STREAM_LIBRARY_ID is required.');
         $require($this->configured('bunny.cdn_hostname'), 'BUNNY_CDN_HOSTNAME is required.');
+        $require(
+            $this->validBareHostname((string) config('bunny.cdn_hostname')),
+            'BUNNY_CDN_HOSTNAME must be a bare HTTPS hostname without a scheme, port, path, or credentials.'
+        );
+        $fallbackHostname = trim((string) config('bunny.fallback_cdn_hostname'));
+        $require(
+            $fallbackHostname === '' || (
+                $this->validBareHostname($fallbackHostname)
+                && strtolower($fallbackHostname) !== strtolower((string) config('bunny.cdn_hostname'))
+            ),
+            'BUNNY_FALLBACK_CDN_HOSTNAME must be blank or a distinct bare hostname serving the same Stream library.'
+        );
         $require($this->configured('bunny.token_auth_key'), 'BUNNY_TOKEN_AUTH_KEY is required for signed playback.');
         $require($this->configured('bunny.storage_zone'), 'BUNNY_STORAGE_ZONE is required for portfolio and thumbnail uploads.');
         $require($this->configured('bunny.storage_password'), 'BUNNY_STORAGE_PASSWORD is required for portfolio and thumbnail uploads.');
         $require($this->configured('bunny.storage_cdn_hostname'), 'BUNNY_STORAGE_CDN_HOSTNAME is required for asset delivery.');
+        $require(
+            $this->validBareHostname((string) config('bunny.storage_cdn_hostname')),
+            'BUNNY_STORAGE_CDN_HOSTNAME must be a bare HTTPS hostname without a scheme, port, path, or credentials.'
+        );
         $require($this->configured('bunny.storage_token_auth_key'), 'BUNNY_STORAGE_TOKEN_AUTH_KEY is required for signed asset delivery.');
+        $playbackTtl = (int) config('playback.signed_url_ttl_seconds');
+        $refreshMargin = (int) config('playback.manifest_refresh_margin_seconds');
+        $require(
+            $playbackTtl >= 600 && $playbackTtl <= 7200,
+            'PLAYBACK_SIGNED_URL_TTL_SECONDS must be between 600 and 7200.'
+        );
+        $require(
+            $refreshMargin >= 60 && $refreshMargin < $playbackTtl,
+            'PLAYBACK_REFRESH_MARGIN_SECONDS must be at least 60 and less than the signed playback URL TTL.'
+        );
 
         $require(config('kashier.mode') === 'live', 'KASHIER_MODE must be live.');
         $require($this->configured('kashier.live.api_key'), 'KASHIER_LIVE_API_KEY is required.');
         $require($this->configured('kashier.live.secret_key'), 'KASHIER_LIVE_SECRET_KEY is required.');
         $require($this->configured('kashier.live.mid'), 'KASHIER_LIVE_MID is required.');
 
-        $require($this->configured('services.facebook.client_id'), 'FACEBOOK_CLIENT_ID is required.');
-        $require($this->configured('services.facebook.client_secret'), 'FACEBOOK_CLIENT_SECRET is required.');
-        $require(
-            preg_match('/\Av\d+\.\d+\z/', $facebookGraphVersion) === 1 && $facebookGraphVersion !== 'v19.0',
-            'FACEBOOK_GRAPH_VERSION must be explicitly set to a supported vN.N version and must not use retired v19.0.'
-        );
-        $require($this->configured('services.google.client_id'), 'GOOGLE_CLIENT_ID is required.');
-        $require($this->configured('services.google.client_secret'), 'GOOGLE_CLIENT_SECRET is required.');
-        $require($this->configured('services.tiktok.client_key'), 'TIKTOK_CLIENT_KEY is required.');
-        $require($this->configured('services.tiktok.client_secret'), 'TIKTOK_CLIENT_SECRET is required.');
-        $require($this->configured('services.apple.client_id'), 'APPLE_CLIENT_ID is required for native Apple sign-in.');
+        $require($declaredSocialProviders->isNotEmpty(), 'SOCIAL_AUTH_PROVIDERS must declare at least one sign-in provider.');
+        foreach ($declaredSocialProviders as $provider) {
+            $require(
+                $socialProviders->isReady($provider),
+                'Declared social provider '.$provider.' is not ready: '.$socialProviders->reason($provider)
+            );
+        }
 
         $require($this->configured('openrouter.api_key'), 'OPENROUTER_API_KEY is required while Rokn AI is enabled.');
         $require($this->configured('openrouter.default_model'), 'OPENROUTER_DEFAULT_MODEL is required while Rokn AI is enabled.');
@@ -248,6 +657,25 @@ class ProductionPreflight extends Command
             'COURSE_ATTACHMENT_DISK must be the private shared module-attachment disk.'
         );
         $require(
+            is_array($attachmentDiskConfig)
+                && ($attachmentDiskConfig['visibility'] ?? null) === 'private'
+                && (
+                    ($attachmentDiskConfig['driver'] ?? null) !== 'local'
+                    || rtrim((string) ($attachmentDiskConfig['root'] ?? ''), '/\\')
+                        !== rtrim(storage_path('app/module-attachments'), '/\\')
+                ),
+            'Course attachments must use a private durable shared disk.'
+        );
+        $require(
+            is_array($publicDiskConfig)
+                && (
+                    ($publicDiskConfig['driver'] ?? null) !== 'local'
+                    || rtrim((string) ($publicDiskConfig['root'] ?? ''), '/\\')
+                        !== rtrim(storage_path('app/public'), '/\\')
+                ),
+            'Course and instructor images require SHARED_PUBLIC_STORAGE_PATH on durable shared storage.'
+        );
+        $require(
             !in_array($coursePdfDisk, ['', 'local', 'public'], true) && is_array($coursePdfDiskConfig),
             'COURSE_PDF_DISK must name a configured private shared disk.'
         );
@@ -261,6 +689,14 @@ class ProductionPreflight extends Command
                 || config('course_pdfs.shared_storage') === true,
             'A local-driver COURSE_PDF_DISK requires COURSE_PDF_SHARED_STORAGE=true and a shared mounted path.'
         );
+        $require(
+            is_array($feedbackDiskConfig)
+                && ($feedbackDiskConfig['driver'] ?? null) === 'local'
+                && ($feedbackDiskConfig['visibility'] ?? null) === 'private'
+                && ($feedbackDiskConfig['shared'] ?? false) === true
+                && trim((string) ($feedbackDiskConfig['root'] ?? '')) !== '',
+            'The feedback disk must use a private shared mounted path with FEEDBACK_SHARED_STORAGE=true.'
+        );
 
         $require(
             filter_var(config('mail.from.address'), FILTER_VALIDATE_EMAIL) !== false,
@@ -272,6 +708,60 @@ class ProductionPreflight extends Command
         );
 
         return $failures;
+    }
+
+    /** @return list<string> */
+    private function recoveryEvidenceFailures(): array
+    {
+        try {
+            $state = app(RecoveryEvidenceService::class)->readiness();
+            $failures = [];
+            if ((bool) ($state['recovery_mode'] ?? false)) {
+                $failures[] = 'DISASTER_RECOVERY_MODE is active; traffic and purchases must remain blocked.';
+            }
+            $failed = array_keys(array_filter(
+                (array) ($state['checks'] ?? []),
+                static fn ($passed): bool => $passed !== true
+            ));
+            if ($failed !== []) {
+                $failures[] = 'Recovery evidence is incomplete: '.implode(', ', $failed).'.';
+            }
+
+            return $failures;
+        } catch (Throwable) {
+            return ['Signed backup and restore evidence could not be verified.'];
+        }
+    }
+
+    /** @return list<string> */
+    private function developmentFixtureFailures(): array
+    {
+        try {
+            $markers = [];
+            if (Schema::hasTable('courses') && Schema::hasColumn('courses', 'name_en')) {
+                $markers['demo course'] = DB::table('courses')
+                    ->where('name_en', 'Rokn 30-Reel Demo Course')
+                    ->exists();
+            }
+            if (Schema::hasTable('packages') && Schema::hasColumn('packages', 'name_en')) {
+                $markers['checkout test package'] = DB::table('packages')
+                    ->where('name_en', 'Checkout Test')
+                    ->exists();
+            }
+            if (Schema::hasTable('course_codes') && Schema::hasColumn('course_codes', 'code')) {
+                $markers['sample course access codes'] = DB::table('course_codes')
+                    ->whereIn('code', ['COURSE123', 'LESSON456', 'MULTI789', 'EXPIRED', 'FUTURE'])
+                    ->exists();
+            }
+
+            $found = array_keys(array_filter($markers));
+
+            return $found === []
+                ? []
+                : ['Development fixtures remain in production data: '.implode(', ', $found).'. Remove them before release.'];
+        } catch (Throwable) {
+            return ['Development-fixture audit could not complete; production release is blocked.'];
+        }
     }
 
     /** @return list<string> */
@@ -359,8 +849,51 @@ class ProductionPreflight extends Command
     {
         $failures = [];
 
+        $publicOrigin = rtrim(trim((string) config('public_links.base_url')), '/');
+        $expectedIdentity = app(AppReleasePolicyService::class)->publicContractIdentity();
+        try {
+            $association = Http::acceptJson()
+                ->connectTimeout(3)
+                ->timeout(6)
+                ->withoutRedirecting()
+                ->get($publicOrigin.'/.well-known/assetlinks.json');
+            if ($association->redirect()) {
+                $redirect = trim((string) $association->header('Location'));
+                $expectedHost = strtolower((string) parse_url($publicOrigin, PHP_URL_HOST));
+                $redirectUrl = str_starts_with($redirect, '/') ? $publicOrigin.$redirect : $redirect;
+                $redirectHost = strtolower((string) parse_url($redirectUrl, PHP_URL_HOST));
+                if ($redirect === '' || $redirectHost !== $expectedHost) {
+                    $failures[] = 'The branded app-link association redirects to a different deployment host.';
+                } else {
+                    $association = Http::acceptJson()
+                        ->connectTimeout(3)
+                        ->timeout(6)
+                        ->withoutRedirecting()
+                        ->get($redirectUrl);
+                    if (!$association->successful()
+                        || !hash_equals($expectedIdentity, trim((string) $association->header('X-Rokn-App-Identity')))) {
+                        $failures[] = 'The branded app-link redirect does not terminate on this release contract.';
+                    }
+                }
+            } elseif (!$association->successful()
+                || !hash_equals($expectedIdentity, trim((string) $association->header('X-Rokn-App-Identity')))) {
+                $failures[] = 'The branded public host does not serve this release app-link/API contract identity.';
+            }
+        } catch (Throwable) {
+            $failures[] = 'The branded public app-link host is unreachable or did not return a stable contract identity.';
+        }
+
         try {
             DB::select('SELECT 1');
+            $driver = DB::connection()->getDriverName();
+            $databaseTimezone = match ($driver) {
+                'mysql' => (string) (DB::selectOne('SELECT @@session.time_zone AS timezone')->timezone ?? ''),
+                'pgsql' => (string) (DB::selectOne("SELECT current_setting('TIMEZONE') AS timezone")->timezone ?? ''),
+                default => '',
+            };
+            if (!in_array(strtoupper($databaseTimezone), ['+00:00', 'UTC', 'ETC/UTC'], true)) {
+                $failures[] = 'The live database session timezone is not UTC.';
+            }
         } catch (Throwable) {
             $failures[] = 'The configured production database is not reachable.';
         }
@@ -382,6 +915,23 @@ class ProductionPreflight extends Command
                 } catch (Throwable) {
                     // The reachability failure above is the useful signal.
                 }
+            }
+        }
+
+        $feedbackProbe = 'preflight/' . bin2hex(random_bytes(8)) . '.txt';
+        try {
+            $disk = Storage::disk('feedback');
+            $disk->put($feedbackProbe, 'ok', ['visibility' => 'private']);
+            if (!$disk->exists($feedbackProbe) || $disk->get($feedbackProbe) !== 'ok') {
+                $failures[] = 'The shared private feedback disk did not return its preflight object.';
+            }
+        } catch (Throwable) {
+            $failures[] = 'The shared private feedback disk is not reachable.';
+        } finally {
+            try {
+                Storage::disk('feedback')->delete($feedbackProbe);
+            } catch (Throwable) {
+                // The reachability failure above is the useful signal.
             }
         }
 
@@ -445,6 +995,19 @@ class ProductionPreflight extends Command
     private function financialProvenanceFailures(): array
     {
         $releaseFailures = [];
+        if (Schema::hasTable('payment_methods')) {
+            $unconfiguredActiveMethods = DB::table('payment_methods')
+                ->where('is_active', true)
+                ->where(function ($query): void {
+                    $query->whereNull('account_details')
+                        ->orWhereRaw("TRIM(account_details) = ''")
+                        ->orWhere('account_details', PaymentMethod::DEFAULT_ACCOUNT_DETAILS);
+                })
+                ->count();
+            if ($unconfiguredActiveMethods > 0) {
+                $releaseFailures[] = "{$unconfiguredActiveMethods} active payment method(s) have no usable account details.";
+            }
+        }
         foreach (['payment_reconciliation_checkpoints', 'payment_reconciliation_findings'] as $table) {
             if (!Schema::hasTable($table)) {
                 $releaseFailures[] = implode(' ', [
@@ -579,6 +1142,17 @@ class ProductionPreflight extends Command
         $value = config($key);
 
         return is_string($value) ? trim($value) !== '' : $value !== null;
+    }
+
+    private function validBareHostname(string $hostname): bool
+    {
+        $hostname = strtolower(trim($hostname));
+
+        return $hostname !== ''
+            && !str_contains($hostname, ':')
+            && !str_contains($hostname, '/')
+            && !str_contains($hostname, '@')
+            && $this->validPublicHost($hostname);
     }
 
     private function validTrustedProxy(string $proxy): bool

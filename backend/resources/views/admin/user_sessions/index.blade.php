@@ -40,8 +40,8 @@
                             <td><strong>{{ $session->user?->name ?: 'حساب محذوف' }}</strong><br><small class="text-muted">{{ $session->user?->email }}</small></td>
                             <td>{{ strtoupper($session->platform ?: 'other') }}</td>
                             <td>{{ $session->app_version ?: '—' }} @if($session->app_build)<small class="text-muted">({{ $session->app_build }})</small>@endif</td>
-                            <td>{{ optional($session->last_used_at ?: $session->issued_at)->diffForHumans() ?: '—' }}</td>
-                            <td>{{ optional($session->expired_at)->diffForHumans() ?: '—' }}</td>
+                            <td>{{ \App\Support\BusinessClock::relative($session->last_used_at ?: $session->issued_at) ?: '—' }}</td>
+                            <td>{{ \App\Support\BusinessClock::relative($session->expired_at) ?: '—' }}</td>
                             <td>
                                 <form method="POST" action="{{ route('admin.user-sessions.destroy', $session->session_id) }}" onsubmit="return confirm('إنهاء هذه الجلسة فقط؟')">
                                     @csrf

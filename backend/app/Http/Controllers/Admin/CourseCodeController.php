@@ -11,6 +11,9 @@ use App\Models\Lesson;
 use App\Services\ArabicPdfService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Support\BusinessClock;
+use App\Support\CsvCell;
+use App\Support\UnicodeText;
 
 class CourseCodeController extends Controller
 {
@@ -29,40 +32,7 @@ class CourseCodeController extends Controller
      */
     public function index(Request $request)
     {
-        $query = CourseCode::with(['course', 'lesson', 'usages'])
-            ->when($request->code, function($q, $code) {
-                return $q->where('code', 'like', "%{$code}%");
-            })
-            ->when($request->name, function($q, $name) {
-                return $q->where('name', 'like', "%{$name}%");
-            })
-            ->when($request->type, function($q, $type) {
-                return $q->where('type', $type);
-            })
-            ->when($request->course_id, function($q, $courseId) {
-                return $q->where('course_id', $courseId);
-            })
-            ->when($request->lesson_id, function($q, $lessonId) {
-                return $q->where('lesson_id', $lessonId);
-            })
-            ->when($request->start_date, function($q, $startDate) {
-                return $q->whereDate('start_date', $startDate);
-            })
-            ->when($request->expiry_date, function($q, $expiryDate) {
-                return $q->whereDate('expiry_date', $expiryDate);
-            })
-            ->when($request->status, function($q, $status) {
-                if ($status === 'active') {
-                    return $q->where('is_active', true);
-                } elseif ($status === 'inactive') {
-                    return $q->where('is_active', false);
-                } elseif ($status === 'expired') {
-                    return $q->where('expiry_date', '<', now());
-                } elseif ($status === 'not_yet_active') {
-                    return $q->where('start_date', '>', now());
-                }
-                return $q;
-            });
+        $query = $this->filteredQuery($request, false);
 
         // Efficiently update is_active status based on expiry and usage
         // This only runs once per page load and uses a single query
@@ -89,9 +59,9 @@ class CourseCodeController extends Controller
         ");
         */
 
-        $courseCodes = $query->orderBy('created_at', 'desc')->paginate(10);
-        $courses = Course::all();
-        $lessons = Lesson::all();
+        $courseCodes = $query->orderByDesc('created_at')->orderByDesc('id')->paginate(10)->withQueryString();
+        $courses = Course::query()->orderBy('name_ar')->orderBy('id')->get();
+        $lessons = Lesson::query()->orderBy('title_ar')->orderBy('id')->get();
         $designSettings = $this->getDesignSettings();
 
         return view('admin.course-codes.index', compact('courseCodes', 'courses', 'lessons', 'designSettings'));
@@ -120,42 +90,29 @@ class CourseCodeController extends Controller
     public function store(CourseCodeRequest $request)
     {
         try {
-            DB::beginTransaction();
+            $numberOfCodes = max(1, (int) $request->input('number_of_codes', 1));
 
-            $numberOfCodes = $request->input('number_of_codes', 1);
-            $createdCodes = [];
+            DB::transaction(function () use ($request, $numberOfCodes): void {
+                for ($i = 0; $i < $numberOfCodes; $i++) {
+                    $codeData = [
+                        'code' => CourseCode::generateUniqueCode(),
+                        'name' => $request->input('name'),
+                        'type' => $request->input('type'),
+                        'start_date' => BusinessClock::localInputToUtc($request->input('start_date')),
+                        'expiry_date' => BusinessClock::localInputToUtc($request->input('expiry_date')),
+                        'max_uses' => $request->input('max_uses'),
+                        'description' => $request->input('description'),
+                        'allowed_email_domains' => $this->emailDomains($request->input('allowed_email_domains')),
+                        'is_grant' => $request->boolean('is_grant'),
+                        // A code grants the course entitlement it names. Partial
+                        // lesson grants stay unavailable until scoped access
+                        // exists from dashboard to player.
+                        'course_id' => $request->integer('course_id'),
+                    ];
 
-            for ($i = 0; $i < $numberOfCodes; $i++) {
-                $codeData = [
-                    'code' => CourseCode::generateUniqueCode(),
-                    'name' => $request->input('name'),
-                    'type' => $request->input('type'),
-                    'start_date' => $request->input('start_date'),
-                    'expiry_date' => $request->input('expiry_date'),
-                    'max_uses' => $request->input('max_uses'),
-                    'description' => $request->input('description'),
-                    'allowed_email_domains' => $this->emailDomains($request->input('allowed_email_domains')),
-                    'is_grant' => $request->boolean('is_grant'),
-                ];
-
-                // Set content based on type
-                switch ($request->input('type')) {
-                    case 'course':
-                        $codeData['course_id'] = $request->input('course_id');
-                        break;
-                    case 'lesson':
-                        $codeData['lesson_id'] = $request->input('lesson_id');
-                        break;
-                    case 'multiple_lessons':
-                        $codeData['course_id'] = $request->input('course_id');
-                        $codeData['lesson_ids'] = $request->input('lesson_ids');
-                        break;
+                    CourseCode::create($codeData);
                 }
-
-                $createdCodes[] = CourseCode::create($codeData);
-            }
-
-            DB::commit();
+            }, 3);
 
             $message = $numberOfCodes > 1
                 ? "تم إنشاء {$numberOfCodes} أكواد بنجاح"
@@ -164,9 +121,14 @@ class CourseCodeController extends Controller
             return redirect()->route('admin.course-codes.index')
                 ->with('success', $message);
 
+        } catch (\DomainException $e) {
+            return back()->withInput()->with(
+                'error',
+                'تعذّر إنشاء الدفعة بهذه الإعدادات\nراجع بيانات الإتاحة ثم أعد المحاولة'
+            );
         } catch (\Exception $e) {
-            DB::rollBack();
-            return back()->with('error', 'حدث خطأ أثناء إنشاء الأكواد: ' . $e->getMessage());
+            report($e);
+            return back()->withInput()->with('error', 'تعذر إنشاء الأكواد الآن');
         }
     }
 
@@ -217,6 +179,11 @@ class CourseCodeController extends Controller
                 $request->input('allowed_email_domains')
             );
             $data['is_grant'] = $request->boolean('is_grant');
+            foreach (['start_date', 'expiry_date'] as $field) {
+                if (array_key_exists($field, $data)) {
+                    $data[$field] = BusinessClock::localInputToUtc($data[$field]);
+                }
+            }
 
             $courseCode->update($data);
 
@@ -224,7 +191,8 @@ class CourseCodeController extends Controller
                 ->with('success', 'تم تحديث الكود بنجاح');
 
         } catch (\Exception $e) {
-            return back()->with('error', 'حدث خطأ أثناء تحديث الكود: ' . $e->getMessage());
+            report($e);
+            return back()->withInput()->with('error', 'تعذر تحديث الكود الآن');
         }
     }
 
@@ -236,12 +204,19 @@ class CourseCodeController extends Controller
      */
     public function destroy(CourseCode $courseCode)
     {
+        if ($courseCode->usages()->exists() || $courseCode->orders()->exists()) {
+            $courseCode->forceFill(['is_active' => false])->save();
+
+            return redirect()->route('admin.course-codes.index')
+                ->with('success', 'تم إيقاف الكود مع الاحتفاظ بسجل استخدامه');
+        }
         try {
             $courseCode->delete();
             return redirect()->route('admin.course-codes.index')
                 ->with('success', 'تم حذف الكود بنجاح');
         } catch (\Exception $e) {
-            return back()->with('error', 'حدث خطأ أثناء حذف الكود: ' . $e->getMessage());
+            report($e);
+            return back()->with('error', 'تعذر حذف الكود الآن');
         }
     }
 
@@ -277,13 +252,29 @@ class CourseCodeController extends Controller
 
             switch ($action) {
                 case 'delete':
-                    CourseCode::whereIn('id', $selectedCodes)->delete();
-                    $message = 'تم حذف الأكواد المحددة بنجاح';
+                    $deleted = 0;
+                    $deactivated = 0;
+                    CourseCode::withCount(['usages', 'orders'])
+                        ->whereIn('id', $selectedCodes)
+                        ->get()
+                        ->each(function (CourseCode $code) use (&$deleted, &$deactivated): void {
+                            if ($code->usages_count > 0 || $code->orders_count > 0) {
+                                $code->forceFill(['is_active' => false])->save();
+                                $deactivated++;
+                                return;
+                            }
+
+                            $code->delete();
+                            $deleted++;
+                        });
+                    $message = "حُذف {$deleted} كود وأُوقف {$deactivated} كود مستخدم مع الاحتفاظ بسجله";
                     break;
 
                 case 'activate':
-                    CourseCode::whereIn('id', $selectedCodes)->update(['is_active' => true]);
-                    $message = 'تم تفعيل الأكواد المحددة بنجاح';
+                    $activated = CourseCode::whereIn('id', $selectedCodes)
+                        ->where('type', 'course')
+                        ->update(['is_active' => true]);
+                    $message = "تم تفعيل {$activated} كود صالح";
                     break;
 
                 case 'deactivate':
@@ -296,7 +287,8 @@ class CourseCodeController extends Controller
                 ->with('success', $message);
 
         } catch (\Exception $e) {
-            return back()->with('error', 'حدث خطأ أثناء تنفيذ العملية: ' . $e->getMessage());
+            report($e);
+            return back()->with('error', 'تعذر تنفيذ العملية الآن');
         }
     }
 
@@ -319,11 +311,9 @@ class CourseCodeController extends Controller
                 ->orderBy('priority')
                 ->get(['id', 'title']);
 
-            \Log::info('Lessons loaded for course ' . $courseId . ': ' . $lessons->count() . ' lessons found');
-
             return response()->json($lessons);
         } catch (\Exception $e) {
-            \Log::error('Error loading lessons for course ' . $courseId . ': ' . $e->getMessage());
+            report($e);
             return response()->json(['error' => 'حدث خطأ أثناء تحميل الدروس'], 500);
         }
     }
@@ -336,32 +326,16 @@ class CourseCodeController extends Controller
      */
     public function export(Request $request)
     {
-        $query = CourseCode::with(['course', 'lesson', 'usages'])
-            ->when($request->code, function($q, $code) {
-                return $q->where('code', 'like', "%{$code}%");
-            })
-            ->when($request->type, function($q, $type) {
-                return $q->where('type', $type);
-            })
-            ->when($request->status, function($q, $status) {
-                if ($status === 'active') {
-                    return $q->where('is_active', true);
-                } elseif ($status === 'inactive') {
-                    return $q->where('is_active', false);
-                }
-                return $q;
-            });
+        $query = $this->filteredQuery($request, false);
 
-        $courseCodes = $query->get();
-
-        $filename = 'course_codes_' . date('Y-m-d_H-i-s') . '.csv';
+        $filename = 'course_codes_' . BusinessClock::now()->format('Y-m-d_H-i-s') . '.csv';
 
         $headers = [
-            'Content-Type' => 'text/csv',
+            'Content-Type' => 'text/csv; charset=UTF-8',
             'Content-Disposition' => 'attachment; filename="' . $filename . '"',
         ];
 
-        $callback = function() use ($courseCodes) {
+        $callback = function() use ($query) {
             $file = fopen('php://output', 'w');
 
             // Add BOM for Arabic text
@@ -383,22 +357,24 @@ class CourseCodeController extends Controller
                 'تاريخ الإنشاء'
             ]);
 
-            // Data
-            foreach ($courseCodes as $code) {
-                fputcsv($file, [
+            // Stream bounded chunks from the database. A large institutional
+            // campaign must not exhaust the dashboard worker before the first
+            // CSV byte reaches the browser.
+            foreach ($query->reorder()->lazyByIdDesc(500) as $code) {
+                fputcsv($file, CsvCell::row([
                     $code->code,
                     $code->name,
                     $this->getTypeName($code->type),
                     $code->target_content_name,
-                    $code->start_date ? $code->start_date->format('Y-m-d') : '',
-                    $code->expiry_date ? $code->expiry_date->format('Y-m-d') : '',
+                    $code->start_date ? BusinessClock::format($code->start_date, 'Y-m-d') : '',
+                    $code->expiry_date ? BusinessClock::format($code->expiry_date, 'Y-m-d') : '',
                     $code->used_count,
                     $code->max_uses,
                     $code->isInstitutionalGrant() ? 'نعم' : 'لا',
                     implode(', ', $code->allowed_email_domains ?? []),
                     $code->is_active ? 'مفعل' : 'معطل',
-                    $code->created_at->format('Y-m-d H:i:s')
-                ]);
+                    BusinessClock::format($code->created_at, 'Y-m-d H:i:s')
+                ]));
             }
 
             fclose($file);
@@ -418,14 +394,14 @@ class CourseCodeController extends Controller
         try {
             set_time_limit(300);
 
-            $courseCodes = CourseCode::with(['course', 'lesson'])->get();
+            $courseCodes = $this->filteredQuery($request, false)
+                ->orderByDesc('created_at')
+                ->orderByDesc('id')
+                ->get();
 
             if ($courseCodes->isEmpty()) {
                 return back()->with('error', 'لا توجد أكواد للتصدير');
             }
-
-            // Log the count for debugging
-            \Log::info('PDF Export - Total codes fetched: ' . $courseCodes->count());
 
             // Transform the data for PDF
             $transformedCodes = collect();
@@ -451,14 +427,12 @@ class CourseCodeController extends Controller
                 ]);
             }
 
-            \Log::info('PDF Export - Transformed codes count: ' . $transformedCodes->count());
-
             $designSettings = $this->getDesignSettings();
             
             $data = [
                 'course_codes' => $transformedCodes,
                 'platform_name' => $designSettings->name_ar ?? 'منصة تعليمية',
-                'export_date' => now()->format('Y-m-d H:i:s'),
+                'export_date' => BusinessClock::now()->format('Y-m-d H:i:s'),
                 'total_codes' => $transformedCodes->count()
             ];
 
@@ -470,14 +444,62 @@ class CourseCodeController extends Controller
             $pdf->setCreator($designSettings->name_ar ?? 'منصة تعليمية');
 
             // Generate filename
-            $filename = 'Course_Codes_' . date('Y-m-d_H-i-s') . '.pdf';
+            $filename = 'Course_Codes_' . BusinessClock::now()->format('Y-m-d_H-i-s') . '.pdf';
 
             // Force download the PDF
             return $pdf->download($filename);
 
                   } catch (\Exception $e) {
-              return back()->with('error', 'خطأ في تصدير الأكواد: ' . $e->getMessage().' '.$e->getLine().' '.$e->getFile());
+              report($e);
+              return back()->with('error', 'تعذر تصدير الأكواد الآن');
           }
+    }
+
+    private function filteredQuery(Request $request, bool $withUsages)
+    {
+        $dates = $request->validate([
+            'start_date' => ['nullable', 'date_format:Y-m-d'],
+            'expiry_date' => ['nullable', 'date_format:Y-m-d'],
+        ]);
+        $relations = ['course', 'lesson'];
+        if ($withUsages) {
+            $relations[] = 'usages';
+        }
+
+        return CourseCode::query()
+            ->with($relations)
+            ->when($request->filled('code'), fn ($query) =>
+                $query->where('code', 'like', '%' . UnicodeText::identifier($request->code) . '%')
+            )
+            ->when($request->filled('name'), fn ($query) =>
+                $query->where('name', 'like', '%' . UnicodeText::clean($request->name, false) . '%')
+            )
+            ->when($request->filled('type'), fn ($query) =>
+                $query->where('type', $request->type)
+            )
+            ->when($request->filled('course_id'), fn ($query) =>
+                $query->where('course_id', $request->course_id)
+            )
+            ->when($request->filled('lesson_id'), fn ($query) =>
+                $query->where('lesson_id', $request->lesson_id)
+            )
+            ->when($dates['start_date'] ?? null, function ($query, string $date) {
+                [$from, $to] = BusinessClock::localDayRangeUtc($date);
+                return $query->where('start_date', '>=', $from)->where('start_date', '<', $to);
+            })
+            ->when($dates['expiry_date'] ?? null, function ($query, string $date) {
+                [$from, $to] = BusinessClock::localDayRangeUtc($date);
+                return $query->where('expiry_date', '>=', $from)->where('expiry_date', '<', $to);
+            })
+            ->when($request->filled('status'), function ($query) use ($request) {
+                return match ((string) $request->status) {
+                    'active' => $query->where('is_active', true),
+                    'inactive' => $query->where('is_active', false),
+                    'expired' => $query->where('expiry_date', '<', now()),
+                    'not_yet_active' => $query->where('start_date', '>', now()),
+                    default => $query,
+                };
+            });
     }
 
     /**

@@ -5,11 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
-use App\Http\Resources\CourseResource;
 use App\Http\Resources\LessonResource;
 use App\Http\Resources\QuestionResource;
 use App\Http\Resources\QuizResource;
-use App\Http\Resources\ShortCourseResource;
+use App\Http\Resources\QuizSummaryResource;
 use App\Http\Resources\ShortLessonResource;
 use App\Models\Course;
 use App\Models\CourseSection;
@@ -52,19 +51,31 @@ final class CourseController extends Controller
             'type' => 'nullable|string|max:50',
             'course_type' => 'nullable|string|max:50',
             'search' => 'nullable|string|max:120',
+            'catalogue_revision' => 'nullable|integer|min:1',
         ]);
 
         try {
+            $revision = $this->catalogueQueries->revision();
+            if ($this->revisionChanged($filters, $revision)) {
+                return $this->catalogueChanged($revision);
+            }
             $courses = $this->catalogueQueries->cachedCatalogue($filters);
+            $finalRevision = $this->catalogueQueries->revision();
+            if ($finalRevision !== $revision) {
+                return $this->catalogueChanged($finalRevision);
+            }
 
             return $this->responses->success(
                 $this->coursePresentation->catalogueCollection($courses),
-                'Courses retrieved successfully'
+                'تم تحميل الكورسات',
+                200,
+                ['catalogue_revision' => $revision]
             );
         } catch (\Exception $e) {
+            $this->rethrowExpectedRequestException($e);
             report($e);
 
-            return $this->responses->error('Failed to fetch courses', 500);
+            return $this->responses->error('تعذّر تحميل الكورسات', 500);
         }
     }
 
@@ -83,8 +94,8 @@ final class CourseController extends Controller
         );
 
         return $this->responses->resource(
-            QuizResource::collection($quizzes),
-            'Quizzes retrieved successfully'
+            QuizSummaryResource::collection($quizzes),
+            'تم تحميل الاختبارات'
         );
     }
 
@@ -96,25 +107,21 @@ final class CourseController extends Controller
     public function getList(ItemList $list): JsonResource|JsonResponse
     {
         if ($list->type === 'course') {
-            $resource = in_array($list->id, auth()->user()?->courses ?? [])
-                ? new CourseResource($list)
-                : new ShortCourseResource($list);
-
-            return $this->responses->resource($resource, 'Course retrieved successfully');
+            return $this->responses->error('الكورس غير متاح', 404);
         }
 
         /** @var User|null $user */
         $user = auth('api')->user();
         if (!$this->assessments->canAccessQuiz($user, $list)) {
             return $this->responses->error(
-                'You are not authorized to access this assessment.',
+                'هذا الاختبار غير متاح لحسابك',
                 403
             );
         }
 
         return $this->responses->resource(
             new QuizResource($list->loadMissing('questions')),
-            'Assessment retrieved successfully'
+            'تم تحميل الاختبار'
         );
     }
 
@@ -129,7 +136,7 @@ final class CourseController extends Controller
                 $read['course'],
                 $read['is_enrolled']
             ),
-            'Course retrieved successfully'
+            'تم تحميل الكورس'
         );
     }
 
@@ -147,22 +154,35 @@ final class CourseController extends Controller
     {
         $user = auth('api')->user();
         $courseId = (int) $lesson->list_id;
+        $lesson->loadMissing(['course', 'courseSection']);
+        $course = $lesson->course;
+        $section = $lesson->courseSection;
+        if (
+            !$course
+            || !$section
+            || !$course->isPublishedForLearning()
+            || (int) $section->course_id !== $courseId
+            || $section->getSectionType() !== 'lesson'
+            || (int) $section->sectionable_id !== (int) $lesson->id
+        ) {
+            abort(404);
+        }
         $hasAccess = $user && $courseId > 0
             ? $this->courseReads->hasLearningAccess((int) $user->id, $courseId)
             : false;
 
         // is_opened is the administrator's explicit preview switch. Every
         // other reel remains purchase-protected, including on this legacy URL.
-        if ((bool) $lesson->is_opened || $hasAccess) {
+        if ($hasAccess || ((bool) $lesson->is_opened && !$course->isNestedCourse())) {
             return $this->responses->resource(
                 new LessonResource($lesson),
-                'Lesson retrieved successfully'
+                'تم تحميل المقطع'
             );
         }
 
         return $this->responses->resource(
             new ShortLessonResource($lesson),
-            'Lesson preview retrieved successfully'
+            'تم تحميل العينة المجانية'
         );
     }
 
@@ -173,33 +193,26 @@ final class CourseController extends Controller
         $user = auth('api')->user();
         if (!$quiz || !$this->assessments->canAccessQuiz($user, $quiz)) {
             return $this->responses->error(
-                'You are not authorized to access this assessment question.',
+                'هذا السؤال غير متاح لحسابك',
                 403
             );
         }
 
         return $this->responses->resource(
             new QuestionResource($question),
-            'Assessment question retrieved successfully'
+            'تم تحميل السؤال'
         );
     }
 
     public function subscribe(Request $request, Course $list): JsonResponse
     {
-        if ($list->type != 'course') {
-            return $this->responses->error('This is not a course', 400);
-        }
-
-        if (auth()->user()->courses->contains($list->id)) {
-            return $this->responses->error(
-                'You are already subscribed to this course',
-                400
-            );
-        }
-
-        auth()->user()->courses()->attach($list->id);
-
-        return $this->responses->success(null, 'Subscribed successfully');
+        return response()->json([
+            'status' => 410,
+            'success' => false,
+            'code' => 'legacy_course_subscription_retired',
+            'message' => 'استخدم مسار شراء الكورس أو كود الجهة التعليمية',
+            'data' => null,
+        ], 410);
     }
 
     public function listCourses(Request $request): JsonResponse
@@ -211,20 +224,53 @@ final class CourseController extends Controller
             'type' => 'nullable|string|max:50',
             'course_type' => 'nullable|string|max:50',
             'search' => 'nullable|string|max:120',
+            'catalogue_revision' => 'nullable|integer|min:1',
         ]);
 
         try {
+            $revision = $this->catalogueQueries->revision();
+            if ($this->revisionChanged($filters, $revision)) {
+                return $this->catalogueChanged($revision);
+            }
             $courses = $this->catalogueQueries->mobileCatalogue($filters);
+            $finalRevision = $this->catalogueQueries->revision();
+            if ($finalRevision !== $revision) {
+                return $this->catalogueChanged($finalRevision);
+            }
+            $payload = $this->coursePresentation->mobileCataloguePayload($courses);
+            $payload['catalogue_revision'] = $revision;
 
             return $this->responses->success(
-                $this->coursePresentation->mobileCataloguePayload($courses),
-                'Courses retrieved successfully'
+                $payload,
+                'تم تحميل الكورسات'
             );
         } catch (\Exception $e) {
+            $this->rethrowExpectedRequestException($e);
             report($e);
 
-            return $this->responses->error('Failed to fetch courses', 500);
+            return $this->responses->error('تعذّر تحميل الكورسات', 500);
         }
+    }
+
+    /** @param array<string, mixed> $filters */
+    private function revisionChanged(array $filters, int $currentRevision): bool
+    {
+        $page = max(1, (int) ($filters['page'] ?? 1));
+        $expected = isset($filters['catalogue_revision'])
+            ? (int) $filters['catalogue_revision']
+            : null;
+
+        return $page > 1 && $expected !== null && $expected !== $currentRevision;
+    }
+
+    private function catalogueChanged(int $revision): JsonResponse
+    {
+        return $this->responses->error(
+            "تغيّرت قائمة الكورسات\nنحدّثها الآن",
+            409,
+            ['catalogue_revision' => $revision],
+            ['code' => 'catalogue_changed']
+        );
     }
 
     public function getCourseProgress(Request $request, int|string $courseId): JsonResponse
@@ -238,7 +284,7 @@ final class CourseController extends Controller
 
             if (!$read['enrollment']) {
                 return $this->responses->error(
-                    'You are not authorized to access this course',
+                    'هذا الكورس غير متاح لحسابك',
                     403
                 );
             }
@@ -250,14 +296,15 @@ final class CourseController extends Controller
                     $read['access_type'],
                     (int) $user->id
                 ),
-                'Course progress retrieved successfully'
+                'تم تحميل تقدمك في الكورس'
             );
         } catch (ModelNotFoundException $e) {
-            return $this->responses->error('Course not found', 404);
+            return $this->responses->error('الكورس غير متاح', 404);
         } catch (\Exception $e) {
+            $this->rethrowExpectedRequestException($e);
             report($e);
 
-            return $this->responses->error('Failed to fetch course progress', 500);
+            return $this->responses->error('تعذّر تحميل تقدم الكورس', 500);
         }
     }
 
@@ -268,23 +315,26 @@ final class CourseController extends Controller
             $read = $this->courseReads->detailedCourse((int) $courseId, $user);
 
             if ($read['unavailable']) {
-                return $this->responses->error('Course not found', 404);
+                return $this->responses->error('الكورس غير متاح', 404);
             }
 
             return $this->responses->success(
                 $this->coursePresentation->detailedCourse(
                     $read['course'],
                     $user,
-                    $read['has_access']
+                    $read['has_access'],
+                    $read['entitlement'],
+                    $read['enrollment']
                 ),
-                'Course details retrieved successfully'
+                'تم تحميل تفاصيل الكورس'
             );
         } catch (ModelNotFoundException $e) {
-            return $this->responses->error('Course not found', 404);
+            return $this->responses->error('الكورس غير متاح', 404);
         } catch (\Exception $e) {
+            $this->rethrowExpectedRequestException($e);
             report($e);
 
-            return $this->responses->error('Failed to fetch course details', 500);
+            return $this->responses->error('تعذّر تحميل الكورس', 500);
         }
     }
 
@@ -297,7 +347,7 @@ final class CourseController extends Controller
             /** @var User|null $user */
             $user = auth('api')->user();
             if (!$user) {
-                return $this->responses->error('Unauthenticated', 401);
+                return $this->responses->error('سجّل الدخول أولًا', 401);
             }
 
             $result = $this->completion->complete(
@@ -323,9 +373,10 @@ final class CourseController extends Controller
                     $additional
                 );
         } catch (\Exception $e) {
+            $this->rethrowExpectedRequestException($e);
             report($e);
 
-            return $this->responses->error('Failed to mark section as completed', 500);
+            return $this->responses->error('تعذّر حفظ تقدمك', 500);
         }
     }
 
@@ -338,19 +389,20 @@ final class CourseController extends Controller
 
             if (!$this->assessments->canAccessQuiz($user, $quiz)) {
                 return $this->responses->error(
-                    'You are not authorized to access this exam. Please enroll in the course first.',
+                    'افتح الكورس أولًا للوصول إلى الاختبار',
                     403
                 );
             }
 
             return $this->responses->success(
                 $this->assessments->examPayload($quiz),
-                'Exam data retrieved successfully'
+                'تم تحميل الاختبار'
             );
         } catch (\Exception $e) {
+            $this->rethrowExpectedRequestException($e);
             report($e);
 
-            return $this->responses->error('Failed to fetch exam data', 500);
+            return $this->responses->error('تعذّر تحميل الاختبار', 500);
         }
     }
 
@@ -363,9 +415,9 @@ final class CourseController extends Controller
         try {
             /** @var User|null $user */
             $user = auth('api')->user();
-            if (!$user || !$this->assessments->hasDirectCourseAccess($user, (int) $courseId)) {
+            if (!$user) {
                 return $this->responses->error(
-                    'You are not authorized to access this course. Please enroll first.',
+                    'افتح الكورس أولًا للوصول إلى الاختبار',
                     403
                 );
             }
@@ -375,17 +427,24 @@ final class CourseController extends Controller
                 (int) $sectionId
             );
             if (!$section || !$section->sectionable) {
-                return $this->responses->error('Exam section not found', 404);
+                return $this->responses->error('الاختبار غير متاح', 404);
+            }
+            if (!$this->completion->canAccessSection($user, $section)) {
+                return $this->responses->error(
+                    'هذا الاختبار غير متاح لحسابك',
+                    403
+                );
             }
 
             return $this->responses->success(
                 $this->assessments->sectionExamPayload($section),
-                'Exam data retrieved successfully'
+                'تم تحميل الاختبار'
             );
         } catch (\Exception $e) {
+            $this->rethrowExpectedRequestException($e);
             report($e);
 
-            return $this->responses->error('Failed to fetch exam data', 500);
+            return $this->responses->error('تعذّر تحميل الاختبار', 500);
         }
     }
 
@@ -397,15 +456,16 @@ final class CourseController extends Controller
             return $this->responses->success($result['data'], $result['message']);
         } catch (ModelNotFoundException $e) {
             return $this->responses->error(
-                'Course not found',
+                'الكورس غير متاح',
                 404,
                 null,
-                ['error' => 'The requested course does not exist']
+                ['error' => 'الكورس غير متاح']
             );
         } catch (\Exception $e) {
+            $this->rethrowExpectedRequestException($e);
             report($e);
 
-            return $this->responses->error('Failed to retrieve best students', 500);
+            return $this->responses->error('تعذّر تحميل قائمة الطلاب', 500);
         }
     }
 }

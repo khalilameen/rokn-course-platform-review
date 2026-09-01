@@ -38,16 +38,25 @@ class PaymentMethodController extends Controller
      */
     public function store(Request $request)
     {
-        $request->validate([
+        $validated = $request->validate([
             'name' => 'required|string|max:255',
             'account_details' => 'required|string',
             'description' => 'nullable|string',
             'is_active' => 'boolean',
         ]);
 
-        $data = $request->all();
-        $data['is_active'] = $request->has('is_active') ? true : false;
+        $data = $validated;
+        $data['is_active'] = $request->boolean('is_active');
         $data['is_default'] = false; // User-created payment methods are not default
+
+        if (
+            $data['is_active']
+            && trim((string) $data['account_details']) === PaymentMethod::DEFAULT_ACCOUNT_DETAILS
+        ) {
+            return redirect()->back()
+                ->withInput()
+                ->withErrors(['account_details' => 'أضف بيانات الدفع قبل التفعيل']);
+        }
 
         PaymentMethod::create($data);
 
@@ -74,31 +83,31 @@ class PaymentMethodController extends Controller
      */
     public function update(Request $request, PaymentMethod $paymentMethod)
     {
-        $request->validate([
+        $validated = $request->validate([
             'name' => 'required|string|max:255',
             'account_details' => 'required|string',
             'description' => 'nullable|string',
             'is_active' => 'boolean',
         ]);
 
-        $isActivating = $request->has('is_active') && !$paymentMethod->is_active;
         $isDefaultMethod = $paymentMethod->is_default;
-        $hasDefaultAccountDetails = $paymentMethod->hasDefaultAccountDetails();
         $accountDetailsChanged = $request->input('account_details') !== $paymentMethod->account_details;
 
-        // Validation for default payment methods
-        if ($isDefaultMethod && $isActivating && $hasDefaultAccountDetails && !$accountDetailsChanged) {
+        if (
+            $request->boolean('is_active')
+            && trim((string) $request->input('account_details')) === PaymentMethod::DEFAULT_ACCOUNT_DETAILS
+        ) {
             return redirect()->back()
                 ->withInput()
-                ->withErrors(['account_details' => 'يجب تحديث تفاصيل الحساب قبل تفعيل طريقة الدفع الافتراضية']);
+                ->withErrors(['account_details' => 'أضف بيانات الدفع قبل التفعيل']);
         }
 
         // For default methods, don't allow changing the name
-        $data = $request->all();
+        $data = $validated;
         if ($isDefaultMethod) {
             $data['name'] = $paymentMethod->name; // Keep the original name
         }
-        $data['is_active'] = $request->has('is_active') ? true : false;
+        $data['is_active'] = $request->boolean('is_active');
 
         // Check if confirmation is needed for account details change on default methods
         if ($isDefaultMethod && $accountDetailsChanged && !$request->has('confirm_account_details')) {

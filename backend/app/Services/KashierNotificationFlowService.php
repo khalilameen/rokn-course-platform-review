@@ -44,7 +44,7 @@ final readonly class KashierNotificationFlowService
             return view('payment.result', [
                 'success' => false,
                 'order_ref' => null,
-                'message' => 'Invalid payment reference.',
+                'message' => 'تعذّر التحقق من عملية الدفع',
             ]);
         }
 
@@ -73,7 +73,7 @@ final readonly class KashierNotificationFlowService
             return view('payment.result', [
                 'success' => false,
                 'order_ref' => $orderRef,
-                'message' => 'Invalid payment signature.',
+                'message' => 'تعذّر التحقق من عملية الدفع',
             ]);
         }
 
@@ -93,7 +93,7 @@ final readonly class KashierNotificationFlowService
             return view('payment.result', [
                 'success' => false,
                 'order_ref' => $orderRef,
-                'message' => 'Order not found.',
+                'message' => 'عملية الدفع غير متاحة',
             ]);
         }
 
@@ -109,7 +109,7 @@ final readonly class KashierNotificationFlowService
             return view('payment.result', [
                 'success' => false,
                 'order_ref' => $orderRef,
-                'message' => 'Payment reversal received and queued for review.',
+                'message' => 'نراجع عملية رد المبلغ',
             ]);
         }
 
@@ -117,11 +117,11 @@ final readonly class KashierNotificationFlowService
             return view('payment.result', [
                 'success' => false,
                 'order_ref' => $orderRef,
-                'message' => 'A conflicting payment event was queued for review.',
+                'message' => 'نراجع حالة الدفع الآن',
             ]);
         }
 
-        if ($order->status === Order::STATUS_APPROVED) {
+        if ($this->isSettled($order)) {
             Log::info('Kashier callback: order already approved (idempotent)', [
                 'order_ref' => $orderRef,
                 'transaction_id' => $order->transaction_id,
@@ -132,7 +132,7 @@ final readonly class KashierNotificationFlowService
                 'order_ref' => $orderRef,
                 'transaction_id' => $order->transaction_id,
                 'package' => $order->package,
-                'message' => 'Payment already processed successfully.',
+                'message' => 'تمت معالجة الدفع من قبل',
             ]);
         }
 
@@ -142,13 +142,13 @@ final readonly class KashierNotificationFlowService
 
         $order = $this->payments->cancelPendingOrder($order, $params);
 
-        if ($order->status === Order::STATUS_APPROVED) {
+        if ($this->isSettled($order)) {
             return view('payment.result', [
                 'success' => true,
                 'order_ref' => $orderRef,
                 'transaction_id' => $order->transaction_id,
                 'package' => $order->package,
-                'message' => 'Payment already processed successfully.',
+                'message' => 'تمت معالجة الدفع من قبل',
             ]);
         }
 
@@ -162,7 +162,7 @@ final readonly class KashierNotificationFlowService
         return view('payment.result', [
             'success' => false,
             'order_ref' => $orderRef,
-            'message' => 'Payment was not completed.',
+            'message' => 'لم تكتمل عملية الدفع',
         ]);
     }
 
@@ -254,7 +254,7 @@ final readonly class KashierNotificationFlowService
             return $this->responses->make(true, 'Conflicting payment event queued for review');
         }
 
-        if ($order->status === Order::STATUS_APPROVED) {
+        if ($this->isSettled($order)) {
             Log::info('Kashier webhook: order already approved (idempotent)', [
                 'order_ref' => $orderRef,
                 'transaction_id' => $order->transaction_id,
@@ -269,7 +269,7 @@ final readonly class KashierNotificationFlowService
 
         $order = $this->payments->cancelPendingOrder($order, $params);
 
-        if ($order->status === Order::STATUS_APPROVED) {
+        if ($this->isSettled($order)) {
             return $this->responses->make(true, 'Already processed');
         }
 
@@ -299,13 +299,13 @@ final readonly class KashierNotificationFlowService
 
         $order = Order::byOrderRef($orderRef)->with(['user', 'package'])->first();
 
-        if ($order && $order->status === Order::STATUS_APPROVED) {
+        if ($order && $this->isSettled($order)) {
             return view('payment.result', [
                 'success' => true,
                 'order_ref' => $orderRef,
                 'transaction_id' => $order->transaction_id,
                 'package' => $order->package,
-                'message' => 'Payment already processed successfully.',
+                'message' => 'تمت معالجة الدفع من قبل',
             ]);
         }
 
@@ -323,15 +323,15 @@ final readonly class KashierNotificationFlowService
                         return view('payment.result', [
                             'success' => false,
                             'order_ref' => $orderRef,
-                            'message' => 'A conflicting payment event was queued for review.',
+                            'message' => 'نراجع حالة الدفع الآن',
                         ]);
                     }
 
-                    if ($order->status !== Order::STATUS_APPROVED) {
+                    if (!$this->isSettled($order)) {
                         return view('payment.result', [
                             'success' => false,
                             'order_ref' => $orderRef,
-                            'message' => 'This checkout is closed. The captured payment is queued for review.',
+                            'message' => "أغلقت صفحة الدفع\nنراجع المبلغ المدفوع الآن",
                         ]);
                     }
 
@@ -347,7 +347,7 @@ final readonly class KashierNotificationFlowService
                         'transaction_id' => $transactionId,
                         'package' => $order->package,
                         'coins_credited' => $this->payments->coinAmount($order),
-                        'message' => 'Payment successful.',
+                        'message' => 'تم الدفع بنجاح',
                     ]);
                 } catch (\Exception $exception) {
                     Log::error('Kashier callback: API-confirmed payment fulfillment failed', [
@@ -368,8 +368,7 @@ final readonly class KashierNotificationFlowService
                 'success' => false,
                 'pending' => true,
                 'order_ref' => $orderRef,
-                'message' => 'جاري معالجة الدفع. يرجى الانتظار '
-                    . 'أو العودة إلى التطبيق للتحقق من حالة الدفع.',
+                'message' => "نعالج عملية الدفع الآن\nعد إلى التطبيق لمتابعة حالتها",
             ]);
         }
 
@@ -392,7 +391,7 @@ final readonly class KashierNotificationFlowService
         return view('payment.result', [
             'success' => false,
             'order_ref' => $orderRef,
-            'message' => 'فشلت عملية الدفع (' . $paymentStatus . ').',
+            'message' => 'لم تكتمل عملية الدفع',
         ]);
     }
 
@@ -418,15 +417,15 @@ final readonly class KashierNotificationFlowService
                 return view('payment.result', [
                     'success' => false,
                     'order_ref' => $orderRef,
-                    'message' => 'A conflicting payment event was queued for review.',
+                    'message' => 'نراجع حالة الدفع الآن',
                 ]);
             }
 
-            if ($order->status !== Order::STATUS_APPROVED) {
+            if (!$this->isSettled($order)) {
                 return view('payment.result', [
                     'success' => false,
                     'order_ref' => $orderRef,
-                    'message' => 'Payment could not be fulfilled automatically and is queued for review.',
+                    'message' => "وصل الدفع\nنراجع إضافة العملات الآن",
                 ]);
             }
 
@@ -446,7 +445,7 @@ final readonly class KashierNotificationFlowService
                 'transaction_id' => $transactionId,
                 'package' => $order->package,
                 'coins_credited' => $this->payments->coinAmount($order),
-                'message' => 'Payment successful.',
+                'message' => 'تم الدفع بنجاح',
             ]);
         } catch (\Exception $exception) {
             Log::error('Kashier callback: fulfillment failed after successful payment', [
@@ -461,7 +460,7 @@ final readonly class KashierNotificationFlowService
             return view('payment.result', [
                 'success' => false,
                 'order_ref' => $orderRef,
-                'message' => 'Payment received but fulfillment failed. Please contact support.',
+                'message' => "وصل الدفع ولم تُضف العملات\nتواصل مع الدعم",
             ]);
         }
     }
@@ -488,7 +487,7 @@ final readonly class KashierNotificationFlowService
                 return $this->responses->make(true, 'Conflicting payment event queued for review');
             }
 
-            if ($order->status !== Order::STATUS_APPROVED) {
+            if (!$this->isSettled($order)) {
                 return $this->responses->make(true, 'Payment capture queued for review');
             }
 
@@ -515,5 +514,12 @@ final readonly class KashierNotificationFlowService
 
             return $this->responses->make(false, 'Fulfillment error', [], 500, 'fulfillment_error');
         }
+    }
+
+    private function isSettled(Order $order): bool
+    {
+        return $order->status === Order::STATUS_APPROVED
+            && $order->financial_status === Order::FINANCIAL_SETTLED
+            && $order->reversed_at === null;
     }
 }

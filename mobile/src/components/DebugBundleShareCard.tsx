@@ -48,7 +48,7 @@ export const DebugBundleShareCard = () => {
       const sharedBundle = await shareDebugBundle();
       setBundle(sharedBundle);
     } catch {
-      setError('تعذرت المشاركة الآن. حاول مرة أخرى.');
+      setError('تعذّرت المشاركة الآن\nحاول مرة أخرى');
     } finally {
       setSharing(false);
     }
@@ -64,8 +64,8 @@ export const DebugBundleShareCard = () => {
         معلومات تشخيصية آمنة
       </Text>
       <Text style={styles.description}>
-        تقرير محدود بالإصدار والمنصة وحالة الميزات وآخر أخطاء التشغيل المصنفة.
-        لا يضم بيانات الحساب أو الرسائل أو الروابط أو تفاصيل الخطأ.
+        تقرير مختصر يساعد الدعم في معرفة سبب العطل
+        {'\n'}لا يتضمن بيانات حسابك أو رسائلك
       </Text>
 
       {bundle ? (

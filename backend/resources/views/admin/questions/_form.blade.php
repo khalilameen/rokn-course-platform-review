@@ -53,7 +53,7 @@
         @if(isset($question->image))
         <img src="{{ $question->image }}" />
         @endif
-        <input id="image" name="image" class="form-control-file" type="file" required>
+        <input id="image" name="image" class="form-control-file" type="file" accept="image/*">
     </div>
 </div>
 
@@ -125,7 +125,7 @@
         <label for="right_answer" class="form-control-label"> الاجابة الصحيحة</label>
     </div>
     <div class="col-md-10">
-        {!! Form::text('right_answer', null, ['class' => 'form-control' , 'required', 'id'=>"right_answer"] )!!}
+        {!! Form::number('right_answer', null, ['class' => 'form-control' , 'required', 'min' => 1, 'max' => 6, 'id'=>"right_answer"] )!!}
     </div>
 </div>
 

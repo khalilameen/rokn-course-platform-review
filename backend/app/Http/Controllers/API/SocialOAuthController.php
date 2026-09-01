@@ -7,18 +7,20 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use RuntimeException;
 use App\Services\SocialAuthProviderRegistry;
+use App\Services\SocialOAuthAttemptService;
+use App\Support\RoknLocale;
 
 final class SocialOAuthController extends Controller
 {
-    public function __construct(private readonly SocialAuthProviderRegistry $socialProviders)
-    {
-    }
+    public function __construct(
+        private readonly SocialAuthProviderRegistry $socialProviders,
+        private readonly SocialOAuthAttemptService $attempts
+    ) {}
 
     public function start(Request $request, string $socialProvider): RedirectResponse
     {
@@ -29,27 +31,28 @@ final class SocialOAuthController extends Controller
         ]);
         $challenge = trim((string) ($pkce['code_challenge'] ?? ''));
         if ($challenge === '' && !config('social_auth.allow_legacy_pkce', false)) {
-            abort(422, 'PKCE code challenge is required.');
+            abort(422, 'تعذّر بدء تسجيل الدخول');
         }
         if ($challenge !== '' && ($pkce['code_challenge_method'] ?? 'S256') !== 'S256') {
-            abort(422, 'Only PKCE S256 is supported.');
+            abort(422, 'تعذّر بدء تسجيل الدخول');
         }
         $returnTo = (string) $request->query('return_to', 'rokn://auth');
         if (!in_array($returnTo, $this->allowedReturnUrls(), true)) {
-            abort(422, 'Invalid return URL.');
+            abort(422, 'تعذّر بدء تسجيل الدخول');
         }
 
         $state = Str::random(64);
-        Cache::put($this->stateKey($state), [
-            'provider' => $provider,
-            'return_to' => $returnTo,
-            'code_challenge' => $challenge !== '' ? $challenge : null,
-        ], now()->addMinutes(10));
+        $attempt = $this->attempts->begin(
+            $state,
+            $provider,
+            $returnTo,
+            $challenge !== '' ? $challenge : null
+        );
 
         try {
             return redirect()->away($this->authorizationUrl($provider, $state));
         } catch (\Throwable $exception) {
-            Cache::forget($this->stateKey($state));
+            $attempt->delete();
             report($exception);
 
             return $this->redirectToApp($returnTo, ['error' => 'provider_unavailable']);
@@ -63,33 +66,44 @@ final class SocialOAuthController extends Controller
         // Inspect first so a callback sent to the wrong provider cannot burn a
         // legitimate state value. The atomic pull happens only after all
         // callback constraints match.
-        $statePayload = $state !== '' ? Cache::get($this->stateKey($state)) : null;
-        $returnTo = is_array($statePayload)
-            ? (string) ($statePayload['return_to'] ?? 'rokn://auth')
+        $stateAttempt = $state !== '' ? $this->attempts->inspectState($state) : null;
+        $returnTo = $stateAttempt
+            ? (string) $stateAttempt->return_to
             : 'rokn://auth';
 
-        if (
-            !is_array($statePayload) ||
-            !hash_equals((string) ($statePayload['provider'] ?? ''), $provider) ||
-            !$request->filled('code')
-        ) {
+        if (!$stateAttempt || !hash_equals((string) $stateAttempt->provider, $provider)) {
             return $this->redirectToApp($returnTo, ['error' => 'login_cancelled']);
         }
 
-        $claimedState = Cache::pull($this->stateKey($state));
-        if (!is_array($claimedState)) {
+        if (!$request->filled('code')) {
+            // A valid provider cancellation is terminal for this browser
+            // attempt. Consume its state so a copied callback cannot be reused.
+            $this->attempts->consumeState($state, $provider);
+            $providerError = strtolower(trim((string) $request->query('error', '')));
+
+            return $this->redirectToApp($returnTo, [
+                'error' => in_array($providerError, ['access_denied', 'user_cancelled', 'cancelled'], true)
+                    ? 'login_cancelled'
+                    : 'provider_unavailable',
+            ]);
+        }
+
+        $claimedState = $this->attempts->consumeState($state, $provider);
+        if (!$claimedState) {
             return $this->redirectToApp($returnTo, ['error' => 'login_cancelled']);
         }
 
         try {
             $token = $this->exchangeCode($provider, (string) $request->query('code'));
             $completionCode = Str::random(72);
-            Cache::put($this->completionKey($completionCode), [
-                'provider' => $provider,
-                // Provider credentials never sit in cache as readable text.
-                'encrypted_token' => Crypt::encryptString($token),
-                'code_challenge' => $claimedState['code_challenge'] ?? null,
-            ], now()->addMinutes(3));
+            // Provider credentials remain encrypted at rest. Database-backed
+            // attempts survive container changes between callback and app
+            // completion while the one-time hashes remain non-replayable.
+            $this->attempts->issueCompletion(
+                $claimedState,
+                $completionCode,
+                Crypt::encryptString($token)
+            );
 
             return $this->redirectToApp($returnTo, ['code' => $completionCode]);
         } catch (\Throwable $exception) {
@@ -106,38 +120,38 @@ final class SocialOAuthController extends Controller
             'device_os' => 'nullable|string|max:255',
             'device_token' => 'nullable|string|max:500',
             'device_type' => 'nullable|string|max:50',
+            'device_id' => ['nullable', 'uuid'],
         ]);
 
-        $completionKey = $this->completionKey((string) $validated['code']);
         // Inspect without consuming first. A wrong verifier must not be able to
         // burn the legitimate app's one-time completion code.
-        $payload = Cache::get($completionKey);
-        if (!is_array($payload) || empty($payload['encrypted_token'])) {
+        $attempt = $this->attempts->inspectCompletion((string) $validated['code']);
+        if (!$attempt) {
             return response()->json([
                 'status' => 410,
                 'success' => false,
                 'code' => 'social_login_expired',
-                'message' => 'انتهت محاولة تسجيل الدخول. ابدأ مرة أخرى.',
+                'message' => "انتهت محاولة تسجيل الدخول\nابدأ مرة أخرى",
                 'data' => null,
             ], 410);
         }
 
-        if (!$this->browserProviders()->contains((string) ($payload['provider'] ?? ''))) {
-            // Corrupted or injected cache records are unusable and should not
+        if (!$this->browserProviders()->contains((string) $attempt->provider)) {
+            // Corrupted or injected attempt records are unusable and should not
             // remain replayable. Verifier mismatches on a valid provider stay
             // non-consuming so an attacker cannot burn the real app's code.
-            Cache::pull($completionKey);
+            $this->attempts->consumeCompletion((string) $validated['code']);
 
             return response()->json([
                 'status' => 410,
                 'success' => false,
                 'code' => 'social_login_expired',
-                'message' => 'انتهت محاولة تسجيل الدخول. ابدأ مرة أخرى.',
+                'message' => "انتهت محاولة تسجيل الدخول\nابدأ مرة أخرى",
                 'data' => null,
             ], 410);
         }
 
-        $challenge = trim((string) ($payload['code_challenge'] ?? ''));
+        $challenge = trim((string) $attempt->code_challenge);
         $verifier = trim((string) ($validated['code_verifier'] ?? ''));
         if ($challenge === '') {
             if (!config('social_auth.allow_legacy_pkce', false)) {
@@ -145,7 +159,7 @@ final class SocialOAuthController extends Controller
                     'status' => 410,
                     'success' => false,
                     'code' => 'social_login_pkce_required',
-                    'message' => 'ابدأ تسجيل الدخول من جديد لتأمين هذه المحاولة.',
+                    'message' => 'ابدأ تسجيل الدخول من جديد',
                     'data' => null,
                 ], 410);
             }
@@ -154,25 +168,124 @@ final class SocialOAuthController extends Controller
                 'status' => 422,
                 'success' => false,
                 'code' => 'social_login_pkce_mismatch',
-                'message' => 'تعذر تأمين محاولة تسجيل الدخول. ابدأ من جديد.',
+                'message' => "تعذر إكمال محاولة تسجيل الدخول\nابدأ من جديد",
                 'data' => null,
             ], 422);
         }
 
-        $claimedPayload = Cache::pull($completionKey);
-        if (!is_array($claimedPayload)) {
+        if ($attempt->completion_consumed_at) {
+            return $this->replayCompletedSession($attempt);
+        }
+
+        if (empty($attempt->encrypted_token)) {
             return response()->json([
                 'status' => 410,
                 'success' => false,
                 'code' => 'social_login_expired',
-                'message' => 'انتهت محاولة تسجيل الدخول. ابدأ مرة أخرى.',
+                'message' => "انتهت محاولة تسجيل الدخول\nابدأ مرة أخرى",
                 'data' => null,
             ], 410);
         }
-        $payload = $claimedPayload;
+
+        $claimedAttempt = $this->attempts->claimCompletion((string) $validated['code']);
+        if (!$claimedAttempt) {
+            return response()->json([
+                'status' => 409,
+                'success' => false,
+                'code' => 'social_login_in_progress',
+                'message' => "جارٍ إكمال تسجيل الدخول\nحاول بعد قليل",
+                'data' => null,
+            ], 409);
+        }
+        try {
+            $providerToken = Crypt::decryptString((string) $claimedAttempt->encrypted_token);
+        } catch (\Throwable $exception) {
+            report($exception);
+            $this->attempts->finalizeCompletion($claimedAttempt);
+
+            return response()->json([
+                'status' => 410,
+                'success' => false,
+                'code' => 'social_login_expired',
+                'message' => "انتهت محاولة تسجيل الدخول\nابدأ مرة أخرى",
+                'data' => null,
+            ], 410);
+        }
+
+        $forward = Request::create('/api/v1/social-login', 'POST', [
+            'provider' => $claimedAttempt->provider,
+            'token' => $providerToken,
+            'device_os' => $validated['device_os'] ?? null,
+            'device_token' => $validated['device_token'] ?? null,
+            'device_type' => $validated['device_type'] ?? null,
+            'device_id' => $validated['device_id'] ?? null,
+            'preferred_locale' => RoknLocale::fromRequest($request),
+        ]);
 
         try {
-            $providerToken = Crypt::decryptString((string) $payload['encrypted_token']);
+            $response = $signController->socialLogin($forward);
+        } catch (\Throwable $exception) {
+            $this->attempts->releaseCompletion($claimedAttempt);
+            throw $exception;
+        }
+
+        if ($response->isSuccessful()) {
+            try {
+                $this->attempts->finalizeCompletion(
+                    $claimedAttempt,
+                    Crypt::encryptString(json_encode([
+                        'status' => $response->status(),
+                        'body' => $response->getData(true),
+                    ], JSON_THROW_ON_ERROR))
+                );
+            } catch (\Throwable $exception) {
+                // Identity verification and token issuance already succeeded.
+                // A replay-snapshot write is recovery infrastructure; it must
+                // not replace the live successful response with a 500 and make
+                // the app report that it could not save the login.
+                report($exception);
+                try {
+                    $this->attempts->releaseCompletion($claimedAttempt);
+                } catch (\Throwable $releaseException) {
+                    report($releaseException);
+                }
+            }
+        } else {
+            // Provider or database outages remain safely retryable with the
+            // same one-time code. A short processing claim still prevents two
+            // concurrent requests from creating parallel app sessions.
+            $this->attempts->releaseCompletion($claimedAttempt);
+        }
+
+        return $response;
+    }
+
+    private function replayCompletedSession(\App\Models\SocialOAuthAttempt $attempt)
+    {
+        if (empty($attempt->encrypted_session_response)) {
+            return response()->json([
+                'status' => 410,
+                'success' => false,
+                'code' => 'social_login_expired',
+                'message' => "انتهت محاولة تسجيل الدخول\nابدأ مرة أخرى",
+                'data' => null,
+            ], 410);
+        }
+
+        try {
+            $replay = json_decode(
+                Crypt::decryptString((string) $attempt->encrypted_session_response),
+                true,
+                32,
+                JSON_THROW_ON_ERROR
+            );
+            $body = is_array($replay['body'] ?? null) ? $replay['body'] : null;
+            $status = (int) ($replay['status'] ?? 0);
+            if ($body === null || $status < 200 || $status >= 300) {
+                throw new RuntimeException('Invalid stored social session response.');
+            }
+
+            return response()->json($body, $status);
         } catch (\Throwable $exception) {
             report($exception);
 
@@ -180,20 +293,10 @@ final class SocialOAuthController extends Controller
                 'status' => 410,
                 'success' => false,
                 'code' => 'social_login_expired',
-                'message' => 'انتهت محاولة تسجيل الدخول. ابدأ مرة أخرى.',
+                'message' => "انتهت محاولة تسجيل الدخول\nابدأ مرة أخرى",
                 'data' => null,
             ], 410);
         }
-
-        $forward = Request::create('/api/v1/social-login', 'POST', [
-            'provider' => $payload['provider'],
-            'token' => $providerToken,
-            'device_os' => $validated['device_os'] ?? null,
-            'device_token' => $validated['device_token'] ?? null,
-            'device_type' => $validated['device_type'] ?? null,
-        ]);
-
-        return $signController->socialLogin($forward);
     }
 
     private function authorizationUrl(string $provider, string $state): string
@@ -346,16 +449,6 @@ final class SocialOAuthController extends Controller
         if (trim($value) === '') {
             throw new RuntimeException($name . ' is not configured.');
         }
-    }
-
-    private function stateKey(string $state): string
-    {
-        return 'social-oauth-state:' . hash('sha256', $state);
-    }
-
-    private function completionKey(string $code): string
-    {
-        return 'social-oauth-complete:' . hash('sha256', $code);
     }
 
     private function pkceChallenge(string $verifier): string

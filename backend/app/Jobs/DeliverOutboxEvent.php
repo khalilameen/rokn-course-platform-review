@@ -60,20 +60,27 @@ final class DeliverOutboxEvent implements ShouldQueue
             ->get()
             ->filter(fn (WebhookEndpoint $endpoint): bool => $endpoint->accepts($event->topic));
 
-        try {
-            foreach ($endpoints as $endpoint) {
+        $transientFailure = null;
+        foreach ($endpoints as $endpoint) {
+            try {
                 $this->deliver($event, $endpoint, $destinations);
+            } catch (TransientWebhookDeliveryException $exception) {
+                // One slow destination must not starve every endpoint that
+                // follows it. Delivered endpoints remain idempotently closed;
+                // the event is retried only for destinations still pending.
+                $transientFailure ??= $exception;
             }
-        } catch (TransientWebhookDeliveryException $exception) {
+        }
+        if ($transientFailure) {
             $delay = $this->retryDelay();
             OutboxEvent::query()->whereKey($event->id)->update([
                 'status' => OutboxEvent::STATUS_PENDING,
                 'locked_at' => null,
                 'available_at' => now()->addSeconds($delay),
-                'last_error_fingerprint' => hash('sha256', $exception->getMessage()),
+                'last_error_fingerprint' => hash('sha256', $transientFailure->getMessage()),
                 'updated_at' => now(),
             ]);
-            throw $exception;
+            throw $transientFailure;
         }
 
         $hasFailed = WebhookDelivery::query()
@@ -94,7 +101,10 @@ final class DeliverOutboxEvent implements ShouldQueue
     {
         OutboxEvent::query()
             ->whereKey($this->outboxEventId)
-            ->where('status', '<>', OutboxEvent::STATUS_DELIVERED)
+            ->whereNotIn('status', [
+                OutboxEvent::STATUS_DELIVERED,
+                OutboxEvent::STATUS_SKIPPED,
+            ])
             ->update([
                 'status' => OutboxEvent::STATUS_FAILED,
                 'locked_at' => null,
@@ -116,9 +126,37 @@ final class DeliverOutboxEvent implements ShouldQueue
                 || in_array($event->status, [
                     OutboxEvent::STATUS_DELIVERED,
                     OutboxEvent::STATUS_FAILED,
+                    OutboxEvent::STATUS_BLOCKED,
+                    OutboxEvent::STATUS_SKIPPED,
                 ], true)
             ) {
                 return null;
+            }
+
+            if ($event->aggregate_type && $event->aggregate_id) {
+                $predecessor = OutboxEvent::query()
+                    ->where('aggregate_type', $event->aggregate_type)
+                    ->where('aggregate_id', $event->aggregate_id)
+                    ->where('id', '<', $event->id)
+                    ->whereNotIn('status', [
+                        OutboxEvent::STATUS_DELIVERED,
+                        OutboxEvent::STATUS_SKIPPED,
+                    ])
+                    ->orderBy('id')
+                    ->first(['id']);
+                if ($predecessor) {
+                    $event->forceFill([
+                        'status' => OutboxEvent::STATUS_BLOCKED,
+                        'locked_at' => null,
+                        'available_at' => null,
+                        'last_error_fingerprint' => hash(
+                            'sha256',
+                            'blocked-by-predecessor:' . $predecessor->id
+                        ),
+                    ])->save();
+
+                    return null;
+                }
             }
 
             $staleBefore = now()->subSeconds(max(30, (int) config('webhooks.claim_stale_seconds', 180)));

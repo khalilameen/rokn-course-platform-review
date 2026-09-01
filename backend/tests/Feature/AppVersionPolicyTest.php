@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Services\AppReleasePolicyService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -47,7 +48,9 @@ class AppVersionPolicyTest extends TestCase
             'version' => 10,
         ])->assertOk()
             ->assertJsonPath('data.update_required', false)
-            ->assertJsonPath('data.is_force_update', false);
+            ->assertJsonPath('data.is_force_update', false)
+            ->assertJsonPath('data.policy_configured', false)
+            ->assertHeader('Cache-Control', 'no-store, private');
     }
 
     public function test_android_uses_numeric_version_code_and_detects_any_forced_hop(): void
@@ -140,6 +143,73 @@ class AppVersionPolicyTest extends TestCase
             ->assertJsonPath('data.latest_version_code', 50)
             ->assertJsonPath('data.distribution_channel', 'direct')
             ->assertJsonPath('data.download_url', 'https://rokn.app/downloads/Rokn.apk');
+    }
+
+    public function test_old_android_client_without_channel_prefers_legacy_then_safe_play_fallback(): void
+    {
+        $this->insertVersion('android', '3.0.0', 30, null, false, 'play');
+        $this->insertVersion('android', '4.0.0', 40, null, true, 'direct');
+
+        $this->postJson('/api/app/check-version', [
+            'platform' => 'android',
+            'version' => 20,
+        ])->assertOk()
+            ->assertJsonPath('data.latest_version_code', 30)
+            ->assertJsonPath('data.distribution_channel', 'play')
+            ->assertJsonPath('data.download_url', 'https://play.google.com/store/apps/details?id=com.rokn');
+
+        $this->insertVersion('android', '2.5.0', 25, null, false, null);
+
+        $this->postJson('/api/app/check-version', [
+            'platform' => 'android',
+            'version' => 20,
+        ])->assertOk()
+            ->assertJsonPath('data.latest_version_code', 25)
+            ->assertJsonPath('data.distribution_channel', null);
+    }
+
+    public function test_contract_incompatibility_forces_only_an_actionable_newer_release(): void
+    {
+        config()->set('mobile_contract.minimum_supported_version', 2);
+        config()->set('mobile_contract.required_capabilities', ['app_update_policy_v2']);
+        $this->insertVersion('android', '3.1.0', 31, null, false, 'play');
+
+        $this->postJson('/api/v1/app/check-version', [
+            'platform' => 'android',
+            'version' => 30,
+            'distribution_channel' => 'play',
+            'api_contract_version' => 1,
+            'capabilities' => [],
+        ])->assertOk()
+            ->assertJsonPath('data.update_required', true)
+            ->assertJsonPath('data.is_force_update', true)
+            ->assertJsonPath('data.client_compatible', false)
+            ->assertJsonPath('data.api_contract.client_version', 1)
+            ->assertJsonPath('data.api_contract.missing_capabilities.0', 'app_update_policy_v2');
+
+        $this->postJson('/api/v1/app/check-version', [
+            'platform' => 'android',
+            'version' => 31,
+            'distribution_channel' => 'play',
+            'api_contract_version' => 1,
+            'capabilities' => [],
+        ])->assertOk()
+            ->assertJsonPath('data.update_required', false)
+            ->assertJsonPath('data.is_force_update', false)
+            ->assertJsonPath('data.client_compatible', false);
+    }
+
+    public function test_launch_readiness_requires_an_active_valid_release_for_each_declared_channel(): void
+    {
+        config()->set('mobile_contract.launch_channels', ['direct']);
+        $policy = app(AppReleasePolicyService::class);
+
+        $this->assertFalse($policy->launchReadiness()['ready']);
+        $this->insertVersion('android', '3.1.0', 31, null, false, 'direct');
+
+        $readiness = $policy->launchReadiness();
+        $this->assertTrue($readiness['ready']);
+        $this->assertTrue($readiness['channels']['direct']['ready']);
     }
 
     private function insertVersion(

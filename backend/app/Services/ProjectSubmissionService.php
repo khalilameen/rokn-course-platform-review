@@ -20,11 +20,14 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use App\Support\DownloadFilename;
+use App\Support\UnicodeText;
 
 final class ProjectSubmissionService
 {
     public function __construct(
-        private readonly LearningRewardService $learningRewards
+        private readonly LearningRewardService $learningRewards,
+        private readonly CourseSectionSequenceService $sectionSequence
     ) {
     }
 
@@ -36,6 +39,13 @@ final class ProjectSubmissionService
         string $idempotencyKey,
         array $metadata = []
     ): ProjectSubmission {
+        $text = $text === null ? null : UnicodeText::clean($text);
+        if ($text === '') $text = null;
+        if ($text !== null && UnicodeText::graphemeLength($text) > 20000) {
+            throw ValidationException::withMessages([
+                'submission_text' => ['نص المشروع أطول من الحد المتاح'],
+            ]);
+        }
         $submissionDisk = (string) config('projects.submission_disk', 'local');
         if ($submissionDisk === '' || !is_array(config("filesystems.disks.{$submissionDisk}"))) {
             throw new \RuntimeException('The configured project submission disk is not available.');
@@ -116,6 +126,11 @@ final class ProjectSubmissionService
                         "project_submissions/{$user->id}/{$project->id}",
                         $submissionDisk
                     );
+                    if (!$storedPath
+                        || !Storage::disk($submissionDisk)->exists($storedPath)
+                        || (int) Storage::disk($submissionDisk)->size($storedPath) !== (int) $file->getSize()) {
+                        throw new \RuntimeException('The project attachment was not stored completely.');
+                    }
                 }
 
                 $isInvalid = $effortStatus === ProjectSubmission::EFFORT_INVALID;
@@ -132,11 +147,23 @@ final class ProjectSubmissionService
                     'idempotency_key' => $idempotencyKey,
                     'submission_text' => $text,
                     'submission_file' => $storedPath,
-                    'original_file_name' => $file?->getClientOriginalName(),
+                    'original_file_name' => $file
+                        ? DownloadFilename::safe(
+                            $file->getClientOriginalName(),
+                            'project-submission',
+                            $file->guessExtension()
+                        )
+                        : null,
                     'mime_type' => $file?->getMimeType(),
                     'file_size' => $file?->getSize(),
                     'submission_metadata' => array_merge($metadata, [
                         'request_fingerprint' => $requestFingerprint,
+                        'upload_session_id' => $idempotencyKey,
+                        'object_key' => $storedPath,
+                        'checksum_sha256' => $file
+                            ? hash_file('sha256', $file->getRealPath())
+                            : hash('sha256', trim((string) $text)),
+                        'upload_finalized_at' => now()->toIso8601String(),
                         // Persist the exact private disk with the row. Changing
                         // PROJECT_SUBMISSION_DISK later must not orphan uploads
                         // created by an older web or queue node.
@@ -260,7 +287,7 @@ final class ProjectSubmissionService
             throw new AuthorizationException('Only an administrator can review project submissions.');
         }
 
-        return DB::transaction(function () use ($submission, $reviewer, $passed, $feedback): ProjectSubmission {
+        $reviewed = DB::transaction(function () use ($submission, $reviewer, $passed, $feedback): ProjectSubmission {
             $locked = ProjectSubmission::query()->lockForUpdate()->findOrFail($submission->id);
             $isGracefulFallback = $locked->review_status === ProjectSubmission::STATUS_PASSED
                 && $locked->review_source === 'graceful_fallback';
@@ -299,6 +326,12 @@ final class ProjectSubmissionService
                 $reviewer
             );
         });
+
+        if ($reviewed->review_status === ProjectSubmission::STATUS_PASSED) {
+            GenerateProjectFeedback::dispatch((int) $reviewed->id)->afterCommit();
+        }
+
+        return $reviewed;
     }
 
     private function applyReviewOutcome(
@@ -335,6 +368,17 @@ final class ProjectSubmissionService
             : ($source === 'admin_manual' ? 'human_review' : 'effort_guard');
         $metadata['skill_verified'] = $passed && $source === 'admin_manual';
         $metadata['progression_credit'] = $passed;
+        if (
+            $passed
+            && data_get($metadata, 'ai_feedback.status') !== 'ready'
+        ) {
+            // Persist intent before the queue dispatch so a lost enqueue can
+            // be recovered. The job terminally classifies pass-only plans.
+            $metadata['ai_feedback'] = [
+                'status' => 'queued',
+                'queued_at' => $reviewedAt->toIso8601String(),
+            ];
+        }
 
         $locked->update([
             'review_status' => $status,
@@ -392,13 +436,24 @@ final class ProjectSubmissionService
             return $locked->fresh();
         }
 
-        StudentSectionProgress::updateOrCreate(
-            [
-                'user_id' => $locked->user_id,
-                'course_section_id' => $projectSection->id,
-            ],
-            ['is_completed' => true]
-        );
+        $completedAt = now();
+        DB::table('student_section_progress')->insertOrIgnore([
+            'user_id' => $locked->user_id,
+            'course_section_id' => $projectSection->id,
+            'is_completed' => true,
+            'completed_at' => $completedAt,
+            'created_at' => $completedAt,
+            'updated_at' => $completedAt,
+        ]);
+        StudentSectionProgress::query()
+            ->where('user_id', $locked->user_id)
+            ->where('course_section_id', $projectSection->id)
+            ->where('is_completed', false)
+            ->update([
+                'is_completed' => true,
+                'completed_at' => $completedAt,
+                'updated_at' => $completedAt,
+            ]);
 
         $course = $projectSection->course;
         if (!$course) {
@@ -417,9 +472,10 @@ final class ProjectSubmissionService
                 ->update(['verification_level' => 'reviewed_project']);
         }
 
-        $courseSectionIds = CourseSection::query()
+        $courseSections = CourseSection::query()
             ->where('course_id', $course->id)
-            ->pluck('id');
+            ->get();
+        $courseSectionIds = $this->sectionSequence->learning($courseSections)->pluck('id');
         $completedSections = StudentSectionProgress::query()
             ->where('user_id', $locked->user_id)
             ->whereIn('course_section_id', $courseSectionIds)
@@ -432,7 +488,7 @@ final class ProjectSubmissionService
         }
 
         try {
-            event(new \App\Events\CourseCompleted($locked->user, $course));
+            event(new \App\Events\CourseCompleted((int) $locked->user_id, (int) $course->id));
         } catch (\Throwable $exception) {
             // Certificate/notification side effects must not roll back a passed project.
             report($exception);

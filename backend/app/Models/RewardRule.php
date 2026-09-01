@@ -6,6 +6,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Cache;
+use Throwable;
 
 final class RewardRule extends Model
 {
@@ -43,7 +45,12 @@ final class RewardRule extends Model
             return null;
         }
 
-        return static::query()->active()->where('event_key', $event)->first();
+        $load = fn () => static::query()->active()->where('event_key', $event)->first();
+        try {
+            return Cache::remember('reward-rule:active:v2:' . $event, 30, $load);
+        } catch (Throwable) {
+            return $load();
+        }
     }
 
     public static function configuredAmount(string $event, int $legacyFallback = 0): int
@@ -53,5 +60,17 @@ final class RewardRule extends Model
         }
 
         return max(0, (int) (static::activeFor($event)?->coins_amount ?? 0));
+    }
+
+    protected static function booted(): void
+    {
+        $forget = static function (RewardRule $rule): void {
+            try {
+                Cache::forget('reward-rule:active:v2:' . $rule->event_key);
+            } catch (Throwable) {
+            }
+        };
+        static::saved($forget);
+        static::deleted($forget);
     }
 }

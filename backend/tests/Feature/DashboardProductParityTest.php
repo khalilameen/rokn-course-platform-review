@@ -158,7 +158,7 @@ final class DashboardProductParityTest extends TestCase
             'portfolio_is_public' => false,
         ]);
         self::assertSame(
-            route('portfolio.public', ['slug' => 'private-student']),
+            rtrim((string) config('public_links.base_url'), '/').'/@private-student',
             $private->profile_deeplink
         );
 
@@ -167,7 +167,7 @@ final class DashboardProductParityTest extends TestCase
             'portfolio_is_public' => true,
         ]);
         self::assertSame(
-            route('portfolio.public', ['slug' => 'published-student']),
+            rtrim((string) config('public_links.base_url'), '/').'/@published-student',
             $public->profile_deeplink
         );
     }

@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Support\RoknLocale;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class NotificationResource extends JsonResource
@@ -16,11 +17,12 @@ class NotificationResource extends JsonResource
     {
         return [
             'id' => (int)$this->id,
-            'message' => app('request')->header('locale') === 'en' ?
-                (string)$this->message_en : (string)$this->message_ar,
+            'message' => RoknLocale::isArabic()
+                ? (string) ($this->message_ar ?: $this->message_en)
+                : (string) ($this->message_en ?: $this->message_ar),
             'order' => $this->order ? new OrdersResource($this->order) : null,
-            'created_at' => (string)$this->created_at,
-            'updated_at' => (string)$this->updated_at
+            'created_at' => $this->created_at?->toIso8601String(),
+            'updated_at' => $this->updated_at?->toIso8601String(),
 
         ];
     }

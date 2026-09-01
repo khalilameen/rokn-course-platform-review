@@ -1,5 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {cappedRewardCredit, ECONOMY_CONFIG} from '../config/economy';
+import {accountScopedStorageKey} from '../constants/helpers';
+import {roknCalendarDay} from '../constants/roknCalendar';
+import {serverNowMs} from '../utils/serverClock';
+import {LOCAL_DEMO_ENABLED} from '../config/runtime';
+
+const assertLocalDemoEnabled = () => {
+  if (!LOCAL_DEMO_ENABLED) throw new Error('LOCAL_DEMO_DISABLED');
+};
 
 export const DEMO_COURSE_ID = 'demo-freelance-course';
 export const DEMO_COURSE_PRICE = ECONOMY_CONFIG.minimumCoursePrice;
@@ -87,21 +95,23 @@ export const DEMO_COIN_PACKAGES: DemoCoinPackage[] = [
 const STORAGE_KEY = '@rokn/demo-experience/v1';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ROLLING_WINDOW_MS = 30 * DAY_MS;
+const MAX_DEMO_TRANSACTIONS = 250;
 const listeners = new Set<(state: DemoExperienceState) => void>();
-let cachedState: DemoExperienceState | null = null;
-let writeQueue: Promise<unknown> = Promise.resolve();
+const writeQueues = new Map<string, Promise<unknown>>();
 
-const localDayKey = (date = new Date()) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
+const currentStorageKey = () => accountScopedStorageKey(STORAGE_KEY);
+
+const localDayKey = (date = new Date()) => roknCalendarDay(date);
 
 const emptyRewardLedger = (): DemoRewardLedger => ({
   events: [],
   lifetimeKeys: [],
   studyDays: {},
+});
+
+const compactDemoState = (state: DemoExperienceState): DemoExperienceState => ({
+  ...state,
+  transactions: state.transactions.slice(0, MAX_DEMO_TRANSACTIONS),
 });
 
 const normalizeRewardLedger = (
@@ -152,7 +162,7 @@ const normalizeRewardLedger = (
 const COIN_GUIDE_TASK = {
   id: 'coin-guide',
   title: 'اعرف كيف يعمل رصيد ركن',
-  description: 'راجع القواعد مرة واحدة ثم استلم مكافأتك.',
+  description: 'راجع القواعد مرة واحدة ثم استلم مكافأتك',
   reward: ECONOMY_CONFIG.rewards.coinGuide,
 };
 
@@ -168,7 +178,7 @@ const normalizeDemoTasks = (tasks: DemoCoinTask[]): DemoCoinTask[] =>
         ...task,
         reward: ECONOMY_CONFIG.rewards.externalTask,
         title: 'افتح حساب ركن على Instagram',
-        description: 'افتح الصفحة ثم ارجع لاستلام المكافأة.',
+        description: 'افتح الصفحة ثم ارجع لاستلام المكافأة',
       };
     }
     if (task.id === 'tiktok') {
@@ -176,7 +186,7 @@ const normalizeDemoTasks = (tasks: DemoCoinTask[]): DemoCoinTask[] =>
         ...task,
         reward: ECONOMY_CONFIG.rewards.externalTask,
         title: 'افتح حساب ركن على TikTok',
-        description: 'افتح الصفحة ثم ارجع لاستلام المكافأة.',
+        description: 'افتح الصفحة ثم ارجع لاستلام المكافأة',
       };
     }
     if (task.id === 'youtube') {
@@ -184,7 +194,7 @@ const normalizeDemoTasks = (tasks: DemoCoinTask[]): DemoCoinTask[] =>
         ...task,
         reward: ECONOMY_CONFIG.rewards.externalTask,
         title: 'افتح قناة ركن على YouTube',
-        description: 'افتح القناة ثم ارجع لاستلام المكافأة.',
+        description: 'افتح القناة ثم ارجع لاستلام المكافأة',
       };
     }
     return task;
@@ -205,7 +215,7 @@ const initialState = (): DemoExperienceState => ({
     {
       id: 'instagram',
       title: 'افتح حساب ركن على Instagram',
-      description: 'افتح الصفحة ثم ارجع لاستلام المكافأة.',
+      description: 'افتح الصفحة ثم ارجع لاستلام المكافأة',
       reward: ECONOMY_CONFIG.rewards.externalTask,
       url: 'https://www.instagram.com/rokn.learn/',
       status: 'available',
@@ -213,7 +223,7 @@ const initialState = (): DemoExperienceState => ({
     {
       id: 'tiktok',
       title: 'افتح حساب ركن على TikTok',
-      description: 'افتح الصفحة ثم ارجع لاستلام المكافأة.',
+      description: 'افتح الصفحة ثم ارجع لاستلام المكافأة',
       reward: ECONOMY_CONFIG.rewards.externalTask,
       url: 'https://www.tiktok.com/@rokn.learn',
       status: 'available',
@@ -221,7 +231,7 @@ const initialState = (): DemoExperienceState => ({
     {
       id: 'youtube',
       title: 'افتح قناة ركن على YouTube',
-      description: 'افتح القناة ثم ارجع لاستلام المكافأة.',
+      description: 'افتح القناة ثم ارجع لاستلام المكافأة',
       reward: ECONOMY_CONFIG.rewards.externalTask,
       url: 'https://www.youtube.com/@roknlearn',
       status: 'available',
@@ -263,7 +273,7 @@ const parseState = (value: string | null): DemoExperienceState => {
         ECONOMY_CONFIG.rewardBalanceCap,
         Math.max(0, Number(parsed.balance)),
       );
-      return {
+      return compactDemoState({
         version: 5,
         balance: legacyBalance,
         paidBalance: 0,
@@ -278,7 +288,7 @@ const parseState = (value: string | null): DemoExperienceState => {
           source: item.source ?? 'legacy',
         })),
         rewardLedger: emptyRewardLedger(),
-      };
+      });
     }
     if (
       ![2, 3, 4, 5].includes(Number(parsed?.version)) ||
@@ -306,7 +316,7 @@ const parseState = (value: string | null): DemoExperienceState => {
     if (untouchedOldWelcome) {
       return initialState();
     }
-    return {
+    return compactDemoState({
       ...(parsed as DemoExperienceState),
       version: 5,
       balance: paidBalance + rewardBalance,
@@ -322,7 +332,7 @@ const parseState = (value: string | null): DemoExperienceState => {
       rewardLedger: normalizeRewardLedger(
         (parsed as Partial<DemoExperienceState>).rewardLedger,
       ),
-    };
+    });
   } catch {
     return initialState();
   }
@@ -333,32 +343,60 @@ const emit = (state: DemoExperienceState) => {
 };
 
 export const getDemoExperience = async (): Promise<DemoExperienceState> => {
-  if (cachedState) return cachedState;
-  cachedState = parseState(await AsyncStorage.getItem(STORAGE_KEY));
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cachedState));
-  return cachedState;
+  assertLocalDemoEnabled();
+  const storageKey = await currentStorageKey();
+  const raw = await AsyncStorage.getItem(storageKey);
+  const state = parseState(raw);
+  const normalized = JSON.stringify(state);
+  if (raw !== normalized) {
+    await AsyncStorage.setItem(storageKey, normalized);
+  }
+  return state;
 };
 
 const updateDemoExperience = (
   updater: (current: DemoExperienceState) => DemoExperienceState,
 ): Promise<DemoExperienceState> => {
-  const operation = writeQueue.then(async () => {
-    const current = await getDemoExperience();
-    const next = updater(current);
-    cachedState = next;
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    emit(next);
-    return next;
+  try {
+    assertLocalDemoEnabled();
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  const operation = currentStorageKey().then(storageKey => {
+    const previous = writeQueues.get(storageKey) ?? Promise.resolve();
+    const nextWrite = previous.then(async () => {
+      const current = parseState(await AsyncStorage.getItem(storageKey));
+      const next = compactDemoState(updater(current));
+      await AsyncStorage.setItem(storageKey, JSON.stringify(next));
+      if ((await currentStorageKey()) === storageKey) {
+        emit(next);
+      }
+      return next;
+    });
+    const tail = nextWrite.then(
+      () => undefined,
+      () => undefined,
+    );
+    writeQueues.set(storageKey, tail);
+    void tail.then(() => {
+      if (writeQueues.get(storageKey) === tail) writeQueues.delete(storageKey);
+    });
+    return nextWrite;
   });
-  writeQueue = operation.catch(() => undefined);
-  return operation;
+  return operation.then(state => state);
 };
 
 export const subscribeDemoExperience = (
   listener: (state: DemoExperienceState) => void,
 ) => {
+  assertLocalDemoEnabled();
   listeners.add(listener);
-  void getDemoExperience().then(listener);
+  void currentStorageKey().then(async storageKey => {
+    const state = parseState(await AsyncStorage.getItem(storageKey));
+    if ((await currentStorageKey()) === storageKey && listeners.has(listener)) {
+      listener(state);
+    }
+  });
   return () => {
     listeners.delete(listener);
   };
@@ -438,7 +476,7 @@ const applyDemoRewardCredit = (
 
 /** Local review identity; the deployed service issues this event on the server. */
 export const claimDemoDailyReward = async () => {
-  const now = Date.now();
+  const now = serverNowMs();
   const day = localDayKey(new Date(now));
   return updateDemoExperience(current =>
     applyDemoRewardCredit(current, {
@@ -465,7 +503,7 @@ export const recordDemoQualifiedStudy = async (qualifiedSeconds: number) => {
     Math.min(120, Number(qualifiedSeconds) || 0),
   );
   if (!addedSeconds) return getDemoExperience();
-  const now = Date.now();
+  const now = serverNowMs();
   const day = localDayKey(new Date(now));
   return updateDemoExperience(current => {
     const ledger = normalizeRewardLedger(current.rewardLedger, now);

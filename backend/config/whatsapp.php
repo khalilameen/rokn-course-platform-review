@@ -25,14 +25,7 @@ return [
         'token_minutes' => env('WHATSAPP_LINK_TOKEN_MINUTES', 30),
     ],
 
-    /*
-    |--------------------------------------------------------------------------
-    | Verification Code Settings
-    |--------------------------------------------------------------------------
-    */
-
     'verification' => [
-        'code_length' => 6,
-        'expiry_minutes' => 10,
+        'code_length' => env('WHATSAPP_VERIFICATION_CODE_LENGTH', 6),
     ],
 ];

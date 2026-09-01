@@ -56,8 +56,6 @@
                                         <select name="type" id="type" class="form-control" required>
                                             <option value="">اختر النوع</option>
                                             <option value="course" {{ old('type', $courseCode->type) == 'course' ? 'selected' : '' }}>دورة</option>
-                                            <option value="lesson" {{ old('type', $courseCode->type) == 'lesson' ? 'selected' : '' }}>درس</option>
-                                            <option value="multiple_lessons" {{ old('type', $courseCode->type) == 'multiple_lessons' ? 'selected' : '' }}>دروس متعددة</option>
                                         </select>
                                         @error('type')
                                             <span class="text-danger"><small>{{ $message }}</small></span>
@@ -145,7 +143,7 @@
                                     <div class="form-group">
                                         <label for="start_date"><i class="fa fa-calendar"></i> تاريخ البداية (اختياري)</label>
                                         <input type="datetime-local" name="start_date" id="start_date" class="form-control"
-                                               value="{{ old('start_date', $courseCode->start_date ? $courseCode->start_date->format('Y-m-d\TH:i') : '') }}">
+                                               value="{{ old('start_date', \App\Support\BusinessClock::forDateTimeInput($courseCode->start_date)) }}">
                                         @error('start_date')
                                             <span class="text-danger"><small>{{ $message }}</small></span>
                                         @enderror
@@ -156,7 +154,7 @@
                                     <div class="form-group">
                                         <label for="expiry_date"><i class="fa fa-calendar-times-o"></i> تاريخ الانتهاء (اختياري)</label>
                                         <input type="datetime-local" name="expiry_date" id="expiry_date" class="form-control"
-                                               value="{{ old('expiry_date', $courseCode->expiry_date ? $courseCode->expiry_date->format('Y-m-d\TH:i') : '') }}">
+                                               value="{{ old('expiry_date', \App\Support\BusinessClock::forDateTimeInput($courseCode->expiry_date)) }}">
                                         @error('expiry_date')
                                             <span class="text-danger"><small>{{ $message }}</small></span>
                                         @enderror
@@ -218,15 +216,12 @@
 @section('scripts')
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM loaded, checking jQuery...');
 
     // Ensure jQuery is available
     if (typeof jQuery === 'undefined') {
-        console.error('jQuery is not loaded');
         return;
     }
 
-    console.log('jQuery is available, version:', jQuery.fn.jquery);
     var $ = jQuery;
 
     // Get current lesson IDs from server
@@ -236,7 +231,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // Handle type change
     $('#type').on('change', function() {
         var type = $(this).val();
-        console.log('Type changed to:', type);
 
         // Hide all selection divs
         $('#course-selection, #lesson-selection, #multiple-lessons-selection').hide();
@@ -250,15 +244,12 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show relevant selection based on type
         switch(type) {
             case 'course':
-                console.log('Showing course selection');
                 $('#course-selection').show();
                 break;
             case 'lesson':
-                console.log('Showing lesson selection');
                 $('#lesson-selection').show();
                 break;
             case 'multiple_lessons':
-                console.log('Showing course and multiple lessons selection');
                 $('#course-selection').show();
                 $('#multiple-lessons-selection').show();
                 // Load lessons if course is already selected (on initial load)
@@ -277,7 +268,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // Load lessons when course is selected for multiple lessons
     $('#course_id').on('change', function() {
         var courseId = $(this).val();
-        console.log('Course changed to:', courseId);
 
         if ($('#type').val() === 'multiple_lessons') {
             loadLessons();
@@ -294,7 +284,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
         $('#lessons-container').html('<div class="text-center"><i class="fa fa-spinner fa-spin"></i> جاري تحميل الدروس...</div>');
 
-        console.log('Loading lessons for course ID:', courseId);
 
         $.ajax({
             url: '{{ route("admin.course-codes.get-lessons") }}',
@@ -302,7 +291,6 @@ document.addEventListener('DOMContentLoaded', function() {
             data: { course_id: courseId },
             dataType: 'json',
             success: function(response) {
-                console.log('Lessons loaded successfully:', response);
 
                 if (response.length === 0) {
                     $('#lessons-container').html('<p class="text-warning">لا توجد دروس متاحة لهذه الدورة</p>');
@@ -323,7 +311,6 @@ document.addEventListener('DOMContentLoaded', function() {
                         });
                     }
 
-                    console.log('Lesson:', lesson.title, 'ID:', lessonId, 'Is checked:', isChecked);
 
                     html += '<div class="checkbox-item">';
                     html += '<label for="lesson_' + lesson.id + '">';
@@ -340,9 +327,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 $('#lessons-container').html(html);
             },
             error: function(xhr, status, error) {
-                console.error('Error loading lessons:', xhr.responseText);
-                console.error('Status:', status);
-                console.error('Error:', error);
                 $('#lessons-container').html('<p class="text-danger">حدث خطأ أثناء تحميل الدروس</p>');
             }
         });
@@ -353,7 +337,6 @@ document.addEventListener('DOMContentLoaded', function() {
         var type = $('#type').val();
         var isValid = true;
 
-        console.log('Form submitted, type:', type);
 
         // Check required fields based on type
         if (type === 'course') {
@@ -383,11 +366,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Trigger type change on page load if there's a value
     if ($('#type').val()) {
-        console.log('Triggering type change on page load');
         $('#type').trigger('change');
     }
 
-    console.log('Course codes edit page initialized successfully');
 });
 
 // Global functions for lesson selection

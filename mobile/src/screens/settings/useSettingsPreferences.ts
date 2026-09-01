@@ -10,10 +10,10 @@ import {
 import {
   cancelLearningReminders,
   enableSmartReminders,
+  getSmartReminderHour,
   getSmartRemindersEnabled,
   REMINDER_ENABLED_KEY,
-  REMINDER_HOUR_KEY,
-  scheduleNextLearningReminder,
+  setSmartReminderHour,
   setSmartRemindersEnabled,
 } from '../../services/smartReminders';
 import {
@@ -38,6 +38,20 @@ import {
 } from './usePrivacyPreferenceSync';
 import {PENDING_WATCH_HISTORY_CLEAR_KEY} from './settingsData';
 
+const normalizeStoredQuality = (value: unknown) => {
+  const legacyAliases: Record<string, string> = {
+    'تلقائي': 'auto',
+    'توفير البيانات': 'data_saver',
+  };
+  const candidate =
+    typeof value === 'string' ? legacyAliases[value] || value : '';
+  return ['auto', 'data_saver', '1080p', '720p', '480p', '360p'].includes(
+    candidate,
+  )
+    ? candidate
+    : 'auto';
+};
+
 export const useSettingsPreferences = ({
   hasAuthenticatedAccount,
   userData,
@@ -56,10 +70,11 @@ export const useSettingsPreferences = ({
     usePrivacyPreferenceSync();
 
   useEffect(() => {
+    let active = true;
     void Promise.all([
       getSmartRemindersEnabled(),
-      getItem('VIDEO_QUALITY'),
-      getItem(REMINDER_HOUR_KEY),
+      accountScopedStorageKey('VIDEO_QUALITY').then(getItem),
+      getSmartReminderHour(),
       accountScopedStorageKey(WATCH_HISTORY_ENABLED_KEY).then(getItem),
       accountScopedStorageKey(MARKETING_NOTIFICATIONS_KEY).then(getItem),
     ]).then(
@@ -70,10 +85,11 @@ export const useSettingsPreferences = ({
         savedWatchHistory,
         savedMarketingNotifications,
       ]) => {
+        if (!active) return;
         if (typeof savedNotifications === 'boolean') {
           setNotifications(savedNotifications);
         }
-        if (typeof savedQuality === 'string') setQuality(savedQuality);
+        setQuality(normalizeStoredQuality(savedQuality));
         if (typeof savedWatchHistory === 'boolean') {
           setWatchHistory(savedWatchHistory);
         }
@@ -85,11 +101,12 @@ export const useSettingsPreferences = ({
         }
         if (hasAuthenticatedAccount) {
           const pending = await readPendingPrivacyPreferences();
+          if (!active) return;
           if (typeof pending.watchHistoryEnabled === 'boolean') {
             privacyDirtyKeys.add(WATCH_HISTORY_ENABLED_KEY);
             setWatchHistory(pending.watchHistoryEnabled);
             await saveItem(
-              WATCH_HISTORY_ENABLED_KEY,
+              await accountScopedStorageKey(WATCH_HISTORY_ENABLED_KEY),
               pending.watchHistoryEnabled,
             );
           }
@@ -97,15 +114,17 @@ export const useSettingsPreferences = ({
             privacyDirtyKeys.add(MARKETING_NOTIFICATIONS_KEY);
             setMarketingNotifications(pending.marketingNotificationsEnabled);
             await saveItem(
-              MARKETING_NOTIFICATIONS_KEY,
+              await accountScopedStorageKey(MARKETING_NOTIFICATIONS_KEY),
               pending.marketingNotificationsEnabled,
             );
           }
           if (Object.keys(pending).length) {
             await queuePrivacyPreferenceSync();
+            if (!active) return;
           }
           try {
             const profile = await getProfile();
+            if (!active) return;
             if (!privacyDirtyKeys.has(WATCH_HISTORY_ENABLED_KEY)) {
               setWatchHistory(profile.watchHistoryEnabled);
               await saveItem(
@@ -120,17 +139,27 @@ export const useSettingsPreferences = ({
                 profile.marketingNotificationsEnabled,
               );
             }
-            setQuality(profile.videoQualityPreference);
+            const profileQuality = normalizeStoredQuality(
+              profile.videoQualityPreference,
+            );
+            setQuality(profileQuality);
             await Promise.all([
-              saveItem('VIDEO_QUALITY', profile.videoQualityPreference),
-              saveItem('VIDEO_PLAYBACK_SPEED', profile.playbackSpeed),
+              accountScopedStorageKey('VIDEO_QUALITY').then(key =>
+                saveItem(key, profileQuality),
+              ),
+              accountScopedStorageKey('VIDEO_PLAYBACK_SPEED').then(key =>
+                saveItem(key, profile.playbackSpeed),
+              ),
             ]);
           } catch {
             // Settings remain readable without replacing server values.
           }
         }
       },
-    );
+    ).catch(() => undefined);
+    return () => {
+      active = false;
+    };
   }, [hasAuthenticatedAccount, privacyDirtyKeys, queuePrivacyPreferenceSync]);
 
   useEffect(() => {
@@ -201,20 +230,13 @@ export const useSettingsPreferences = ({
     await registerPushDeviceIfEligible({requestPermission: false}).catch(
       () => false,
     );
-    await scheduleNextLearningReminder({
-      streakDays: 0,
-      preferredHour: reminderHour,
-    });
     return true;
   };
 
   const updateReminderHour = async (hour: number) => {
     setReminderHour(hour);
-    await saveItem(REMINDER_HOUR_KEY, hour);
-    if (notifications) {
-      await scheduleNextLearningReminder({streakDays: 0, preferredHour: hour});
-    }
     setChoiceModal(null);
+    await setSmartReminderHour(hour);
   };
 
   const selectChoice = (key: string) => {
@@ -222,12 +244,15 @@ export const useSettingsPreferences = ({
       void updateReminderHour(Number(key));
       return;
     }
-    setQuality(key);
-    void saveItem('VIDEO_QUALITY', key);
+    const normalizedQuality = normalizeStoredQuality(key);
+    setQuality(normalizedQuality);
+    void accountScopedStorageKey('VIDEO_QUALITY').then(storageKey =>
+      saveItem(storageKey, normalizedQuality),
+    );
     if (hasAuthenticatedAccount) {
-      void updatePlaybackPreferences({videoQualityPreference: key}).catch(
-        () => undefined,
-      );
+      void updatePlaybackPreferences({
+        videoQualityPreference: normalizedQuality,
+      }).catch(() => undefined);
     }
     setChoiceModal(null);
   };

@@ -23,34 +23,6 @@ final class WhatsAppService
     }
 
     /**
-     * Send a verification code via WhatsApp
-     *
-     * @param string $phone
-     * @param string $code
-     * @return bool
-     */
-    public function sendVerificationCode(string $phone, string $code): bool
-    {
-        $message = "رمز التحقق الخاص بك هو: {$code}\n\nThis is your verification code: {$code}";
-        
-        return $this->sendMessage($phone, $message);
-    }
-
-    /**
-     * Send a password reset code via WhatsApp
-     *
-     * @param string $phone
-     * @param string $code
-     * @return bool
-     */
-    public function sendPasswordResetCode(string $phone, string $code): bool
-    {
-        $message = "رمز إعادة تعيين كلمة المرور الخاص بك هو: {$code}\n\nYour password reset code is: {$code}";
-        
-        return $this->sendMessage($phone, $message);
-    }
-
-    /**
      * Send a message via WhatsApp using Whatspie API
      *
      * @param string $phone
@@ -60,6 +32,14 @@ final class WhatsAppService
     public function sendTextMessage(string $phone, string $message): bool
     {
         return $this->sendMessage($phone, $message);
+    }
+
+    public static function generateCode(): string
+    {
+        $length = max(4, min(10, (int) config('whatsapp.verification.code_length', 6)));
+        $upperBound = (10 ** $length) - 1;
+
+        return str_pad((string) random_int(0, $upperBound), $length, '0', STR_PAD_LEFT);
     }
 
     protected function sendMessage(string $phone, string $message): bool
@@ -133,16 +113,4 @@ final class WhatsAppService
         }
     }
 
-    /**
-     * Generate a random verification code
-     *
-     * @return string
-     */
-    public static function generateCode(): string
-    {
-        $length = max(4, min(10, (int) config('whatsapp.verification.code_length', 6)));
-        $maximum = (10 ** $length) - 1;
-
-        return str_pad((string) random_int(0, $maximum), $length, '0', STR_PAD_LEFT);
-    }
 }

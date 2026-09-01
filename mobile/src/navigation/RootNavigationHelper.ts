@@ -3,18 +3,86 @@ import {
   createNavigationContainerRef,
 } from '@react-navigation/native';
 import {safeLoginReturnToFromRoute} from './authReturn';
+import {roknDestinationKey, type RoknDestination} from './deepLinks';
 import type {LoginReturnTo, RootNavigation, RootStackParamList} from './types';
 
 type NavigationParams = Record<string, unknown> | undefined;
 
 export const navigationRef = createNavigationContainerRef<RootStackParamList>();
+let lastExternalDestinationKey = '';
+let lastExternalDestinationAt = 0;
+
+const sameLinkableDestination = (
+  name: keyof RootStackParamList,
+  params?: NavigationParams,
+) => {
+  if (!navigationRef.isReady()) return false;
+  const current = navigationRef.getCurrentRoute();
+  if (current?.name !== name) return false;
+  if (name === 'Home' || name === 'Profile' || name === 'Wallet') return true;
+  if (name === 'Feedback') {
+    const currentParams = (current.params || {}) as Record<string, unknown>;
+    return String(currentParams.caseId || '') === String(params?.caseId || '');
+  }
+  if (name !== 'CourseDetails' && name !== 'Reels') return false;
+
+  const currentParams = (current.params || {}) as Record<string, unknown>;
+  const nextParams = params || {};
+  return (
+    String(currentParams.courseId || '') === String(nextParams.courseId || '') &&
+    String(currentParams.reelId || '') === String(nextParams.reelId || '') &&
+    String(currentParams.lessonId || '') === String(nextParams.lessonId || '')
+  );
+};
 
 export function navigate(
   name: keyof RootStackParamList,
   params?: NavigationParams,
 ) {
-  if (!navigationRef.isReady()) return;
+  if (!navigationRef.isReady()) return false;
+  // Android can deliver one tap through both the activity intent and the push
+  // response after a cold start. Treat an already-open canonical destination
+  // as success instead of stacking an indistinguishable second screen.
+  if (sameLinkableDestination(name, params)) return true;
   navigationRef.dispatch(CommonActions.navigate(name, params));
+  return true;
+}
+
+/**
+ * External intents start a clean top-level journey. This prevents a browser or
+ * notification tap from leaving a stale purchase sheet or modal underneath
+ * the destination and resurrecting it on Back.
+ */
+export function openRoknDestination(destination: RoknDestination) {
+  const params = 'params' in destination ? destination.params : undefined;
+  if (!navigationRef.isReady()) return false;
+  const destinationKey = roknDestinationKey(destination);
+  const now = Date.now();
+  if (
+    sameLinkableDestination(destination.name, params) &&
+    destinationKey === lastExternalDestinationKey &&
+    now - lastExternalDestinationAt >= 0 &&
+    now - lastExternalDestinationAt < 1_500
+  ) {
+    return true;
+  }
+  lastExternalDestinationKey = destinationKey;
+  lastExternalDestinationAt = now;
+  navigationRef.dispatch(
+    CommonActions.reset({
+      index: destination.name === 'Home' ? 0 : 1,
+      routes:
+        destination.name === 'Home'
+          ? [{name: 'Home'}]
+          : [
+              {name: 'Home'},
+              params
+                ? {name: destination.name, params}
+                : {name: destination.name},
+            ],
+    }),
+  );
+  return true;
 }
 
 export function getLoginReturnToSnapshot(): LoginReturnTo | undefined {

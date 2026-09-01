@@ -18,8 +18,7 @@ final class PlaybackManifestService
 {
     public function __construct(
         private BunnyService $bunny,
-        private CourseModuleAccessService $access,
-        private MediaHealthService $mediaHealth,
+        private CourseCompletionService $completion,
         private PlaybackCapabilityService $capabilities
     ) {
     }
@@ -29,11 +28,25 @@ final class PlaybackManifestService
         $lesson->loadMissing(['courseSection.module', 'course']);
         $section = $lesson->courseSection;
         $course = $lesson->course;
-        $allowed = (bool) $lesson->is_opened;
-        if (!$allowed && $course && $section?->module) {
-            $allowed = $this->access->canAccessModule($user, $course, $section->module);
-        } elseif (!$allowed && $course) {
-            $allowed = $this->access->hasCourseAccess($user, $course);
+
+        // Route model binding can still resolve a legacy Lesson after its
+        // section/course was removed from the authored graph. Never let the
+        // preview flag resurrect orphaned or unpublished media.
+        if (
+            !$course
+            || !$section
+            || !$course->isPublishedForLearning()
+            || (int) $lesson->list_id !== (int) $course->id
+            || (int) $section->course_id !== (int) $course->id
+            || $section->getSectionType() !== 'lesson'
+            || (int) $section->sectionable_id !== (int) $lesson->id
+        ) {
+            throw new AuthorizationException('This lesson is not published.');
+        }
+
+        $allowed = (bool) $lesson->is_opened && !$course->isNestedCourse();
+        if (!$allowed) {
+            $allowed = $this->completion->canAccessSection($user, $section);
         }
         if (!$allowed) {
             throw new AuthorizationException('This lesson is not available yet.');
@@ -46,6 +59,7 @@ final class PlaybackManifestService
         if (!$source || empty($source['url'])) {
             throw new RuntimeException('A secure playback source could not be issued.');
         }
+        $fallback = $this->bunny->getFallbackVideo((string) $lesson->bunny_video_id);
 
         // createOrFirst catches the unique-key race when a newly promoted
         // lesson receives its first concurrent plays on multiple workers.
@@ -54,7 +68,9 @@ final class PlaybackManifestService
             [
                 'provider' => 'bunny',
                 'provider_media_id' => $lesson->bunny_video_id,
-                'status' => 'ready',
+                // A generated URL does not prove that Bunny finished encoding
+                // or that the media belongs to the configured library.
+                'status' => 'unknown',
                 'protocol' => 'hls',
                 'duration_seconds' => max(0, (int) $lesson->duration_minutes * 60) ?: null,
                 'available_qualities' => ['auto'],
@@ -64,18 +80,21 @@ final class PlaybackManifestService
         if ($state->provider_media_id !== $lesson->bunny_video_id) {
             $state->forceFill([
                 'provider_media_id' => $lesson->bunny_video_id,
-                'status' => 'ready',
+                'status' => 'unknown',
                 'protocol' => 'hls',
                 'available_qualities' => ['auto'],
                 'last_error_code' => null,
                 'last_error_message' => null,
+                'last_probe_at' => null,
             ])->save();
         }
 
-        if ($state->status !== 'ready' && (!$state->last_probe_at || $state->last_probe_at->lt(now()->subSeconds(30)))) {
-            $state = $this->mediaHealth->probe($lesson);
-        }
-
+        // Bunny's control-plane API is deliberately kept out of the playback
+        // request. The scheduled media reconciliation owns remote probes;
+        // learners receive the last durable readiness result immediately.
+        // A stale `ready` row is still playable because the signed delivery
+        // URL is the data-plane source of truth, while unknown/processing rows
+        // fail closed until reconciliation promotes them.
         if ($state->status !== 'ready') {
             throw new RuntimeException('The lesson video is still being prepared.');
         }
@@ -134,9 +153,21 @@ final class PlaybackManifestService
                     ->lockForUpdate()
                     ->first();
                 if ($requested) {
-                    $requested->forceFill($sessionAttributes)->save();
+                    // A screen can remain in the Android/iOS back stack for
+                    // hours. Never renew the signed source onto a session that
+                    // the evidence endpoint will reject as expired; close it
+                    // and allocate one fresh sequence namespace instead.
+                    if ($requested->started_at?->lt(now()->subHours(12))) {
+                        $requested->forceFill([
+                            'event_type' => 'stop',
+                            'ended_at' => now(),
+                            'end_reason' => 'session_expired',
+                        ])->save();
+                    } else {
+                        $requested->forceFill($sessionAttributes)->save();
 
-                    return $requested;
+                        return $requested;
+                    }
                 }
             }
 
@@ -170,22 +201,47 @@ final class PlaybackManifestService
         $expiresInSeconds = $sourceExpiresAt
             ? (int) max(0, now()->diffInSeconds($sourceExpiresAt, false))
             : null;
+        $refreshInSeconds = $refreshAfter
+            ? (int) max(0, now()->diffInSeconds($refreshAfter, false))
+            : null;
+        $poster = null;
+        if (trim((string) $lesson->thumbnail_path) !== '') {
+            $poster = $this->bunny->generateBunnySignedUrl(
+                (string) $lesson->thumbnail_path,
+                max(600, (int) ($expiresInSeconds ?: 3600))
+            );
+        } else {
+            $providerThumbnail = trim((string) data_get($state->manifest, 'thumbnail_file_name'));
+            if ($providerThumbnail !== '') {
+                $poster = $this->bunny->getVideoThumbnail(
+                    (string) $lesson->bunny_video_id,
+                    $providerThumbnail
+                )['url'] ?? null;
+            }
+        }
 
         return [
             'playback_session_id' => $session->id,
             'lesson_id' => $lesson->id,
             'source_url' => $source['url'],
-            'fallback_url' => null,
-            'fallback_reason' => 'provider_has_no_independent_stream_only_fallback',
+            'fallback_url' => $fallback['url'] ?? null,
+            'fallback_reason' => $fallback
+                ? 'independent_cdn_hostname'
+                : 'provider_has_no_independent_stream_only_fallback',
             'fallback' => [
-                'available' => false,
-                'url' => null,
-                'reason' => 'provider_has_no_independent_stream_only_fallback',
+                'available' => $fallback !== null,
+                'url' => $fallback['url'] ?? null,
+                'reason' => $fallback
+                    ? 'independent_cdn_hostname'
+                    : 'provider_has_no_independent_stream_only_fallback',
             ],
             'protocol' => 'hls',
             'expires_at' => $source['expires_at'] ?? null,
             'expires_in_seconds' => $expiresInSeconds,
             'refresh_after' => $refreshAfter?->toIso8601String(),
+            'refresh_in_seconds' => $refreshInSeconds,
+            'poster_url' => $poster,
+            'poster_expires_at' => $poster ? ($source['expires_at'] ?? null) : null,
             'duration_seconds' => $state->duration_seconds,
             'available_qualities' => $qualities,
             'quality_sources' => (object) [],

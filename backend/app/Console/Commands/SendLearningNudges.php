@@ -10,6 +10,7 @@ use App\Services\StudentNotificationService;
 use App\Services\EngagementMessageService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
+use App\Support\BusinessClock;
 
 final class SendLearningNudges extends Command
 {
@@ -19,7 +20,15 @@ final class SendLearningNudges extends Command
 
     public function handle(): int
     {
-        $today = now(config('app.timezone', 'Africa/Cairo'))->startOfDay();
+        $clock = BusinessClock::utcNow();
+        $template = app(EngagementMessageService::class)->publicMessage('learning_nudge');
+        if (!$template) {
+            $this->info('Learning nudges are disabled.');
+            return self::SUCCESS;
+        }
+        $cooldownHours = max(1, (int) ($template['cooldown_hours'] ?? 24));
+        $cooldownBoundary = $clock->copy()->subHours($cooldownHours);
+        $deliveryWindow = (string) floor($clock->timestamp / ($cooldownHours * 3600));
         $limit = max(1, min(5000, (int) $this->option('limit')));
         $sent = 0;
 
@@ -33,12 +42,16 @@ final class SendLearningNudges extends Command
                         $expires->whereNull('expires_at')->orWhere('expires_at', '>', now());
                     });
             })
-            ->whereDoesntHave('sectionProgress', function ($query) use ($today): void {
-                $query->where('is_completed', true)->where('updated_at', '>=', $today);
+            ->whereDoesntHave('sectionProgress', function ($query) use ($cooldownBoundary): void {
+                $query->where('is_completed', true)->where('updated_at', '>=', $cooldownBoundary);
             })
-            ->whereDoesntHave('studentNotifications', function ($query) use ($today): void {
+            ->whereDoesntHave('studentNotifications', function ($query) use ($cooldownBoundary): void {
                 $query->where('notification_type', 'learning_nudge')
-                    ->where('created_at', '>=', $today);
+                    ->where('created_at', '>=', $cooldownBoundary);
+            })
+            ->where(function ($query) use ($cooldownBoundary): void {
+                $query->whereNull('last_learning_nudge_at')
+                    ->orWhere('last_learning_nudge_at', '<=', $cooldownBoundary);
             })
             ->with(['enrollments' => function ($query): void {
                 $query->where('is_active', true)
@@ -67,28 +80,22 @@ final class SendLearningNudges extends Command
 
             $courseName = (string) ($course->name_ar ?: $course->name_en ?: 'كورس ركن');
             try {
-                $copy = app(EngagementMessageService::class)->copy(
-                    'learning_nudge',
-                    ['course' => $courseName],
-                    [
-                        'title_ar' => 'مقطعك التالي جاهز',
-                        'title_en' => 'Your next step is ready',
-                        'message_ar' => "{$courseName}\nأكمل بمقطع واحد اليوم",
-                        'message_en' => "Continue {$courseName}. One short clip is enough to get back into it.",
-                    ]
-                );
-                StudentNotificationService::notifyUser(
+                $notification = StudentNotificationService::notifyUser(
                     $student,
                     'learning_nudge',
-                    $copy['title_ar'],
-                    $copy['title_en'],
-                    $copy['message_ar'],
-                    $copy['message_en'],
-                    '/courses/' . $course->id,
+                    'أكمل من مكانك',
+                    'Continue learning',
+                    "{$courseName}\nمقطع واحد يكفي للعودة",
+                    "Continue {$courseName}",
+                    '/courses/' . $course->id . '/watch',
                     $course::class,
                     (int) $course->id,
-                    'learning-nudge:' . $student->id . ':' . $course->id . ':' . now()->toDateString(),
+                    'learning-nudge:' . $student->id . ':' . $course->id . ':' . $deliveryWindow,
+                    ['course' => $courseName]
                 );
+                if (!$notification) {
+                    continue;
+                }
                 $student->forceFill(['last_learning_nudge_at' => now()])->save();
                 $sent++;
             } catch (\Throwable $exception) {

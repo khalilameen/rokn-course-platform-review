@@ -6,13 +6,11 @@ namespace App\Services;
 
 use App\Events\CourseCompleted;
 use App\Models\Course;
-use App\Models\CourseModule;
 use App\Models\CourseSection;
 use App\Models\ExamAttempt;
 use App\Models\Lesson;
 use App\Models\StudentSectionProgress;
 use App\Models\User;
-use App\Models\UserProjectEvaluation;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -21,7 +19,8 @@ final readonly class CourseCompletionService
     public function __construct(
         private CourseReadCompatibilityService $courseReads,
         private CoursePresentationService $coursePresentation,
-        private LearningEvidenceService $learningEvidence
+        private LearningEvidenceService $learningEvidence,
+        private CourseModuleAccessService $courseAccess
     ) {
     }
 
@@ -88,7 +87,10 @@ final readonly class CourseCompletionService
         if ($existingProgress && $existingProgress->is_completed) {
             return $this->success(
                 'Section already completed',
-                ['section' => $this->sectionPayload($section, $existingProgress->updated_at)]
+                ['section' => $this->sectionPayload(
+                    $section,
+                    $existingProgress->completed_at ?? $existingProgress->updated_at
+                )]
             );
         }
 
@@ -123,6 +125,7 @@ final readonly class CourseCompletionService
                 'course_section_id' => $sectionId,
             ]);
             $progress->is_completed = true;
+            $progress->completed_at ??= now();
             $progress->save();
 
             return $progress;
@@ -133,40 +136,43 @@ final readonly class CourseCompletionService
             $courseId
         );
         if ($courseProgress['is_completed']) {
-            event(new CourseCompleted($user, $course));
+            event(new CourseCompleted((int) $user->id, (int) $course->id));
         }
 
         return $this->success('Section marked as completed successfully', [
-            'section' => $this->sectionPayload($section, $progress->updated_at),
+            'section' => $this->sectionPayload(
+                $section,
+                $progress->completed_at ?? $progress->updated_at
+            ),
             'course_progress' => $courseProgress,
         ]);
     }
 
     public function canAccessSection(User $user, CourseSection $section): bool
     {
-        $previousSection = CourseSection::query()
-            ->where('course_id', $section->course_id)
-            ->where('order', '<', $section->order)
-            ->orderByDesc('order')
-            ->first();
-        if (!$previousSection) {
-            return true;
-        }
-
-        $previousCompleted = StudentSectionProgress::query()
-            ->where('user_id', $user->id)
-            ->where('course_section_id', $previousSection->id)
-            ->where('is_completed', true)
-            ->exists();
-        if (!$previousCompleted) {
+        $course = $section->relationLoaded('course')
+            ? $section->course
+            : Course::find($section->course_id);
+        if (!$course || !$this->courseAccess->hasCourseAccess($user, $course)) {
             return false;
         }
 
-        return !(
-            $section->module_id
-            && $previousSection->module_id !== $section->module_id
-            && !$this->hasPassedPreviousModuleProject((int) $user->id, $section)
-        );
+        $sections = CourseSection::query()
+            ->where('course_id', $section->course_id)
+            ->get();
+        $completedSectionIds = StudentSectionProgress::query()
+            ->where('user_id', $user->id)
+            ->whereIn('course_section_id', $sections->pluck('id'))
+            ->where('is_completed', true)
+            ->pluck('course_section_id');
+
+        $state = $this->coursePresentation->sectionLockStatus(
+            $sections,
+            $completedSectionIds,
+            (int) $user->id
+        )->firstWhere('section_id', $section->id);
+
+        return (bool) ($state['can_access'] ?? false);
     }
 
     public function accessStates(User $user, Collection $sections): Collection
@@ -181,20 +187,14 @@ final readonly class CourseCompletionService
             ->where('is_completed', true)
             ->pluck('course_section_id');
 
-        return $sections->map(function ($section) use ($completedSectionIds, $sections): array {
-            if ($section->order == 1) {
-                return $this->accessState($section->id, true);
-            }
-
-            $previousSection = $sections
-                ->where('order', '<', $section->order)
-                ->sortByDesc('order')
-                ->first();
-            $canAccess = !$previousSection
-                || $completedSectionIds->contains($previousSection->id);
-
-            return $this->accessState($section->id, $canAccess);
-        });
+        return $this->coursePresentation->sectionLockStatus(
+            $sections,
+            $completedSectionIds,
+            (int) $user->id
+        )->map(fn (array $state): array => $this->accessState(
+            $state['section_id'],
+            (bool) $state['can_access']
+        ));
     }
 
     private function hasPassedQuiz(User $user, Course $course, CourseSection $section): bool
@@ -204,47 +204,13 @@ final readonly class CourseCompletionService
             ->where('course_id', $course->id)
             ->where(function ($attempts) use ($section): void {
                 $attempts->where('section_id', $section->id)
-                    ->orWhere('quiz_id', $section->sectionable_id);
+                    ->orWhere(function ($legacyAttempts) use ($section): void {
+                        $legacyAttempts->whereNull('section_id')
+                            ->where('quiz_id', $section->sectionable_id);
+                    });
             })
             ->where('status', ExamAttempt::STATUS_COMPLETED)
             ->where('is_passed', true)
-            ->exists();
-    }
-
-    private function hasPassedPreviousModuleProject(
-        int $userId,
-        CourseSection $currentSection
-    ): bool {
-        if (!$currentSection->module_id) {
-            return true;
-        }
-
-        $currentModule = $currentSection->module;
-        if (!$currentModule || $currentModule->order <= 1) {
-            return true;
-        }
-
-        $previousModule = CourseModule::query()
-            ->where('course_id', $currentSection->course_id)
-            ->where('order', '<', $currentModule->order)
-            ->orderByDesc('order')
-            ->first();
-        if (!$previousModule) {
-            return true;
-        }
-
-        $projectSection = CourseSection::query()
-            ->where('module_id', $previousModule->id)
-            ->where('section_type', 'project')
-            ->first();
-        if (!$projectSection || !$projectSection->project) {
-            return true;
-        }
-
-        return UserProjectEvaluation::query()
-            ->where('user_id', $userId)
-            ->where('project_id', $projectSection->project->id)
-            ->where('passed', true)
             ->exists();
     }
 

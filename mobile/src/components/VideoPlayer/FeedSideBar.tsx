@@ -19,7 +19,11 @@ import {
   formatArabicDisplayText,
   formatArabicNumber,
 } from '../../constants/arabicFormatting';
-import {rtlRowStyle, textDirection} from '../../constants/designSystem';
+import {
+  Accessibility,
+  rtlRowStyle,
+  textDirection,
+} from '../../constants/designSystem';
 import {Fonts} from '../../constants/styleConstants';
 import {
   createSavedFolderOption,
@@ -32,16 +36,20 @@ import {
   hasSeenAttachmentPrompt,
   markAttachmentPromptSeen,
 } from './attachmentPrompt';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {useReducedMotion} from '../../hooks/useReducedMotion';
 
 interface FeedSideBarProps {
   course: CourseLearningData;
   currentReel: CourseReel;
   currentFeedKey: string;
   isSaved: boolean;
+  savePending: boolean;
   bottomInset?: number;
   onToggleSave: (folder?: SavedFolderOption | null) => void;
   onBeforeOpenSave: () => boolean;
   onOpenChat: () => void;
+  onOverlayVisibilityChange?: (visible: boolean) => void;
   onSelectFeedItem: (key: string) => void;
   currentTime: number;
 }
@@ -120,18 +128,26 @@ const ActionButton = ({
   children,
   active,
   compact,
+  disabled,
 }: {
   label: string;
   onPress: () => void;
   children: React.ReactNode;
   active?: boolean;
   compact?: boolean;
+  disabled?: boolean;
 }) => (
   <Pressable
     accessibilityRole="button"
     accessibilityLabel={label}
+    accessibilityState={{disabled, busy: disabled}}
+    disabled={disabled}
     hitSlop={7}
-    style={[styles.action, compact && styles.actionCompact]}
+    style={[
+      styles.action,
+      compact && styles.actionCompact,
+      disabled && styles.actionDisabled,
+    ]}
     onPress={onPress}>
     <View
       style={[
@@ -142,8 +158,7 @@ const ActionButton = ({
       {children}
     </View>
     <Text
-      adjustsFontSizeToFit
-      minimumFontScale={0.86}
+      maxFontSizeMultiplier={1.35}
       numberOfLines={1}
       style={styles.actionLabel}>
       {label}
@@ -162,7 +177,11 @@ const CourseIndexModule = ({
 }) => {
   const [expanded, setExpanded] = useState(!module.isLocked);
   const lastReel = module.reels[module.reels.length - 1];
-  const projectUnavailable = module.isLocked || !lastReel?.isCompleted;
+  const quizzes = module.quizzes || [];
+  const projectUnavailable =
+    module.isLocked ||
+    Boolean(lastReel && !lastReel.isCompleted) ||
+    quizzes.some(quiz => !quiz.passed);
 
   return (
     <View style={[styles.moduleCard, module.isLocked && styles.lockedModule]}>
@@ -222,6 +241,50 @@ const CourseIndexModule = ({
               </Pressable>
             );
           })}
+          {quizzes.map((quiz, quizIndex) => {
+            const key = `quiz-${quiz.id}`;
+            const priorQuizzesPassed = quizzes
+              .slice(0, quizIndex)
+              .every(item => item.passed);
+            const unavailable =
+              module.isLocked ||
+              Boolean(lastReel && !lastReel.isCompleted) ||
+              !priorQuizzesPassed ||
+              quiz.isLocked;
+            const active = !unavailable && currentFeedKey === key;
+
+            return (
+              <Pressable
+                key={key}
+                accessibilityRole="button"
+                accessibilityState={{disabled: unavailable}}
+                disabled={unavailable}
+                style={[
+                  styles.projectRow,
+                  unavailable && styles.projectRowDisabled,
+                  active && styles.activeReelRow,
+                ]}
+                onPress={() => onSelect(key)}>
+                <View style={styles.projectGlyph}>
+                  <Text style={styles.projectGlyphText}>؟</Text>
+                </View>
+                <View style={styles.projectCopy}>
+                  <Text style={styles.projectTitle} numberOfLines={1}>
+                    {formatArabicDisplayText(quiz.title || 'اختبار الوحدة')}
+                  </Text>
+                  <Text style={styles.projectStatus}>
+                    {quiz.passed
+                      ? 'تم الاجتياز'
+                      : unavailable
+                      ? 'يفتح بعد إكمال ما قبله'
+                      : 'ابدأ الاختبار'}
+                  </Text>
+                </View>
+                {quiz.passed && <Text style={styles.completedMark}>✓</Text>}
+                {unavailable && <LockIcon />}
+              </Pressable>
+            );
+          })}
           {module.project && (
             <Pressable
               accessibilityRole="button"
@@ -265,19 +328,26 @@ const FeedSideBar = ({
   currentReel,
   currentFeedKey,
   isSaved,
+  savePending,
   bottomInset = 0,
   onToggleSave,
   onBeforeOpenSave,
   onOpenChat,
+  onOverlayVisibilityChange,
   onSelectFeedItem,
   currentTime,
 }: FeedSideBarProps) => {
   const {height, fontScale} = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
   const compact = height < 620 || fontScale > 1.25;
   const indexSheetRef = useRef<BottomSheetModal>(null);
   const saveSheetRef = useRef<BottomSheetModal>(null);
   const attachmentSheetRef = useRef<BottomSheetModal>(null);
   const attachmentPromptCheckRef = useRef('');
+  const folderLoadGenerationRef = useRef(0);
+  const folderLoadInFlightRef = useRef(false);
+  const mountedRef = useRef(true);
   const snapPoints = useMemo(() => ['78%', '94%'], []);
   const saveSnapPoints = useMemo(() => ['52%', '72%'], []);
   const attachmentSnapPoints = useMemo(() => ['48%', '72%'], []);
@@ -286,6 +356,15 @@ const FeedSideBar = ({
   const [newFolderName, setNewFolderName] = useState('');
   const [folderBusy, setFolderBusy] = useState(false);
   const [folderError, setFolderError] = useState('');
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      folderLoadGenerationRef.current += 1;
+      folderLoadInFlightRef.current = false;
+    };
+  }, []);
   const completed = course.modules.reduce(
     (total, module) =>
       total + module.reels.filter(reel => reel.isCompleted).length,
@@ -295,35 +374,42 @@ const FeedSideBar = ({
     module => module.id === currentReel.moduleId,
   );
   const attachments = currentModule?.attachments || [];
+  const attachmentPromptScope =
+    course.attachmentPrompt?.frequency === 'once_per_course'
+      ? 'course'
+      : currentModule?.id;
 
   const openAttachments = useCallback(() => {
-    if (!currentModule || !attachments.length) return;
-    void markAttachmentPromptSeen(course.id, currentModule.id).catch(
+    if (!currentModule || !attachmentPromptScope || !attachments.length) return;
+    void markAttachmentPromptSeen(course.id, attachmentPromptScope).catch(
       () => undefined,
     );
     attachmentSheetRef.current?.present();
-  }, [attachments.length, course.id, currentModule]);
+  }, [attachmentPromptScope, attachments.length, course.id, currentModule]);
 
   useEffect(() => {
     const prompt = course.attachmentPrompt;
     if (
       !prompt?.enabled ||
       !currentModule ||
+      !attachmentPromptScope ||
       !attachments.length ||
       currentTime < prompt.atSeconds
     ) {
       return;
     }
 
-    const checkId = `${course.id}:${currentModule.id}`;
+    const checkId = `${course.id}:${attachmentPromptScope}`;
     if (attachmentPromptCheckRef.current === checkId) return;
     attachmentPromptCheckRef.current = checkId;
     let cancelled = false;
-    void hasSeenAttachmentPrompt(course.id, currentModule.id)
-      .then(async seen => {
+    void hasSeenAttachmentPrompt(course.id, attachmentPromptScope)
+      .then(seen => {
         if (seen || cancelled) return;
-        await markAttachmentPromptSeen(course.id, currentModule.id);
-        if (!cancelled) attachmentSheetRef.current?.present();
+        attachmentSheetRef.current?.present();
+        void markAttachmentPromptSeen(course.id, attachmentPromptScope).catch(
+          () => undefined,
+        );
       })
       .catch(() => {
         // Storage unavailability must not interrupt playback.
@@ -334,6 +420,7 @@ const FeedSideBar = ({
     };
   }, [
     attachments.length,
+    attachmentPromptScope,
     course.attachmentPrompt,
     course.id,
     currentModule,
@@ -363,15 +450,41 @@ const FeedSideBar = ({
       return;
     }
     saveSheetRef.current?.present();
+    if (folderLoadInFlightRef.current) return;
+    folderLoadInFlightRef.current = true;
+    const generation = ++folderLoadGenerationRef.current;
     setFoldersLoading(true);
     setFolderError('');
     getSavedFolderOptions()
-      .then(setFolders)
-      .catch(() => {
-        setFolders([]);
-        setFolderError('تعذّر تحميل قوائمك الآن. جرّب مرة أخرى.');
+      .then(nextFolders => {
+        if (
+          mountedRef.current &&
+          generation === folderLoadGenerationRef.current
+        ) {
+          setFolders(nextFolders);
+        }
       })
-      .finally(() => setFoldersLoading(false));
+      .catch(() => {
+        if (
+          !mountedRef.current ||
+          generation !== folderLoadGenerationRef.current
+        ) {
+          return;
+        }
+        setFolders([]);
+        setFolderError('تعذّر تحميل قوائمك الآن\nحاول مرة أخرى');
+      })
+      .finally(() => {
+        if (generation === folderLoadGenerationRef.current) {
+          folderLoadInFlightRef.current = false;
+        }
+        if (
+          mountedRef.current &&
+          generation === folderLoadGenerationRef.current
+        ) {
+          setFoldersLoading(false);
+        }
+      });
   };
 
   const saveInFolder = (folder: SavedFolderOption) => {
@@ -385,13 +498,16 @@ const FeedSideBar = ({
     setFolderError('');
     try {
       const created = await createSavedFolderOption(newFolderName);
+      if (!mountedRef.current) return;
       setFolders(current => [...current, created]);
       setNewFolderName('');
       saveInFolder(created);
     } catch {
-      setFolderError('لم تُنشأ القائمة. تأكد من الاتصال وحاول مرة أخرى.');
+      if (mountedRef.current) {
+        setFolderError('تعذّر إنشاء القائمة\nتحقق من الاتصال ثم حاول مرة أخرى');
+      }
     } finally {
-      setFolderBusy(false);
+      if (mountedRef.current) setFolderBusy(false);
     }
   };
 
@@ -407,11 +523,16 @@ const FeedSideBar = ({
           <ChatIcon />
         </ActionButton>
         <ActionButton
-          label={isSaved ? 'محفوظ' : 'احفظ'}
+          label={savePending ? 'جارٍ الحفظ' : isSaved ? 'محفوظ' : 'احفظ'}
           active={isSaved}
           compact={compact}
+          disabled={savePending}
           onPress={openSaveSheet}>
-          <BookmarkIcon filled={isSaved} />
+          {savePending ? (
+            <ActivityIndicator color="#FFFFFF" size="small" />
+          ) : (
+            <BookmarkIcon filled={isSaved} />
+          )}
         </ActionButton>
         {!!attachments.length && (
           <ActionButton
@@ -435,18 +556,26 @@ const FeedSideBar = ({
       <BottomSheetModal
         ref={indexSheetRef}
         snapPoints={snapPoints}
+        animateOnMount={!reducedMotion}
+        bottomInset={bottomInset}
         enableDynamicSizing={false}
         enablePanDownToClose
+        topInset={insets.top}
         backdropComponent={renderBackdrop}
+        onChange={index => onOverlayVisibilityChange?.(index >= 0)}
+        onDismiss={() => onOverlayVisibilityChange?.(false)}
         backgroundStyle={styles.sheetBackground}
         handleIndicatorStyle={styles.sheetIndicator}>
         <BottomSheetScrollView
+          accessibilityViewIsModal
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.sheetContent}>
           <View style={styles.sheetHeader}>
             <View style={styles.sheetHeaderCopy}>
               <Text style={styles.sheetEyebrow}>فهرس الكورس</Text>
-              <Text style={styles.sheetTitle}>{course.title}</Text>
+              <Text accessibilityRole="header" style={styles.sheetTitle}>
+                {course.title}
+              </Text>
             </View>
             <View style={styles.progressPill}>
               <Text style={styles.progressText}>
@@ -483,16 +612,22 @@ const FeedSideBar = ({
       <BottomSheetModal
         ref={attachmentSheetRef}
         snapPoints={attachmentSnapPoints}
+        animateOnMount={!reducedMotion}
+        bottomInset={bottomInset}
         enableDynamicSizing={false}
         enablePanDownToClose
+        topInset={insets.top}
         backdropComponent={renderBackdrop}
+        onChange={index => onOverlayVisibilityChange?.(index >= 0)}
+        onDismiss={() => onOverlayVisibilityChange?.(false)}
         backgroundStyle={styles.sheetBackground}
         handleIndicatorStyle={styles.sheetIndicator}>
         <BottomSheetScrollView
+          accessibilityViewIsModal
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.attachmentSheetContent}>
           <Text style={styles.sheetEyebrow}>ملفات الوحدة</Text>
-          <Text style={styles.attachmentTitle}>
+          <Text accessibilityRole="header" style={styles.attachmentTitle}>
             {course.attachmentPrompt?.title || 'مرفقات تساعدك في التطبيق'}
           </Text>
           <Text style={styles.attachmentBody}>
@@ -518,7 +653,9 @@ const FeedSideBar = ({
                   <Text style={styles.attachmentMeta}>
                     {attachment.platform === 'computer'
                       ? 'يُفتح من الكمبيوتر'
-                      : attachment.fileSize || attachment.fileType || 'ملف مرفق'}
+                      : attachment.fileSize ||
+                        attachment.fileType ||
+                        'ملف مرفق'}
                   </Text>
                 </View>
                 <Text style={styles.attachmentAction}>
@@ -533,17 +670,29 @@ const FeedSideBar = ({
       <BottomSheetModal
         ref={saveSheetRef}
         snapPoints={saveSnapPoints}
+        android_keyboardInputMode="adjustResize"
+        animateOnMount={!reducedMotion}
+        bottomInset={bottomInset}
+        enableBlurKeyboardOnGesture
         enableDynamicSizing={false}
         enablePanDownToClose
+        keyboardBehavior="interactive"
+        keyboardBlurBehavior="restore"
+        topInset={insets.top}
         backdropComponent={renderBackdrop}
+        onChange={index => onOverlayVisibilityChange?.(index >= 0)}
+        onDismiss={() => onOverlayVisibilityChange?.(false)}
         backgroundStyle={styles.sheetBackground}
         handleIndicatorStyle={styles.sheetIndicator}>
         <BottomSheetScrollView
+          accessibilityViewIsModal
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.saveSheetContent}>
           <Text style={styles.sheetEyebrow}>المحفوظات</Text>
-          <Text style={styles.saveSheetTitle}>أين تريد حفظ المقطع</Text>
+          <Text accessibilityRole="header" style={styles.saveSheetTitle}>
+            أين تريد حفظ المقطع
+          </Text>
           {foldersLoading ? (
             <ActivityIndicator color="#76A9FF" style={styles.folderLoader} />
           ) : (
@@ -552,6 +701,8 @@ const FeedSideBar = ({
                 <Pressable
                   accessibilityRole="button"
                   key={folder.id}
+                  accessibilityState={{disabled: savePending}}
+                  disabled={savePending}
                   onPress={() => saveInFolder(folder)}
                   style={({pressed}) => [
                     styles.folderRow,
@@ -572,6 +723,7 @@ const FeedSideBar = ({
           )}
           <View style={styles.newFolderRow}>
             <TextInput
+              accessibilityLabel="اسم القائمة الجديدة"
               maxLength={60}
               onChangeText={setNewFolderName}
               onSubmitEditing={() => void createAndSave()}
@@ -583,7 +735,11 @@ const FeedSideBar = ({
             />
             <Pressable
               accessibilityRole="button"
-              disabled={!newFolderName.trim() || folderBusy}
+              accessibilityState={{
+                busy: folderBusy,
+                disabled: savePending || !newFolderName.trim() || folderBusy,
+              }}
+              disabled={savePending || !newFolderName.trim() || folderBusy}
               onPress={() => void createAndSave()}
               style={({pressed}) => [
                 styles.createFolderButton,
@@ -601,6 +757,8 @@ const FeedSideBar = ({
           {isSaved && (
             <Pressable
               accessibilityRole="button"
+              accessibilityState={{disabled: savePending}}
+              disabled={savePending}
               onPress={() => {
                 onToggleSave(null);
                 saveSheetRef.current?.dismiss();
@@ -633,14 +791,18 @@ const styles = StyleSheet.create({
   },
   action: {
     width: 70,
+    minHeight: Accessibility.minTouchTarget,
     alignItems: 'center',
+  },
+  actionDisabled: {
+    opacity: 0.62,
   },
   actionCompact: {
     width: 62,
   },
   actionIcon: {
-    width: 47,
-    height: 47,
+    width: Accessibility.minTouchTarget,
+    height: Accessibility.minTouchTarget,
     borderRadius: 24,
     backgroundColor: 'rgba(4,8,13,.48)',
     borderWidth: 1,
@@ -649,9 +811,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   actionIconCompact: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: Accessibility.minTouchTarget,
+    height: Accessibility.minTouchTarget,
+    borderRadius: Accessibility.minTouchTarget / 2,
   },
   actionIconActive: {
     backgroundColor: 'rgba(35,111,232,.24)',

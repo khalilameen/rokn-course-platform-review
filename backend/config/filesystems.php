@@ -82,8 +82,12 @@ return [
 
         'feedback' => [
             'driver' => 'local',
-            'root' => env('FEEDBACK_STORAGE_PATH', storage_path('app/feedback')),
+            'root' => env(
+                'FEEDBACK_STORAGE_PATH',
+                rtrim((string) env('SHARED_STORAGE_PATH', storage_path('app')), '/\\') . DIRECTORY_SEPARATOR . 'feedback'
+            ),
             'visibility' => 'private',
+            'shared' => filter_var(env('FEEDBACK_SHARED_STORAGE', false), FILTER_VALIDATE_BOOL),
         ],
 
         's3' => [

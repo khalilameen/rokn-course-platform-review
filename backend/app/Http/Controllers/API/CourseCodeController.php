@@ -10,9 +10,15 @@ use App\Models\Lesson;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
+use App\Services\CourseChatAccessService;
+use App\Support\UnicodeText;
 
 final class CourseCodeController extends Controller
 {
+    public function __construct(private readonly CourseChatAccessService $courseAccess)
+    {
+    }
+
     /**
      * Redeem a course code
      *
@@ -31,7 +37,7 @@ final class CourseCodeController extends Controller
         ]);
 
         try {
-            $code = CourseCode::where('code', strtoupper($request->code))->first();
+            $code = CourseCode::where('code', UnicodeText::identifier($request->code))->first();
             if (!$code) {
                 return response()->json([
                     'status' => 404,
@@ -61,8 +67,30 @@ final class CourseCodeController extends Controller
                     ],
                 ], 409);
             }
+            if ($code->type !== 'course') {
+                return response()->json([
+                    'status' => 410,
+                    'success' => false,
+                    'code' => 'legacy_partial_code_retired',
+                    'message' => 'هذا النوع القديم من الأكواد لم يعد متاحًا',
+                    'data' => null,
+                ], 410);
+            }
+            if (!$code->targetsPublishedCourse()) {
+                return response()->json([
+                    'status' => 409,
+                    'success' => false,
+                    'code' => 'course_not_available',
+                    'message' => 'هذا الكورس غير متاح للفتح الآن',
+                    'data' => null,
+                ], 409);
+            }
 
-            if ($code->isUserEnrolled($user->id)) {
+            if ($this->courseAccess->hasLearningAccess((int) $user->id, (int) $codeCourseId)) {
+                $entitlement = $this->courseAccess->entitlementFor(
+                    (int) $user->id,
+                    (int) $codeCourseId
+                );
                 return response()->json([
                     'status' => 200,
                     'success' => true,
@@ -70,9 +98,9 @@ final class CourseCodeController extends Controller
                     'data' => [
                         'code' => $code->code,
                         'type' => $code->type,
-                        'access_type' => $code->isInstitutionalGrant() ? 'scholarship' : 'course_code',
-                        'chat_available' => false,
-                        'certificate_available' => !$code->isInstitutionalGrant(),
+                        'access_type' => $entitlement['access_type'],
+                        'chat_available' => $entitlement['chat_available'],
+                        'certificate_available' => $entitlement['certificate_available'],
                         'already_enrolled' => true,
                         'course' => $code->course ? [
                             'id' => $code->course->id,
@@ -83,9 +111,18 @@ final class CourseCodeController extends Controller
             }
 
             if (!$code->canBeUsedByUser($user->id)) {
-                if ($code->hasReachedInstitutionalGrantLimit($user->id)) {
-                    $message = 'استخدمت منحتك التعليمية في كورس آخر بالفعل';
-                } elseif (!$code->isEligibleForUser($user->id)) {
+                $grantAlreadyClaimed = $code->hasReachedInstitutionalGrantLimit($user->id);
+                if ($grantAlreadyClaimed) {
+                    return response()->json([
+                        'status' => 409,
+                        'success' => false,
+                        'code' => 'grant_already_claimed',
+                        'message' => 'استخدمت منحتك التعليمية في كورس آخر بالفعل',
+                        'data' => null,
+                    ], 409);
+                }
+
+                if (!$code->isEligibleForUser($user->id)) {
                     $message = 'هذا الكود متاح لبريد الجهة التعليمية المحددة فقط';
                 } elseif ($code->is_expired) {
                     $message = 'الكود منتهي الصلاحية';
@@ -98,18 +135,21 @@ final class CourseCodeController extends Controller
                 } else {
                     $message = 'لقد استخدمت هذا الكود من قبل';
                 }
+
                 return response()->json([
                     'status' => 400,
                     'success' => false,
-                    'code' => $code->hasReachedInstitutionalGrantLimit($user->id)
-                        ? 'grant_already_claimed'
-                        : 'course_code_unavailable',
+                    'code' => 'course_code_unavailable',
                     'message' => $message,
                     'data' => null,
                 ], 400);
             }
             // Use the code
             if ($code->useForUser($user->id)) {
+                $entitlement = $this->courseAccess->entitlementFor(
+                    (int) $user->id,
+                    (int) $codeCourseId
+                );
                 $response = [
                     'status' => 200,
                     'success' => true,
@@ -117,10 +157,10 @@ final class CourseCodeController extends Controller
                     'data' => [
                         'code' => $code->code,
                         'type' => $code->type,
-                        'access_type' => $code->isInstitutionalGrant() ? 'scholarship' : 'course_code',
+                        'access_type' => $entitlement['access_type'],
                         'learning_access' => true,
-                        'chat_available' => false,
-                        'certificate_available' => !$code->isInstitutionalGrant(),
+                        'chat_available' => $entitlement['chat_available'],
+                        'certificate_available' => $entitlement['certificate_available'],
                         'target_content_name' => $code->target_content_name,
                         'remaining_uses' => $code->remaining_uses
                     ]
@@ -190,6 +230,7 @@ final class CourseCodeController extends Controller
                 'data' => null,
             ], 500);
         } catch (\Throwable $e) {
+            $this->rethrowExpectedRequestException($e);
             report($e);
 
             return response()->json([
@@ -218,7 +259,7 @@ final class CourseCodeController extends Controller
         ]);
 
         try {
-            $code = CourseCode::where('code', strtoupper($request->code))->first();
+            $code = CourseCode::where('code', UnicodeText::identifier($request->code))->first();
 
             if (!$code) {
                 return response()->json([
@@ -227,6 +268,15 @@ final class CourseCodeController extends Controller
                     'message' => 'الكود غير صحيح',
                     'data' => null,
                 ], 404);
+            }
+            if ($code->type !== 'course') {
+                return response()->json([
+                    'status' => 410,
+                    'success' => false,
+                    'code' => 'legacy_partial_code_retired',
+                    'message' => 'هذا النوع القديم من الأكواد لم يعد متاحًا',
+                    'data' => null,
+                ], 410);
             }
 
             $user = Auth::guard('api')->user();
@@ -254,7 +304,9 @@ final class CourseCodeController extends Controller
             ];
 
             if (!$canUse) {
-                if ($code->hasReachedInstitutionalGrantLimit($user->id)) {
+                if (!$code->targetsPublishedCourse()) {
+                    $response['data']['error_message'] = 'هذا الكورس غير متاح للفتح الآن';
+                } elseif ($code->hasReachedInstitutionalGrantLimit($user->id)) {
                     $response['data']['error_message'] = 'استخدمت منحتك التعليمية في كورس آخر بالفعل';
                 } elseif (!$code->isEligibleForUser($user->id)) {
                     $response['data']['error_message'] = 'هذا الكود متاح لبريد الجهة التعليمية المحددة فقط';
@@ -274,6 +326,7 @@ final class CourseCodeController extends Controller
             return response()->json($response);
 
         } catch (\Throwable $e) {
+            $this->rethrowExpectedRequestException($e);
             report($e);
             return response()->json([
                 'status' => 500,
@@ -313,18 +366,31 @@ final class CourseCodeController extends Controller
                 ? collect()
                 : Lesson::query()->whereIn('id', $lessonIds)->get()->keyBy('id');
 
-            $formattedCodes = $codes->map(function (CourseCode $code) use ($lessons) {
+            $formattedCodes = $codes->map(function (CourseCode $code) use ($lessons, $user) {
                 $isGrant = $code->isInstitutionalGrant();
+                $isCurrentCourseCode = $code->type === 'course' && $code->course;
+                $entitlement = $isCurrentCourseCode
+                    ? $this->courseAccess->entitlementFor(
+                        (int) $user->id,
+                        (int) $code->course->id
+                    )
+                    : null;
+
                 return [
                     'code' => $code->code,
                     'name' => $code->name,
                     'type' => $code->type,
                     'target_content_name' => $code->target_content_name,
-                    'access_type' => $isGrant ? 'scholarship' : 'course_code',
+                    'access_type' => $entitlement['access_type']
+                        ?? ($isGrant ? 'scholarship' : 'course_code'),
                     'is_grant' => $isGrant,
-                    'learning_access' => true,
-                    'chat_available' => !$isGrant && (bool) $code->course?->ai_chat_enabled,
-                    'certificate_available' => !$isGrant,
+                    // Usage history is not an entitlement. Legacy partial codes,
+                    // expired enrolments and financially held purchases must not
+                    // be presented as active access merely because a code was
+                    // redeemed in the past.
+                    'learning_access' => (bool) ($entitlement['has_learning_access'] ?? false),
+                    'chat_available' => (bool) ($entitlement['chat_available'] ?? false),
+                    'certificate_available' => (bool) ($entitlement['certificate_available'] ?? false),
                     'used_at' => $code->usages->first()->used_at->format('Y-m-d H:i:s'),
                     'course' => $code->course ? [
                         'id' => $code->course->id,
@@ -355,6 +421,7 @@ final class CourseCodeController extends Controller
             ]);
 
         } catch (\Throwable $e) {
+            $this->rethrowExpectedRequestException($e);
             report($e);
             return response()->json([
                 'status' => 500,

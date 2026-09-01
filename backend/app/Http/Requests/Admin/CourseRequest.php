@@ -2,11 +2,52 @@
 
 namespace App\Http\Requests\Admin;
 
+use App\Support\UnicodeText;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class CourseRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        $singleLine = [
+            'name_ar', 'name_en', 'attachment_prompt_title',
+            'attachment_prompt_button_text', 'catalog_badge_ar',
+            'catalog_badge_en', 'search_keywords_ar', 'search_keywords_en',
+        ];
+        $multiline = [
+            'description_ar', 'description_en', 'chat_ai_prompt',
+            'attachment_prompt_body',
+        ];
+        $normalized = [];
+        foreach ($singleLine as $field) {
+            if ($this->has($field)) {
+                $normalized[$field] = UnicodeText::clean($this->input($field), false);
+            }
+        }
+        foreach ($multiline as $field) {
+            if ($this->has($field)) {
+                $normalized[$field] = UnicodeText::clean($this->input($field));
+            }
+        }
+        $plans = $this->input('access_plans');
+        if (is_array($plans)) {
+            foreach (['basic', 'guided', 'mentor'] as $code) {
+                if (!is_array($plans[$code] ?? null)) continue;
+                foreach (['name_ar', 'name_en'] as $field) {
+                    if (array_key_exists($field, $plans[$code])) {
+                        $plans[$code][$field] = UnicodeText::clean(
+                            $plans[$code][$field],
+                            false
+                        );
+                    }
+                }
+            }
+            $normalized['access_plans'] = $plans;
+        }
+        if ($normalized !== []) $this->merge($normalized);
+    }
+
     /**
      * Determine if the user is authorized to make this request.
      *
@@ -26,6 +67,8 @@ class CourseRequest extends FormRequest
     {
         return [
             'name_ar' => 'required|string|min:3|max:255',
+            'authoring_version' => [$this->isMethod('patch') || $this->isMethod('put') ? 'required' : 'nullable', 'integer', 'min:1'],
+            'authoring_request_id' => [$this->isMethod('post') ? 'required' : 'nullable', 'uuid'],
             'name_en' => 'nullable|string|max:255',
             'description_ar' => 'nullable|string|max:6000',
             'description_en' => 'nullable|string|max:6000',
@@ -47,7 +90,6 @@ class CourseRequest extends FormRequest
             'attachment_prompt_button_text' => 'nullable|string|max:80',
             'path_id' => 'nullable|exists:paths,id',
             'price' => 'nullable|integer|min:0|max:100000000',
-            'students_count' => 'nullable|integer|min:0|max:100000000',
             'is_coming_soon' => 'nullable|boolean',
             'is_catalog_visible' => 'nullable|boolean',
             'is_main_course' => 'nullable|boolean',
@@ -71,14 +113,13 @@ class CourseRequest extends FormRequest
                 'distinct',
                 Rule::exists('users', 'id')->where(fn ($query) => $query->whereIn('role', ['teacher', 'admin'])),
             ],
-            'lessons' => 'nullable|array|max:200',
-            'lessons.*' => 'integer|distinct|exists:lessons,id',
             'access_plans' => 'nullable|array:basic,guided,mentor',
             'access_plans.basic' => 'required_with:access_plans|array',
             'access_plans.guided' => 'required_with:access_plans|array',
             'access_plans.mentor' => 'required_with:access_plans|array',
             'access_plans.*' => 'array',
             'access_plans.*.name_ar' => 'required_with:access_plans|string|max:120',
+            'access_plans.*.name_en' => 'nullable|string|max:120',
             'access_plans.*.price_coins' => 'required_with:access_plans|integer|min:0|max:100000000',
             'access_plans.*.minimum_paid_coins' => 'required_with:access_plans|integer|min:0|max:100000000',
             'access_plans.*.is_active' => 'nullable|boolean',
@@ -90,6 +131,10 @@ class CourseRequest extends FormRequest
             'access_plans.*.project_feedback_token_budget' => 'nullable|integer|min:0|max:1000000000',
             'access_plans.*.project_feedback_budget_usd' => 'nullable|numeric|min:0|max:10000',
             'access_plans.*.project_feedback_reserve_usd' => 'nullable|numeric|min:0|max:1000',
+            'access_plans.*.project_followup_message_limit' => 'nullable|integer|min:0|max:100000',
+            'access_plans.*.project_followup_token_budget' => 'nullable|integer|min:0|max:1000000000',
+            'access_plans.*.project_followup_budget_usd' => 'nullable|numeric|min:0|max:10000',
+            'access_plans.*.project_followup_reserve_usd' => 'nullable|numeric|min:0|max:1000',
             'access_plans.*.max_output_tokens' => 'nullable|integer|min:80|max:' . max(80, (int) config('openrouter.max_tokens', 500)),
             'access_plans.*.model_override' => [
                 'nullable', 'string', 'max:190',
@@ -124,14 +169,13 @@ class CourseRequest extends FormRequest
                 $feedback = (string) ($row['project_feedback_level'] ?? 'pass_only');
                 $hasVariableCost = !empty($row['chat_enabled'])
                     || in_array($feedback, ['report', 'enhanced'], true);
-                $maximumPaidFloor = max(0, $priceCoins - $basic);
                 if (
-                    $minimumPaidCoins > $maximumPaidFloor
+                    $minimumPaidCoins > $priceCoins
                     || ($hasVariableCost && $minimumPaidCoins <= 0)
                 ) {
                     $validator->errors()->add(
                         "access_plans.{$code}.minimum_paid_coins",
-                        'اكتب حدًا موجبًا للفئة المكلفة لا يزيد عن فرق سعرها عن فئة التعلّم؛ حتى تظل الترقية ممكنة مهما كان رصيد المكافآت.'
+                        'اكتب حدًا موجبًا للفئة المكلفة لا يزيد عن سعرها.'
                     );
                 }
 
@@ -167,19 +211,25 @@ class CourseRequest extends FormRequest
                         );
                     }
                 }
+
+                if ($feedback === 'enhanced') {
+                    $budget = (float) ($row['project_followup_budget_usd'] ?? 0);
+                    $reserve = (float) ($row['project_followup_reserve_usd'] ?? 0);
+                    if (
+                        (int) ($row['project_followup_message_limit'] ?? 0) < 1
+                        || (int) ($row['project_followup_token_budget'] ?? 0) < $maxOutput
+                        || $budget <= 0
+                        || $reserve <= 0
+                        || $reserve > $budget
+                    ) {
+                        $validator->errors()->add(
+                            "access_plans.{$code}",
+                            'محادثة تقرير المشروع تحتاج عدد رسائل وميزانية وحجزًا متوافقًا مع حد الرد.'
+                        );
+                    }
+                }
             }
         });
     }
 
-    /**
-     * @return array
-     */
-    public function attributes()
-    {
-        return [
-          //  'name_ar' => 'أسم  المتجر ',
-          //  'name_en' => 'أسم المتجر باللإنجليزية',
-          //  'image' => 'صوره المتجر'
-        ];
-    }
 }

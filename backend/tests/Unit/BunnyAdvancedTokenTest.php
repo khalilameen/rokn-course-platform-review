@@ -33,7 +33,7 @@ final class BunnyAdvancedTokenTest extends TestCase
         );
     }
 
-    public function test_it_matches_a_fixed_hmac_sha256_base64url_vector(): void
+    public function test_it_matches_a_fixed_bunny_hmac_sha256_base64url_vector(): void
     {
         self::assertSame(
             'HS256-vH4aaxTlWZY_4-uPpjwhVD6ryUXM1bAM2PuUroQCqQ4',
@@ -47,8 +47,8 @@ final class BunnyAdvancedTokenTest extends TestCase
 
     public function test_signing_data_is_part_of_the_authenticated_payload(): void
     {
-        self::assertNotSame(
-            BunnyService::advancedToken('test-key', '/videos/abc/', 1700000000),
+        self::assertSame(
+            'HS256-YhgaSnvsPCzMxXwmeruern6Gl9CbCeuwcvKyLm9Hlnk',
             BunnyService::advancedToken(
                 'test-key',
                 '/videos/abc/',
@@ -56,5 +56,18 @@ final class BunnyAdvancedTokenTest extends TestCase
                 'token_path=/videos/abc/'
             )
         );
+    }
+
+    public function test_stream_statuses_do_not_confuse_upload_events_with_encode_failures(): void
+    {
+        foreach ([3, 4, 9, 10] as $status) {
+            self::assertTrue(BunnyService::providerVideoStatusIsPlayable($status));
+        }
+        foreach ([5, 8] as $status) {
+            self::assertTrue(BunnyService::providerVideoStatusIsFailure($status));
+        }
+        self::assertFalse(BunnyService::providerVideoStatusIsFailure(6));
+        self::assertFalse(BunnyService::providerVideoStatusConfirmsUpload(6));
+        self::assertTrue(BunnyService::providerVideoStatusConfirmsUpload(7));
     }
 }

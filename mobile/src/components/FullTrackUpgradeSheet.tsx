@@ -27,6 +27,7 @@ import {
 } from '../constants/designSystem';
 import {Fonts} from '../constants/styleConstants';
 import {CoinAmount} from './ui/RoknCoin';
+import {useReducedMotion} from '../hooks/useReducedMotion';
 
 type Props = {
   visible: boolean;
@@ -47,8 +48,10 @@ export default function FullTrackUpgradeSheet({
 }: Props) {
   const navigation = useNavigation<RootNavigation>();
   const insets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
   const [quote, setQuote] = useState<CourseChatUpgradeQuote | null>(null);
   const [loading, setLoading] = useState(false);
+  const [purchasing, setPurchasing] = useState(false);
   const [error, setError] = useState('');
   const activeCourseIdRef = useRef(courseId);
   const operationFlightRef = useRef<symbol | null>(null);
@@ -104,6 +107,7 @@ export default function FullTrackUpgradeSheet({
 
   useEffect(() => {
     operationFlightRef.current = null;
+    setPurchasing(false);
     if (visible) {
       setQuote(null);
       setError('');
@@ -126,9 +130,14 @@ export default function FullTrackUpgradeSheet({
     const flight = Symbol('full-track-upgrade-purchase');
     operationFlightRef.current = flight;
     setLoading(true);
+    setPurchasing(true);
     setError('');
     try {
-      const result = await purchaseFullTrackUpgrade(courseId);
+      const result = await purchaseFullTrackUpgrade(
+        courseId,
+        quote.targetPlanCode,
+        quote.price,
+      );
       if (
         operationFlightRef.current !== flight ||
         activeCourseIdRef.current !== courseId
@@ -152,32 +161,67 @@ export default function FullTrackUpgradeSheet({
       )
         return;
       const code = errorCode(requestError);
-      setError(
-        code === 'insufficient_coins'
+      const reconciledError =
+        code === 'course_price_changed'
+          ? 'تغير السعر\nراجع الإجمالي قبل الشراء'
+          : code === 'insufficient_coins'
           ? 'تغير رصيدك\nراجع المبلغ المتبقي وحاول مرة أخرى'
-          : 'لم يتم الخصم\nحاول مرة أخرى',
-      );
+          : 'تعذّر تأكيد النتيجة\nنتحقق منها الآن';
+      setError(reconciledError);
       try {
         const refreshedQuote = await getFullTrackUpgradeQuote(courseId);
+        if (
+          operationFlightRef.current !== flight ||
+          activeCourseIdRef.current !== courseId
+        )
+          return;
+        if (
+          refreshedQuote.alreadyUpgraded ||
+          refreshedQuote.certificateAvailable
+        ) {
+          setError('');
+          await onUpgradedRef.current?.();
+          if (
+            operationFlightRef.current === flight &&
+            activeCourseIdRef.current === courseId
+          ) {
+            onCloseRef.current();
+          }
+          return;
+        }
+        setQuote(refreshedQuote);
+        setError(
+          code === 'course_price_changed'
+            ? 'تغير السعر\nراجع الإجمالي قبل الشراء'
+            : code === 'insufficient_coins'
+            ? 'تغير رصيدك\nراجع المبلغ المتبقي وحاول مرة أخرى'
+            : 'لم تكتمل العملية\nحاول مرة أخرى',
+        );
+      } catch {
         if (
           operationFlightRef.current === flight &&
           activeCourseIdRef.current === courseId
         ) {
-          setQuote(refreshedQuote);
+          setError('تعذّر تأكيد النتيجة\nحاول مرة أخرى');
         }
-      } catch {}
+      }
     } finally {
       if (operationFlightRef.current === flight) {
         operationFlightRef.current = null;
         setLoading(false);
+        setPurchasing(false);
       }
     }
   };
 
+  const requestClose = () => {
+    if (!purchasing) onCloseRef.current();
+  };
+
   return (
     <Modal
-      animationType="slide"
-      onRequestClose={onClose}
+      animationType={reducedMotion ? 'none' : 'slide'}
+      onRequestClose={requestClose}
       statusBarTranslucent
       transparent
       visible={visible}>
@@ -185,27 +229,39 @@ export default function FullTrackUpgradeSheet({
         <Pressable
           accessibilityLabel="إغلاق"
           accessibilityRole="button"
-          onPress={onClose}
+          accessibilityState={{disabled: purchasing}}
+          disabled={purchasing}
+          onPress={requestClose}
           style={styles.backdrop}
         />
         <View
+          accessibilityLabel="خيارات دعم الكورس"
+          accessibilityViewIsModal
           style={[
             styles.sheet,
-            {paddingBottom: Math.max(insets.bottom, Spacing.md)},
+            {
+              paddingBottom: Math.max(insets.bottom, Spacing.md),
+              paddingLeft: Math.max(0, insets.left),
+              paddingRight: Math.max(0, insets.right),
+            },
           ]}>
-          <View style={styles.handle} />
+          <View
+            accessible={false}
+            importantForAccessibility="no"
+            style={styles.handle}
+          />
           <ScrollView
             contentContainerStyle={styles.content}
             showsVerticalScrollIndicator={false}>
             <View style={styles.giftPill}>
               <Text style={styles.giftPillText}>منحتك مستمرة كما هي</Text>
             </View>
-            <Text style={styles.title}>كل الكورس متاح لك مجانًا</Text>
+            <Text style={styles.title}>الكورس كامل متاح لك مجانًا</Text>
             <Text numberOfLines={2} style={styles.courseTitle}>
               {courseTitle}
             </Text>
             <Text style={styles.description}>
-              المحتوى والمشروعات متاحة لك كاملًا دون مقابل
+              محتوى الكورس متاح لك كاملًا دون مقابل
             </Text>
 
             <View style={styles.includedCard}>
@@ -214,7 +270,7 @@ export default function FullTrackUpgradeSheet({
               </Text>
               {quote?.aiIncluded !== false && (
                 <Text style={styles.includedLine}>
-                  Rokn AI تسأله وقت ما تحتاج
+                  Rokn AI تسأله عند الحاجة
                 </Text>
               )}
               <Text style={styles.includedLine}>
@@ -242,7 +298,7 @@ export default function FullTrackUpgradeSheet({
                 </View>
                 {quote.deficit > 0 && (
                   <Text style={styles.deficit}>
-                    ناقصك {new Intl.NumberFormat('ar-EG').format(quote.deficit)}{' '}
+                    ينقصك {new Intl.NumberFormat('ar-EG').format(quote.deficit)}{' '}
                     من رصيد ركن
                   </Text>
                 )}
@@ -278,8 +334,10 @@ export default function FullTrackUpgradeSheet({
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              onPress={onClose}
-              style={styles.secondary}>
+              accessibilityState={{disabled: purchasing}}
+              disabled={purchasing}
+              onPress={requestClose}
+              style={[styles.secondary, purchasing && styles.disabled]}>
               <Text style={styles.secondaryText}>أكمل الكورس مجانًا</Text>
             </Pressable>
             <Text style={styles.reassurance}>
@@ -299,6 +357,9 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.overlay,
   },
   sheet: {
+    width: '100%',
+    maxWidth: 680,
+    alignSelf: 'center',
     maxHeight: '88%',
     backgroundColor: Palette.surface,
     borderTopLeftRadius: Radius.xl,

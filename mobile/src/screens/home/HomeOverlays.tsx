@@ -1,13 +1,15 @@
-import React from 'react';
+import React, {useEffect, useState} from 'react';
 import {
   Image,
   ImageSourcePropType,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {RoknCoinStack} from '../../components/ui/RoknCoin';
 import {
   formatArabicDisplayText,
@@ -22,6 +24,7 @@ import {
   textDirection,
 } from '../../constants/designSystem';
 import type {EngagementMessage} from '../../services/api/engagement';
+import {useReducedMotion} from '../../hooks/useReducedMotion';
 
 export type HomeCampaign = {
   id: string;
@@ -39,6 +42,7 @@ type Props = {
   onCampaignImageError: () => void;
   onDismissCampaign: (open: boolean) => void;
   onDismissWelcome: () => void;
+  onOpenWelcome: () => void;
   guestPrompt: EngagementMessage | null;
   onDismissGuestPrompt: () => void;
   onOpenGuestPrompt: () => void;
@@ -49,12 +53,51 @@ type Props = {
   welcomeBonus: number | null;
 };
 
+const OverlayFrame = ({children}: {children: React.ReactNode}) => {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={styles.overlay}>
+      <ScrollView
+        bounces={false}
+        contentContainerStyle={[
+          styles.overlayContent,
+          {
+            paddingTop: Math.max(insets.top, Spacing.lg),
+            paddingBottom: Math.max(insets.bottom, Spacing.lg),
+            paddingLeft: Math.max(insets.left + Spacing.md, Spacing.xl),
+            paddingRight: Math.max(insets.right + Spacing.md, Spacing.xl),
+          },
+        ]}
+        showsVerticalScrollIndicator={false}>
+        {children}
+      </ScrollView>
+    </View>
+  );
+};
+
+const PromptVisual = ({uri}: {uri?: string}) => {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [uri]);
+  return uri && !failed ? (
+    <Image
+      accessibilityElementsHidden
+      importantForAccessibility="no"
+      onError={() => setFailed(true)}
+      source={{uri}}
+      style={styles.promptImage}
+    />
+  ) : (
+    <RoknCoinStack size={112} />
+  );
+};
+
 export const HomeOverlays = ({
   campaign,
   campaignImageFailed,
   onCampaignImageError,
   onDismissCampaign,
   onDismissWelcome,
+  onOpenWelcome,
   guestPrompt,
   onDismissGuestPrompt,
   onOpenGuestPrompt,
@@ -63,158 +106,188 @@ export const HomeOverlays = ({
   onDismissRewardPrompt,
   onOpenRewardPrompt,
   welcomeBonus,
-}: Props) => (
-  <>
-    <Modal
-      animationType="fade"
-      onRequestClose={onDismissWelcome}
-      transparent
-      visible={welcomeBonus !== null}>
-      <View style={styles.overlay}>
-        <View style={styles.welcomeCard}>
-          {welcomeMessage?.imageUrl ? (
-            <Image source={{uri: welcomeMessage.imageUrl}} style={styles.promptImage} />
-          ) : (
-            <RoknCoinStack size={112} />
-          )}
-          <Text style={styles.welcomeTitle}>{welcomeMessage?.title || 'رصيدك بدأ'}</Text>
-          <Text style={styles.welcomeText}>
-            {welcomeMessage?.description ||
-              `أضفنا ${formatArabicNumber(
-                Number(welcomeBonus || 0),
-              )} عملة ركن إلى محفظتك\nاستخدمها داخل التطبيق`}
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={onDismissWelcome}
-            style={({pressed}) => [
-              styles.actionButton,
-              pressed && styles.pressed,
-            ]}>
-            <Text style={styles.actionButtonText}>
-              {welcomeMessage?.actionLabel || 'افتح الكورسات'}
+}: Props) => {
+  const reducedMotion = useReducedMotion();
+  return (
+    <>
+      <Modal
+        animationType={reducedMotion ? 'none' : 'fade'}
+        onRequestClose={onDismissWelcome}
+        statusBarTranslucent
+        transparent
+        visible={welcomeBonus !== null}>
+        <OverlayFrame>
+          <View accessibilityViewIsModal style={styles.welcomeCard}>
+            <PromptVisual uri={welcomeMessage?.imageUrl} />
+            <Text accessibilityRole="header" style={styles.welcomeTitle}>
+              {welcomeMessage?.title || 'أضيفت هديتك'}
             </Text>
-          </Pressable>
-        </View>
-      </View>
-    </Modal>
-
-    <Modal
-      animationType="fade"
-      onRequestClose={onDismissRewardPrompt}
-      transparent
-      visible={rewardPrompt !== null}>
-      <View style={styles.overlay}>
-        <View style={styles.welcomeCard}>
-          {rewardPrompt?.imageUrl ? (
-            <Image source={{uri: rewardPrompt.imageUrl}} style={styles.promptImage} />
-          ) : (
-            <RoknCoinStack size={112} />
-          )}
-          <Text style={styles.welcomeTitle}>{rewardPrompt?.title}</Text>
-          <Text style={styles.welcomeText}>{rewardPrompt?.description}</Text>
-          <Pressable accessibilityRole="button" onPress={onOpenRewardPrompt} style={({pressed}) => [styles.actionButton, pressed && styles.pressed]}>
-            <Text style={styles.actionButtonText}>{rewardPrompt?.actionLabel || 'افتح المهمة'}</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button" onPress={onDismissRewardPrompt} style={({pressed}) => [styles.secondaryButton, pressed && styles.pressed]}>
-            <Text style={styles.secondaryButtonText}>{rewardPrompt?.secondaryActionLabel || 'لاحقًا'}</Text>
-          </Pressable>
-        </View>
-      </View>
-    </Modal>
-
-    <Modal
-      animationType="fade"
-      onRequestClose={onDismissGuestPrompt}
-      transparent
-      visible={guestPrompt !== null}>
-      <View style={styles.overlay}>
-        <View style={styles.welcomeCard}>
-          {guestPrompt?.imageUrl ? (
-            <Image source={{uri: guestPrompt.imageUrl}} style={styles.promptImage} />
-          ) : (
-            <RoknCoinStack size={112} />
-          )}
-          <Text style={styles.welcomeTitle}>{guestPrompt?.title}</Text>
-          <Text style={styles.welcomeText}>{guestPrompt?.description}</Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={onOpenGuestPrompt}
-            style={({pressed}) => [styles.actionButton, pressed && styles.pressed]}>
-            <Text style={styles.actionButtonText}>{guestPrompt?.actionLabel}</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={onDismissGuestPrompt}
-            style={({pressed}) => [styles.secondaryButton, pressed && styles.pressed]}>
-            <Text style={styles.secondaryButtonText}>
-              {guestPrompt?.secondaryActionLabel || 'المتابعة كزائر'}
+            <Text style={styles.welcomeText}>
+              {welcomeMessage?.description ||
+                `${formatArabicNumber(
+                  Number(welcomeBonus || 0),
+                )} عملة ركن في محفظتك`}
             </Text>
-          </Pressable>
-        </View>
-      </View>
-    </Modal>
-
-    <Modal
-      animationType="fade"
-      onRequestClose={() => onDismissCampaign(false)}
-      transparent
-      visible={campaign !== null}>
-      <View style={styles.overlay}>
-        <View style={styles.campaignCard}>
-          <View style={styles.campaignVisual}>
-            {campaign?.image && !campaignImageFailed ? (
-              <Image
-                accessibilityIgnoresInvertColors
-                onError={onCampaignImageError}
-                source={campaign.image}
-                style={styles.campaignCourseImage}
-              />
-            ) : (
-              <Image
-                accessibilityIgnoresInvertColors
-                source={require('../../assets/images/authLogo.png')}
-                style={styles.campaignFallbackLogo}
-              />
-            )}
+            <Pressable
+              accessibilityRole="button"
+              onPress={onOpenWelcome}
+              style={({pressed}) => [
+                styles.actionButton,
+                pressed && styles.pressed,
+              ]}>
+              <Text style={styles.actionButtonText}>
+                {welcomeMessage?.actionLabel || 'افتح المحفظة'}
+              </Text>
+            </Pressable>
           </View>
-          <Pressable
-            accessibilityLabel="إغلاق"
-            accessibilityRole="button"
-            hitSlop={10}
-            onPress={() => onDismissCampaign(false)}
-            style={styles.campaignClose}>
-            <Text style={styles.campaignCloseText}>×</Text>
-          </Pressable>
-          <Text style={styles.campaignBadge}>{campaign?.badge}</Text>
-          <Text style={styles.campaignTitle}>
-            {formatArabicDisplayText(campaign?.title)}
-          </Text>
-          <Text style={styles.campaignText}>
-            {formatArabicDisplayText(campaign?.description)}
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => onDismissCampaign(true)}
-            style={({pressed}) => [
-              styles.actionButton,
-              pressed && styles.pressed,
-            ]}>
-            <Text style={styles.actionButtonText}>{campaign?.actionLabel}</Text>
-          </Pressable>
-        </View>
-      </View>
-    </Modal>
-  </>
-);
+        </OverlayFrame>
+      </Modal>
+
+      <Modal
+        animationType={reducedMotion ? 'none' : 'fade'}
+        onRequestClose={onDismissRewardPrompt}
+        statusBarTranslucent
+        transparent
+        visible={rewardPrompt !== null}>
+        <OverlayFrame>
+          <View accessibilityViewIsModal style={styles.welcomeCard}>
+            <PromptVisual uri={rewardPrompt?.imageUrl} />
+            <Text accessibilityRole="header" style={styles.welcomeTitle}>
+              {rewardPrompt?.title}
+            </Text>
+            <Text style={styles.welcomeText}>{rewardPrompt?.description}</Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={onOpenRewardPrompt}
+              style={({pressed}) => [
+                styles.actionButton,
+                pressed && styles.pressed,
+              ]}>
+              <Text style={styles.actionButtonText}>
+                {rewardPrompt?.actionLabel || 'افتح المهمة'}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={onDismissRewardPrompt}
+              style={({pressed}) => [
+                styles.secondaryButton,
+                pressed && styles.pressed,
+              ]}>
+              <Text style={styles.secondaryButtonText}>
+                {rewardPrompt?.secondaryActionLabel || 'لاحقًا'}
+              </Text>
+            </Pressable>
+          </View>
+        </OverlayFrame>
+      </Modal>
+
+      <Modal
+        animationType={reducedMotion ? 'none' : 'fade'}
+        onRequestClose={onDismissGuestPrompt}
+        statusBarTranslucent
+        transparent
+        visible={guestPrompt !== null}>
+        <OverlayFrame>
+          <View accessibilityViewIsModal style={styles.welcomeCard}>
+            <PromptVisual uri={guestPrompt?.imageUrl} />
+            <Text accessibilityRole="header" style={styles.welcomeTitle}>
+              {guestPrompt?.title}
+            </Text>
+            <Text style={styles.welcomeText}>{guestPrompt?.description}</Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={onOpenGuestPrompt}
+              style={({pressed}) => [
+                styles.actionButton,
+                pressed && styles.pressed,
+              ]}>
+              <Text style={styles.actionButtonText}>
+                {guestPrompt?.actionLabel}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={onDismissGuestPrompt}
+              style={({pressed}) => [
+                styles.secondaryButton,
+                pressed && styles.pressed,
+              ]}>
+              <Text style={styles.secondaryButtonText}>
+                {guestPrompt?.secondaryActionLabel || 'المتابعة كزائر'}
+              </Text>
+            </Pressable>
+          </View>
+        </OverlayFrame>
+      </Modal>
+
+      <Modal
+        animationType={reducedMotion ? 'none' : 'fade'}
+        onRequestClose={() => onDismissCampaign(false)}
+        statusBarTranslucent
+        transparent
+        visible={campaign !== null}>
+        <OverlayFrame>
+          <View accessibilityViewIsModal style={styles.campaignCard}>
+            <View style={styles.campaignVisual}>
+              {campaign?.image && !campaignImageFailed ? (
+                <Image
+                  accessibilityIgnoresInvertColors
+                  onError={onCampaignImageError}
+                  source={campaign.image}
+                  style={styles.campaignCourseImage}
+                />
+              ) : (
+                <Image
+                  accessibilityIgnoresInvertColors
+                  source={require('../../assets/images/authLogo.png')}
+                  style={styles.campaignFallbackLogo}
+                />
+              )}
+            </View>
+            <Pressable
+              accessibilityLabel="إغلاق"
+              accessibilityRole="button"
+              hitSlop={10}
+              onPress={() => onDismissCampaign(false)}
+              style={styles.campaignClose}>
+              <Text style={styles.campaignCloseText}>×</Text>
+            </Pressable>
+            <Text style={styles.campaignBadge}>{campaign?.badge}</Text>
+            <Text accessibilityRole="header" style={styles.campaignTitle}>
+              {formatArabicDisplayText(campaign?.title)}
+            </Text>
+            <Text style={styles.campaignText}>
+              {formatArabicDisplayText(campaign?.description)}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => onDismissCampaign(true)}
+              style={({pressed}) => [
+                styles.actionButton,
+                pressed && styles.pressed,
+              ]}>
+              <Text style={styles.actionButtonText}>
+                {campaign?.actionLabel}
+              </Text>
+            </Pressable>
+          </View>
+        </OverlayFrame>
+      </Modal>
+    </>
+  );
+};
 
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
+    backgroundColor: Palette.overlay,
+  },
+  overlayContent: {
+    flexGrow: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: Spacing.xl,
-    backgroundColor: Palette.overlay,
   },
   welcomeCard: {
     width: '100%',

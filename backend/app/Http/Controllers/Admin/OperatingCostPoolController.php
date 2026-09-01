@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
+use App\Support\CsvCell;
 
 final class OperatingCostPoolController extends Controller
 {
@@ -33,7 +34,7 @@ final class OperatingCostPoolController extends Controller
             ->when($filters['from'] ?? null, fn ($query, $from) => $query->where('period_end', '>=', $from))
             ->when($filters['to'] ?? null, fn ($query, $to) => $query->where('period_start', '<=', $to));
         $matchingPools = (clone $poolQuery)->get();
-        $pools = $poolQuery->latest('period_end')->paginate(30)->withQueryString();
+        $pools = $poolQuery->latest('period_end')->latest('id')->paginate(30)->withQueryString();
         $courses = Course::query()
             ->whereNull('parent_id')
             ->withCount('activeEnrollments')
@@ -129,6 +130,7 @@ final class OperatingCostPoolController extends Controller
                 'الطالب', 'البريد', 'الكورسات', 'الباقات', 'مصادر الإتاحة',
                 'صافي الدخل', 'تكلفة الخدمات', 'هامش المساهمة', 'نسبة التكلفة للصافي',
                 'طلبات AI ناجحة', 'طلبات AI فاشلة', 'نسبة فشل AI',
+                'طلبات AI بتكلفة تقديرية', 'حالة تكلفة AI',
                 'توكنات AI', 'دقائق الفيديو', 'GB مشاهدة مقدرة',
                 'إشعارات داخل التطبيق', 'إشعارات مقروءة', 'محاولات Push', 'Push وصل',
                 'نسبة وصول Push',
@@ -137,7 +139,7 @@ final class OperatingCostPoolController extends Controller
                 $serviceCosts = collect($labels)->keys()->map(
                     fn (string $key) => $row['actual_cost_by_service_egp']->get($key)
                 )->all();
-                fputcsv($output, array_map([$this, 'safeCsvValue'], array_merge([
+                fputcsv($output, CsvCell::row(array_merge([
                     $row['user']?->name ?? 'مستخدم محذوف',
                     $row['user']?->email,
                     $row['courses']->implode(' | '),
@@ -150,6 +152,8 @@ final class OperatingCostPoolController extends Controller
                     $row['ai_requests'],
                     $row['ai_failed_requests'],
                     $row['ai_failure_rate_percentage'],
+                    $row['ai_estimated_requests'],
+                    $row['ai_cost_complete'] ? 'مؤكدة من المزود' : 'تتضمن تقديرات',
                     $row['ai_tokens'],
                     $row['playback_minutes'],
                     $row['playback_gb_estimated'],
@@ -201,11 +205,4 @@ final class OperatingCostPoolController extends Controller
         ]);
     }
 
-    private function safeCsvValue(mixed $value): mixed
-    {
-        if (!is_string($value)) return $value;
-        $trimmed = ltrim($value);
-
-        return preg_match('/^[=+\-@]/u', $trimmed) === 1 ? "'".$value : $value;
-    }
 }

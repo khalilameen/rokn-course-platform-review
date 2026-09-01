@@ -17,8 +17,19 @@ final class DispatchPendingAccountFileDeletion extends Command
     public function handle(): int
     {
         $limit = max(1, min(5000, (int) $this->option('limit')));
+        $maxAttempts = max(10, (int) config('operations.account_file_cleanup_max_attempts', 20));
         $rows = AccountFileDeletion::query()
-            ->whereIn('status', [AccountFileDeletion::STATUS_PENDING, AccountFileDeletion::STATUS_FAILED])
+            ->where(function ($query) use ($maxAttempts): void {
+                $query->where('status', AccountFileDeletion::STATUS_PENDING)
+                    ->orWhere(function ($failed) use ($maxAttempts): void {
+                        $failed->where('status', AccountFileDeletion::STATUS_FAILED)
+                            ->where('attempts', '<', $maxAttempts);
+                    })->orWhere(function ($processing) use ($maxAttempts): void {
+                        $processing->where('status', AccountFileDeletion::STATUS_PROCESSING)
+                            ->where('attempts', '<', $maxAttempts)
+                            ->where('updated_at', '<=', now()->subMinutes(15));
+                    });
+            })
             ->where(fn ($query) => $query->whereNull('available_at')->orWhere('available_at', '<=', now()))
             ->orderBy('id')
             ->limit($limit)

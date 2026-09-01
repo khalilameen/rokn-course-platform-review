@@ -1,5 +1,13 @@
 <?php
 
+$documentationMiddleware = in_array(
+    strtolower((string) env('APP_ENV', 'production')),
+    ['local', 'testing'],
+    true
+)
+    ? []
+    : ['web', 'auth', 'admin.mfa', 'admin.only'];
+
 return [
     'api' => [
         /*
@@ -42,10 +50,10 @@ return [
         |--------------------------------------------------------------------------
          */
         'middleware' => [
-            'api' => [],
+            'api' => $documentationMiddleware,
             'asset' => [],
-            'docs' => [],
-            'oauth2_callback' => [],
+            'docs' => $documentationMiddleware,
+            'oauth2_callback' => $documentationMiddleware,
         ],
     ],
 

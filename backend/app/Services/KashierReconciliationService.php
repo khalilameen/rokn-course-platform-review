@@ -419,7 +419,7 @@ final readonly class KashierReconciliationService
     private function markForReview(Order $order): void
     {
         DB::transaction(function () use ($order): void {
-            User::query()->lockForUpdate()->findOrFail((int) $order->user_id);
+            User::withTrashed()->lockForUpdate()->findOrFail((int) $order->user_id);
             $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
             if (! in_array($locked->financial_status, [
                 Order::FINANCIAL_REFUNDED,

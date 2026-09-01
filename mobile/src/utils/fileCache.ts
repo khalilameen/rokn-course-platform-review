@@ -12,6 +12,11 @@ const CACHE_METADATA_KEY = '@chat_file_cache_metadata';
 const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000;
 const MAX_CACHE_BYTES = 16 * 1024 * 1024;
 const MAX_SINGLE_FILE_BYTES = 8 * 1024 * 1024;
+const ORPHAN_GRACE_MS = 10 * 60 * 1000;
+let cacheGeneration = 0;
+let cacheWritesSuspended = false;
+const activeCacheWrites = new Set<Promise<CachedFile>>();
+let metadataTail: Promise<void> = Promise.resolve();
 
 export interface CachedFile {
   id: string;
@@ -26,6 +31,75 @@ export interface CachedFile {
 interface CacheMetadata {
   [fileId: string]: CachedFile;
 }
+
+const withMetadataLock = <T>(operation: () => Promise<T>): Promise<T> => {
+  const result = metadataTail.then(operation, operation);
+  metadataTail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+};
+
+const filePathFromUri = (uri: string): string =>
+  uri.replace(/^file:\/\//, '').replace(/\\/g, '/');
+
+const isManagedCacheUri = (uri: string): boolean => {
+  const root = getCacheDir().replace(/\\/g, '/').replace(/\/$/, '');
+  const path = filePathFromUri(uri);
+  const relative = path.startsWith(`${root}/`) ? path.slice(root.length + 1) : '';
+
+  return relative !== '' && !relative.split('/').includes('..');
+};
+
+const isCachedFile = (fileId: string, value: unknown): value is CachedFile => {
+  if (!value || typeof value !== 'object') return false;
+  const file = value as Partial<CachedFile>;
+  return (
+    file.id === fileId &&
+    /^file_\d+_[a-z0-9]+$/i.test(fileId) &&
+    typeof file.uri === 'string' &&
+    isManagedCacheUri(file.uri) &&
+    (file.type === 'image' || file.type === 'file') &&
+    typeof file.mimeType === 'string' &&
+    file.mimeType.length <= 255 &&
+    typeof file.name === 'string' &&
+    file.name.length > 0 &&
+    file.name.length <= 255 &&
+    typeof file.size === 'number' &&
+    Number.isFinite(file.size) &&
+    file.size >= 0 &&
+    file.size <= MAX_SINGLE_FILE_BYTES &&
+    typeof file.cachedAt === 'number' &&
+    Number.isFinite(file.cachedAt) &&
+    file.cachedAt > 0
+  );
+};
+
+const readMetadata = async (): Promise<CacheMetadata> => {
+  const raw = await AsyncStorage.getItem(CACHE_METADATA_KEY);
+  if (!raw) return {};
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('INVALID_CACHE_METADATA');
+    }
+
+    const metadata: CacheMetadata = {};
+    Object.entries(parsed).forEach(([fileId, file]) => {
+      if (isCachedFile(fileId, file)) metadata[fileId] = file;
+    });
+    return metadata;
+  } catch {
+    // A damaged index must not poison every future attachment. Preserve one
+    // bounded diagnostic copy, then rebuild from an empty trusted index.
+    await AsyncStorage.setItem(`${CACHE_METADATA_KEY}:corrupt`, raw.slice(0, 8192))
+      .catch(() => undefined);
+    await AsyncStorage.removeItem(CACHE_METADATA_KEY).catch(() => undefined);
+    return {};
+  }
+};
 
 const cacheErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error && error.message
@@ -101,11 +175,13 @@ const getFileType = (mimeType: string, extension: string): 'image' | 'file' => {
 };
 
 // Cache a file (copy from source to cache directory)
-export const cacheFile = async (
+const cacheFileInternal = async (
   sourceUri: string,
   mimeType: string,
   name?: string,
+  generation = cacheGeneration,
 ): Promise<CachedFile> => {
+  let copiedPath = '';
   try {
     await cleanupOldFiles();
     // Ensure cache directory exists
@@ -116,9 +192,14 @@ export const cacheFile = async (
     const extension = getFileExtension(sourceUri, name);
     const fileName = `${fileId}.${extension || 'bin'}`;
     const cachedPath = `${cacheDir}/${fileName}`;
+    copiedPath = cachedPath;
 
     // Copy file to cache directory
     await RNFS.copyFile(sourceUri, cachedPath);
+    if (cacheWritesSuspended || generation !== cacheGeneration) {
+      await RNFS.unlink(cachedPath).catch(() => undefined);
+      throw new Error('Attachment cache was closed with the account session.');
+    }
 
     // Get file size
     const stat = await RNFS.stat(cachedPath);
@@ -143,14 +224,21 @@ export const cacheFile = async (
     };
 
     // Save metadata
-    const metadataStr = await AsyncStorage.getItem(CACHE_METADATA_KEY);
-    const metadata: CacheMetadata = metadataStr ? JSON.parse(metadataStr) : {};
-    metadata[fileId] = cachedFile;
-    await AsyncStorage.setItem(CACHE_METADATA_KEY, JSON.stringify(metadata));
+    await withMetadataLock(async () => {
+      const metadata = await readMetadata();
+      metadata[fileId] = cachedFile;
+      if (cacheWritesSuspended || generation !== cacheGeneration) {
+        throw new Error('Attachment cache was closed with the account session.');
+      }
+      await AsyncStorage.setItem(CACHE_METADATA_KEY, JSON.stringify(metadata));
+    });
     await cleanupOldFiles();
 
     return cachedFile;
   } catch (error: unknown) {
+    if (copiedPath) {
+      await RNFS.unlink(copiedPath).catch(() => undefined);
+    }
     // Expose a concrete cache error.
     const errorMessage = cacheErrorMessage(error, 'Unknown error caching file');
     if (__DEV__) console.error('Error caching file:', errorMessage);
@@ -158,16 +246,31 @@ export const cacheFile = async (
   }
 };
 
+export const cacheFile = (
+  sourceUri: string,
+  mimeType: string,
+  name?: string,
+): Promise<CachedFile> => {
+  if (cacheWritesSuspended) {
+    return Promise.reject(
+      new Error('Attachment cache was closed with the account session.'),
+    );
+  }
+  const generation = cacheGeneration;
+  const flight = cacheFileInternal(sourceUri, mimeType, name, generation);
+  activeCacheWrites.add(flight);
+  const clear = () => activeCacheWrites.delete(flight);
+  void flight.then(clear, clear);
+  return flight;
+};
+
 // Get cached file by ID
 export const getCachedFile = async (
   fileId: string,
 ): Promise<CachedFile | null> => {
   try {
-    const metadataStr = await AsyncStorage.getItem(CACHE_METADATA_KEY);
-    if (!metadataStr) return null;
-
-    const metadata: CacheMetadata = JSON.parse(metadataStr);
-    const file = metadata[fileId];
+    const metadata = await withMetadataLock(readMetadata);
+    const file = metadata[fileId] || null;
 
     if (!file) return null;
 
@@ -177,8 +280,19 @@ export const getCachedFile = async (
     );
     if (!exists) {
       // Remove from metadata if file doesn't exist
-      delete metadata[fileId];
-      await AsyncStorage.setItem(CACHE_METADATA_KEY, JSON.stringify(metadata));
+      await withMetadataLock(async () => {
+        const current = await readMetadata();
+        if (current[fileId]?.uri !== file.uri) return;
+        delete current[fileId];
+        if (Object.keys(current).length) {
+          await AsyncStorage.setItem(
+            CACHE_METADATA_KEY,
+            JSON.stringify(current),
+          );
+        } else {
+          await AsyncStorage.removeItem(CACHE_METADATA_KEY);
+        }
+      });
       return null;
     }
 
@@ -209,7 +323,8 @@ export const fileToBase64 = async (fileUri: string): Promise<string> => {
 };
 
 const deleteCachedPath = async (uri: string) => {
-  const filePath = Platform.OS === 'ios' ? uri : uri.replace('file://', '');
+  if (!isManagedCacheUri(uri)) return;
+  const filePath = filePathFromUri(uri);
   if (await RNFS.exists(filePath)) {
     await RNFS.unlink(filePath);
   }
@@ -218,38 +333,59 @@ const deleteCachedPath = async (uri: string) => {
 // Bound temporary attachment storage by age and total size.
 export const cleanupOldFiles = async (): Promise<void> => {
   try {
-    const metadataStr = await AsyncStorage.getItem(CACHE_METADATA_KEY);
-    if (!metadataStr) return;
+    await withMetadataLock(async () => {
+      const metadata = await readMetadata();
+      const expiresBefore = Date.now() - MAX_CACHE_AGE_MS;
+      const newestFirst = Object.entries(metadata).sort(
+        ([, left], [, right]) => right.cachedAt - left.cachedAt,
+      );
+      const retained: CacheMetadata = {};
+      let retainedBytes = 0;
 
-    const metadata: CacheMetadata = JSON.parse(metadataStr);
-    const expiresBefore = Date.now() - MAX_CACHE_AGE_MS;
-    const newestFirst = Object.entries(metadata).sort(
-      ([, left], [, right]) => right.cachedAt - left.cachedAt,
-    );
-    const retained: CacheMetadata = {};
-    let retainedBytes = 0;
+      for (const [fileId, file] of newestFirst) {
+        const size = Number(file.size) || 0;
+        const expired = !file.cachedAt || file.cachedAt < expiresBefore;
+        const exceedsBudget = retainedBytes + size > MAX_CACHE_BYTES;
+        const exists = await RNFS.exists(filePathFromUri(file.uri)).catch(
+          () => false,
+        );
 
-    for (const [fileId, file] of newestFirst) {
-      const size = Number(file.size) || 0;
-      const expired = !file.cachedAt || file.cachedAt < expiresBefore;
-      const exceedsBudget = retainedBytes + size > MAX_CACHE_BYTES;
-      const path =
-        Platform.OS === 'ios' ? file.uri : file.uri.replace('file://', '');
-      const exists = await RNFS.exists(path).catch(() => false);
-
-      if (expired || exceedsBudget || !exists) {
-        await deleteCachedPath(file.uri).catch(() => undefined);
-        continue;
+        if (expired || exceedsBudget || !exists) {
+          await deleteCachedPath(file.uri).catch(() => undefined);
+          continue;
+        }
+        retained[fileId] = file;
+        retainedBytes += size;
       }
-      retained[fileId] = file;
-      retainedBytes += size;
-    }
 
-    if (Object.keys(retained).length) {
-      await AsyncStorage.setItem(CACHE_METADATA_KEY, JSON.stringify(retained));
-    } else {
-      await AsyncStorage.removeItem(CACHE_METADATA_KEY);
-    }
+      if (Object.keys(retained).length) {
+        await AsyncStorage.setItem(
+          CACHE_METADATA_KEY,
+          JSON.stringify(retained),
+        );
+      } else {
+        await AsyncStorage.removeItem(CACHE_METADATA_KEY);
+      }
+
+      // A process kill between copyFile and metadata commit can leave bytes
+      // that no index can ever evict. Do not touch a fresh unknown file because
+      // another concurrent copy may still be committing it; older files are
+      // safe orphans inside Rokn's own cache directory.
+      const retainedPaths = new Set(
+        Object.values(retained).map(file => filePathFromUri(file.uri)),
+      );
+      const directoryEntries = await RNFS.readDir(getCacheDir()).catch(() => []);
+      await Promise.all(
+        directoryEntries
+          .filter(entry => entry.isFile() && !retainedPaths.has(filePathFromUri(entry.path)))
+          .filter(entry => {
+            const modifiedAt =
+              entry.mtime instanceof Date ? entry.mtime.getTime() : 0;
+            return modifiedAt > 0 && modifiedAt < Date.now() - ORPHAN_GRACE_MS;
+          })
+          .map(entry => RNFS.unlink(entry.path).catch(() => undefined)),
+      );
+    });
   } catch (error) {
     if (__DEV__) console.error('Error cleaning up old files:', error);
   }
@@ -259,7 +395,27 @@ export const cleanupOldFiles = async (): Promise<void> => {
  * Rokn AI is session-only. Remove attachment leftovers from both the current
  * cache and the document directory used by older test builds.
  */
-export const clearTransientChatCache = async (): Promise<void> => {
+export const clearTransientChatCache = async (
+  options: {accountBoundary?: boolean} = {},
+): Promise<void> => {
+  if (options.accountBoundary) {
+    cacheWritesSuspended = true;
+    cacheGeneration += 1;
+  }
+  const quiescers = [
+    import('../components/VideoPlayer/courseChat/persistence')
+      .then(module => module.quiesceCourseChatPersistence())
+      .catch(() => undefined),
+  ];
+  if (options.accountBoundary) {
+    quiescers.push(import('../components/VideoPlayer/attachmentActions')
+      .then(module => module.quiescePrivateAttachmentDownloads())
+      .catch(() => undefined));
+  }
+  await Promise.all(quiescers);
+  if (options.accountBoundary && activeCacheWrites.size) {
+    await Promise.allSettled([...activeCacheWrites]);
+  }
   const legacyStorageKeys = (await AsyncStorage.getAllKeys().catch(() => []))
     .filter(
       key => key === 'persist:chat' || key.includes('@rokn/course-chat/'),
@@ -291,16 +447,19 @@ export const clearTransientChatCache = async (): Promise<void> => {
   await RNFS.unlink(`${RNFS.CachesDirectoryPath}/voice-note.mp3`).catch(
     () => undefined,
   );
-  await AsyncStorage.removeItem(CACHE_METADATA_KEY).catch(() => undefined);
+  await withMetadataLock(() =>
+    AsyncStorage.removeItem(CACHE_METADATA_KEY),
+  ).catch(() => undefined);
+  if (options.accountBoundary) {
+    cacheGeneration += 1;
+    cacheWritesSuspended = false;
+  }
 };
 
 // Get cache size
 export const getCacheSize = async (): Promise<number> => {
   try {
-    const metadataStr = await AsyncStorage.getItem(CACHE_METADATA_KEY);
-    if (!metadataStr) return 0;
-
-    const metadata: CacheMetadata = JSON.parse(metadataStr);
+    const metadata = await withMetadataLock(readMetadata);
     return Object.values(metadata).reduce(
       (total, file) => total + file.size,
       0,

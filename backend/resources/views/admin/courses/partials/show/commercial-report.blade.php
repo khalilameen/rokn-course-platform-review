@@ -49,8 +49,9 @@
             <span class="stat-label">صافي بوابة الدفع الفعلي</span>
         </div>
         <div class="stat-card">
-            <span class="stat-counter">${{ number_format($commercialReport['ai_cost_usd'], 6) }}</span>
-            <span class="stat-label">OpenRouter فعلي</span>
+            <span class="stat-counter">{{ $commercialReport['ai_cost_usd'] === null ? 'غير متاح' : '$'.number_format($commercialReport['ai_cost_usd'], 6) }}</span>
+            <span class="stat-label">OpenRouter {{ ($commercialReport['ai_estimated_requests'] ?? 0) > 0 ? 'مؤكد + تقديري' : 'مؤكد' }}</span>
+            @if(($commercialReport['ai_estimated_requests'] ?? 0) > 0)<small class="text-warning">{{ number_format($commercialReport['ai_estimated_requests']) }} رد بلا تكلفة مزود نهائية</small>@endif
         </div>
         <div class="stat-card">
             <span class="stat-counter">
@@ -92,8 +93,11 @@
 
     @if(!$commercialReport['cash_net_complete'])
         <div class="alert alert-warning mt-3">
-            كاشير لم تُرسل رسوم/صافي التسوية لكل عمليات الشحن القديمة بعد؛ المعروض كإجمالي صحيح،
-            ولن يحوّله النظام إلى «صافي» بالتخمين.
+            لم تكتمل رسوم وصافي كل عمليات الشحن بعد
+            ولن يخلط النظام العملات الأجنبية بالجنيه أو يحوّلها بسعر تخميني
+            @foreach($commercialReport['cash_foreign_currency_exposure'] as $currency => $amount)
+                <div>{{ $currency }} {{ number_format($amount, 2) }} بانتظار سعر تسوية موثق</div>
+            @endforeach
         </div>
     @endif
 
@@ -133,7 +137,7 @@
                         <td>{{ $plan['estimated_margin_egp'] === null ? 'غير مكتمل' : number_format($plan['estimated_margin_egp'], 2).' ج.م' }}</td>
                     </tr>
                 @empty
-                    <tr><td colspan="11" class="text-center text-muted">لا توجد اشتراكات بعد.</td></tr>
+                    <tr><td colspan="11" class="text-center text-muted">لا توجد عمليات شراء بعد.</td></tr>
                 @endforelse
                 </tbody>
             </table>
@@ -161,7 +165,13 @@
                         <td>{{ $row['source_label'] }}</td>
                         <td>{{ $row['plan_name'] }}</td>
                         <td>{{ $row['contract_price_coins'] === null ? 'قديم' : number_format($row['contract_price_coins']).' عملة' }}</td>
-                        <td>{{ number_format($row['total_coins']) }} عملة</td>
+                        <td>
+                            {{ number_format($row['total_coins']) }} عملة
+                            @if($row['discount_coins'] > 0)
+                                <br><small class="text-success">خصم {{ number_format($row['discount_coins']) }}
+                                @if($row['coupon_codes']) · {{ implode(' · ', $row['coupon_codes']) }}@endif</small>
+                            @endif
+                        </td>
                         <td>
                             {{ number_format($row['paid_coins']) }} مشتراة<br>
                             {{ number_format($row['reward_coins']) }} مكافآت

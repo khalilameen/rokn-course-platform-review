@@ -29,9 +29,14 @@
             @endif
         </div>
         <div class="section-meta">
-            <span>type: {{ $section->getSectionType() }}</span>
+            <span>{{ match($section->getSectionType()) {
+                'lesson' => 'مقطع فيديو',
+                'quiz' => 'اختبار الوحدة',
+                'project' => 'مشروع عبور',
+                default => 'محتوى',
+            } }}</span>
             @if(!$section->isProject() && $section->sectionable)
-                 <span>| {{ Str::limit($section->sectionable->title ?? '', 30) }}</span>
+                 <span> {{ Str::limit($section->sectionable->title ?? '', 30) }}</span>
             @endif
         </div>
     </div>
@@ -42,6 +47,7 @@
         </a>
         <form action="{{ route('admin.courses.sections.destroy', [$course, $section]) }}" method="POST" onsubmit="return confirm('حذف؟')">
             @csrf @method('DELETE')
+            <input type="hidden" name="authoring_version" value="{{ $course->authoring_version }}">
             <button class="btn btn-xs btn-outline-danger"><i class="fa fa-trash"></i></button>
         </form>
     </div>

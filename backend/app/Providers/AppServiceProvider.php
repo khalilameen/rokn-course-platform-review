@@ -7,10 +7,15 @@ use App\Contracts\StorePurchaseProviderGateway;
 use App\Http\Middleware\TrustHosts;
 use App\Services\LiveStorePurchaseProviderGateway;
 use App\Services\LiveStoreNotificationAuthenticityVerifier;
+use App\Services\StudentNotificationPresentationService;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Events\MigrationsEnded;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Event;
 use Kreait\Firebase\Contract\Messaging;
 use Kreait\Firebase\Factory as FirebaseFactory;
 
@@ -31,6 +36,9 @@ class AppServiceProvider extends ServiceProvider
             StoreNotificationAuthenticityVerifier::class,
             LiveStoreNotificationAuthenticityVerifier::class
         );
+        // Notification resources resolve this service once per request so a
+        // paginated inbox loads the dashboard template family in one query.
+        $this->app->scoped(StudentNotificationPresentationService::class);
 
         // We use only FCM from the Firebase Admin SDK. Binding the contract
         // directly keeps the integration small and avoids coupling the whole
@@ -68,6 +76,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot()
     {
+        // Historical migrations may load a current Eloquent model before a
+        // later additive migration creates one of its scoped columns. Reboot
+        // models once the migration command ends so the running process sees
+        // the final schema without coupling migrations to application code.
+        Event::listen(MigrationsEnded::class, static function (): void {
+            Model::clearBootedModels();
+        });
+
         // Cloud terminates TLS before the request reaches PHP. Generate
         // redirects and signed URLs from the configured public origin without
         // broadening the trusted-proxy allow-list.
@@ -85,5 +101,14 @@ class AppServiceProvider extends ServiceProvider
         }
 
         Paginator::useBootstrap();
+
+        // A restored database may be older than external side effects that
+        // already happened. Recovery deployments serve read-only learning but
+        // do not execute restored/new jobs until evidence is verified and the
+        // operator clears DISASTER_RECOVERY_MODE then restarts workers.
+        Queue::looping(static fn (): bool => !(bool) config(
+            'operations.disaster_recovery_mode',
+            false
+        ));
     }
 }

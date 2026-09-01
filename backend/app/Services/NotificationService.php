@@ -18,31 +18,47 @@ class NotificationService
      */
     public static function notifyNewCourseLesson(Lesson $lesson, Course $course): bool
     {
-        $titleAr = 'درس جديد متاح';
-        $titleEn = 'New Lesson Available';
+        if (!self::courseCanReceiveContentNotifications($course)) {
+            return false;
+        }
 
-        $messageAr = "تم إضافة درس جديد: {$lesson->title} في الكورس: " . ($course->name_ar ?? $course->title ?? 'الكورس');
-        $messageEn = "A new lesson has been added: {$lesson->title} in course: " . ($course->name_en ?? $course->title ?? 'Course');
+        $courseNameAr = (string) ($course->name_ar ?? $course->title ?? 'الكورس');
+        $courseNameEn = (string) ($course->name_en ?? $course->title ?? 'Course');
+        $copy = self::templatePayload('new_course_lesson', [
+            'course' => $courseNameAr,
+            'lesson' => (string) $lesson->title,
+        ], [
+            'title_ar' => 'مقطع جديد',
+            'title_en' => 'New lesson available',
+            'message_ar' => $lesson->title . "\n" . $courseNameAr,
+            'message_en' => $lesson->title . "\n" . $courseNameEn,
+            'action_label_ar' => 'شاهد الآن',
+            'action_label_en' => 'Watch now',
+        ]);
+        if ($copy === null) {
+            return false;
+        }
 
         $link = "/Courses/{$course->id}";
 
-        SendStudentNotification::dispatch(
+        return app(NotificationCampaignService::class)->queue(
             'new_course_lesson',
             [],
             Lesson::class,
             $lesson->id,
-            $titleAr,
-            $titleEn,
-            $messageAr,
-            $messageEn,
+            $copy['title_ar'],
+            $copy['title_en'],
+            $copy['message_ar'],
+            $copy['message_en'],
             $link,
             [],
-            null,
+            'lesson-published:' . $lesson->id,
             (int) $course->id,
-            SendStudentNotification::AUDIENCE_ENROLLED
+            SendStudentNotification::AUDIENCE_ENROLLED,
+            $copy['image_url'] ?? null,
+            $copy['action_label_ar'] ?? null,
+            $copy['action_label_en'] ?? null
         );
-
-        return true;
     }
 
     /**
@@ -54,32 +70,48 @@ class NotificationService
      */
     public static function notifyNewQuiz($quiz, Course $course): bool
     {
-        $titleAr = 'اختبار جديد متاح';
-        $titleEn = 'New Quiz Available';
+        if (!self::courseCanReceiveContentNotifications($course)) {
+            return false;
+        }
 
         $quizTitle = $quiz->title ?? 'اختبار جديد';
-        $messageAr = "تم إضافة اختبار جديد: {$quizTitle} في الكورس: " . ($course->name_ar ?? $course->title ?? 'الكورس');
-        $messageEn = "A new quiz has been added: {$quizTitle} in course: " . ($course->name_en ?? $course->title ?? 'Course');
+        $courseNameAr = (string) ($course->name_ar ?? $course->title ?? 'الكورس');
+        $courseNameEn = (string) ($course->name_en ?? $course->title ?? 'Course');
+        $copy = self::templatePayload('new_quiz', [
+            'course' => $courseNameAr,
+            'quiz' => (string) $quizTitle,
+        ], [
+            'title_ar' => 'اختبار جديد',
+            'title_en' => 'New quiz available',
+            'message_ar' => $quizTitle . "\n" . $courseNameAr,
+            'message_en' => $quizTitle . "\n" . $courseNameEn,
+            'action_label_ar' => 'افتح الاختبار',
+            'action_label_en' => 'Open quiz',
+        ]);
+        if ($copy === null) {
+            return false;
+        }
 
         $link = "/Courses/{$course->id}";
 
-        SendStudentNotification::dispatch(
+        return app(NotificationCampaignService::class)->queue(
             'new_quiz',
             [],
             get_class($quiz),
             $quiz->id,
-            $titleAr,
-            $titleEn,
-            $messageAr,
-            $messageEn,
+            $copy['title_ar'],
+            $copy['title_en'],
+            $copy['message_ar'],
+            $copy['message_en'],
             $link,
             [],
-            null,
+            'quiz-published:' . $quiz->id,
             (int) $course->id,
-            SendStudentNotification::AUDIENCE_ENROLLED
+            SendStudentNotification::AUDIENCE_ENROLLED,
+            $copy['image_url'] ?? null,
+            $copy['action_label_ar'] ?? null,
+            $copy['action_label_en'] ?? null
         );
-
-        return true;
     }
 
     /**
@@ -104,7 +136,7 @@ class NotificationService
         $courseId = isset($data['course_id']) ? (int) $data['course_id'] : null;
         $audience = (string) ($data['audience'] ?? SendStudentNotification::AUDIENCE_ALL);
 
-        SendStudentNotification::dispatch(
+        return app(NotificationCampaignService::class)->queue(
             $type,
             $userIds,
             $notifiableType,
@@ -117,10 +149,11 @@ class NotificationService
             $excludeUserIds,
             $deliveryKey,
             $courseId,
-            $audience
+            $audience,
+            $data['image_url'] ?? null,
+            $data['action_label_ar'] ?? null,
+            $data['action_label_en'] ?? null
         );
-
-        return true;
     }
 
     /**
@@ -132,31 +165,66 @@ class NotificationService
      */
     public static function notifyCourseUpdate(Course $course, string $updateType = 'general'): bool
     {
-        $titleAr = 'تحديث في الكورس';
-        $titleEn = 'Course Update';
+        if (!self::courseCanReceiveContentNotifications($course)) {
+            return false;
+        }
 
-        $messageAr = "تم تحديث الكورس: " . ($course->name_ar ?? $course->title ?? 'الكورس');
-        $messageEn = "Course has been updated: " . ($course->name_en ?? $course->title ?? 'Course');
+        $courseNameAr = (string) ($course->name_ar ?? $course->title ?? 'الكورس');
+        $courseNameEn = (string) ($course->name_en ?? $course->title ?? 'Course');
+        $copy = self::templatePayload('course_update', [
+            'course' => $courseNameAr,
+        ], [
+            'title_ar' => 'جديد في كورسك',
+            'title_en' => 'Course update',
+            'message_ar' => $courseNameAr,
+            'message_en' => $courseNameEn,
+            'action_label_ar' => 'افتح الكورس',
+            'action_label_en' => 'View course',
+        ]);
+        if ($copy === null) {
+            return false;
+        }
 
         $link = "/Courses/{$course->id}";
 
-        SendStudentNotification::dispatch(
+        return app(NotificationCampaignService::class)->queue(
             'course_update',
             [],
             Course::class,
             $course->id,
-            $titleAr,
-            $titleEn,
-            $messageAr,
-            $messageEn,
+            $copy['title_ar'],
+            $copy['title_en'],
+            $copy['message_ar'],
+            $copy['message_en'],
             $link,
             [],
-            null,
+            (string) Str::uuid(),
             (int) $course->id,
-            SendStudentNotification::AUDIENCE_ENROLLED
+            SendStudentNotification::AUDIENCE_ENROLLED,
+            $copy['image_url'] ?? null,
+            $copy['action_label_ar'] ?? null,
+            $copy['action_label_en'] ?? null
         );
+    }
 
-        return true;
+    /** @param array<string, mixed> $variables @param array<string, mixed> $fallback */
+    private static function templatePayload(string $key, array $variables, array $fallback): ?array
+    {
+        return app(EngagementMessageService::class)->notificationPayload($key, $variables, $fallback);
+    }
+
+    private static function courseCanReceiveContentNotifications(Course $course): bool
+    {
+        if ($course->is_coming_soon) {
+            return false;
+        }
+
+        $current = $course->fresh();
+        if (!$current) {
+            return false;
+        }
+
+        return (bool) data_get(app(CoursePublishingService::class)->audit($current), 'ready');
     }
 }
 

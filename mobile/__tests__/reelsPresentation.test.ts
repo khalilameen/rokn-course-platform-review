@@ -3,6 +3,7 @@ import {
   buildPreviewFeed,
   PLAYBACK_PREFERENCE_BITRATE_KBPS,
   resolveReelsFrameWidth,
+  markQuizPassed,
   updateProjectStatusOnly,
 } from '../src/screens/reels/presentation';
 import {
@@ -48,6 +49,32 @@ describe('reels presentation policy', () => {
     expect(next.modules[0].project?.status).toBe('reviewing');
     expect(next.modules[1]).toEqual(course.modules[1]);
     expect(course.modules[0].project?.status).toBe('not_submitted');
+  });
+
+  it('stops at an unfinished quiz and exposes the project only after passing', () => {
+    const course = fixture();
+    course.modules[0].quizzes = [{
+      id: 'quiz-1',
+      sectionId: 'quiz-section-1',
+      moduleId: 'module-1',
+      title: 'Quiz',
+      isLocked: false,
+      passed: false,
+    }];
+
+    expect(buildAccessibleFeed(course).map(item => item.key)).toEqual([
+      'reel-reel-1',
+      'reel-reel-2',
+      'quiz-quiz-1',
+    ]);
+
+    const passed = markQuizPassed(course, 'quiz-1');
+    expect(buildAccessibleFeed(passed).map(item => item.key)).toEqual([
+      'reel-reel-1',
+      'reel-reel-2',
+      'quiz-quiz-1',
+      'project-project-1',
+    ]);
   });
 
   it('keeps phone width and caps wide layouts by video aspect', () => {

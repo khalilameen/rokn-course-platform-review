@@ -83,7 +83,7 @@
                                             📚 {{ $userProgress['course']->name_ar ?? $userProgress['course']->name_en }}
                                         </div>
                                         <small class="text-muted enrollment-date">
-                                            تاريخ الالتحاق: {{ $userProgress['enrolled_at']->format('Y-m-d') }}
+                                            تاريخ الالتحاق: {{ \App\Support\BusinessClock::format($userProgress['enrolled_at'], 'Y-m-d') }}
                                         </small>
                                     </div>
 
@@ -130,7 +130,7 @@
                                     </div>
                                     @if($userProgress['progress']['last_activity'])
                                         <div class="last-activity mt-2">
-                                            آخر نشاط: {{ $userProgress['progress']['last_activity']->diffForHumans() }}
+                                            آخر نشاط {{ \App\Support\BusinessClock::relative($userProgress['progress']['last_activity']) }}
                                         </div>
                                     @endif
                                 @else

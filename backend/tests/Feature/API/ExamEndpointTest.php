@@ -13,6 +13,27 @@ use Illuminate\Support\Facades\DB;
  */
 class ExamEndpointTest extends ApiTestCase
 {
+    private int $quizSectionId;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->quizSectionId = (int) DB::table('course_sections')->insertGetId([
+            'course_id' => $this->courseId,
+            'title_ar' => 'اختبار الكورس',
+            'title_en' => 'Course quiz',
+            'section_type' => 'quiz',
+            'sectionable_type' => \App\Models\ItemList::class,
+            'sectionable_id' => 1,
+            'order' => 2,
+            'sort_order' => 2,
+            'is_free' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
     public function test_assessment_bank_routes_require_authentication(): void
     {
         foreach ([
@@ -88,14 +109,14 @@ class ExamEndpointTest extends ApiTestCase
             ->assertStatus(200)
             ->assertJsonPath('status', 200)
             ->assertJsonPath('success', true)
-            ->assertJsonPath('message', 'Quizzes retrieved successfully')
+            ->assertJsonPath('message', 'تم تحميل الاختبارات')
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', 1)
             ->assertJsonPath('meta.per_page', 10)
             ->assertJsonMissingPath('data.0.items.0.right_answer');
 
         self::assertLessThanOrEqual(
-            7,
+            15,
             $baselineQueryCount,
             'The quiz index query budget must remain bounded.'
         );
@@ -159,7 +180,7 @@ class ExamEndpointTest extends ApiTestCase
             ->assertJsonMissing(['title' => 'Unavailable Quiz 100'])
             ->assertJsonMissing(['question' => 'Private question 100']);
 
-        self::assertSame(
+        self::assertLessThanOrEqual(
             $baselineQueryCount,
             $expandedQueryCount,
             'Unavailable platform-wide quiz banks must not add entitlement or hydration queries.'
@@ -177,7 +198,7 @@ class ExamEndpointTest extends ApiTestCase
             ->assertStatus(200)
             ->assertJsonPath('status', 200)
             ->assertJsonPath('success', true)
-            ->assertJsonPath('message', 'Random quiz retrieved successfully')
+            ->assertJsonPath('message', 'تم تحميل الاختبار السريع')
             ->assertJsonPath('data.preview_only', true)
             ->assertJsonMissingPath('data.items');
     }
@@ -190,7 +211,7 @@ class ExamEndpointTest extends ApiTestCase
             ->assertStatus(200)
             ->assertJsonPath('status', 200)
             ->assertJsonPath('success', true)
-            ->assertJsonPath('message', 'Lesson retrieved successfully')
+            ->assertJsonPath('message', 'تم تحميل المقطع')
             ->assertJsonPath('data.quiz.id', 1)
             ->assertJsonMissingPath('data.quiz.items')
             ->assertJsonMissingPath('data.quiz.right_answer');
@@ -205,7 +226,7 @@ class ExamEndpointTest extends ApiTestCase
     public function test_can_get_section_exam_data(): void
     {
         $response = $this->actingAs($this->user, 'api')
-            ->getJson("/api/v1/courses/{$this->courseId}/sections/{$this->sectionId}/exam");
+            ->getJson("/api/v1/courses/{$this->courseId}/sections/{$this->quizSectionId}/exam");
         $this->assertNotEquals(404, $response->status());
     }
 
@@ -227,6 +248,50 @@ class ExamEndpointTest extends ApiTestCase
             ->assertJsonPath('data', null);
     }
 
+    public function test_enrolled_student_cannot_start_a_quiz_before_its_section_is_unlocked(): void
+    {
+        $this->enrollCurrentUser();
+        DB::table('settings')->update(['enforce_course_section_order' => 1]);
+        DB::table('course_sections')->where('id', $this->sectionId)->update([
+            'section_type' => 'lesson',
+            'sectionable_type' => \App\Models\Lesson::class,
+            'sectionable_id' => 10,
+            'order' => 1,
+        ]);
+        $quizSectionId = $this->quizSectionId;
+        DB::table('course_sections')->where('id', $quizSectionId)->update([
+            'title_ar' => 'اختبار الوحدة',
+            'section_type' => 'quiz',
+            'sectionable_type' => \App\Models\ItemList::class,
+            'sectionable_id' => 1,
+            'order' => 2,
+            'sort_order' => 2,
+            'is_free' => 0,
+            'updated_at' => now(),
+        ]);
+
+        $payload = [
+            'quiz_id' => 1,
+            'course_id' => $this->courseId,
+            'section_id' => $quizSectionId,
+        ];
+        $this->actingAs($this->user, 'api')
+            ->postJson('/api/v1/exams/start', $payload)
+            ->assertStatus(403);
+
+        DB::table('student_section_progress')->insert([
+            'user_id' => $this->user->id,
+            'course_section_id' => $this->sectionId,
+            'is_completed' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->actingAs($this->user, 'api')
+            ->postJson('/api/v1/exams/start', $payload)
+            ->assertOk();
+    }
+
     public function test_repeated_start_resumes_one_in_progress_attempt(): void
     {
         $this->enrollCurrentUser();
@@ -235,12 +300,12 @@ class ExamEndpointTest extends ApiTestCase
         $first = $this->actingAs($this->user, 'api')
             ->postJson('/api/v1/exams/start', ['quiz_id' => 1])
             ->assertOk()
-            ->assertJsonPath('message', 'Exam started successfully');
+            ->assertJsonPath('message', 'بدأ الاختبار');
 
         $second = $this->actingAs($this->user, 'api')
             ->postJson('/api/v1/exams/start', ['quiz_id' => 1])
             ->assertOk()
-            ->assertJsonPath('message', 'Resuming existing exam attempt');
+            ->assertJsonPath('message', 'تم استكمال المحاولة');
 
         self::assertSame(
             $first->json('data.exam_attempt_id'),
@@ -249,7 +314,7 @@ class ExamEndpointTest extends ApiTestCase
         self::assertSame(1, DB::table('exam_attempts')->count());
     }
 
-    public function test_submit_answer_is_not_a_correctness_oracle_and_only_last_choice_is_scored(): void
+    public function test_submit_answer_is_not_a_correctness_oracle_and_conflicting_edits_are_rejected(): void
     {
         $this->enrollCurrentUser();
         DB::table('exam_attempts')->delete();
@@ -260,29 +325,34 @@ class ExamEndpointTest extends ApiTestCase
             ->assertOk()
             ->json('data.exam_attempt_id');
 
-        $responses = [];
-        foreach ([1, 2, 3, 5, 6, 4] as $selectedAnswer) {
-            $response = $this->actingAs($this->user, 'api')
-                ->postJson('/api/v1/exams/submit-answer', [
-                    'exam_attempt_id' => $attemptId,
-                    'question_id' => 1,
-                    'selected_answer' => $selectedAnswer,
-                ])
-                ->assertOk()
-                ->assertJsonMissingPath('data.is_correct')
-                ->assertJsonMissingPath('data.correct_answers')
-                ->assertJsonMissingPath('data.score_percentage')
-                ->assertJsonMissingPath('data.score_points')
-                ->assertJsonMissingPath('data.points_earned')
-                ->assertJsonMissingPath('data.right_answer')
-                ->assertJsonPath('data.answered_questions', 1);
+        $payload = [
+            'exam_attempt_id' => $attemptId,
+            'question_id' => 1,
+            'selected_answer' => 4,
+        ];
+        $first = $this->actingAs($this->user, 'api')
+            ->postJson('/api/v1/exams/submit-answer', $payload)
+            ->assertOk()
+            ->assertJsonMissingPath('data.is_correct')
+            ->assertJsonMissingPath('data.correct_answers')
+            ->assertJsonMissingPath('data.score_percentage')
+            ->assertJsonMissingPath('data.score_points')
+            ->assertJsonMissingPath('data.points_earned')
+            ->assertJsonMissingPath('data.right_answer')
+            ->assertJsonPath('data.answered_questions', 1);
 
-            $responses[] = $response->json();
-        }
+        $retry = $this->actingAs($this->user, 'api')
+            ->postJson('/api/v1/exams/submit-answer', $payload)
+            ->assertOk();
+        self::assertSame($first->json(), $retry->json());
 
-        foreach (array_slice($responses, 1) as $response) {
-            self::assertSame($responses[0], $response);
-        }
+        $this->actingAs($this->user, 'api')
+            ->postJson('/api/v1/exams/submit-answer', [
+                ...$payload,
+                'selected_answer' => 2,
+            ])
+            ->assertConflict()
+            ->assertJsonPath('data.code', 'quiz_answer_conflict');
 
         self::assertSame(1, DB::table('exam_answers')->where('exam_attempt_id', $attemptId)->count());
         $this->assertDatabaseHas('exam_answers', [

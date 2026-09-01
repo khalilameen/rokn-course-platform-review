@@ -5,16 +5,12 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Order;
-use App\Models\Bill;
 use App\Models\Course;
 use App\Models\CourseModule;
 use App\Models\CourseSection;
 use App\Services\CoursePublishingService;
 use App\Services\PaymentChannelReportService;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\DB;
+use App\Support\BusinessClock;
 
 
 class HomeController extends Controller
@@ -45,6 +41,7 @@ class HomeController extends Controller
                 ->withCount(['modules', 'sections'])
                 ->whereNull('parent_id')
                 ->latest('updated_at')
+                ->latest('id')
                 ->paginate(12)
                 ->withQueryString();
             $publishingAudits = $courses->getCollection()->mapWithKeys(
@@ -60,58 +57,8 @@ class HomeController extends Controller
             return view('admin.home.moderator', compact('courses', 'publishingAudits', 'contentSummary'));
         }
 
-        $provider_requests = User::where('provider_request', true)->get();
-
-        // Get visitor statistics for the last month
-        $lastMonth = now()->subMonth();
-        $visitorStats = \App\Models\Visitor::where('visited_at', '>=', $lastMonth)
-            ->selectRaw('DATE(visited_at) as date, COUNT(*) as count')
-            ->groupBy('date')
-            ->orderBy('date')
-            ->get()
-            ->map(function($item) {
-                return [
-                    'date' => $item->date,
-                    'count' => $item->count
-                ];
-            });
-
-        // Get daily visitor counts for the last 30 days
-        $dailyVisitors = [];
-        for ($i = 29; $i >= 0; $i--) {
-            $date = now()->subDays($i)->format('Y-m-d');
-            $count = $visitorStats->where('date', $date)->first()['count'] ?? 0;
-            $dailyVisitors[] = [
-                'date' => now()->subDays($i)->format('M d'),
-                'count' => $count
-            ];
-        }
-
-        // Get browser statistics
-        $browserStats = \App\Models\Visitor::where('visited_at', '>=', $lastMonth)
-            ->selectRaw('browser, COUNT(*) as count')
-            ->groupBy('browser')
-            ->orderBy('count', 'desc')
-            ->limit(5)
-            ->get();
-
-        // Get device type statistics
-        $deviceStats = \App\Models\Visitor::where('visited_at', '>=', $lastMonth)
-            ->selectRaw('device_type, COUNT(*) as count')
-            ->groupBy('device_type')
-            ->orderBy('count', 'desc')
-            ->get();
-
         // Cash-channel totals exclude sandbox/test transactions. Wallet totals
         // remain virtual units and are reported independently below.
-        $approvedCashOrders = Order::query()
-            ->whereIn('payment_method', $paymentChannels->methods())
-            ->whereNotNull('package_id')
-            ->where('status', Order::STATUS_APPROVED)
-            ->where(function ($query): void {
-                $query->whereNull('gateway_settlement_status')
-                    ->orWhere('gateway_settlement_status', '<>', 'test_purchase');
-            });
         $pendingCashOrders = Order::query()
             ->whereIn('payment_method', $paymentChannels->methods())
             ->whereNotNull('package_id')
@@ -121,116 +68,88 @@ class HomeController extends Controller
         $totalRevenue = (float) $paymentChannelReport['egp']['gross_amount'];
         $pendingCash = (float) (clone $pendingCashOrders)->sum('final_amount');
 
+        $businessNow = BusinessClock::now();
+        $chartStart = $businessNow->subMonths(5)->startOfMonth()->utc();
+        $chartEnd = $businessNow->addMonth()->startOfMonth()->utc();
+        $monthlyGross = $paymentChannels->monthlyEgpGross($chartStart, $chartEnd);
         $monthlyRevenue = [];
         for ($i = 5; $i >= 0; $i--) {
-            $date = now()->subMonths($i);
+            $date = $businessNow->subMonths($i);
             $monthName = $date->locale('ar')->format('M Y');
-            $monthReport = $paymentChannels->summary(
-                $date->copy()->startOfMonth(),
-                $date->copy()->endOfMonth()
-            );
-            $monthCashRevenue = (float) $monthReport['egp']['gross_amount'];
+            $monthCashRevenue = (float) $monthlyGross->get($date->format('Y-m'), 0);
 
             $monthlyRevenue[] = [
                 'month' => $monthName,
                 'course_revenue' => $monthCashRevenue,
-                'subscription_revenue' => 0,
-                'total' => $monthCashRevenue,
             ];
         }
-
-        $paymentMethods = $paymentChannelReport['rows']
-            ->where('currency', 'EGP')
-            ->map(function(array $item) {
-                return [
-                    'method' => $item['label'],
-                    'total' => (float) $item['gross_amount'],
-                ];
-            });
 
         // Revenue Statistics Summary
         $revenueStats = [
             'total_revenue' => $totalRevenue,
-            'course_revenue' => $totalRevenue,
-            'subscription_revenue' => 0,
             'pending_payments' => $pendingCash,
-            'paid_bills_count' => (clone $approvedCashOrders)->count(),
             'pending_bills_count' => (clone $pendingCashOrders)->count(),
-            'active_subscriptions_count' => 0,
             'confirmed_net_revenue' => $paymentChannelReport['egp']['confirmed_net_amount'],
-            'estimated_net_revenue' => $paymentChannelReport['egp']['estimated_net_amount'],
-            'pending_settlements_count' => $paymentChannelReport['egp']['pending_settlement_count'],
+            'provider_settlement_pending_count' => $paymentChannelReport['egp']['pending_settlement_count'],
         ];
 
-        $currentMonth = now();
-        $previousMonth = now()->subMonth();
-        $currentMonthRevenue = (float) $paymentChannels->summary(
-            $currentMonth->copy()->startOfMonth(),
-            $currentMonth->copy()->endOfMonth()
-        )['egp']['gross_amount'];
-        $previousMonthRevenue = (float) $paymentChannels->summary(
-            $previousMonth->copy()->startOfMonth(),
-            $previousMonth->copy()->endOfMonth()
-        )['egp']['gross_amount'];
+        $currentMonth = $businessNow;
+        $previousMonth = $businessNow->subMonth();
+        $currentMonthRevenue = (float) $monthlyGross->get($currentMonth->format('Y-m'), 0);
+        $previousMonthRevenue = (float) $monthlyGross->get($previousMonth->format('Y-m'), 0);
 
         $revenueStats['current_month_revenue'] = $currentMonthRevenue;
-        $revenueStats['current_month_course_revenue'] = $currentMonthRevenue;
-        $revenueStats['current_month_subscription_revenue'] = 0;
-        $revenueStats['current_month_target_subscription'] = 0;
         $revenueStats['previous_month_revenue'] = $previousMonthRevenue;
-        $revenueStats['previous_month_course_revenue'] = $previousMonthRevenue;
-        $revenueStats['previous_month_subscription_revenue'] = 0;
 
         $revenueStats['revenue_growth'] = $previousMonthRevenue > 0
             ? (float) ((($currentMonthRevenue - $previousMonthRevenue) / $previousMonthRevenue) * 100)
             : 0;
 
-        $courseStats = \App\Models\Course::whereNull('parent_id')
+        $monthStart = $currentMonth->startOfMonth()->utc();
+        $nextMonthStart = $currentMonth->addMonth()->startOfMonth()->utc();
+        $courseStats = Order::query()
+            ->select('course_id')
+            ->selectRaw('COUNT(*) as total_buy_count')
+            ->selectRaw('SUM(COALESCE(paid_coins, 0)) as paid_coins')
+            ->selectRaw('SUM(COALESCE(reward_coins, 0)) as reward_coins')
+            ->selectRaw(
+                'SUM(CASE WHEN approved_at >= ? AND approved_at < ? THEN 1 ELSE 0 END) as current_month_buy_count',
+                [$monthStart, $nextMonthStart]
+            )
+            ->whereNotNull('course_id')
+            ->whereHas('course', fn ($course) => $course->whereNull('parent_id'))
+            ->whereIn('payment_method', [
+                Order::PAYMENT_METHOD_WALLET,
+                Order::PAYMENT_METHOD_WALLET_COINS,
+            ])
+            ->financiallyEffective()
+            ->with('course:id,name_ar,name_en')
+            ->groupBy('course_id')
             ->get()
-            ->map(function($course) use ($currentMonth) {
-                $orders = Order::query()
-                    ->where('course_id', $course->id)
-                    ->whereIn('payment_method', [
-                        Order::PAYMENT_METHOD_WALLET,
-                        Order::PAYMENT_METHOD_WALLET_COINS,
-                    ])
-                    ->where('status', Order::STATUS_APPROVED);
-                $currentOrders = (clone $orders)
-                    ->whereYear('approved_at', $currentMonth->year)
-                    ->whereMonth('approved_at', $currentMonth->month);
-
-                return [
-                    'id' => $course->id,
-                    'name' => $course->name_ar ?: $course->name_en,
-                    'total_buy_count' => (clone $orders)->count(),
-                    'total_revenue' => (int) (clone $orders)->sum('total_coins'),
-                    'paid_coins' => (int) (clone $orders)->sum('paid_coins'),
-                    'reward_coins' => (int) (clone $orders)->sum('reward_coins'),
-                    'current_month_buy_count' => (clone $currentOrders)->count(),
-                    'current_month_revenue' => (int) (clone $currentOrders)->sum('total_coins'),
-                    'current_month_paid_coins' => (int) (clone $currentOrders)->sum('paid_coins'),
-                    'current_month_reward_coins' => (int) (clone $currentOrders)->sum('reward_coins'),
-                ];
-            })
-            ->filter(function($course) {
-                return $course['total_buy_count'] > 0;
-            })
+            ->map(fn (Order $order): array => [
+                'name' => (string) ($order->course?->name_ar ?: $order->course?->name_en),
+                'total_buy_count' => (int) $order->total_buy_count,
+                'paid_coins' => (int) $order->paid_coins,
+                'reward_coins' => (int) $order->reward_coins,
+                'current_month_buy_count' => (int) $order->current_month_buy_count,
+            ])
             ->sortByDesc('paid_coins')
             ->values();
 
         $designSettings = $this->getDesignSettings();
+        $platformStats = [
+            'courses' => Course::query()->whereNull('parent_id')->count(),
+            'lessons' => \App\Models\Lesson::query()->count(),
+            'students' => User::query()->students()->count(),
+        ];
 
         return view('admin.home.index', compact(
-            'provider_requests',
-            'dailyVisitors',
-            'browserStats',
-            'deviceStats',
             'designSettings',
             'revenueStats',
             'monthlyRevenue',
-            'paymentMethods',
             'paymentChannelReport',
-            'courseStats'
+            'courseStats',
+            'platformStats'
         ));
     }
 }

@@ -29,6 +29,13 @@
                     <div class="profile-phone">
                         <i class="fa fa-phone"></i> {{ $user->phone }}
                     </div>
+                    @if($user->socialAccounts->isNotEmpty())
+                        @php($providerLabels = ['google' => 'Google', 'facebook' => 'Facebook', 'tiktok' => 'TikTok', 'apple' => 'Apple'])
+                        <div class="profile-phone">
+                            <i class="fa fa-sign-in"></i>
+                            {{ $user->socialAccounts->map(fn ($account) => $providerLabels[$account->provider] ?? ucfirst($account->provider))->implode(' · ') }}
+                        </div>
+                    @endif
                 </div>
 
                 <div class="profile-body">
@@ -54,6 +61,7 @@
                         <form action="{{ route('admin.users.deactive', $user->id) }}" method="POST" class="admin-inline-form">
                             @csrf
                             @method('PATCH')
+                            <input type="hidden" name="expected_active" value="{{ $user->active ? 1 : 0 }}">
                             <button type="submit" class="btn-action-modern btn-toggle {{ !$user->active ? 'activate' : '' }}">
                                 <i class="fa {{ $user->active ? 'fa-ban' : 'fa-check-circle' }}"></i>
                                 {{ $user->active ? 'تعطيل الحساب' : 'تفعيل الحساب' }}
@@ -92,10 +100,11 @@
                             سيظهر الإشعار داخل التطبيق، لكن الهاتف غير مسجل لاستقبال Push حاليًا.
                         @endif
                     </div>
-                    {!! Form::open(['method' => 'POST', 'route' => ['admin.users.send_notification', $user->id]]) !!}
+                    {!! Form::open(['method' => 'POST', 'route' => ['admin.users.send_notification', $user->id], 'files' => true]) !!}
                         <div class="notification-form">
-                            <input name="title" placeholder="عنوان الإشعار..." class="notification-input notification-input--title" type="text" required>
-                            <input name="message" id="notifications-input" placeholder="اكتب الإشعار هنا..." class="notification-input" type="text" required>
+                            <input name="title" maxlength="80" placeholder="عنوان قصير" class="notification-input notification-input--title" type="text" required>
+                            <input name="message" maxlength="240" id="notifications-input" placeholder="اكتب المطلوب مباشرة" class="notification-input" type="text" required>
+                            <input accept="image/jpeg,image/png,image/webp" aria-label="صورة الإشعار" name="image" type="file">
                             <button type="submit" class="btn-send-notification">
                                 <i class="fa fa-paper-plane"></i> إرسال
                             </button>
@@ -124,7 +133,7 @@
                                         <p class="note-text">{{ $note->note }}</p>
                                         <div class="note-meta">
                                             <span>
-                                                <i class="fa fa-clock-o"></i> {{ $note->created_at->format('Y-m-d H:i') }}
+                                                <i class="fa fa-clock-o"></i> {{ \App\Support\BusinessClock::format($note->created_at) }}
                                             </span>
                                             @if($note->createdBy)
                                                 <span>
@@ -254,7 +263,7 @@
                                                     <span class="text-muted">-</span>
                                                 @endif
                                             </td>
-                                            <td>{{ $result->completed_at ? $result->completed_at->format('Y-m-d H:i') : $result->created_at->format('Y-m-d H:i') }}</td>
+                                            <td>{{ \App\Support\BusinessClock::format($result->completed_at ?: $result->created_at) }}</td>
                                             <td>
                                                 <a href="{{ route('admin.exam-results.show', $result->id) }}"
                                                    class="btn btn-modern btn-modern-primary btn-result-view">
@@ -389,11 +398,11 @@
                                                         <span class="stat-badge stat-badge-light">{{ $order->status }}</span>
                                                 @endswitch
                                             </td>
-                                            <td>{{ $order->created_at->format('Y-m-d H:i') }}</td>
+                                            <td>{{ \App\Support\BusinessClock::format($order->created_at) }}</td>
                                             <td>
                                                 @if($order->approved_at)
                                                     <small>
-                                                        {{ $order->approved_at->format('Y-m-d') }}
+                                                        {{ \App\Support\BusinessClock::format($order->approved_at, 'Y-m-d') }}
                                                         @if($order->approvedBy)
                                                             <br><i class="fa fa-user"></i> {{ $order->approvedBy->name }}
                                                         @endif
@@ -544,7 +553,7 @@
                                             </td>
                                             <td>
                                                 @if($bill->paid_at)
-                                                    {{ $bill->paid_at->format('Y-m-d H:i') }}
+                                                    {{ \App\Support\BusinessClock::format($bill->paid_at) }}
                                                 @else
                                                     <span class="text-muted">لم يدفع</span>
                                                 @endif

@@ -5,8 +5,9 @@ namespace App\Http\Controllers\Admin;
 use App\Models\Category;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\CategoryRequest;
-
-use Illuminate\Http\Request;
+use App\Services\StoredFileDeletionService;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class CategoryController extends Controller
 {
@@ -38,12 +39,24 @@ class CategoryController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
      */
-    public function store(Request $request)
+    public function store(CategoryRequest $request)
     {
-        $category = Category::create($request->input());
-        if ($request->hasFile('image')) {
-            $file = $request->file('image');
-            $category->storeImage($file, 'categories', 'featured');
+        $imagePath = $request->hasFile('image')
+            ? $request->file('image')->store('categories', 'public')
+            : null;
+        if ($request->hasFile('image') && (!is_string($imagePath) || $imagePath === '')) {
+            throw new \RuntimeException('Category image storage failed');
+        }
+        try {
+            DB::transaction(function () use ($request, $imagePath): void {
+                $category = Category::create($request->safe()->except('image'));
+                if ($imagePath) {
+                    $category->allPhotos()->create(['path' => $imagePath, 'type' => 'featured']);
+                }
+            }, 3);
+        } catch (\Throwable $exception) {
+            if ($imagePath) app(StoredFileDeletionService::class)->deleteOrQueue('public', $imagePath);
+            throw $exception;
         }
 
         return redirect()->route('admin.categories.index')->with('success', 'تمت الإضافة بنجاح ');
@@ -57,7 +70,8 @@ class CategoryController extends Controller
      */
     public function edit(Category $category)
     {
-         return view('admin.categories.edit', compact('category'));
+         $editorVersion = $this->editorVersion($category);
+         return view('admin.categories.edit', compact('category', 'editorVersion'));
     }
 
     /**
@@ -67,12 +81,33 @@ class CategoryController extends Controller
      * @param  \App\Category  $category
      * @return \Illuminate\Http\Response
      */
-    public function update(Request $request, Category $category)
+    public function update(CategoryRequest $request, Category $category)
     {
-        $category->update($request->input());
-        if ($request->hasFile('image')) {
-            $file = $request->file('image');
-            $category->replaceImage($file, 'categories', 'featured');
+        $request->validate(['editor_version' => 'required|string|size:64']);
+        $newImagePath = $request->hasFile('image')
+            ? $request->file('image')->store('categories', 'public')
+            : null;
+        if ($request->hasFile('image') && (!is_string($newImagePath) || $newImagePath === '')) {
+            throw new \RuntimeException('Category image storage failed');
+        }
+        try {
+            DB::transaction(function () use ($request, $category, $newImagePath): void {
+                $locked = Category::query()->whereKey($category->id)->lockForUpdate()->firstOrFail();
+                if (!hash_equals($this->editorVersion($locked), (string) $request->input('editor_version'))) {
+                    throw ValidationException::withMessages([
+                        'editor_version' => 'عدّل شخص آخر هذا القسم\nأعد تحميل الصفحة قبل الحفظ',
+                    ]);
+                }
+                $locked->update($request->safe()->except('image'));
+                if ($newImagePath) {
+                    $oldPhotos = $locked->allPhotos()->where('type', 'featured')->lockForUpdate()->get();
+                    $locked->allPhotos()->create(['path' => $newImagePath, 'type' => 'featured']);
+                    $oldPhotos->each->delete();
+                }
+            }, 3);
+        } catch (\Throwable $exception) {
+            if ($newImagePath) app(StoredFileDeletionService::class)->deleteOrQueue('public', $newImagePath);
+            throw $exception;
         }
 
         return redirect()->route('admin.categories.index')->with('success', 'تم التعديل بنجاح');
@@ -86,8 +121,31 @@ class CategoryController extends Controller
      */
     public function destroy(Category $category)
     {
-        $category->delete();
+        $blocked = DB::transaction(function () use ($category): bool {
+            $locked = Category::query()->whereKey($category->id)->lockForUpdate()->firstOrFail();
+            if ($locked->itemLists()->exists()) return true;
+            $locked->delete();
+            return false;
+        }, 3);
+        if ($blocked) {
+            return redirect()->route('admin.categories.index')->with(
+                'error',
+                'انقل المحتوى القديم إلى قسم آخر قبل حذف هذا القسم'
+            );
+        }
 
         return redirect()->route('admin.categories.index')->with('success', 'تم الحذف بنجاح ');
+    }
+
+    private function editorVersion(Category $category): string
+    {
+        return hash('sha256', json_encode([
+            $category->name_ar,
+            $category->name_en,
+            $category->type,
+            $category->description_ar,
+            $category->description_en,
+            $category->photo?->path,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     }
 }

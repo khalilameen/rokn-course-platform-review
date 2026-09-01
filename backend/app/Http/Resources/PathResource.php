@@ -39,8 +39,8 @@ class PathResource extends JsonResource
             }),
             'courses' => BaseCourseResource::collection($this->whenLoaded('courses')),
             'courses_count' => $this->courses_count ?? $this->courses->count(),
-            'created_at' => (string)$this->created_at,
-            'updated_at' => (string)$this->updated_at,
+            'created_at' => $this->created_at?->toIso8601String(),
+            'updated_at' => $this->updated_at?->toIso8601String(),
         ];
     }
 }

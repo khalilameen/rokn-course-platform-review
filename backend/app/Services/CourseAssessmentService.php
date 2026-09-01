@@ -32,25 +32,21 @@ final readonly class CourseAssessmentService
         'priority',
     ];
 
+    public function __construct(
+        private CourseCompletionService $courseCompletion,
+        private FinancialProvenanceService $financialProvenance
+    ) {}
+
     public function accessibleQuizzes(?User $user, int $perPage): LengthAwarePaginator
     {
         $courseIds = $this->accessibleCourseIds($user);
 
         return ItemList::quiz()
-            ->where(function (Builder $query) use ($courseIds): void {
-                $query->whereIn('course_id', $courseIds)
-                    ->orWhereHas('courseSection', function (Builder $sections) use ($courseIds): void {
-                        $sections->whereIn('course_id', $courseIds);
-                    });
+            ->whereHas('courseSection', function (Builder $sections) use ($courseIds): void {
+                $sections->whereIn('course_id', $courseIds);
             })
-            ->with([
-                'photo',
-                'questions' => function (Relation $questions): void {
-                    $questions->with('photo')
-                        ->orderBy('priority')
-                        ->orderBy('id');
-                },
-            ])
+            ->with('photo')
+            ->withCount('questions')
             ->orderBy('id')
             ->paginate($perPage);
     }
@@ -61,18 +57,19 @@ final readonly class CourseAssessmentService
             return false;
         }
 
-        $courseIds = collect([(int) $quiz->course_id])
-            ->merge(
-                CourseSection::query()
-                    ->where('sectionable_type', ItemList::class)
-                    ->where('sectionable_id', $quiz->id)
-                    ->pluck('course_id')
-            )
-            ->filter(fn ($courseId): bool => (int) $courseId > 0)
-            ->map(fn ($courseId): int => (int) $courseId)
-            ->unique();
+        $sections = CourseSection::query()
+            ->where('sectionable_type', ItemList::class)
+            ->where('sectionable_id', $quiz->id)
+            ->get();
+        if ($sections->isNotEmpty()) {
+            return $sections->contains(
+                fn (CourseSection $section): bool => $this->courseCompletion->canAccessSection($user, $section)
+            );
+        }
 
-        return $courseIds->intersect($this->accessibleCourseIds($user))->isNotEmpty();
+        // Unsectioned legacy quizzes are not part of the authored course graph
+        // and cannot become reachable merely through a stale course_id.
+        return false;
     }
 
     public function exam(int $quizId): ItemList
@@ -86,17 +83,6 @@ final readonly class CourseAssessmentService
             ])
             ->where('type', 'quiz')
             ->findOrFail($quizId);
-    }
-
-    public function hasDirectCourseAccess(User $user, int $courseId): bool
-    {
-        $enrollment = CourseEnrollment::query()
-            ->where('user_id', $user->id)
-            ->where('course_id', $courseId)
-            ->where('is_active', true)
-            ->first();
-
-        return $enrollment !== null && $enrollment->isActive();
     }
 
     public function examSection(int $courseId, int $sectionId): ?CourseSection
@@ -174,16 +160,27 @@ final readonly class CourseAssessmentService
             return [];
         }
 
-        $directCourseIds = CourseEnrollment::query()
+        $enrollments = CourseEnrollment::query()
             ->where('user_id', (int) $user->id)
             ->where('is_active', true)
             ->where(function (Builder $enrollments): void {
                 $enrollments->whereNull('expires_at')
                     ->orWhere('expires_at', '>', now());
             })
-            ->pluck('course_id')
-            ->map(fn ($courseId): int => (int) $courseId)
-            ->filter()
+            ->with(['course.sections', 'course.courseSection'])
+            ->get()
+            ->reject(fn (CourseEnrollment $enrollment): bool =>
+                $this->financialProvenance->enrollmentHasActiveHold($enrollment, ['course'])
+            );
+
+        $directCourseIds = $enrollments
+            ->map->course
+            ->filter(fn (?Course $course): bool =>
+                $course !== null
+                && !$course->isNestedCourse()
+                && $course->isPublishedForLearning()
+            )
+            ->map(fn (Course $course): int => (int) $course->id)
             ->unique()
             ->values();
 
@@ -191,12 +188,16 @@ final readonly class CourseAssessmentService
             return [];
         }
 
-        $bundledCourseIds = CourseSection::query()
+        $bundledIds = CourseSection::query()
             ->where('sectionable_type', Course::class)
             ->whereIn('course_id', $directCourseIds)
-            ->pluck('sectionable_id')
-            ->map(fn ($courseId): int => (int) $courseId)
-            ->filter();
+            ->pluck('sectionable_id');
+        $bundledCourseIds = Course::query()
+            ->whereIn('id', $bundledIds)
+            ->where('is_coming_soon', false)
+            ->whereHas('sections')
+            ->pluck('id')
+            ->map(fn ($courseId): int => (int) $courseId);
 
         return $directCourseIds
             ->merge($bundledCourseIds)

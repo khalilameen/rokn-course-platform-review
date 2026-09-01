@@ -42,6 +42,8 @@
                                                     <div class="quiz-actions">
                                                         <form action="{{ route('admin.quizzes.copy', $quizz->id) }}" method="POST" class="d-inline">
                                                             @csrf
+                                                            <input type="hidden" name="editor_version" value="{{ hash('sha256', $quizz->id.'|'.optional($quizz->updated_at)->format('Y-m-d H:i:s.u')) }}">
+                                                            <input type="hidden" name="authoring_request_id" value="{{ (string) Str::uuid() }}">
                                                             <button type="submit" class="btn btn-modern btn-copy">
                                                                 <i class="fa fa-copy"></i>
                                                                 نسخ
@@ -62,6 +64,7 @@
                                         <form class="admin-inline-hidden" id="deleteForm{{$quizz->id}}" action="{{ route('admin.quizzes.destroy', $quizz->id) }}" method="post">
                                             <input name="_method" type="hidden" value="DELETE">
                                             @csrf
+                                            <input type="hidden" name="editor_version" value="{{ hash('sha256', $quizz->id.'|'.optional($quizz->updated_at)->format('Y-m-d H:i:s.u')) }}">
                                         </form>
                                     </div>
                                 @endforeach

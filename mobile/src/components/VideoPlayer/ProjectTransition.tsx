@@ -4,12 +4,14 @@ import type {RootNavigation} from '../../navigation/types';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   NativeModules,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import {
@@ -23,23 +25,47 @@ import {formatArabicDisplayText} from '../../constants/arabicFormatting';
 import {rtlRowStyle, textDirection} from '../../constants/designSystem';
 import {Fonts} from '../../constants/styleConstants';
 import {openCourseAttachment} from './attachmentActions';
-import {CourseProject, SelectedProjectFile} from './types';
+import {
+  CourseProject,
+  ProjectFeedbackThread,
+  SelectedProjectFile,
+} from './types';
 import type {ProjectSubmissionOutcome} from './courseLearningApi';
+import {
+  loadProjectFeedbackThread,
+  sendProjectFeedbackMessage,
+} from './courseLearningApi';
 import {goBackOrHome} from '../../navigation/RootNavigationHelper';
+import {secureRandomUuid} from '../../utils/secureRandom';
 import {
   PROJECT_SUBMISSION_FORMATS_LABEL,
   PROJECT_SUBMISSION_MAX_LABEL,
   validateProjectFile,
 } from '../../config/projects';
+import {learnerErrorMessage} from '../../utils/errorPayload';
+import {cleanUnicodeText, truncateGraphemes} from '../../utils/unicodeText';
+import {
+  cacheProjectDraftFile,
+  clearProjectSubmissionDraft,
+  loadProjectSubmissionDraft,
+  saveProjectSubmissionDraft,
+} from '../../services/projectSubmissionDraft';
+import {removeLearnerDraftFile} from '../../services/learnerDraftFiles';
+import {useAppActiveState} from '../../hooks/useAppActiveState';
+import {showMediaPickerFailure} from '../../services/mediaPickerErrors';
 
 interface ProjectTransitionProps {
+  active: boolean;
   project: CourseProject;
   moduleTitle: string;
   width: number;
   height: number;
   topInset?: number;
   bottomInset?: number;
-  onSubmit: (file: SelectedProjectFile) => Promise<ProjectSubmissionOutcome>;
+  onSubmit: (
+    file: SelectedProjectFile,
+    note?: string,
+  ) => Promise<ProjectSubmissionOutcome>;
   onContinue?: () => void;
 }
 
@@ -70,8 +96,10 @@ const pickMedia = (): Promise<SelectedProjectFile | null> =>
           resolve(null);
           return;
         }
-        if (response.errorMessage) {
-          Alert.alert('تعذر اختيار الملف', response.errorMessage);
+        if (response.errorCode || response.errorMessage) {
+          // Native picker diagnostics vary by vendor and are often technical
+          // English strings. Keep them in telemetry rather than product copy.
+          showMediaPickerFailure(response.errorCode);
           resolve(null);
           return;
         }
@@ -91,6 +119,7 @@ const pickMedia = (): Promise<SelectedProjectFile | null> =>
   });
 
 const ProjectTransition = ({
+  active,
   project,
   moduleTitle,
   width,
@@ -101,12 +130,43 @@ const ProjectTransition = ({
   onContinue,
 }: ProjectTransitionProps) => {
   const navigation = useNavigation<RootNavigation>();
+  const appIsActive = useAppActiveState();
+  const pickerFlightRef = useRef(false);
   const [selectedFile, setSelectedFile] = useState<SelectedProjectFile | null>(
     null,
   );
   const [status, setStatus] = useState(project.status);
+  const [submissionNote, setSubmissionNote] = useState('');
+  const [submissionDraftReady, setSubmissionDraftReady] = useState(false);
+  const [submissionDraftSaveError, setSubmissionDraftSaveError] =
+    useState(false);
   const [syncNote, setSyncNote] = useState('');
+  const [feedbackThread, setFeedbackThread] = useState<
+    ProjectFeedbackThread | undefined
+  >(project.feedbackThread);
+  const [feedbackDraft, setFeedbackDraft] = useState('');
+  const normalizedSubmissionNote = cleanUnicodeText(submissionNote);
+  const normalizedFeedbackDraft = cleanUnicodeText(feedbackDraft);
+  const [feedbackSending, setFeedbackSending] = useState(false);
+  const [feedbackError, setFeedbackError] = useState('');
+  const feedbackPending = Boolean(
+    feedbackThread?.messages.some(message =>
+      ['queued', 'sent', 'streaming'].includes(message.status),
+    ),
+  );
   const submissionInFlightRef = useRef(false);
+  const feedbackRequestRef = useRef<{text: string; id: string} | null>(null);
+  const feedbackSendFlightRef = useRef<symbol | null>(null);
+  const feedbackGenerationRef = useRef(0);
+  const draftGenerationRef = useRef(0);
+  const submissionDraftSnapshotRef = useRef({
+    file: selectedFile,
+    note: submissionNote,
+  });
+  submissionDraftSnapshotRef.current = {
+    file: selectedFile,
+    note: submissionNote,
+  };
 
   useEffect(() => {
     setStatus(project.status);
@@ -114,6 +174,179 @@ const ProjectTransition = ({
       setSyncNote('');
     }
   }, [project.status]);
+
+  useEffect(() => {
+    const generation = ++draftGenerationRef.current;
+    setSubmissionDraftReady(false);
+    setSubmissionDraftSaveError(false);
+    if (project.status === 'passed') {
+      setSelectedFile(null);
+      setSubmissionNote('');
+      void clearProjectSubmissionDraft(project.id);
+      setSubmissionDraftReady(true);
+      return;
+    }
+    void loadProjectSubmissionDraft(project.id)
+      .then(draft => {
+        if (generation !== draftGenerationRef.current || !draft) return;
+        setSelectedFile(draft.file || null);
+        setSubmissionNote(draft.note);
+      })
+      .catch(() => {
+        if (generation === draftGenerationRef.current) {
+          setSubmissionDraftSaveError(true);
+        }
+      })
+      .finally(() => {
+        if (generation === draftGenerationRef.current) {
+          setSubmissionDraftReady(true);
+        }
+      });
+    return () => {
+      draftGenerationRef.current += 1;
+    };
+  }, [project.id, project.status]);
+
+  useEffect(() => {
+    if (project.status === 'passed' || !submissionDraftReady) return;
+    const timer = setTimeout(() => {
+      void saveProjectSubmissionDraft(project.id, {
+        file: selectedFile,
+        note: submissionNote,
+        updatedAt: Date.now(),
+      })
+        .then(() => setSubmissionDraftSaveError(false))
+        .catch(() => setSubmissionDraftSaveError(true));
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [
+    project.id,
+    project.status,
+    selectedFile,
+    submissionDraftReady,
+    submissionNote,
+  ]);
+
+  useEffect(() => {
+    if (
+      appIsActive ||
+      project.status === 'passed' ||
+      !submissionDraftReady
+    ) {
+      return;
+    }
+    void saveProjectSubmissionDraft(project.id, {
+      ...submissionDraftSnapshotRef.current,
+      updatedAt: Date.now(),
+    }).catch(() => setSubmissionDraftSaveError(true));
+  }, [appIsActive, project.id, project.status, submissionDraftReady]);
+
+  useEffect(() => {
+    feedbackGenerationRef.current += 1;
+    feedbackRequestRef.current = null;
+    feedbackSendFlightRef.current = null;
+    setFeedbackSending(false);
+    setFeedbackError('');
+  }, [project.id]);
+
+  useEffect(() => {
+    setFeedbackThread(project.feedbackThread);
+  }, [project.feedbackThread, project.id]);
+
+  useEffect(() => {
+    if (status !== 'passed' || !active || !appIsActive) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let missingAttempts = 0;
+
+    const refresh = async () => {
+      try {
+        const next = await loadProjectFeedbackThread(
+          project.id,
+          feedbackThread?.id,
+        );
+        if (cancelled) return;
+        if (next) {
+          setFeedbackThread(next);
+          setFeedbackError('');
+        } else {
+          missingAttempts += 1;
+        }
+        const waiting = next?.messages.some(message =>
+          ['queued', 'sent', 'streaming'].includes(message.status),
+        );
+        if (waiting || (!next && missingAttempts < 30)) {
+          timer = setTimeout(() => void refresh(), 2200);
+        }
+      } catch {
+        if (!cancelled && feedbackThread?.id) {
+          timer = setTimeout(() => void refresh(), 3500);
+        }
+      }
+    };
+    void refresh();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [
+    active,
+    appIsActive,
+    feedbackPending,
+    feedbackThread?.id,
+    project.id,
+    status,
+  ]);
+
+  const sendFeedback = async (
+    text = feedbackDraft,
+    clientRequestId?: string,
+    forceNewRequest = false,
+  ) => {
+    const value = cleanUnicodeText(text);
+    if (
+      !feedbackThread?.canReply ||
+      !value ||
+      feedbackSending ||
+      feedbackSendFlightRef.current
+    )
+      return;
+    const flight = Symbol('project-feedback-send');
+    const generation = feedbackGenerationRef.current;
+    feedbackSendFlightRef.current = flight;
+    setFeedbackSending(true);
+    setFeedbackError('');
+    const requestId =
+      clientRequestId ||
+      (!forceNewRequest && feedbackRequestRef.current?.text === value
+        ? feedbackRequestRef.current.id
+        : secureRandomUuid());
+    feedbackRequestRef.current = {text: value, id: requestId};
+    try {
+      const next = await sendProjectFeedbackMessage(
+        feedbackThread.id,
+        value,
+        requestId,
+      );
+      if (generation !== feedbackGenerationRef.current) return;
+      setFeedbackThread(next);
+      setFeedbackDraft('');
+      feedbackRequestRef.current = null;
+    } catch (error: unknown) {
+      if (generation !== feedbackGenerationRef.current) return;
+      setFeedbackError(
+        learnerErrorMessage(error, 'لم تُرسل الرسالة\nحاول مرة أخرى'),
+      );
+    } finally {
+      if (
+        generation === feedbackGenerationRef.current &&
+        feedbackSendFlightRef.current === flight
+      ) {
+        feedbackSendFlightRef.current = null;
+        setFeedbackSending(false);
+      }
+    }
+  };
 
   const submitSelectedFile = async (file: SelectedProjectFile) => {
     try {
@@ -159,7 +392,6 @@ const ProjectTransition = ({
     }
     setStatus('reviewing');
     setSyncNote('');
-    const startedAt = Date.now();
     const provisionalFallback: ProjectSubmissionOutcome = {
       passed: false,
       synced: false,
@@ -168,7 +400,10 @@ const ProjectTransition = ({
     };
     let result = provisionalFallback;
     try {
-      result = await onSubmit(file);
+      result = await onSubmit(file, normalizedSubmissionNote);
+      await clearProjectSubmissionDraft(project.id, file);
+      setSelectedFile(null);
+      setSubmissionNote('');
     } catch (error: unknown) {
       if (
         error instanceof Error &&
@@ -182,13 +417,40 @@ const ProjectTransition = ({
         );
         return;
       }
-      result = provisionalFallback;
-    }
-    const elapsed = Date.now() - startedAt;
-    if (elapsed < 1500) {
-      await new Promise<void>(resolve =>
-        setTimeout(() => resolve(), 1500 - elapsed),
+      if (
+        error instanceof Error &&
+        error.message === 'PROJECT_FILE_COPY_FAILED'
+      ) {
+        setStatus(project.status);
+        setSyncNote('');
+        Alert.alert(
+          'تعذّر تجهيز الملف',
+          'اختر الملف مرة أخرى\nوتأكد من وجود مساحة كافية على الجهاز',
+        );
+        return;
+      }
+      const responseStatus = Number(
+        error && typeof error === 'object'
+          ? (error as {status?: unknown; response?: {status?: unknown}})
+              .status ??
+              (error as {response?: {status?: unknown}}).response?.status
+          : 0,
       );
+      setStatus('needs_retry');
+      setSyncNote('');
+      Alert.alert(
+        'لم يكتمل التسليم',
+        responseStatus === 401
+          ? 'سجّل الدخول ثم حاول مرة أخرى'
+          : responseStatus === 403
+          ? 'لم يعد هذا المشروع متاحًا لحسابك'
+          : responseStatus === 409
+          ? 'أكمل المحتوى السابق ثم حاول مرة أخرى'
+          : responseStatus === 422
+          ? 'راجع الملف المختار ثم حاول مرة أخرى'
+          : 'حاول تسليم المشروع مرة أخرى',
+      );
+      return;
     }
     setStatus(
       result.passed
@@ -199,14 +461,24 @@ const ProjectTransition = ({
     );
     if (result.provisional) {
       setSyncNote(
-        'استلمنا مشروعك\nسنفتح المقطع التالي بعد المراجعة',
+        result.synced
+          ? 'استلمنا مشروعك\nسنفتح المقطع التالي بعد المراجعة'
+          : 'نحفظ محاولتك\nوسنرسلها عند استقرار الاتصال',
       );
     }
   };
 
   const submit = async () => {
-    if (!selectedFile) {
-      Alert.alert('اختر ملف المشروع', 'صورة أو فيديو واضح لعملك');
+    if (
+      !selectedFile ||
+      (project.reportEnabled && normalizedSubmissionNote.length < 10)
+    ) {
+      Alert.alert(
+        !selectedFile ? 'اختر ملف المشروع' : 'اشرح ما نفذته',
+        !selectedFile
+          ? 'صورة أو فيديو واضح لعملك'
+          : 'اكتب سطرًا واضحًا عن محاولتك',
+      );
       return;
     }
     if (submissionInFlightRef.current) return;
@@ -218,8 +490,41 @@ const ProjectTransition = ({
     }
   };
 
+  const chooseProjectFile = async () => {
+    if (pickerFlightRef.current || submissionInFlightRef.current) return;
+    pickerFlightRef.current = true;
+    try {
+      const file = await pickMedia();
+      if (!file) return;
+      const size = await validateProjectFile(file);
+      const cached = await cacheProjectDraftFile({...file, size});
+      const previous = selectedFile;
+      setSelectedFile(cached);
+      await removeLearnerDraftFile(previous);
+    } catch (error: unknown) {
+      const code = error instanceof Error ? error.message : '';
+      Alert.alert(
+        code === 'PROJECT_FILE_TOO_LARGE'
+          ? 'حجم الملف كبير'
+          : code === 'PROJECT_FILE_TYPE_UNSUPPORTED'
+          ? 'صيغة الملف غير مدعومة'
+          : 'تعذّر قراءة الملف',
+        code === 'PROJECT_FILE_TOO_LARGE'
+          ? `الحد الأقصى ${PROJECT_SUBMISSION_MAX_LABEL}\nاختر نسخة أصغر`
+          : code === 'PROJECT_FILE_TYPE_UNSUPPORTED'
+          ? `اختر ${PROJECT_SUBMISSION_FORMATS_LABEL}`
+          : 'اختر الملف مرة أخرى أو نسخة أصغر',
+      );
+    } finally {
+      pickerFlightRef.current = false;
+    }
+  };
+
   return (
-    <View style={[styles.page, {width, height}]}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={topInset}
+      style={[styles.page, {width, height}]}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="العودة"
@@ -299,7 +604,7 @@ const ProjectTransition = ({
               <Text style={styles.successDescription}>
                 {onContinue
                   ? 'فتحنا لك المقطع التالي'
-                  : 'نجاحك اتسجل ومكانك محفوظ'}
+                  : 'تم اعتماد النتيجة وحفظ تقدمك'}
               </Text>
               {!!syncNote && <Text style={styles.syncNote}>{syncNote}</Text>}
               {!!onContinue && (
@@ -310,14 +615,112 @@ const ProjectTransition = ({
                   <Text style={styles.primaryButtonText}>أكمل الكورس</Text>
                 </Pressable>
               )}
+              {!!feedbackThread && (
+                <View style={styles.feedbackThread}>
+                  <View style={styles.feedbackHeader}>
+                    <Text style={styles.feedbackTitle}>شات ركن</Text>
+                    <Text style={styles.feedbackAvailability}>
+                      {feedbackThread.canReply ? 'متصل الآن' : 'تقرير مشروعك'}
+                    </Text>
+                  </View>
+                  {feedbackThread.messages.map(message => (
+                    <View
+                      key={message.id}
+                      style={[
+                        styles.feedbackBubble,
+                        message.role === 'user'
+                          ? styles.feedbackBubbleUser
+                          : styles.feedbackBubbleAssistant,
+                      ]}>
+                      {!!message.text && (
+                        <Text style={styles.feedbackMessage}>
+                          {formatArabicDisplayText(message.text)}
+                        </Text>
+                      )}
+                      {message.role === 'assistant' &&
+                        message.status === 'streaming' && (
+                          <Text style={styles.feedbackState}>يكتب الآن</Text>
+                        )}
+                      {message.role === 'assistant' &&
+                        message.status === 'failed' && (
+                          <Text style={styles.feedbackState}>
+                            {message.errorCode === 'plan_limit_reached'
+                              ? 'اكتملت رسائل متابعة المشروع في هذه الفئة'
+                              : 'تعذّر الرد الآن\nأرسل رسالتك مرة أخرى'}
+                          </Text>
+                        )}
+                      {message.role === 'user' &&
+                        message.status === 'queued' && (
+                          <Text style={styles.feedbackState}>جارٍ الإرسال</Text>
+                        )}
+                      {message.status === 'failed' &&
+                        message.role === 'user' &&
+                        message.errorCode !== 'plan_limit_reached' && (
+                          <Pressable
+                            accessibilityRole="button"
+                            disabled={feedbackSending}
+                            onPress={() =>
+                              void sendFeedback(
+                                message.text || '',
+                                undefined,
+                                true,
+                              )
+                            }>
+                            <Text style={styles.feedbackRetry}>
+                              إرسال مرة أخرى
+                            </Text>
+                          </Pressable>
+                        )}
+                    </View>
+                  ))}
+                  {feedbackThread.canReply &&
+                    feedbackThread.remainingMessages > 0 &&
+                    !feedbackPending && (
+                      <View style={styles.feedbackComposer}>
+                        <TextInput
+                          multiline
+                          value={feedbackDraft}
+                          onChangeText={value =>
+                            setFeedbackDraft(truncateGraphemes(value, 2000))
+                          }
+                          placeholder="اسأل عن مشروعك"
+                          placeholderTextColor="rgba(255,255,255,.38)"
+                          style={styles.feedbackInput}
+                        />
+                        <Pressable
+                          accessibilityRole="button"
+                          disabled={!normalizedFeedbackDraft || feedbackSending}
+                          onPress={() => void sendFeedback()}
+                          style={[
+                            styles.feedbackSend,
+                            (!normalizedFeedbackDraft || feedbackSending) &&
+                              styles.disabledButton,
+                          ]}>
+                          {feedbackSending ? (
+                            <ActivityIndicator color="#FFFFFF" size="small" />
+                          ) : (
+                            <Text style={styles.feedbackSendText}>إرسال</Text>
+                          )}
+                        </Pressable>
+                      </View>
+                    )}
+                  {!!feedbackError && (
+                    <Text
+                      accessibilityRole="alert"
+                      style={styles.feedbackError}>
+                      {feedbackError}
+                    </Text>
+                  )}
+                </View>
+              )}
             </View>
           ) : status === 'reviewing' ? (
             <View style={styles.reviewState}>
               <View style={styles.reviewLoader}>
                 <ActivityIndicator color="#76A9FF" size="large" />
               </View>
-              <Text style={styles.reviewTitle}>استلمنا مشروعك</Text>
-              <Text style={styles.reviewDescription}>نراجعه الآن ومكانك محفوظ</Text>
+              <Text style={styles.reviewTitle}>مشروعك محفوظ</Text>
+              <Text style={styles.reviewDescription}>سنحدّث النتيجة هنا</Text>
               {!!syncNote && <Text style={styles.syncNote}>{syncNote}</Text>}
             </View>
           ) : (
@@ -325,29 +728,7 @@ const ProjectTransition = ({
               <Pressable
                 accessibilityRole="button"
                 style={styles.uploadTarget}
-                onPress={async () => {
-                  const file = await pickMedia();
-                  if (file) {
-                    try {
-                      const size = await validateProjectFile(file);
-                      setSelectedFile({...file, size});
-                    } catch (error: unknown) {
-                      const code = error instanceof Error ? error.message : '';
-                      Alert.alert(
-                        code === 'PROJECT_FILE_TOO_LARGE'
-                          ? 'حجم الملف كبير'
-                          : code === 'PROJECT_FILE_TYPE_UNSUPPORTED'
-                          ? 'صيغة الملف غير مدعومة'
-                          : 'تعذّر قراءة حجم الملف',
-                        code === 'PROJECT_FILE_TOO_LARGE'
-                          ? `الحد الأقصى ${PROJECT_SUBMISSION_MAX_LABEL}\nاختر نسخة أصغر`
-                          : code === 'PROJECT_FILE_TYPE_UNSUPPORTED'
-                          ? `اختر ${PROJECT_SUBMISSION_FORMATS_LABEL}`
-                          : 'اختر الملف مرة أخرى أو نسخة أصغر',
-                      );
-                    }
-                  }
-                }}>
+                onPress={() => void chooseProjectFile()}>
                 <View style={styles.uploadIcon}>
                   <UploadIcon />
                 </View>
@@ -358,18 +739,40 @@ const ProjectTransition = ({
                       : 'ارفع صورة أو فيديو يوضح عملك'}
                   </Text>
                   <Text style={styles.uploadHint}>
-                    {selectedFile
-                      ? 'اضغط لتغيير الملف'
-                      : 'أظهر ما نفذته بوضوح'}
+                    {selectedFile ? 'اضغط لتغيير الملف' : 'أظهر ما نفذته بوضوح'}
                   </Text>
                 </View>
               </Pressable>
+              {project.reportEnabled && (
+                <TextInput
+                  multiline
+                  value={submissionNote}
+                  onChangeText={value =>
+                    setSubmissionNote(truncateGraphemes(value, 2000))
+                  }
+                  placeholder="اشرح ما نفذته باختصار"
+                  placeholderTextColor="rgba(255,255,255,.38)"
+                  style={styles.submissionNoteInput}
+                />
+              )}
+              {submissionDraftSaveError && (
+                <Text accessibilityRole="alert" style={styles.draftSaveError}>
+                  تعذّر حفظ المسودة على الجهاز
+                  {'\n'}اترك الصفحة مفتوحة حتى تسلّم المشروع
+                </Text>
+              )}
               <Pressable
                 accessibilityRole="button"
-                disabled={!selectedFile}
+                disabled={
+                  !selectedFile ||
+                  (project.reportEnabled && normalizedSubmissionNote.length < 10)
+                }
                 style={[
                   styles.primaryButton,
-                  !selectedFile && styles.disabledButton,
+                  (!selectedFile ||
+                    (project.reportEnabled &&
+                      normalizedSubmissionNote.length < 10)) &&
+                    styles.disabledButton,
                 ]}
                 onPress={submit}>
                 <Text style={styles.primaryButtonText}>سلّم المشروع</Text>
@@ -378,7 +781,7 @@ const ProjectTransition = ({
           )}
         </View>
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -544,6 +947,21 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     borderColor: 'rgba(118,169,255,.4)',
   },
+  submissionNoteInput: {
+    ...textDirection,
+    minHeight: 64,
+    maxHeight: 120,
+    borderRadius: 16,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    color: '#FFFFFF',
+    fontFamily: Fonts.regular,
+    fontSize: 12,
+    lineHeight: 20,
+    backgroundColor: 'rgba(255,255,255,.045)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,.09)',
+  },
   uploadIcon: {
     width: 48,
     height: 48,
@@ -667,5 +1085,109 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     textAlign: 'center',
     marginTop: 8,
+  },
+  draftSaveError: {
+    ...textDirection,
+    color: '#F3A3A3',
+    fontFamily: Fonts.medium,
+    fontSize: 12,
+    lineHeight: 19,
+    marginTop: 10,
+  },
+  feedbackThread: {
+    width: '100%',
+    marginTop: 18,
+    padding: 12,
+    borderRadius: 18,
+    gap: 8,
+    backgroundColor: '#0B111A',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,.08)',
+  },
+  feedbackHeader: {
+    ...rtlRowStyle,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+  },
+  feedbackTitle: {color: '#FFFFFF', fontFamily: Fonts.bold, fontSize: 14},
+  feedbackAvailability: {
+    color: '#67D39B',
+    fontFamily: Fonts.regular,
+    fontSize: 10,
+  },
+  feedbackBubble: {
+    maxWidth: '90%',
+    borderRadius: 15,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  feedbackBubbleAssistant: {
+    alignSelf: 'flex-end',
+    backgroundColor: '#17202C',
+    borderTopRightRadius: 5,
+  },
+  feedbackBubbleUser: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#236FE8',
+    borderTopLeftRadius: 5,
+  },
+  feedbackMessage: {
+    ...textDirection,
+    color: '#FFFFFF',
+    fontFamily: Fonts.regular,
+    fontSize: 12,
+    lineHeight: 20,
+  },
+  feedbackState: {
+    ...textDirection,
+    color: 'rgba(255,255,255,.58)',
+    fontFamily: Fonts.regular,
+    fontSize: 10,
+  },
+  feedbackRetry: {
+    color: '#FFFFFF',
+    fontFamily: Fonts.semiBold,
+    fontSize: 10,
+    marginTop: 4,
+  },
+  feedbackComposer: {
+    ...rtlRowStyle,
+    alignItems: 'flex-end',
+    gap: 7,
+    marginTop: 3,
+  },
+  feedbackInput: {
+    ...textDirection,
+    flex: 1,
+    minHeight: 44,
+    maxHeight: 110,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#FFFFFF',
+    fontFamily: Fonts.regular,
+    fontSize: 12,
+    backgroundColor: 'rgba(255,255,255,.06)',
+  },
+  feedbackSend: {
+    minWidth: 64,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#236FE8',
+  },
+  feedbackSendText: {
+    color: '#FFFFFF',
+    fontFamily: Fonts.semiBold,
+    fontSize: 11,
+  },
+  feedbackError: {
+    ...textDirection,
+    color: '#FF9A9A',
+    fontFamily: Fonts.regular,
+    fontSize: 10,
+    lineHeight: 16,
   },
 });

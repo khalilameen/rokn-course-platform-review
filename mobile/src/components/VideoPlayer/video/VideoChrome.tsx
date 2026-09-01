@@ -81,17 +81,23 @@ export const VideoChrome = ({
       />
 
       {!sourceFailed && (isBuffering || !isLoaded) && (
-        <View pointerEvents="none" style={styles.centerState}>
+        <View
+          accessibilityLiveRegion="polite"
+          accessibilityLabel={recoveryMessage || 'جارٍ تجهيز الفيديو'}
+          pointerEvents="none"
+          style={styles.centerState}>
           <SkeletonBlock height={54} radius={27} width={54} />
           <Text style={styles.stateText}>
-            {recoveryMessage || 'لحظة ونكمل من مكانك'}
+            {recoveryMessage || 'جارٍ استعادة المقطع'}
           </Text>
         </View>
       )}
 
       {sourceFailed && (
-        <View style={styles.errorCard}>
-          <Text style={styles.errorTitle}>{errorCopy.title}</Text>
+        <View accessibilityLiveRegion="assertive" style={styles.errorCard}>
+          <Text accessibilityRole="header" style={styles.errorTitle}>
+            {errorCopy.title}
+          </Text>
           <Text style={styles.errorText}>
             {errorCopy.message}
             {'\n'}
@@ -118,19 +124,32 @@ export const VideoChrome = ({
           accessible
           accessibilityRole="adjustable"
           accessibilityLabel="موضع الفيديو"
-          accessibilityHint="اسحب للتقديم أو التأخير، أو استخدم أوامر الزيادة والنقصان"
-          accessibilityValue={{
-            min: 0,
-            max: timeline.accessibilityDuration,
-            now: timeline.accessibilityPosition,
-            text: `${formatVideoDuration(
-              timeline.accessibilityPosition,
-            )} من ${formatVideoDuration(timeline.duration)}`,
-          }}
-          accessibilityActions={[
-            {name: 'increment', label: 'تقديم عشر ثوانٍ'},
-            {name: 'decrement', label: 'تأخير عشر ثوانٍ'},
-          ]}
+          accessibilityHint={
+            timeline.duration
+              ? 'اسحب للتقديم أو التأخير، أو استخدم أوامر الزيادة والنقصان'
+              : 'يتاح التقديم بعد تحديد مدة الفيديو'
+          }
+          accessibilityState={{disabled: !timeline.duration}}
+          accessibilityValue={
+            timeline.duration
+              ? {
+                  min: 0,
+                  max: timeline.accessibilityDuration,
+                  now: timeline.accessibilityPosition,
+                  text: `${formatVideoDuration(
+                    timeline.accessibilityPosition,
+                  )} من ${formatVideoDuration(timeline.duration)}`,
+                }
+              : {text: 'جارٍ تحديد مدة الفيديو'}
+          }
+          accessibilityActions={
+            timeline.duration
+              ? [
+                  {name: 'increment', label: 'تقديم عشر ثوانٍ'},
+                  {name: 'decrement', label: 'تأخير عشر ثوانٍ'},
+                ]
+              : []
+          }
           onAccessibilityAction={event => {
             if (event.nativeEvent.actionName === 'increment') {
               onSeekBy(10);
@@ -232,7 +251,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   retryButton: {
-    minHeight: 44,
+    minHeight: 48,
     paddingHorizontal: 22,
     borderRadius: 21,
     backgroundColor: '#236FE8',

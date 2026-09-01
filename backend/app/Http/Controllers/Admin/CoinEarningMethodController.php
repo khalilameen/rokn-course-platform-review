@@ -7,16 +7,20 @@ use App\Models\CoinEarningMethod;
 use App\Models\Setting;
 use App\Models\RewardRule;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Rule;
 use App\Services\SocialAuthProviderRegistry;
+use App\Support\BusinessClock;
 
 class CoinEarningMethodController extends Controller
 {
     public function index(SocialAuthProviderRegistry $socialProviders)
     {
-        $methods  = CoinEarningMethod::latest()->paginate(10);
+        $methods  = CoinEarningMethod::withCount('userEarnings')
+            ->latest()
+            ->latest('id')
+            ->paginate(10)
+            ->withQueryString();
         $setting = Setting::first();
         $rewardRules = RewardRule::query()->orderBy('sort_order')->orderBy('id')->get();
         $rewardEvents = RewardRule::EVENTS;
@@ -44,8 +48,6 @@ class CoinEarningMethodController extends Controller
         ]);
 
         Setting::firstOrCreate([])->update($validated);
-        Cache::forget('home:general-settings:v1');
-
         return redirect()->route('admin.coin-earning-methods.index')
             ->with('success', 'تم تحديث قواعد ومكافآت العملات بنجاح');
     }
@@ -61,18 +63,26 @@ class CoinEarningMethodController extends Controller
             'title_ar' => 'required|string|max:255',
             'title_en' => 'required|string|max:255',
             'coins_amount' => 'required|integer|min:0',
-            'action_key' => 'nullable|string|max:255|unique:coin_earning_methods,action_key',
+            'action_key' => 'nullable|string|max:255',
+            'campaign_key' => 'nullable|string|max:80|regex:/^[A-Za-z0-9._:-]+$/|unique:coin_earning_methods,campaign_key',
             'action_url' => 'nullable|url|max:2000',
             'requires_external_visit' => 'nullable|boolean',
             'verification_delay_seconds' => 'nullable|integer|min:0|max:300',
+            'starts_at' => 'nullable|date',
+            'ends_at' => 'nullable|date|after:starts_at',
+            'total_claim_limit' => 'nullable|integer|min:1|max:10000000',
             'is_active' => 'boolean',
-            'is_repeatable' => 'boolean',
         ]);
 
         $payload = $request->only([
             'title_ar', 'title_en', 'coins_amount', 'action_key', 'action_url',
-            'requires_external_visit', 'verification_delay_seconds', 'is_active',
-        ]) + ['is_repeatable' => false];
+            'campaign_key', 'requires_external_visit', 'verification_delay_seconds',
+            'starts_at', 'ends_at', 'total_claim_limit', 'is_active',
+        ]);
+        $payload['is_repeatable'] = false;
+        foreach (['starts_at', 'ends_at'] as $field) {
+            $payload[$field] = BusinessClock::localInputToUtc($payload[$field] ?? null);
+        }
         $this->ensureUsableDestination($payload);
         CoinEarningMethod::create($payload);
 
@@ -91,20 +101,34 @@ class CoinEarningMethodController extends Controller
             'title_ar' => 'required|string|max:255',
             'title_en' => 'required|string|max:255',
             'coins_amount' => 'required|integer|min:0',
-            'action_key' => 'nullable|string|max:255|unique:coin_earning_methods,action_key,' . $coinEarningMethod->id,
+            'action_key' => 'nullable|string|max:255',
+            'campaign_key' => 'nullable|string|max:80|regex:/^[A-Za-z0-9._:-]+$/|unique:coin_earning_methods,campaign_key,' . $coinEarningMethod->id,
             'action_url' => 'nullable|url|max:2000',
             'requires_external_visit' => 'nullable|boolean',
             'verification_delay_seconds' => 'nullable|integer|min:0|max:300',
+            'starts_at' => 'nullable|date',
+            'ends_at' => 'nullable|date|after:starts_at',
+            'total_claim_limit' => 'nullable|integer|min:1|max:10000000',
             'is_active' => 'boolean',
-            'is_repeatable' => 'boolean',
         ]);
 
         $payload = $request->only([
             'title_ar', 'title_en', 'coins_amount', 'action_key', 'action_url',
-            'requires_external_visit', 'verification_delay_seconds', 'is_active',
-        ]) + ['is_repeatable' => false];
+            'campaign_key', 'requires_external_visit', 'verification_delay_seconds',
+            'starts_at', 'ends_at', 'total_claim_limit', 'is_active',
+        ]);
+        $payload['is_repeatable'] = false;
+        foreach (['starts_at', 'ends_at'] as $field) {
+            $payload[$field] = BusinessClock::localInputToUtc($payload[$field] ?? null);
+        }
         $this->ensureUsableDestination($payload, $coinEarningMethod);
-        $coinEarningMethod->update($payload);
+        try {
+            $coinEarningMethod->update($payload);
+        } catch (\DomainException $exception) {
+            throw ValidationException::withMessages([
+                'campaign_key' => [$exception->getMessage()],
+            ]);
+        }
 
         return redirect()->route('admin.coin-earning-methods.index')
             ->with('success', 'تم تحديث طريقة ربح العملات بنجاح');

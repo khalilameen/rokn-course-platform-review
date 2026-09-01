@@ -6,8 +6,11 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Models\ApiToken;
+use App\Models\UserDeviceToken;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 final class UserSessionController extends Controller
 {
@@ -20,6 +23,7 @@ final class UserSessionController extends Controller
             ->whereNotNull('session_id')
             ->orderByDesc('last_used_at')
             ->orderByDesc('issued_at')
+            ->orderByDesc('session_id')
             ->limit(25)
             ->get()
             ->map(static fn (ApiToken $token): array => [
@@ -37,7 +41,7 @@ final class UserSessionController extends Controller
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Sessions retrieved successfully',
+            'message' => 'تم تحميل الأجهزة المسجّل عليها الحساب',
             'data' => $sessions,
         ]);
     }
@@ -54,7 +58,11 @@ final class UserSessionController extends Controller
 
         $isCurrent = $current !== null
             && hash_equals((string) $current->session_id, (string) $session->session_id);
-        $session->revoke();
+        DB::transaction(function () use ($session): void {
+            $deviceId = trim((string) $session->device_id);
+            $session->revoke();
+            $this->removePushRegistrationForDevices($session->user_id, [$deviceId]);
+        }, 3);
 
         $message = $isCurrent ? 'تم تسجيل الخروج من هذا الجهاز' : 'تم إنهاء الجلسة';
 
@@ -65,5 +73,62 @@ final class UserSessionController extends Controller
             'data' => ['signed_out' => $isCurrent],
             'signed_out' => $isCurrent,
         ]);
+    }
+
+    /** End every other app session while keeping this request usable. */
+    public function destroyOthers(Request $request): JsonResponse
+    {
+        /** @var ApiToken|null $current */
+        $current = $request->attributes->get('rokn_api_token');
+        if (!$current || empty($current->session_id)) {
+            return response()->json([
+                'status' => 409,
+                'success' => false,
+                'code' => 'current_session_unavailable',
+                'message' => 'حدّث التطبيق ثم حاول مرة أخرى',
+                'data' => null,
+            ], 409);
+        }
+
+        $revoked = DB::transaction(function () use ($request, $current): int {
+            $sessions = $request->user()->apiTokens()
+                ->whereHasNotExpired()
+                ->whereNotNull('session_id')
+                ->where('session_id', '<>', $current->session_id)
+                ->lockForUpdate()
+                ->get();
+            $deviceIds = $sessions
+                ->pluck('device_id')
+                ->map(static fn ($value): string => trim((string) $value))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+            $sessions->each(static fn (ApiToken $session): mixed => $session->revoke());
+            $this->removePushRegistrationForDevices((int) $request->user()->id, $deviceIds);
+
+            return $sessions->count();
+        }, 3);
+
+        return response()->json([
+            'status' => 200,
+            'success' => true,
+            'message' => $revoked > 0 ? 'تم تسجيل الخروج من الأجهزة الأخرى' : 'لا توجد جلسات أخرى',
+            'data' => ['revoked_count' => $revoked],
+        ]);
+    }
+
+    /** @param array<int, string> $deviceIds */
+    private function removePushRegistrationForDevices(int $userId, array $deviceIds): void
+    {
+        $deviceIds = array_values(array_filter(array_unique($deviceIds)));
+        if ($deviceIds === [] || !Schema::hasColumn('user_device_tokens', 'device_id')) {
+            return;
+        }
+
+        UserDeviceToken::query()
+            ->where('user_id', $userId)
+            ->whereIn('device_id', $deviceIds)
+            ->delete();
     }
 }

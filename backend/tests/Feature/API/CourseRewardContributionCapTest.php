@@ -150,14 +150,21 @@ final class CourseRewardContributionCapTest extends TestCase
         $this->actingAs($user, 'api')
             ->postJson("/api/v1/courses/{$course->id}/full-track-upgrade", [
                 'target_plan_code' => CourseAccessPlan::GUIDED,
+                'expected_price' => 40,
                 'idempotency_key' => $guidedKey,
             ])
             ->assertOk()
             ->assertJsonPath('data.amount_deducted', 40)
-            ->assertJsonPath('data.reward_contribution_used_for_course', 80)
-            ->assertJsonPath('data.reward_contribution_remaining_for_course', 20);
+            ->assertJsonPath('data.reward_contribution_used_for_course', 79)
+            ->assertJsonPath('data.reward_contribution_remaining_for_course', 21);
 
         $this->creditReward($user, 40);
+        $this->actingAs($user, 'api')
+            ->getJson("/api/v1/courses/{$course->id}/full-track-upgrade")
+            ->assertOk()
+            ->assertJsonPath('data.target_plan_code', CourseAccessPlan::MENTOR)
+            ->assertJsonPath('data.upgrade_price', 150);
+
         $this->actingAs($user, 'api')
             ->getJson(
                 "/api/v1/courses/{$course->id}/full-track-upgrade?target_plan_code=mentor"
@@ -165,10 +172,10 @@ final class CourseRewardContributionCapTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.upgrade_price', 150)
             ->assertJsonPath('data.reward_contribution_cap_per_course', 100)
-            ->assertJsonPath('data.reward_contribution_used_for_course', 80)
-            ->assertJsonPath('data.reward_contribution_remaining_for_course', 20)
-            ->assertJsonPath('data.estimated_allocation.reward_coins', 20)
-            ->assertJsonPath('data.estimated_allocation.paid_coins', 100)
+            ->assertJsonPath('data.reward_contribution_used_for_course', 79)
+            ->assertJsonPath('data.reward_contribution_remaining_for_course', 21)
+            ->assertJsonPath('data.estimated_allocation.reward_coins', 21)
+            ->assertJsonPath('data.estimated_allocation.paid_coins', 99)
             ->assertJsonPath('data.spendable_balance', 120)
             ->assertJsonPath('data.deficit', 30);
 
@@ -177,6 +184,7 @@ final class CourseRewardContributionCapTest extends TestCase
         $this->actingAs($user, 'api')
             ->postJson("/api/v1/courses/{$course->id}/full-track-upgrade", [
                 'target_plan_code' => CourseAccessPlan::MENTOR,
+                'expected_price' => 150,
                 'idempotency_key' => $mentorKey,
             ])
             ->assertOk()
@@ -187,6 +195,7 @@ final class CourseRewardContributionCapTest extends TestCase
         $this->actingAs($user, 'api')
             ->postJson("/api/v1/courses/{$course->id}/full-track-upgrade", [
                 'target_plan_code' => CourseAccessPlan::MENTOR,
+                'expected_price' => 150,
                 'idempotency_key' => $mentorKey,
             ])
             ->assertOk()
@@ -202,8 +211,8 @@ final class CourseRewardContributionCapTest extends TestCase
         self::assertSame(['basic', 'guided', 'mentor'], $orders
             ->map(fn (Order $order): string => (string) data_get($order->access_plan_snapshot, 'code'))
             ->all());
-        self::assertSame([40, 40, 20], $orders->pluck('reward_coins')->map(fn ($value): int => (int) $value)->all());
-        self::assertSame([0, 0, 130], $orders->pluck('paid_coins')->map(fn ($value): int => (int) $value)->all());
+        self::assertSame([40, 39, 21], $orders->pluck('reward_coins')->map(fn ($value): int => (int) $value)->all());
+        self::assertSame([0, 1, 129], $orders->pluck('paid_coins')->map(fn ($value): int => (int) $value)->all());
         self::assertSame((int) $orders[0]->id, (int) $orders[1]->parent_order_id);
         self::assertSame((int) $orders[1]->id, (int) $orders[2]->parent_order_id);
 
@@ -246,6 +255,7 @@ final class CourseRewardContributionCapTest extends TestCase
 
         $this->actingAs($user, 'api')->postJson("/api/v1/courses/{$course->id}/full-track-upgrade", [
             'target_plan_code' => 'guided',
+            'expected_price' => 40,
             'idempotency_key' => 'paid-floor-guided-upgrade-0001',
         ])->assertOk()
             ->assertJsonPath('data.allocation.paid_coins', 40)
@@ -254,6 +264,7 @@ final class CourseRewardContributionCapTest extends TestCase
 
         $this->actingAs($user, 'api')->postJson("/api/v1/courses/{$course->id}/full-track-upgrade", [
             'target_plan_code' => 'mentor',
+            'expected_price' => 150,
             'idempotency_key' => 'paid-floor-mentor-upgrade-0001',
         ])->assertOk()
             ->assertJsonPath('data.allocation.paid_coins', 150)
@@ -308,6 +319,28 @@ final class CourseRewardContributionCapTest extends TestCase
         self::assertSame((int) $forgedUser->id, (int) FinancialAnomaly::query()->value('user_id'));
     }
 
+    public function test_purchase_returns_actionable_validation_when_dashboard_disables_every_plan(): void
+    {
+        $user = $this->user();
+        $course = $this->course(true);
+        $this->plans($course);
+        $course->accessPlans()->update(['is_active' => false]);
+        $this->creditPaid($user, 100);
+
+        $this->actingAs($user, 'api')
+            ->postJson('/api/v1/courses/authorize', [
+                'course_id' => $course->id,
+                'access_plan_code' => CourseAccessPlan::BASIC,
+                'idempotency_key' => 'disabled-course-plan-purchase-0001',
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'course_plan_unavailable')
+            ->assertJsonPath('errors.access_plan_code.0', 'فتح هذا الكورس متوقف مؤقتًا حتى تُنشر خطة متاحة.');
+
+        self::assertSame(0, Order::query()->where('course_id', $course->id)->count());
+        self::assertSame(100, (int) $user->fresh()->wallet_coins);
+    }
+
     private function user(): User
     {
         return User::query()->forceCreate([
@@ -337,6 +370,7 @@ final class CourseRewardContributionCapTest extends TestCase
             'price' => 40,
             'is_main_course' => true,
             'is_coming_soon' => false,
+            'is_catalog_visible' => true,
             'ai_chat_enabled' => true,
         ]);
 
@@ -360,30 +394,39 @@ final class CourseRewardContributionCapTest extends TestCase
         foreach ([
             [
                 'code' => 'basic', 'name_ar' => 'Basic', 'price_coins' => 40,
+                'minimum_paid_coins' => 0,
                 'chat_enabled' => false, 'chat_message_limit' => 0, 'chat_token_budget' => 0,
                 'ai_budget_usd' => 0, 'request_reserve_usd' => 0,
                 'project_feedback_token_budget' => 0,
                 'project_feedback_budget_usd' => 0, 'project_feedback_reserve_usd' => 0,
+                'project_followup_message_limit' => 0, 'project_followup_token_budget' => 0,
+                'project_followup_budget_usd' => 0, 'project_followup_reserve_usd' => 0,
                 'max_output_tokens' => 260, 'project_feedback_level' => 'pass_only',
                 'project_output_enabled' => false, 'certificate_enabled' => true,
                 'is_active' => true, 'sort_order' => 10,
             ],
             [
                 'code' => 'guided', 'name_ar' => 'Guided', 'price_coins' => 80,
+                'minimum_paid_coins' => 1,
                 'chat_enabled' => true, 'chat_message_limit' => 25, 'chat_token_budget' => 12000,
                 'ai_budget_usd' => 0.45, 'request_reserve_usd' => 0.015,
                 'project_feedback_token_budget' => 6000,
                 'project_feedback_budget_usd' => 0.20, 'project_feedback_reserve_usd' => 0.04,
+                'project_followup_message_limit' => 0, 'project_followup_token_budget' => 0,
+                'project_followup_budget_usd' => 0, 'project_followup_reserve_usd' => 0,
                 'max_output_tokens' => 320, 'project_feedback_level' => 'report',
                 'project_output_enabled' => false, 'certificate_enabled' => true,
                 'is_active' => true, 'sort_order' => 20,
             ],
             [
                 'code' => 'mentor', 'name_ar' => 'Mentor', 'price_coins' => 230,
+                'minimum_paid_coins' => 1,
                 'chat_enabled' => true, 'chat_message_limit' => 80, 'chat_token_budget' => 42000,
                 'ai_budget_usd' => 1.50, 'request_reserve_usd' => 0.025,
                 'project_feedback_token_budget' => 16000,
                 'project_feedback_budget_usd' => 0.60, 'project_feedback_reserve_usd' => 0.08,
+                'project_followup_message_limit' => 20, 'project_followup_token_budget' => 12000,
+                'project_followup_budget_usd' => 0.30, 'project_followup_reserve_usd' => 0.025,
                 'max_output_tokens' => 480, 'project_feedback_level' => 'enhanced',
                 'project_output_enabled' => true, 'certificate_enabled' => true,
                 'is_active' => true, 'sort_order' => 30,

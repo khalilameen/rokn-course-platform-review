@@ -3,6 +3,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const studio = document.getElementById('courseStudio');
     const toast = document.getElementById('courseStudioToast');
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
+    const canAuthorContent = @json((bool) $course->is_coming_soon);
+    let authoringVersion = Number(studio?.dataset.authoringVersion || 1);
     const notify = (message, isError = false) => {
         if (!toast) return;
         toast.textContent = message;
@@ -43,27 +45,27 @@ document.addEventListener('DOMContentLoaded', function () {
     }));
 
     const postOrder = async (url, payload, successMessage) => {
-        try {
-            const response = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf}, body: JSON.stringify(payload)});
-            if (!response.ok) {
-                const result = await response.json().catch(() => ({}));
-                const validationMessage = Object.values(result.errors || {}).flat()[0];
-                throw new Error(validationMessage || result.message || 'لم يُحفظ الترتيب.');
-            }
+        return window.RoknAdminRequest.serializeMutation('course-studio-order', async () => {
+          try {
+            const result = await window.RoknAdminRequest.request(url, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf}, body: JSON.stringify({...payload, authoring_version: authoringVersion})});
+            authoringVersion = Number(result.authoring_version || authoringVersion);
+            if (studio) studio.dataset.authoringVersion = String(authoringVersion);
             notify(successMessage);
-        } catch (error) {
-            notify(error.message || 'لم يُحفظ الترتيب. أعد تحميل الصفحة وحاول مرة أخرى.', true);
+          } catch (error) {
+            if (error.code === 'cancelled') return;
+            notify(error.message || 'لم يُحفظ الترتيب\nأعد تحميل الصفحة وحاول مرة أخرى', true);
             window.setTimeout(() => window.location.reload(), 1500);
-        }
+          }
+        });
     };
 
     const modulesList = document.getElementById('studioModulesList');
-    if (modulesList && window.Sortable) new Sortable(modulesList, {handle: '.outline-module__drag', animation: 160, ghostClass: 'is-dragging', onEnd: function () {
+    if (canAuthorContent && modulesList && window.Sortable) new Sortable(modulesList, {handle: '.outline-module__drag', animation: 160, ghostClass: 'is-dragging', onEnd: function () {
         const modules = Array.from(modulesList.querySelectorAll(':scope > .outline-module')).map((node, index) => ({id: Number(node.dataset.moduleId), order: index + 1}));
         postOrder(@json(route('admin.courses.modules.reorder', $course)), {modules}, 'تم حفظ ترتيب الوحدات');
     }});
 
-    if (window.Sortable) document.querySelectorAll('.studio-sortable-sections').forEach(list => new Sortable(list, {group: 'studio-sections', handle: '.outline-item__drag', animation: 160, ghostClass: 'is-dragging', onMove: function (event) {
+    if (canAuthorContent && window.Sortable) document.querySelectorAll('.studio-sortable-sections').forEach(list => new Sortable(list, {group: 'studio-sections', handle: '.outline-item__drag', animation: 160, ghostClass: 'is-dragging', onMove: function (event) {
         if (event.dragged.dataset.sectionType !== 'project') return true;
         if (!event.to.dataset.moduleId) {
             notify('مشروع العبور يجب أن يبقى داخل وحدة.', true);

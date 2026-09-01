@@ -92,7 +92,7 @@
                         <div class="empty-state-enhanced">
                             <i class="fa fa-check-circle fa-5x text-success"></i>
                             <h3>ممتاز! جميع الطلاب مفعلون</h3>
-                            <p>لا يوجد طلاب غير مفعلين في المجموعات حالياً</p>
+                            <p>لا يوجد طلاب غير مفعلين حاليًا</p>
                             <a href="{{ route('admin.urgent-tasks.index') }}" class="action-btn-enhanced btn-cancel-modern urgent-empty-action">
                                 <i class="fa fa-arrow-left"></i> العودة للمهام العاجلة
                             </a>

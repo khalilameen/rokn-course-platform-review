@@ -16,8 +16,14 @@ final class ClassificationController extends Controller
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Classifications retrieved successfully',
-            'data' => ClassificationResource::collection(Classification::all()),
+            'message' => 'تم تحميل التصنيفات',
+            'data' => ClassificationResource::collection(
+                Classification::query()
+                    ->orderBy('home_order')
+                    ->orderBy('name_ar')
+                    ->orderBy('id')
+                    ->get()
+            ),
         ]);
     }
 }

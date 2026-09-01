@@ -11,19 +11,139 @@
         </div>
     </div>
 
+    <div class="card admin-card mb-4 {{ $operationalIncidents->where('severity', 'critical')->isNotEmpty() ? 'border-danger' : ($operationalIncidents->isNotEmpty() ? 'border-warning' : '') }}">
+        <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 admin-gap">
+                <div>
+                    <h2 class="h5 mb-1">التشغيل تحت الضغط</h2>
+                    <small class="text-muted">العامل والجدولة والمهام المتأخرة والأعطال التي لا يراها الطالب</small>
+                </div>
+                <span class="badge {{ $operationalIncidents->isEmpty() ? 'badge-success' : 'badge-danger' }} p-2">
+                    {{ $operationalIncidents->isEmpty() ? 'لا توجد أعطال مفتوحة' : number_format($operationalIncidents->count()).' عطل مفتوح' }}
+                </span>
+            </div>
+
+            <div class="row mb-3">
+                <div class="col-md-3 mb-2">
+                    <span class="badge {{ data_get($runtime, 'scheduler.healthy') ? 'badge-success' : 'badge-danger' }} ml-2">
+                        {{ data_get($runtime, 'scheduler.healthy') ? 'يعمل' : 'متوقف' }}
+                    </span>
+                    <strong>الجدولة</strong>
+                    <small class="d-block text-muted mt-1">آخر نبض {{ data_get($runtime, 'scheduler.last_heartbeat_at') ? \App\Support\BusinessClock::relative(data_get($runtime, 'scheduler.last_heartbeat_at')) : 'لم يصل' }}</small>
+                </div>
+                @foreach(data_get($runtime, 'queues', []) as $queue => $state)
+                    <div class="col-md-3 mb-2">
+                        <span class="badge {{ $state['healthy'] ? 'badge-success' : 'badge-danger' }} ml-2">
+                            {{ $state['healthy'] ? 'يعمل' : 'متأخر' }}
+                        </span>
+                        <strong>{{ $queue }}</strong>
+                        <small class="d-block text-muted mt-1">في الانتظار {{ $state['size'] === null ? 'غير متاح' : number_format($state['size']) }}</small>
+                    </div>
+                @endforeach
+            </div>
+
+            @if($operationalIncidents->isNotEmpty())
+                <div class="table-responsive mb-4"><table class="table table-sm admin-table mb-0">
+                    <thead><tr><th>الحالة</th><th>العطل</th><th>الأثر</th><th>بدأ</th><th>آخر رصد</th></tr></thead>
+                    <tbody>@foreach($operationalIncidents as $incident)
+                        <tr>
+                            <td><span class="badge {{ $incident->severity === 'critical' ? 'badge-danger' : 'badge-warning' }}">{{ $incident->severity === 'critical' ? 'حرج' : 'تنبيه' }}</span></td>
+                            <td><strong>{{ $incident->summary }}</strong><br><small class="text-muted">{{ $incident->code }}</small></td>
+                            <td>{{ number_format($incident->affected_count) }}</td>
+                            <td>{{ \App\Support\BusinessClock::relative($incident->first_seen_at) }}</td>
+                            <td>{{ \App\Support\BusinessClock::relative($incident->last_seen_at) }}</td>
+                        </tr>
+                    @endforeach</tbody>
+                </table></div>
+            @endif
+
+            <div class="row">
+                <div class="col-lg-5 mb-3">
+                    <h3 class="h6">قائمة فشل العامل</h3>
+                    <p class="mb-2">الإجمالي <strong>{{ number_format(data_get($runtime, 'failed_jobs.failed_jobs', 0)) }}</strong></p>
+                    @forelse(data_get($runtime, 'failed_jobs.by_queue', []) as $queue)
+                        <div class="d-flex justify-content-between border-bottom py-2"><span>{{ $queue['queue'] }}</span><strong>{{ number_format($queue['count']) }}</strong></div>
+                    @empty
+                        <div class="alert alert-success mb-0">لا توجد مهام وصلت إلى قائمة الفشل</div>
+                    @endforelse
+                    @if(data_get($runtime, 'failed_jobs.failed_jobs', 0) > 0)
+                        <small class="d-block text-muted mt-2">لا يوجد زر إعادة عام لأن بعض المهام غير قابلة للتكرار بأمان. أصلح السبب ثم أعد المهمة المعروفة فقط.</small>
+                        @foreach(data_get($runtime, 'failed_jobs.recent', []) as $job)
+                            <form method="POST" action="{{ route('admin.product-operations.failed-jobs.acknowledge', $job['id']) }}" class="border rounded p-2 mt-2">
+                                @csrf
+                                <div class="d-flex justify-content-between"><strong>{{ $job['queue'] }}</strong><small>#{{ $job['id'] }}</small></div>
+                                <input class="form-control form-control-sm my-2" name="reason" minlength="8" maxlength="190" placeholder="ما الذي عولج" required>
+                                <button class="btn btn-sm btn-outline-secondary" type="submit">إغلاق دون إعادة</button>
+                            </form>
+                        @endforeach
+                    @endif
+                </div>
+                <div class="col-lg-7 mb-3">
+                    <h3 class="h6">webhooks</h3>
+                    <div class="mb-2">
+                        <span class="badge badge-secondary ml-2">ينتظر {{ number_format(data_get($runtime, 'outbox.pending', 0)) }}</span>
+                        <span class="badge badge-warning ml-2">محجوب بالترتيب {{ number_format(data_get($runtime, 'outbox.blocked', 0)) }}</span>
+                        <span class="badge badge-dark ml-2">تم تجاوزه {{ number_format(data_get($runtime, 'outbox.skipped', 0)) }}</span>
+                        <span class="badge badge-danger">فشل {{ number_format(data_get($runtime, 'outbox.failed', 0)) }}</span>
+                    </div>
+                    @forelse(data_get($runtime, 'outbox.failed_events', []) as $event)
+                        <div class="border rounded p-2 mb-2">
+                            <div class="d-flex flex-wrap justify-content-between admin-gap">
+                                <div><strong>{{ $event->topic }}</strong><br><small class="text-muted">حدث #{{ $event->id }} · {{ number_format($event->attempts) }} محاولات</small></div>
+                                <form method="POST" action="{{ route('admin.product-operations.outbox.retry', $event->id) }}" class="form-inline" onsubmit="return confirm('إعادة هذا الحدث بنفس هويته؟')">
+                                    @csrf
+                                    <input class="form-control form-control-sm ml-2" name="reason" minlength="8" maxlength="190" placeholder="سبب الإعادة" required>
+                                    <button class="btn btn-sm btn-outline-primary" type="submit">إعادة آمنة</button>
+                                </form>
+                                <form method="POST" action="{{ route('admin.product-operations.outbox.skip', $event->id) }}" class="form-inline mt-2" onsubmit="return confirm('تجاوز هذا الحدث يسمح لما بعده بالوصول قبله؟')">
+                                    @csrf
+                                    <input class="form-control form-control-sm ml-2" name="reason" minlength="8" maxlength="190" placeholder="سبب التجاوز" required>
+                                    <button class="btn btn-sm btn-outline-danger" type="submit">تجاوز موثق</button>
+                                </form>
+                            </div>
+                        </div>
+                    @empty
+                        <div class="alert alert-success mb-0">لا توجد أحداث webhook فاشلة</div>
+                    @endforelse
+                </div>
+            </div>
+            <div class="d-flex flex-wrap admin-gap border-top pt-3">
+                <span class="badge badge-warning p-2">Push متعطل {{ number_format(data_get($runtime, 'notifications.failed_pushes', 0)) }}</span>
+                <span class="badge badge-warning p-2">شهادات معلقة {{ number_format(data_get($runtime, 'certificates.pending_certificates', 0)) }}</span>
+                <span class="badge badge-danger p-2">استعادة شهادة فشلت {{ number_format(data_get($runtime, 'certificates.failed_certificates', 0)) }}</span>
+                <span class="badge badge-warning p-2">AI معلق {{ number_format(data_get($runtime, 'ai.stale_messages', 0)) }}</span>
+                <span class="badge badge-warning p-2">تنظيف متعطل {{ number_format(data_get($runtime, 'cleanup.failed_files', 0) + data_get($runtime, 'cleanup.stale_files', 0) + data_get($runtime, 'cleanup.failed_bunny', 0)) }}</span>
+                <span class="badge badge-warning p-2">دفع يحتاج تدخل {{ number_format(data_get($runtime, 'payment_callbacks.review_required', 0) + data_get($runtime, 'payment_callbacks.stalled_store_events', 0)) }}</span>
+                <span class="badge badge-secondary p-2">حدود الاستخدام اليوم {{ number_format(data_get($runtime, 'rate_limits.last_24h', 0)) }} طلب · {{ number_format(data_get($runtime, 'rate_limits.affected_actors', 0)) }} مصدر</span>
+            </div>
+            @if(data_get($runtime, 'rate_limits.top_routes', []))
+                <div class="table-responsive mt-3"><table class="table table-sm admin-table mb-0">
+                    <thead><tr><th>المسار الأكثر رفضًا خلال 24 ساعة</th><th>الطلبات</th><th>المصادر</th></tr></thead>
+                    <tbody>@foreach(data_get($runtime, 'rate_limits.top_routes', []) as $limitedRoute)
+                        <tr>
+                            <td>{{ $limitedRoute['route'] }}</td>
+                            <td>{{ number_format($limitedRoute['hits']) }}</td>
+                            <td>{{ number_format($limitedRoute['actors']) }}</td>
+                        </tr>
+                    @endforeach</tbody>
+                </table></div>
+            @endif
+        </div>
+    </div>
+
     <div class="card admin-card mb-4 {{ $financialAnomalies->isNotEmpty() ? 'border-danger' : '' }}">
         <div class="card-body">
             <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 admin-gap">
                 <div>
-                    <h2 class="h5 mb-1">مراجعة تكلفة الاشتراكات</h2>
-                    <small class="text-muted">أي اشتراك أقل من الحد المدفوع يتوقف عنه AI وحده، بينما يستمر باقي الطلاب والخدمات.</small>
+                    <h2 class="h5 mb-1">مراجعة تكلفة الخدمات المدفوعة</h2>
+                    <small class="text-muted">إذا لم يطابق الدفع حد الفئة تتوقف الخدمات ذات التكلفة لهذا الطالب فقط</small>
                 </div>
                 <span class="badge {{ $financialAnomalies->isEmpty() ? 'badge-success' : 'badge-danger' }} p-2">
                     {{ $financialAnomalies->isEmpty() ? 'لا توجد فروق' : number_format($counts['financial_anomalies']).' تنبيه مفتوح' }}
                 </span>
             </div>
             @if($financialAnomalies->isEmpty())
-                <div class="alert alert-success mb-0">كل اشتراكات الخدمات المدفوعة مطابقة للحد الأدنى المحفوظ في عقودها.</div>
+                <div class="alert alert-success mb-0">كل عمليات شراء الفئات المدفوعة مطابقة للحد الأدنى المحفوظ في عقودها.</div>
             @else
                 <div class="alert alert-danger">
                     تم عزل مزايا التكلفة المتغيرة للحسابات التالية تلقائيًا. لا يوجد إيقاف عام للطلاب الدافعين.
@@ -43,7 +163,7 @@
                             <td><strong>{{ number_format($anomaly->expected_paid_coins) }}</strong> عملة</td>
                             <td class="text-danger"><strong>{{ number_format($anomaly->actual_paid_coins) }}</strong> عملة</td>
                             <td>{{ $anomaly->order?->order_ref ?: '#'.($anomaly->order_id ?: '—') }}</td>
-                            <td>{{ optional($anomaly->detected_at)->diffForHumans() }}</td>
+                            <td>{{ \App\Support\BusinessClock::relative($anomaly->detected_at) }}</td>
                         </tr>
                     @endforeach</tbody>
                 </table></div>
@@ -73,7 +193,7 @@
                             <td>{{ $event->event_type ?: 'غير محدد' }}</td>
                             <td><code>{{ $event->event_id }}</code></td>
                             <td>{{ $event->error_code ?: 'تحتاج قرارًا تشغيليًا' }}</td>
-                            <td>{{ optional($event->received_at)->diffForHumans() ?: '—' }}</td>
+                            <td>{{ \App\Support\BusinessClock::relative($event->received_at) ?: '—' }}</td>
                         </tr>
                     @endforeach</tbody>
                 </table></div>
@@ -102,12 +222,14 @@
                         @php
                             $runtimeStatus = $lesson->mediaState?->status ?: 'unknown';
                             $integrityStatus = $lesson->mediaState?->integrity_status;
-                            $displayStatus = in_array($integrityStatus, ['attention', 'quarantined'], true)
-                                ? $integrityStatus
-                                : $runtimeStatus;
+                            $displayStatus = $lesson->video_source_type !== 'bunny' || blank($lesson->bunny_video_id)
+                                ? 'misconfigured'
+                                : (in_array($integrityStatus, ['attention', 'quarantined'], true)
+                                    ? $integrityStatus
+                                    : $runtimeStatus);
                         @endphp
-                        <td>@include('admin.partials.status-badge', ['badgeStatus' => $displayStatus, 'badgeTone' => in_array($displayStatus, ['failed', 'quarantined'], true) ? 'danger' : 'warning'])</td>
-                        <td>{{ optional($lesson->mediaState?->last_probe_at)->diffForHumans() ?: '—' }}</td>
+                        <td>@include('admin.partials.status-badge', ['badgeStatus' => $displayStatus, 'badgeTone' => in_array($displayStatus, ['failed', 'quarantined', 'misconfigured'], true) ? 'danger' : 'warning'])</td>
+                        <td>{{ \App\Support\BusinessClock::relative($lesson->mediaState?->last_probe_at) ?: '—' }}</td>
                         <td><form method="POST" action="{{ route('admin.media-health.probe', $lesson) }}">@csrf<button class="btn btn-sm btn-outline-primary">فحص الآن</button></form></td>
                     </tr>
                 @endforeach</tbody>
@@ -253,6 +375,7 @@
                     ['تسجيل TikTok', data_get($capabilityReport, 'capabilities.social.tiktok')],
                     ['تسجيل Apple', data_get($capabilityReport, 'capabilities.social.apple')],
                     ['روابط عودة تسجيل الدخول', data_get($capabilityReport, 'capabilities.social.callbacks')],
+                    ['حفظ جلسة تسجيل الدخول', data_get($capabilityReport, 'capabilities.social.handoff')],
                     ['فتح التطبيق على Android', data_get($capabilityReport, 'capabilities.app_links.android')],
                     ['فتح التطبيق على Apple', data_get($capabilityReport, 'capabilities.app_links.apple')],
                     ['عامل المهام Queue', data_get($capabilityReport, 'capabilities.queue')],
@@ -268,7 +391,22 @@
                     <div><strong class="d-block">{{ $label }}</strong><small class="text-muted">{{ data_get($capability, 'reason', 'لم يتم الفحص') }}</small></div>
                 </div>
             @endforeach
-            <hr><small class="text-muted">هذه فحوص إعداد محلية وليست بديلًا عن smoke test حقيقي لمزوّد الفيديو والدفع والذكاء الاصطناعي. نبضة Queue وحدها تثبت أن عاملًا نفّذ مهمة فعلًا.</small>
+            <hr>
+            <h3 class="h6 mb-3">آخر نجاح حقيقي رصدته المنصة</h3>
+            <div class="row">
+                @foreach($providerEvidence as $evidence)
+                    <div class="col-md-6 mb-3">
+                        <span class="badge {{ $evidence['last_success_at'] ? 'badge-success' : 'badge-secondary' }} ml-2">
+                            {{ $evidence['last_success_at'] ? 'نجح' : 'لم يُرصد' }}
+                        </span>
+                        <strong>{{ $evidence['label'] }}</strong>
+                        <small class="d-block text-muted mt-1">
+                            {{ $evidence['last_success_at'] ? \App\Support\BusinessClock::relative($evidence['last_success_at']) : 'لا توجد عملية ناجحة مسجلة بعد' }}
+                        </small>
+                    </div>
+                @endforeach
+            </div>
+            <small class="text-muted">وجود الإعداد لا يثبت عمل الخدمة لذلك نفصل بين جاهزية الإعداد وآخر عملية نجحت فعليًا</small>
         </div></div></div>
         <div class="col-lg-5 mb-3"><div class="card admin-card h-100"><div class="card-body">
             <h2 class="h5 mb-3">فصل الإيراد عن المكافآت</h2>
@@ -292,11 +430,11 @@
             <tbody>@forelse($courses as $course)<tr>
                 <td><a href="{{ route('admin.courses.edit', $course) }}"><strong>{{ $course->name_ar }}</strong></a>@if($course->is_main_course)<br><small class="text-primary">الكورس الرئيسي</small>@endif</td>
                 <td>{{ $course->is_coming_soon ? ($course->is_catalog_visible ? 'قريبًا ظاهر' : 'مسودة مخفية') : 'منشور' }}<br><small>{{ (int)$course->price === 0 ? 'مجاني' : number_format($course->price).' عملة' }}</small></td>
-                <td>{{ number_format($course->modules_count) }} موديول<br><small>{{ number_format($course->sections_count) }} عنصرًا</small></td>
-                <td>{{ number_format($course->active_enrollments_count) }} فعلي<br><small>{{ number_format((int)$course->students_count) }} رصيد سابق</small></td>
+                <td>{{ number_format($course->modules_count) }} وحدة<br><small>{{ number_format($course->sections_count) }} عنصرًا</small></td>
+                <td>{{ number_format($course->active_enrollments_count) }}</td>
                 <td>{{ $course->ratings_count ? number_format((float)$course->ratings_avg_rating, 1).' / ٥' : 'لا يوجد' }}<br><small>{{ number_format($course->ratings_count) }} تقييم</small></td>
                 <td>{{ number_format((int)$course->paid_coins_spent) }} / {{ number_format((int)$course->reward_coins_spent) }}</td>
-                <td>{{ $course->ai_chat_enabled ? 'للمدفوع فقط' : 'متوقف' }}</td>
+                <td>{{ $course->ai_chat_enabled ? 'حسب الفئة' : 'متوقف' }}</td>
             </tr>@empty<tr><td colspan="7" class="text-center text-muted py-5">لا توجد كورسات بعد</td></tr>@endforelse</tbody>
         </table></div>
     </div>

@@ -1,12 +1,19 @@
 import {Platform} from 'react-native';
 import * as Notifications from 'expo-notifications';
 import {BrandColors} from '../constants/brandTokens';
-import {publicRequest} from '../constants/api';
-import {parseRoknDestination} from '../navigation/deepLinks';
-import {navigate} from '../navigation/RootNavigationHelper';
+import {publicRequest, type RoknRequestConfig} from '../constants/api';
+import {
+  parseRoknDestination,
+  safeRoknRouteId,
+} from '../navigation/deepLinks';
+import {
+  navigate,
+  openRoknDestination,
+} from '../navigation/RootNavigationHelper';
 import {
   AsyncKeys,
   extractApiToken,
+  getCurrentAccountStorageScope,
   getItem,
   removeItem,
   saveItem,
@@ -21,6 +28,11 @@ import {
   retryPendingNativePushTokenInvalidation,
 } from './pushDeviceState';
 import {normalizeNotificationKind} from './notificationCampaigns';
+import {getInstallationId} from './installationIdentity';
+import {
+  getNotification,
+  markNotificationRead,
+} from './api/notifications';
 import {
   getBackendPushToken,
   subscribeToBackendPushTokenRefresh,
@@ -31,6 +43,8 @@ const PUSH_CHANNELS = {
   learning: 'rokn-learning',
   offers: 'rokn-offers',
 } as const;
+
+const PENDING_NOTIFICATION_OPEN_KEY = '@rokn/push-open-pending/v1';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -43,6 +57,21 @@ Notifications.setNotificationHandler({
 
 const currentSessionToken = async () =>
   extractApiToken(await getItem(AsyncKeys.USER_DATA));
+
+const sessionStillCurrent = async (token: string, accountScope: string) =>
+  (await currentSessionToken()) === token &&
+  (await getCurrentAccountStorageScope()) === accountScope;
+
+const removeTokenFromCapturedSession = async (
+  token: string,
+  sessionToken: string,
+) => {
+  await publicRequest.delete('user/device-token', {
+    data: {device_token: token},
+    headers: {Authorization: `Bearer ${sessionToken}`},
+    skipPersistedSessionInvalidation: true,
+  } as RoknRequestConfig);
+};
 
 const permissionGranted = async (requestPermission: boolean) => {
   type PermissionSnapshot = {
@@ -59,7 +88,7 @@ const permissionGranted = async (requestPermission: boolean) => {
   return requested.granted || requested.status === 'granted';
 };
 
-const prepareAndroidChannel = async () => {
+export const prepareNotificationChannels = async () => {
   if (Platform.OS !== 'android') return;
   await Promise.all([
     Notifications.setNotificationChannelAsync(PUSH_CHANNELS.updates, {
@@ -87,18 +116,43 @@ const prepareAndroidChannel = async () => {
 };
 
 const registerTokenForCurrentAccount = async (token: string) => {
-  if (!token || !(await currentSessionToken())) return false;
+  const sessionToken = await currentSessionToken();
+  if (!token || !sessionToken) return false;
   if (!(await getSmartRemindersEnabled())) return false;
 
+  const accountScope = await getCurrentAccountStorageScope();
   const tokenKey = await pushStorageKey(PUSH_TOKEN_KEY);
   const previousToken = await getItem<string>(tokenKey);
-  await publicRequest.post('user/device-token', {
-    device_token: token,
-    device_type: Platform.OS,
-    device_os: Platform.OS,
-  });
+  const installationId = await getInstallationId();
+  if (!(await sessionStillCurrent(sessionToken, accountScope))) return false;
+  try {
+    await publicRequest.post('user/device-token', {
+      device_token: token,
+      device_type: Platform.OS,
+      device_os: Platform.OS,
+      ...(installationId ? {device_id: installationId} : {}),
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === 'ACCOUNT_CHANGED_DURING_REQUEST'
+    ) {
+      await removeTokenFromCapturedSession(token, sessionToken).catch(
+        () => undefined,
+      );
+    }
+    throw error;
+  }
+  if (!(await sessionStillCurrent(sessionToken, accountScope))) {
+    await removeTokenFromCapturedSession(token, sessionToken).catch(
+      () => undefined,
+    );
+    return false;
+  }
   await saveItem(tokenKey, token);
-  await removeItem(await pushStorageKey(LEGACY_PUSH_UNREGISTER_PENDING_KEY));
+  await removeItem(
+    await pushStorageKey(LEGACY_PUSH_UNREGISTER_PENDING_KEY),
+  );
 
   if (previousToken && previousToken !== token) {
     await publicRequest
@@ -124,7 +178,7 @@ export const registerPushDeviceIfEligible = async ({
   if (!(await getSmartRemindersEnabled())) return false;
   if (!(await permissionGranted(requestPermission))) return false;
 
-  await prepareAndroidChannel();
+  await prepareNotificationChannels();
   const token = await getBackendPushToken();
   if (!token) return false;
 
@@ -148,8 +202,15 @@ export const unregisterPushDevice = async () => {
 export const getCurrentPushDeviceToken = async () => getStoredPushDeviceToken();
 
 /** Invalidate Firebase and clear local registration after a logout attempt. */
-export const clearCurrentPushDeviceRegistration = () =>
-  invalidateLocalPushDeviceRegistration();
+export const clearCurrentPushDeviceRegistration = async () => {
+  const pendingKey = await pendingNotificationStorageKey();
+  pendingNotificationResponse = null;
+  await Promise.allSettled([
+    invalidateLocalPushDeviceRegistration(),
+    removeItem(pendingKey),
+    Notifications.clearLastNotificationResponseAsync(),
+  ]);
+};
 
 /** Reconcile token rotation or a previously interrupted unregister. Never prompts. */
 export const reconcilePushRegistration = async () => {
@@ -170,20 +231,19 @@ export const subscribeToPushTokenRefresh = () =>
     void registerTokenForCurrentAccount(token).catch(() => undefined);
   });
 
-export const openNotificationLink = async (
-  response: Notifications.NotificationResponse,
+const navigateToNotificationData = (
+  data: Record<string, unknown>,
 ) => {
-  const data = response.notification.request.content.data || {};
   const explicitLink = [data.link, data.deep_link, data.action_url].find(
     value => typeof value === 'string' && value.trim(),
   );
-  const courseId =
-    typeof data.course_id === 'string' ? data.course_id.trim() : '';
+  const courseId = safeRoknRouteId(data.course_id);
   const kind = normalizeNotificationKind(data.notification_type || data.type);
-  const link =
+  const explicitDestination =
     typeof explicitLink === 'string'
-      ? explicitLink
-      : courseId
+      ? parseRoknDestination(explicitLink)
+      : null;
+  const fallbackLink = courseId
       ? `rokn://course/${encodeURIComponent(courseId)}${
           kind === 'continue_course' || kind === 'learning_reminder'
             ? '/watch'
@@ -192,30 +252,213 @@ export const openNotificationLink = async (
       : kind === 'coin_offer' || kind === 'coin_reward'
       ? 'rokn://wallet'
       : 'rokn://home';
-  const destination = parseRoknDestination(link);
+  const destination =
+    explicitDestination || parseRoknDestination(fallbackLink);
   if (destination) {
-    navigate(
-      destination.name,
-      'params' in destination ? destination.params : undefined,
-    );
-    return;
+    return openRoknDestination(destination);
   }
+  return false;
+};
+
+const notificationIdFromResponse = (
+  response: Notifications.NotificationResponse,
+) => {
+  const value = response.notification.request.content.data?.notification_id;
+  const id = String(value || '').trim();
+  return /^\d+$/.test(id) ? id : null;
+};
+
+const pendingNotificationStorageKey = () =>
+  pushStorageKey(PENDING_NOTIFICATION_OPEN_KEY);
+
+const openNotificationByIdFlights = new Map<string, Promise<boolean>>();
+const responseOpenFlights = new Map<string, Promise<boolean>>();
+const recentlyOpenedResponses = new Map<string, number>();
+const RESPONSE_DEDUPE_MS = 8_000;
+
+const notificationResponseKey = (
+  response: Notifications.NotificationResponse,
+) => {
+  const identifier = String(response.notification.request.identifier || '').trim();
+  const action = String(response.actionIdentifier || 'default').trim();
+  if (identifier) return `${identifier}:${action}`;
+  // Defensive compatibility for vendor bridges that omit the native request
+  // identifier. Do not collapse every such tap into one global "undefined"
+  // key or a second, different notification will be ignored for eight seconds.
+  let payload = '';
+  try {
+    payload = JSON.stringify(response.notification.request.content.data || {});
+  } catch {
+    payload = String(response.notification.request.content.title || 'notification');
+  }
+  return `payload:${payload.slice(0, 1000)}:${action}`;
+};
+
+const openNotificationById = async (notificationId: string) => {
+  const accountScope = await getCurrentAccountStorageScope();
+  const flightKey = `${accountScope}:${notificationId}`;
+  const existing = openNotificationByIdFlights.get(flightKey);
+  if (existing) return existing;
+  const flight = getNotification(notificationId)
+    .then(async notification => {
+      if ((await getCurrentAccountStorageScope()) !== accountScope) {
+        return false;
+      }
+      const opened = navigateToNotificationData({
+        link: notification.link,
+        notification_type: notification.kind,
+        course_id: notification.courseId,
+      });
+      if (opened) {
+        void markNotificationRead(notificationId).catch(() => undefined);
+      }
+      return opened;
+    })
+    .catch(async error => {
+      if ((await getCurrentAccountStorageScope()) !== accountScope) {
+        return false;
+      }
+      const status = Number(
+        (error as {status?: unknown})?.status ||
+          (error as {response?: {status?: unknown}})?.response?.status ||
+          0,
+      );
+      // The inbox may have been pruned after the OS kept an old tap. Never
+      // route from its stale push payload; open the current inbox instead.
+      if (status === 404) return navigate('Notifications');
+      // A notification tap must still lead somewhere useful while the network
+      // is slow or unavailable. The inbox owns its account-scoped stale cache
+      // and retry state, so it is the safe fallback for every fetch failure.
+      return navigate('Notifications');
+    })
+    .finally(() => openNotificationByIdFlights.delete(flightKey));
+  openNotificationByIdFlights.set(flightKey, flight);
+  return flight;
+};
+
+export const openNotificationLink = async (
+  response: Notifications.NotificationResponse,
+) => {
+  const responseKey = notificationResponseKey(response);
+  const recentOpen = recentlyOpenedResponses.get(responseKey) || 0;
+  const elapsed = Date.now() - recentOpen;
+  if (elapsed >= 0 && elapsed < RESPONSE_DEDUPE_MS) return true;
+  const existing = responseOpenFlights.get(responseKey);
+  if (existing) return existing;
+
+  const flight = (async () => {
+    const notificationId = notificationIdFromResponse(response);
+    if (notificationId && !(await currentSessionToken())) {
+      // A tap can outlive the account that received it. Its durable inbox row
+      // must never open under a guest or a later account from the old payload.
+      pendingNotificationResponse = null;
+      await removeItem(await pendingNotificationStorageKey());
+      await Notifications.clearLastNotificationResponseAsync();
+      return false;
+    }
+    const opened = notificationId
+      ? await openNotificationById(notificationId)
+      : navigateToNotificationData(
+          (response.notification.request.content.data || {}) as Record<
+            string,
+            unknown
+          >,
+        );
+    if (opened) {
+      const now = Date.now();
+      recentlyOpenedResponses.set(responseKey, now);
+      recentlyOpenedResponses.forEach((openedAt, key) => {
+        if (now - openedAt >= RESPONSE_DEDUPE_MS) {
+          recentlyOpenedResponses.delete(key);
+        }
+      });
+    }
+    return opened;
+  })().finally(() => responseOpenFlights.delete(responseKey));
+  responseOpenFlights.set(responseKey, flight);
+  return flight;
+};
+
+let pendingNotificationResponse: {
+  response: Notifications.NotificationResponse;
+  clearNativeResponse: boolean;
+} | null = null;
+let notificationNavigationReady = false;
+
+export const setNotificationNavigationReady = (ready: boolean) => {
+  notificationNavigationReady = ready;
+};
+
+const deliverNotificationResponse = async (
+  response: Notifications.NotificationResponse,
+  clearNativeResponse: boolean,
+) => {
+  const notificationId = notificationIdFromResponse(response);
+  if (notificationId && !(await currentSessionToken())) {
+    pendingNotificationResponse = null;
+    await removeItem(await pendingNotificationStorageKey());
+    await Notifications.clearLastNotificationResponseAsync();
+    return true;
+  }
+  if (notificationId) {
+    await saveItem(await pendingNotificationStorageKey(), notificationId);
+  }
+  if (!notificationNavigationReady) {
+    pendingNotificationResponse = {response, clearNativeResponse};
+    return false;
+  }
+  if (!(await openNotificationLink(response))) {
+    pendingNotificationResponse = {response, clearNativeResponse};
+    return false;
+  }
+  if (notificationId) {
+    await removeItem(await pendingNotificationStorageKey());
+  }
+  if (clearNativeResponse) {
+    await Notifications.clearLastNotificationResponseAsync();
+  }
+  return true;
+};
+
+/** Complete a notification tap only after NavigationContainer is ready. */
+export const flushPendingNotificationNavigation = async () => {
+  if (!notificationNavigationReady) return false;
+  const storedKey = await pendingNotificationStorageKey();
+  const storedId = await getItem<string>(storedKey);
+  if (storedId && /^\d+$/.test(storedId)) {
+    if (!(await openNotificationById(storedId))) return false;
+    await removeItem(storedKey);
+    pendingNotificationResponse = null;
+    await Notifications.clearLastNotificationResponseAsync();
+    return true;
+  }
+  if (storedId) await removeItem(storedKey);
+
+  const pending = pendingNotificationResponse;
+  if (!pending) return false;
+  if (!(await openNotificationLink(pending.response))) return false;
+
+  pendingNotificationResponse = null;
+  if (pending.clearNativeResponse) {
+    await Notifications.clearLastNotificationResponseAsync();
+  }
+  return true;
 };
 
 export const subscribeToPushResponses = () => {
   const subscription = Notifications.addNotificationResponseReceivedListener(
     response => {
-      void openNotificationLink(response);
+      void deliverNotificationResponse(response, false);
     },
   );
 
   void Notifications.getLastNotificationResponseAsync()
     .then(async response => {
       if (!response) return;
-      await openNotificationLink(response);
-      await Notifications.clearLastNotificationResponseAsync();
+      await deliverNotificationResponse(response, true);
     })
     .catch(() => undefined);
+  void flushPendingNotificationNavigation().catch(() => undefined);
 
   return () => subscription.remove();
 };

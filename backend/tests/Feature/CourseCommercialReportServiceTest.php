@@ -92,12 +92,14 @@ final class CourseCommercialReportServiceTest extends TestCase
                 'request_id' => '11111111-1111-4111-8111-111111111111',
                 'user_id' => 1, 'course_id' => 10, 'status' => 'completed',
                 'total_tokens' => 500, 'cost_usd' => 0.2, 'fx_rate_to_egp' => 50, 'cost_egp' => 10,
+                'metadata' => json_encode(['cost_usage_source' => 'provider']),
                 'created_at' => $now, 'updated_at' => $now,
             ],
             [
                 'request_id' => '22222222-2222-4222-8222-222222222222',
                 'user_id' => 1, 'course_id' => 10, 'status' => 'failed',
                 'total_tokens' => 0, 'cost_usd' => 0, 'fx_rate_to_egp' => 50, 'cost_egp' => 0,
+                'metadata' => null,
                 'created_at' => $now, 'updated_at' => $now,
             ],
         ]);
@@ -264,6 +266,7 @@ final class CourseCommercialReportServiceTest extends TestCase
             $table->string('gateway_currency', 3)->nullable(); $table->string('status'); $table->string('financial_status');
             $table->unsignedInteger('total_coins')->default(0); $table->unsignedInteger('paid_coins')->default(0);
             $table->unsignedInteger('reward_coins')->default(0); $table->timestamp('approved_at')->nullable();
+            $table->timestamp('reversed_at')->nullable();
             $table->timestamps(); $table->softDeletes();
         });
         Schema::create('course_enrollments', function (Blueprint $table): void {
@@ -287,6 +290,7 @@ final class CourseCommercialReportServiceTest extends TestCase
             $table->unsignedBigInteger('course_id'); $table->string('status');
             $table->unsignedInteger('total_tokens')->default(0); $table->decimal('cost_usd', 12, 6)->default(0);
             $table->decimal('fx_rate_to_egp', 12, 4)->nullable(); $table->decimal('cost_egp', 14, 6)->nullable();
+            $table->json('metadata')->nullable();
             $table->timestamps();
         });
         Schema::create('student_notifications', function (Blueprint $table): void {

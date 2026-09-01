@@ -24,7 +24,9 @@ final readonly class OrderLifecycleService
     public function approve(Order $order, ?int $actorId = null, ?string $notes = null): Order
     {
         return DB::transaction(function () use ($order, $actorId, $notes): Order {
-            User::query()->lockForUpdate()->findOrFail($order->user_id);
+            // Financial callbacks may arrive after the user has deleted their account.
+            // Keep the anonymized aggregate lockable without reopening account access.
+            User::withTrashed()->lockForUpdate()->findOrFail($order->user_id);
             /** @var Order $locked */
             $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
             $this->assertOrderShape($locked);
@@ -155,7 +157,7 @@ final readonly class OrderLifecycleService
             $externalEventId,
             $payload
         ): Order {
-            User::query()->lockForUpdate()->findOrFail($order->user_id);
+            User::withTrashed()->lockForUpdate()->findOrFail($order->user_id);
             /** @var Order $locked */
             $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
             $existing = OrderFinancialEvent::query()
@@ -180,6 +182,7 @@ final readonly class OrderLifecycleService
                 'recovered_coins' => (int) $result['recovered'],
                 'unrecovered_coins' => (int) $result['unrecovered'],
             ])->save();
+            $this->syncBill($locked, Bill::PAYMENT_STATUS_CANCELLED);
             $this->recordEvent(
                 $locked,
                 $type,
@@ -216,7 +219,7 @@ final readonly class OrderLifecycleService
             $actorId,
             $note
         ): Order {
-            User::query()->lockForUpdate()->findOrFail($order->user_id);
+            User::withTrashed()->lockForUpdate()->findOrFail($order->user_id);
             /** @var Order $locked */
             $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
             $existing = OrderFinancialEvent::query()
@@ -253,11 +256,13 @@ final readonly class OrderLifecycleService
                     'recovered_coins' => 0,
                     'unrecovered_coins' => 0,
                 ])->save();
+                $this->syncBill($locked, Bill::PAYMENT_STATUS_PAID);
             } else {
                 $locked->forceFill([
                     'financial_status' => Order::FINANCIAL_REVERSED,
                     'reversal_reason' => $note ?: $locked->reversal_reason,
                 ])->save();
+                $this->syncBill($locked, Bill::PAYMENT_STATUS_CANCELLED);
             }
 
             $this->recordEvent(
@@ -293,9 +298,90 @@ final readonly class OrderLifecycleService
         return $fresh;
     }
 
+    /** Credit a verified Rokn-side service failure without falsifying the cash receipt. */
+    public function compensateCourseOrder(
+        Order $order,
+        int $amount,
+        string $reason,
+        string $eventKey,
+        ?int $actorId = null
+    ): Order {
+        if ($amount <= 0 || trim($reason) === '' || trim($eventKey) === '') {
+            throw new \InvalidArgumentException('Invalid course compensation.');
+        }
+
+        return DB::transaction(function () use ($order, $amount, $reason, $eventKey, $actorId): Order {
+            User::withTrashed()->lockForUpdate()->findOrFail($order->user_id);
+            /** @var Order $locked */
+            $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $existingEvent = OrderFinancialEvent::query()
+                ->where('order_id', $locked->id)
+                ->where('event_key', $eventKey)
+                ->first();
+            if ($existingEvent) return $locked->fresh();
+
+            if (
+                !$locked->course_id
+                || $locked->package_id
+                || $locked->payment_method !== Order::PAYMENT_METHOD_WALLET_COINS
+                || $locked->status !== Order::STATUS_APPROVED
+                || $locked->financial_status !== Order::FINANCIAL_SETTLED
+            ) {
+                throw new \DomainException('Only a settled wallet course order can be compensated.');
+            }
+
+            $debit = $locked->walletTransaction()->lockForUpdate()->first();
+            if (
+                !$debit
+                || $debit->direction !== WalletTransaction::DIRECTION_DEBIT
+                || (int) $debit->user_id !== (int) $locked->user_id
+                || (int) $debit->amount !== (int) $locked->total_coins
+            ) {
+                throw new \DomainException('This legacy order has no verifiable wallet debit.');
+            }
+
+            $alreadyCompensated = (int) WalletTransaction::query()
+                ->where('user_id', $locked->user_id)
+                ->where('direction', WalletTransaction::DIRECTION_CREDIT)
+                ->where('category', 'course_service_compensation')
+                ->where('source_type', Order::class)
+                ->where('source_id', $locked->id)
+                ->sum('amount');
+            if ($amount > max(0, (int) $debit->amount - $alreadyCompensated)) {
+                throw new \DomainException('Compensation exceeds the remaining order amount.');
+            }
+
+            $credit = $this->wallet->refundDebit(
+                (int) $locked->user_id,
+                $amount,
+                'course_service_compensation',
+                'course-compensation:' . hash('sha256', $locked->id . '|' . $eventKey),
+                $debit,
+                $locked,
+                [
+                    'order_id' => (int) $locked->id,
+                    'reason' => trim($reason),
+                    'approved_by' => $actorId,
+                ]
+            );
+            $this->recordEvent(
+                $locked,
+                'course_compensation',
+                $eventKey,
+                $actorId,
+                trim($reason),
+                null,
+                null,
+                ['wallet_transaction_id' => (int) $credit->id, 'amount' => $amount]
+            );
+
+            return $locked->fresh();
+        }, 3);
+    }
+
     public function expectedBillStatus(Order $order): string
     {
-        if ($order->status === Order::STATUS_APPROVED && !$order->reversed_at) {
+        if ($order->isFinanciallyEffective()) {
             return Bill::PAYMENT_STATUS_PAID;
         }
 
@@ -375,7 +461,11 @@ final readonly class OrderLifecycleService
     private function fulfillCourse(Order $order): void
     {
         $order->loadMissing(['course', 'user']);
-        if (!$order->course || !$order->user) {
+        if (
+            !$order->course
+            || !$order->user
+            || !$order->course->isPublishedForLearning()
+        ) {
             throw new \DomainException('Course order is incomplete and cannot be approved.');
         }
 

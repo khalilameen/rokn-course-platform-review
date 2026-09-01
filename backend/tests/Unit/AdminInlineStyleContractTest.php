@@ -131,7 +131,7 @@ final class AdminInlineStyleContractTest extends TestCase
             'course pdf create' => [
                 'course-pdfs/create.blade.php',
                 'admin/assets/css/course-pdfs-create.css',
-                ['admin.courses.pdfs.store', 'name="pdf_file"', 'name="create_section"'],
+                ['admin.courses.pdfs.store', 'name="pdf_file"', 'زر مرفقات الكورس'],
             ],
             'course pdf edit' => [
                 'course-pdfs/edit.blade.php',

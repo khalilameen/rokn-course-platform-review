@@ -1,10 +1,10 @@
 import {
   accountDeletionUrl,
   buildSettingsSections,
-  returnsPolicyUrl,
   type SettingsSectionsProps,
 } from '../src/screens/settings/settingsData';
 import {mainUrl} from '../src/constants/api';
+import {returnsPolicyUrl} from '../src/services/publicLinks';
 
 const callback = jest.fn;
 
@@ -26,7 +26,6 @@ const createProps = (
   onFeedback: callback(),
   onLogin: callback(),
   onLogout: callback(),
-  onOpenAccountDeletion: callback(),
   onOpenQuality: callback(),
   onOpenReminderTime: callback(),
   onPortfolio: callback(),
@@ -54,10 +53,8 @@ const authenticatedRows = [
   'privacy.marketing',
   'privacy.policy',
   'privacy.terms',
-  'privacy.data-request',
   'privacy.feedback',
   'privacy.support',
-  'about.language',
   'about.rate',
   'about.info',
 ];
@@ -68,13 +65,10 @@ const guestRows = [
   'learning.quality',
   'learning.history',
   'learning.clear-history',
-  'privacy.marketing',
   'privacy.policy',
   'privacy.terms',
-  'privacy.data-request',
   'privacy.feedback',
   'privacy.support',
-  'about.language',
   'about.rate',
   'about.info',
 ];
@@ -120,19 +114,15 @@ describe('settings screen contract', () => {
       [...authenticated, ...guest].map(row => [row.id, row]),
     );
 
-    expect(rowsById.size).toBe(20);
-    expect(new Set([...rowsById.values()].map(row => row.icon)).size).toBe(20);
+    expect(rowsById.size).toBe(18);
+    expect(new Set([...rowsById.values()].map(row => row.icon)).size).toBe(18);
     expect(rowsById.has('learning.display')).toBe(false);
     expect(rowsById.has('about.open-source')).toBe(false);
     expect(rowsById.has('privacy.refunds')).toBe(false);
     expect(rowsById.has('learning.autoplay')).toBe(false);
 
     for (const row of rowsById.values()) {
-      if (row.id === 'about.language') {
-        expect(row.value).toBe('العربية');
-      } else {
-        expect(Boolean(row.onPress || row.toggle)).toBe(true);
-      }
+      expect(Boolean(row.onPress || row.toggle)).toBe(true);
     }
   });
 });

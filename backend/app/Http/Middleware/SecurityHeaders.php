@@ -20,6 +20,15 @@ final class SecurityHeaders
         $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
         $response->headers->set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
 
+        // Account-scoped JSON often contains progress, wallet state or a
+        // short-lived media capability. Do not let a proxy/browser cache reuse
+        // that response for a different bearer token on a shared device.
+        if ($request->headers->has('Authorization') || $request->user('api')) {
+            $response->headers->set('Cache-Control', 'private, no-store, max-age=0');
+            $response->headers->set('Pragma', 'no-cache');
+            $response->setVary('Authorization', false);
+        }
+
         if ($request->isSecure() && app()->environment('production')) {
             $response->headers->set('Strict-Transport-Security', 'max-age=31536000');
         }

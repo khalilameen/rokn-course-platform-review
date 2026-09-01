@@ -193,9 +193,9 @@
                                                 <td>
                                                     @if($result->completed_at)
                                                         <div class="date-time-box">
-                                                            <div class="font-weight-bold">{{ $result->completed_at->format('Y/m/d') }}</div>
+                                                            <div class="font-weight-bold">{{ \App\Support\BusinessClock::format($result->completed_at, 'Y/m/d') }}</div>
                                                             <small class="text-muted">
-                                                                {{ $result->completed_at->format('h:i') }}
+                                                                {{ \App\Support\BusinessClock::format($result->completed_at, 'h:i') }}
                                                             </small>
                                                         </div>
                                                     @else
@@ -357,7 +357,6 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function getStats() {
-    console.log('getStats function called');
 
     // Show modal using Bootstrap's JavaScript API
     var modal = document.getElementById('statsModal');
@@ -380,16 +379,11 @@ function getStats() {
         document.body.appendChild(backdrop);
     }
 
-    // Fetch stats
-    fetch("{{ route('admin.exam-results.stats') }}")
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('Network response was not ok: ' + response.status);
-            }
-            return response.json();
-        })
+    const statsContent = document.getElementById('statsContent');
+    statsContent.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary stats-loading-spinner" role="status"><span class="sr-only">جاري التحميل</span></div><p class="mt-3 text-muted">جاري تحميل الإحصائيات</p></div>';
+    const number = value => Number.isFinite(Number(value)) ? Number(value) : 0;
+    window.RoknAdminRequest.latest('exam-result-stats', "{{ route('admin.exam-results.stats') }}")
         .then(data => {
-            console.log('Data received:', data);
             const content = `
                 <div class="row stats-grid-row">
                     <div class="col-md-4 col-sm-6">
@@ -397,7 +391,7 @@ function getStats() {
                             <div class="stats-card-icon icon-primary">
                                 <i class="fa fa-clipboard"></i>
                             </div>
-                            <h3>${data.total_attempts || 0}</h3>
+                            <h3>${number(data.total_attempts)}</h3>
                             <div class="stats-divider"></div>
                             <p>إجمالي المحاولات</p>
                         </div>
@@ -407,7 +401,7 @@ function getStats() {
                             <div class="stats-card-icon icon-success">
                                 <i class="fa fa-check-circle"></i>
                             </div>
-                            <h3>${data.passed_attempts || 0}</h3>
+                            <h3>${number(data.passed_attempts)}</h3>
                             <div class="stats-divider"></div>
                             <p>المحاولات الناجحة</p>
                         </div>
@@ -417,7 +411,7 @@ function getStats() {
                             <div class="stats-card-icon icon-danger">
                                 <i class="fa fa-times-circle"></i>
                             </div>
-                            <h3>${data.failed_attempts || 0}</h3>
+                            <h3>${number(data.failed_attempts)}</h3>
                             <div class="stats-divider"></div>
                             <p>المحاولات الراسبة</p>
                         </div>
@@ -427,7 +421,7 @@ function getStats() {
                             <div class="stats-card-icon icon-info">
                                 <i class="fa fa-percent"></i>
                             </div>
-                            <h3>${data.pass_rate || 0}%</h3>
+                            <h3>${number(data.pass_rate)}%</h3>
                             <div class="stats-divider"></div>
                             <p>معدل النجاح</p>
                         </div>
@@ -437,7 +431,7 @@ function getStats() {
                             <div class="stats-card-icon icon-warning">
                                 <i class="fa fa-bar-chart-o"></i>
                             </div>
-                            <h3>${Math.round(data.average_score || 0)}%</h3>
+                            <h3>${Math.round(number(data.average_score))}%</h3>
                             <div class="stats-divider"></div>
                             <p>متوسط الدرجات</p>
                         </div>
@@ -447,23 +441,28 @@ function getStats() {
                             <div class="stats-card-icon icon-purple">
                                 <i class="fa fa-users"></i>
                             </div>
-                            <h3>${data.total_students || 0}</h3>
+                            <h3>${number(data.total_students)}</h3>
                             <div class="stats-divider"></div>
                             <p>عدد الطلاب</p>
                         </div>
                     </div>
                 </div>
             `;
-            document.getElementById('statsContent').innerHTML = content;
+            statsContent.innerHTML = content;
         })
         .catch(error => {
-            console.error('Error:', error);
-            document.getElementById('statsContent').innerHTML = `
-                <div class="alert alert-danger stats-error-alert">
-                    <i class="fa fa-exclamation-triangle mr-2"></i>
-                    <strong>خطأ!</strong> حدث خطأ في تحميل الإحصائيات: ${error.message}
-                </div>
-            `;
+            if (error.code === 'cancelled') return;
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-danger stats-error-alert';
+            const message = document.createElement('p');
+            message.textContent = error.message || 'تعذّر تحميل الإحصائيات';
+            const retry = document.createElement('button');
+            retry.type = 'button';
+            retry.className = 'btn btn-outline-danger btn-sm';
+            retry.textContent = 'حاول مرة أخرى';
+            retry.addEventListener('click', getStats);
+            alert.append(message, retry);
+            statsContent.replaceChildren(alert);
         });
 }
 

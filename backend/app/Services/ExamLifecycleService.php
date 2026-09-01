@@ -15,6 +15,10 @@ use Illuminate\Support\Facades\DB;
 
 final readonly class ExamLifecycleService
 {
+    public function __construct(private CourseCompletionService $courseCompletion)
+    {
+    }
+
     /**
      * @return array{authorized: bool, resumed: bool, attempt: ExamAttempt|null}
      */
@@ -48,13 +52,23 @@ final readonly class ExamLifecycleService
                 }])
                 ->findOrFail($quizId);
 
-            if (!$this->hasQuizAccess($user, $quiz, $courseId)) {
+            if (!$this->hasQuizAccess($user, $quiz, $courseId, $sectionId)) {
                 return ['authorized' => false, 'resumed' => false, 'attempt' => null];
             }
 
             $existingAttempt = ExamAttempt::query()
                 ->where('user_id', $user->getKey())
                 ->where('quiz_id', $quizId)
+                ->when(
+                    $sectionId !== null,
+                    fn ($attempts) => $attempts->where('section_id', $sectionId),
+                    fn ($attempts) => $attempts->whereNull('section_id')
+                )
+                ->when(
+                    $courseId !== null,
+                    fn ($attempts) => $attempts->where('course_id', $courseId),
+                    fn ($attempts) => $attempts->whereNull('course_id')
+                )
                 ->inProgress()
                 ->lockForUpdate()
                 ->first();
@@ -73,6 +87,9 @@ final readonly class ExamLifecycleService
             $attempt = ExamAttempt::query()->create([
                 'user_id' => $user->getKey(),
                 'quiz_id' => $quizId,
+                'quiz_title' => trim((string) $quiz->title),
+                'quiz_description' => $quiz->description,
+                'quiz_image' => $quiz->image,
                 'course_id' => $courseId,
                 'section_id' => $sectionId,
                 'attempt_number' => $lastAttempt === null ? 1 : (int) $lastAttempt->attempt_number + 1,
@@ -122,6 +139,9 @@ final readonly class ExamLifecycleService
             if ($attempt === null) {
                 return $this->answerResult('attempt_missing');
             }
+            if (!$attempt->courseContextIsAvailable()) {
+                return $this->answerResult('attempt_missing');
+            }
 
             $questionData = collect($attempt->exam_data)
                 ->firstWhere('id', $questionId);
@@ -140,6 +160,20 @@ final readonly class ExamLifecycleService
                 ->lockForUpdate()
                 ->first();
 
+            if (
+                $answer !== null
+                && (int) $answer->selected_answer !== $selectedAnswer
+            ) {
+                // A retry with the same answer is idempotent. A different
+                // answer from another device/stale screen must not rewrite a
+                // response the learner has already submitted.
+                return [
+                    'state' => 'answer_conflict',
+                    'attempt' => $attempt,
+                    'answer' => $answer,
+                ];
+            }
+
             $attributes = [
                 'selected_answer' => $selectedAnswer,
                 'is_correct' => $isCorrect,
@@ -155,8 +189,6 @@ final readonly class ExamLifecycleService
                     'question_id' => $questionId,
                     ...$attributes,
                 ]);
-            } else {
-                $answer->fill($attributes)->save();
             }
 
             $attempt->forceFill([
@@ -178,11 +210,20 @@ final readonly class ExamLifecycleService
             $attempt = ExamAttempt::query()
                 ->whereKey($attemptId)
                 ->where('user_id', $user->getKey())
-                ->inProgress()
                 ->lockForUpdate()
                 ->first();
 
             if ($attempt === null) {
+                return null;
+            }
+            // Ending is an idempotent transition. A mobile client can receive
+            // the completed response after the server commits, lose the
+            // connection, then safely ask again without being forced to retake
+            // the assessment.
+            if ($attempt->isCompleted()) {
+                return $attempt;
+            }
+            if (!$attempt->isInProgress() || !$attempt->courseContextIsAvailable()) {
                 return null;
             }
 
@@ -202,33 +243,50 @@ final readonly class ExamLifecycleService
         }, 3);
     }
 
-    private function hasQuizAccess(User $user, ItemList $quiz, ?int $requestedCourseId): bool
+    private function hasQuizAccess(
+        User $user,
+        ItemList $quiz,
+        ?int $requestedCourseId,
+        ?int $requestedSectionId
+    ): bool
     {
-        $sectionCourseId = CourseSection::query()
+        $sectionQuery = CourseSection::query()
             ->where('sectionable_type', ItemList::class)
-            ->where('sectionable_id', $quiz->getKey())
-            ->value('course_id');
+            ->where('sectionable_id', $quiz->getKey());
+        if ($requestedSectionId !== null) {
+            $sectionQuery->whereKey($requestedSectionId);
+        } elseif ($requestedCourseId !== null) {
+            $sectionQuery->where('course_id', $requestedCourseId);
+        }
+        $section = $sectionQuery->first();
 
-        $requiredCourseIds = collect([
-            $requestedCourseId,
-            $sectionCourseId === null ? null : (int) $sectionCourseId,
-            $quiz->course_id === null ? null : (int) $quiz->course_id,
-        ])->filter()->unique()->values();
+        if ($requestedSectionId !== null && !$section) {
+            return false;
+        }
+        if ($section) {
+            if ($requestedCourseId !== null && (int) $section->course_id !== $requestedCourseId) {
+                return false;
+            }
 
-        if ($requiredCourseIds->isEmpty()) {
+            return $this->courseCompletion->canAccessSection($user, $section);
+        }
+
+        $quizCourseId = $quiz->course_id === null ? null : (int) $quiz->course_id;
+        if ($requestedCourseId !== null && $quizCourseId !== null && $requestedCourseId !== $quizCourseId) {
+            return false;
+        }
+        $courseId = $requestedCourseId ?? $quizCourseId;
+        if ($courseId === null) {
             return true;
         }
 
-        $enrollments = CourseEnrollment::query()
+        $enrollment = CourseEnrollment::query()
             ->where('user_id', $user->getKey())
-            ->whereIn('course_id', $requiredCourseIds)
+            ->where('course_id', $courseId)
             ->where('is_active', true)
-            ->get()
-            ->keyBy('course_id');
+            ->first();
 
-        return $requiredCourseIds->every(
-            static fn (int $courseId): bool => $enrollments->get($courseId)?->isActive() === true
-        );
+        return $enrollment?->isActive() === true;
     }
 
     /**

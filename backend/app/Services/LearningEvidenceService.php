@@ -16,7 +16,8 @@ final readonly class LearningEvidenceService
         User $user,
         Lesson $lesson,
         int $positionSeconds,
-        ?int $clientDurationSeconds
+        ?int $clientDurationSeconds,
+        ?array $previousPlaybackSample = null
     ): array {
         $sectionId = $lesson->courseSection?->id;
         if (!$sectionId) {
@@ -28,17 +29,36 @@ final readonly class LearningEvidenceService
             $lesson,
             $sectionId,
             $positionSeconds,
-            $clientDurationSeconds
+            $clientDurationSeconds,
+            $previousPlaybackSample
         ): array {
             $evidence = LessonWatchEvidence::query()
                 ->where('user_id', $user->id)
                 ->where('lesson_id', $lesson->id)
                 ->lockForUpdate()
                 ->first();
+            $isNew = false;
+            if (!$evidence) {
+                $inserted = DB::table('lesson_watch_evidence')->insertOrIgnore([
+                    'user_id' => $user->id,
+                    'lesson_id' => $lesson->id,
+                    'course_section_id' => $sectionId,
+                    'duration_seconds' => null,
+                    'verified_seconds' => 0,
+                    'last_position_seconds' => max(0, $positionSeconds),
+                    'last_heartbeat_at' => now(),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+                $isNew = $inserted > 0;
+                $evidence = LessonWatchEvidence::query()
+                    ->where('user_id', $user->id)
+                    ->where('lesson_id', $lesson->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+            }
 
-            $trustedDuration = (int) $lesson->duration_minutes > 0
-                ? (int) $lesson->duration_minutes * 60
-                : null;
+            $trustedDuration = $this->trustedDurationSeconds($lesson);
             $observedDuration = max(
                 0,
                 (int) ($evidence?->duration_seconds ?? 0),
@@ -48,21 +68,21 @@ final readonly class LearningEvidenceService
             $now = now();
             $credited = 0;
 
-            if (!$evidence) {
-                $evidence = new LessonWatchEvidence([
-                    'user_id' => $user->id,
-                    'lesson_id' => $lesson->id,
-                    'course_section_id' => $sectionId,
-                    'duration_seconds' => $observedDuration,
-                    'verified_seconds' => 0,
-                    'last_position_seconds' => max(0, $positionSeconds),
-                    'last_heartbeat_at' => $now,
-                ]);
+            if ($isNew) {
+                $evidence->duration_seconds = $observedDuration;
+                $evidence->last_position_seconds = max(0, $positionSeconds);
+                $evidence->last_heartbeat_at = $now;
             } else {
-                $elapsed = $evidence->last_heartbeat_at
-                    ? (int) floor($evidence->last_heartbeat_at->diffInSeconds($now, true))
+                $previousPosition = $previousPlaybackSample !== null
+                    ? (int) ($previousPlaybackSample['position_seconds'] ?? 0)
+                    : (int) $evidence->last_position_seconds;
+                $previousHeartbeat = $previousPlaybackSample !== null
+                    ? ($previousPlaybackSample['recorded_at'] ?? null)
+                    : $evidence->last_heartbeat_at;
+                $elapsed = $previousHeartbeat
+                    ? (int) floor($previousHeartbeat->diffInSeconds($now, true))
                     : 0;
-                $positionDelta = max(0, $positionSeconds - (int) $evidence->last_position_seconds);
+                $positionDelta = max(0, $positionSeconds - $previousPosition);
                 $maxGap = max(10, (int) config('learning_evidence.maximum_heartbeat_gap_seconds', 45));
                 $maxRate = max(1.0, min(2.5, (float) config('learning_evidence.maximum_playback_rate', 2.0)));
                 $maxCredit = max(5, (int) config('learning_evidence.maximum_credit_per_heartbeat', 30));
@@ -120,9 +140,7 @@ final readonly class LearningEvidenceService
     public function requiredSeconds(Lesson $lesson, ?int $observedDuration = null): ?int
     {
         $minimum = max(10, (int) config('learning_evidence.minimum_verified_seconds', 20));
-        $trustedDuration = (int) $lesson->duration_minutes > 0
-            ? (int) $lesson->duration_minutes * 60
-            : null;
+        $trustedDuration = $this->trustedDurationSeconds($lesson);
         // Only server-owned duration can authorize completion.
         if ($trustedDuration === null) {
             return null;
@@ -136,6 +154,21 @@ final readonly class LearningEvidenceService
         }
 
         return max($minimum, (int) ceil($duration * $fraction));
+    }
+
+    private function trustedDurationSeconds(Lesson $lesson): ?int
+    {
+        $mediaDuration = (int) (
+            $lesson->relationLoaded('mediaState')
+                ? $lesson->mediaState?->duration_seconds
+                : $lesson->mediaState()->value('duration_seconds')
+        );
+        if ($mediaDuration > 0) {
+            return $mediaDuration;
+        }
+
+        $legacyMinutes = max(0, (int) $lesson->duration_minutes);
+        return $legacyMinutes > 0 ? $legacyMinutes * 60 : null;
     }
 
     private function emptyResult(): array

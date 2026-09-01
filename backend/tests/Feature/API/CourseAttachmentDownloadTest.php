@@ -26,9 +26,6 @@ final class CourseAttachmentDownloadTest extends ApiTestCase
     {
         parent::setUp();
 
-        Schema::table('course_enrollments', function (Blueprint $table): void {
-            $table->timestamp('expires_at')->nullable();
-        });
         Schema::create('course_modules', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('course_id');
@@ -132,8 +129,7 @@ final class CourseAttachmentDownloadTest extends ApiTestCase
             $this->attachment
         );
 
-        $tampered = preg_replace('/([?&]uid=)' . $this->user->id . '/', '$199999', $valid);
-        self::assertIsString($tampered);
+        $tampered = $valid . '&tampered=1';
         $this->get($tampered)->assertForbidden();
 
         $expired = URL::temporarySignedRoute(

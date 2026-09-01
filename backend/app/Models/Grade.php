@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Support\RoknLocale;
+use App\Traits\InvalidatesCourseCatalogue;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -9,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Grade extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, InvalidatesCourseCatalogue;
 
     protected $fillable = [
         'type', 'name_ar', 'name_en', 'description_ar', 'description_en', 'country'
@@ -24,12 +26,16 @@ class Grade extends Model
     // Computed attributes for backward compatibility
     public function getNameAttribute()
     {
-        return $this->name_ar ?: $this->name_en;
+        return RoknLocale::isArabic()
+            ? ($this->name_ar ?: $this->name_en)
+            : ($this->name_en ?: $this->name_ar);
     }
 
     public function getDescriptionAttribute()
     {
-        return $this->description_en ?: $this->description_ar;
+        return RoknLocale::isArabic()
+            ? ($this->description_ar ?: $this->description_en)
+            : ($this->description_en ?: $this->description_ar);
     }
 
     // Set name (updates both ar and en)

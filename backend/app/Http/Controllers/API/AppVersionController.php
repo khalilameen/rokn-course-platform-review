@@ -6,6 +6,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Models\AppVersion;
+use App\Services\AppReleasePolicyService;
 use App\Services\ApiResponseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,8 +15,10 @@ use Illuminate\Validation\Rule;
 
 final class AppVersionController extends Controller
 {
-    public function __construct(private readonly ApiResponseService $responses)
-    {
+    public function __construct(
+        private readonly ApiResponseService $responses,
+        private readonly AppReleasePolicyService $releasePolicy,
+    ) {
     }
 
     public function checkVersion(Request $request): JsonResponse
@@ -34,11 +37,17 @@ final class AppVersionController extends Controller
             'distribution_channel' => $platform === 'ios'
                 ? ['nullable', Rule::in(['appstore'])]
                 : ['nullable', Rule::in(['play', 'direct'])],
+            // Additive negotiation fields are optional so released clients
+            // built before this contract continue to receive update policy.
+            'api_contract_version' => ['sometimes', 'integer', 'min:1', 'max:1000'],
+            'capabilities' => ['sometimes', 'array', 'max:32'],
+            'capabilities.*' => ['string', 'max:64', 'regex:/^[a-z0-9_]+$/'],
         ];
         $validated = $request->validate($rules);
+        $clientCompatibility = $this->clientCompatibility($validated);
 
         /** @var Collection<int, AppVersion> $versions */
-        $versions = $this->activeVersions(
+        $versions = $this->releasePolicy->activeVersions(
             (string) $validated['platform'],
             isset($validated['distribution_channel'])
                 ? (string) $validated['distribution_channel']
@@ -46,22 +55,34 @@ final class AppVersionController extends Controller
         );
 
         if ($versions->isEmpty()) {
-            return $this->noUpdateResponse();
+            return $this->noUpdateResponse($clientCompatibility);
         }
 
         if ($validated['platform'] === 'android') {
-            return $this->androidResponse($versions, (int) $validated['version']);
+            return $this->androidResponse(
+                $versions,
+                (int) $validated['version'],
+                $clientCompatibility,
+            );
         }
 
         return $this->iosResponse(
             $versions,
             (string) $validated['version'],
             isset($validated['build_number']) ? (int) $validated['build_number'] : null,
+            $clientCompatibility,
         );
     }
 
-    /** @param Collection<int, AppVersion> $versions */
-    private function androidResponse(Collection $versions, int $currentCode): JsonResponse
+    /**
+     * @param Collection<int, AppVersion> $versions
+     * @param array{compatible: bool, client_version: int, missing_capabilities: list<string>} $clientCompatibility
+     */
+    private function androidResponse(
+        Collection $versions,
+        int $currentCode,
+        array $clientCompatibility,
+    ): JsonResponse
     {
         /** @var AppVersion|null $latest */
         $latest = $versions
@@ -70,25 +91,42 @@ final class AppVersionController extends Controller
             ->first();
 
         if (!$latest) {
-            return $this->noUpdateResponse();
+            return $this->noUpdateResponse($clientCompatibility);
         }
 
         $updateRequired = (int) $latest->version_code > $currentCode;
-        $forceUpdate = $updateRequired && $versions->contains(
+        $forceUpdate = $updateRequired && (!$clientCompatibility['compatible'] || $versions->contains(
             fn (AppVersion $version): bool =>
                 $version->version_code !== null
                 && (int) $version->version_code > $currentCode
                 && $version->is_force_update,
-        );
+        ));
 
-        return $this->versionResponse($latest, $updateRequired, $forceUpdate);
+        $minimumSupportedCode = $versions
+            ->filter(fn (AppVersion $version): bool =>
+                $version->version_code !== null && $version->is_force_update
+            )
+            ->max(fn (AppVersion $version): int => (int) $version->version_code);
+
+        return $this->versionResponse(
+            $latest,
+            $updateRequired,
+            $forceUpdate,
+            $minimumSupportedCode !== null ? (int) $minimumSupportedCode : null,
+            null,
+            $clientCompatibility,
+        );
     }
 
-    /** @param Collection<int, AppVersion> $versions */
+    /**
+     * @param Collection<int, AppVersion> $versions
+     * @param array{compatible: bool, client_version: int, missing_capabilities: list<string>} $clientCompatibility
+     */
     private function iosResponse(
         Collection $versions,
         string $currentVersion,
         ?int $currentBuild,
+        array $clientCompatibility,
     ): JsonResponse {
         /** @var AppVersion $latest */
         $latest = $versions->sort(function (AppVersion $left, AppVersion $right): int {
@@ -107,39 +145,60 @@ final class AppVersionController extends Controller
 
         if ($currentBuild !== null && $latest->build_number !== null) {
             $updateRequired = (int) $latest->build_number > $currentBuild;
-            $forceUpdate = $updateRequired && $versions->contains(
+            $forceUpdate = $updateRequired && (!$clientCompatibility['compatible'] || $versions->contains(
                 fn (AppVersion $version): bool =>
                     $version->build_number !== null
                     && (int) $version->build_number > $currentBuild
                     && $version->is_force_update,
-            );
+            ));
         } else {
             // Backwards compatibility for clients released before build_number
             // was added to the request contract.
             $updateRequired = version_compare((string) $latest->version_name, $currentVersion, '>');
-            $forceUpdate = $updateRequired && $versions->contains(
+            $forceUpdate = $updateRequired && (!$clientCompatibility['compatible'] || $versions->contains(
                 fn (AppVersion $version): bool =>
                     version_compare((string) $version->version_name, $currentVersion, '>')
                     && $version->is_force_update,
-            );
+            ));
         }
 
-        return $this->versionResponse($latest, $updateRequired, $forceUpdate);
+        $minimumSupportedBuild = $versions
+            ->filter(fn (AppVersion $version): bool =>
+                $version->build_number !== null && $version->is_force_update
+            )
+            ->max(fn (AppVersion $version): int => (int) $version->build_number);
+
+        return $this->versionResponse(
+            $latest,
+            $updateRequired,
+            $forceUpdate,
+            null,
+            $minimumSupportedBuild !== null ? (int) $minimumSupportedBuild : null,
+            $clientCompatibility,
+        );
     }
 
     private function versionResponse(
         AppVersion $latest,
         bool $updateRequired,
         bool $forceUpdate,
+        ?int $minimumSupportedVersionCode,
+        ?int $minimumSupportedBuildNumber,
+        array $clientCompatibility,
     ): JsonResponse {
-        return $this->responses->success(
+        return $this->withPolicyHeaders($this->responses->success(
             [
                 'update_required' => $updateRequired,
                 'is_force_update' => $forceUpdate,
+                'contract_version' => max(1, (int) config('mobile_contract.current_version', 1)),
+                'minimum_supported_version_code' => $minimumSupportedVersionCode,
+                'minimum_supported_build_number' => $minimumSupportedBuildNumber,
                 'latest_version' => $latest->version_name,
                 'latest_version_code' => $latest->version_code,
                 'latest_build_number' => $latest->build_number,
                 'distribution_channel' => $latest->distribution_channel,
+                'policy_configured' => true,
+                'client_compatible' => $clientCompatibility['compatible'],
                 'update_message' => app()->getLocale() === 'ar'
                     ? $latest->update_message_ar
                     : ($latest->update_message_en ?: $latest->update_message_ar),
@@ -147,53 +206,81 @@ final class AppVersionController extends Controller
                 'release_notes' => app()->getLocale() === 'ar'
                     ? $latest->release_notes_ar
                     : ($latest->release_notes_en ?: $latest->release_notes_ar),
+                'api_contract' => $this->apiContract($clientCompatibility),
             ],
-            'App version policy retrieved successfully'
-        );
+            'تم تحميل سياسة إصدار التطبيق'
+        ));
     }
 
-    private function noUpdateResponse(): JsonResponse
+    /** @param array{compatible: bool, client_version: int, missing_capabilities: list<string>} $clientCompatibility */
+    private function noUpdateResponse(array $clientCompatibility): JsonResponse
     {
-        return $this->responses->success(
+        return $this->withPolicyHeaders($this->responses->success(
             [
                 'update_required' => false,
                 'is_force_update' => false,
+                'contract_version' => max(1, (int) config('mobile_contract.current_version', 1)),
+                'minimum_supported_version_code' => null,
+                'minimum_supported_build_number' => null,
+                'policy_configured' => false,
+                'client_compatible' => $clientCompatibility['compatible'],
+                'api_contract' => $this->apiContract($clientCompatibility),
             ],
-            'The app is up to date'
-        );
+            'التطبيق محدّث'
+        ));
     }
 
-    /** @return Collection<int, AppVersion> */
-    private function activeVersions(string $platform, ?string $channel): Collection
+    /**
+     * @param array{compatible: bool, client_version: int, missing_capabilities: list<string>} $clientCompatibility
+     * @return array{current_version: int, minimum_supported_version: int, client_version: int, compatible: bool, missing_capabilities: list<string>, canonical_base: string, legacy_base: string, capabilities: list<string>}
+     */
+    private function apiContract(array $clientCompatibility): array
     {
-        $base = AppVersion::query()
-            ->where('platform', $platform)
-            ->where('is_active', true);
+        return [
+            'current_version' => max(1, (int) config('mobile_contract.current_version', 1)),
+            'minimum_supported_version' => max(1, (int) config('mobile_contract.minimum_supported_version', 1)),
+            'client_version' => $clientCompatibility['client_version'],
+            'compatible' => $clientCompatibility['compatible'],
+            'missing_capabilities' => $clientCompatibility['missing_capabilities'],
+            'canonical_base' => '/api/v1',
+            // Existing APKs keep /api until their declared minimum release is
+            // retired. New code and generated links always use /api/v1.
+            'legacy_base' => '/api',
+            'capabilities' => array_values((array) config('mobile_contract.capabilities', [])),
+        ];
+    }
 
-        if ($channel !== null) {
-            $exact = (clone $base)
-                ->where('distribution_channel', $channel)
-                ->get();
+    /**
+     * @param array<string, mixed> $validated
+     * @return array{compatible: bool, client_version: int, missing_capabilities: list<string>}
+     */
+    private function clientCompatibility(array $validated): array
+    {
+        $clientVersion = max(1, (int) ($validated['api_contract_version'] ?? 1));
+        $minimumVersion = max(1, (int) config('mobile_contract.minimum_supported_version', 1));
+        $reportedCapabilities = array_values(array_unique(array_map(
+            static fn ($value): string => trim((string) $value),
+            (array) ($validated['capabilities'] ?? []),
+        )));
+        $requiredCapabilities = array_values(array_unique(array_filter(array_map(
+            static fn ($value): string => trim((string) $value),
+            (array) config('mobile_contract.required_capabilities', []),
+        ))));
+        $missing = array_values(array_diff($requiredCapabilities, $reportedCapabilities));
 
-            // Legacy rows are accepted only when this channel has no explicit
-            // release. Rows for another channel are never considered.
-            return $exact->isNotEmpty()
-                ? $exact
-                : (clone $base)->whereNull('distribution_channel')->get();
-        }
+        return [
+            'compatible' => $clientVersion >= $minimumVersion && $missing === [],
+            'client_version' => $clientVersion,
+            'missing_capabilities' => $missing,
+        ];
+    }
 
-        if ($platform === 'ios') {
-            $appStore = (clone $base)
-                ->where('distribution_channel', 'appstore')
-                ->get();
+    private function withPolicyHeaders(JsonResponse $response): JsonResponse
+    {
+        $response->headers->set('Cache-Control', 'no-store, private');
+        $response->headers->set('Pragma', 'no-cache');
+        $response->headers->set('Vary', 'Accept-Language');
 
-            return $appStore->isNotEmpty()
-                ? $appStore
-                : (clone $base)->whereNull('distribution_channel')->get();
-        }
-
-        // An old Android client did not identify whether it came from Play or
-        // the direct APK. Only an unclassified legacy release is safe here.
-        return (clone $base)->whereNull('distribution_channel')->get();
+        return $response;
     }
 }

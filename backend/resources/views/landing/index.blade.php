@@ -57,56 +57,6 @@
         </div>
     </section>
 
-    {{-- Educational paths preview. Published catalog data replaces these cards. --}}
-    <section class="landing-paths">
-        <div class="landing-container">
-            <h2 class="section-title">المسارات التعليمية<br><small style="font-size: 1.1rem; color: var(--rokn-text-muted); font-weight: 400; display: block; margin-top: 10px;">اختر مهارتك وانطلق<br>كل مسار مصمم لجعلك جاهزاً لسوق العمل في أقصر وقت ممكن.</small></h2>
-            
-            <div class="paths-grid">
-                {{-- Path 1 --}}
-                <div class="path-card">
-                    <span class="path-category">تسويق رقمي</span>
-                    <h3>احتراف إعلانات ميتا</h3>
-                    <p>تعلم إطلاق حملات إعلانية ناجحة على فيسبوك وانستجرام من الصفر.</p>
-                    <div class="path-footer">
-                        <span class="path-price">599 ج.م</span>
-                        <button onclick="openAppModal(event)" class="path-btn" style="border: none; cursor: pointer; font-family: inherit;">احصل عليه</button>
-                    </div>
-                </div>
-
-                {{-- Path 2 --}}
-                <div class="path-card">
-                    <span class="path-category">صناعة محتوى</span>
-                    <h3>مونتاج الريلز المتقدم</h3>
-                    <p>أسرار الاحتفاظ بالمشاهد والتعديل السريع باستخدام الهاتف.</p>
-                    <div class="path-footer">
-                        <span class="path-price">399 ج.م</span>
-                        <button onclick="openAppModal(event)" class="path-btn" style="border: none; cursor: pointer; font-family: inherit;">احصل عليه</button>
-                    </div>
-                </div>
-
-                {{-- Path 3 --}}
-                <div class="path-card">
-                    <span class="path-category">تجارة إلكترونية</span>
-                    <h3>إدارة المتاجر الإلكترونية</h3>
-                    <p>كيف تدير متجرك، ترفع المنتجات، وتتعامل مع طلبات العملاء.</p>
-                    <div class="path-footer">
-                        <span class="path-price">449 ج.م</span>
-                        <button onclick="openAppModal(event)" class="path-btn" style="border: none; cursor: pointer; font-family: inherit;">احصل عليه</button>
-                    </div>
-                </div>
-            </div>
-
-            <div class="paths-cta">
-                <h3>مستعد لبدء رحلتك؟</h3>
-                <p>حمّل التطبيق الآن، افتح مسارك الأول، واحصل على 20 عملة ركن كهدية ترحيبية.</p>
-               
-                @include('landing.partials.download-buttons')
-               
-            </div>
-        </div>
-    </section>
-
     {{-- SKILLS SECTION --}}
     <section class="landing-skills">
         <div class="landing-container">
@@ -120,43 +70,27 @@
     </section>
 
     {{-- HOW IT WORKS SECTION --}}
-    @if($designSetting->show_how_platform_works)
+    @if($designSetting->show_how_platform_works && $howPlatformWorksVideoUrl)
         <section class="landing-how-it-works">
             <div class="landing-container">
                 @php $howTitle = $designSetting->{'how_platform_works_title_' . $locale}; @endphp
                 <h2 class="section-title">{{ $howTitle ?: __('landing.how_it_works_default_title') }}</h2>
-                @if($designSetting->how_platform_works_video_link)
-                    <div class="video-wrapper">
-                        <iframe src="{{ $designSetting->how_platform_works_video_link }}" allowfullscreen loading="lazy" title="{{ $howTitle ?: __('landing.how_it_works_default_title') }}"></iframe>
-                    </div>
-                @endif
+                <div class="video-wrapper">
+                    <iframe src="{{ $howPlatformWorksVideoUrl }}" allowfullscreen loading="lazy" referrerpolicy="strict-origin-when-cross-origin" title="{{ $howTitle ?: __('landing.how_it_works_default_title') }}"></iframe>
+                </div>
             </div>
         </section>
     @endif
 
-    {{-- APP MODAL --}}
-    <div id="appModal" class="app-modal-overlay" style="display: none;">
-        <div class="app-modal-content">
-            <button class="app-modal-close" onclick="closeAppModal()">&times;</button>
-            <h3>حمّل التطبيق الآن</h3>
-            <p style="color: var(--rokn-text-muted); margin-bottom: 1.5rem;">اختر منصتك المفضلة لتحميل التطبيق والبدء.</p>
-            @include('landing.partials.download-buttons', ['vertical' => true])
-        </div>
-    </div>
-
-    <script>
-        function openAppModal(e) {
-            e.preventDefault();
-            document.getElementById('appModal').style.display = 'flex';
-        }
-        function closeAppModal() {
-            document.getElementById('appModal').style.display = 'none';
-        }
-        window.onclick = function(event) {
-            var modal = document.getElementById('appModal');
-            if (event.target == modal) {
-                modal.style.display = 'none';
-            }
-        }
-    </script>
+    @if($hasDownloads)
+        <section class="landing-paths">
+            <div class="landing-container">
+                <div class="paths-cta">
+                    <h2>ابدأ من التطبيق</h2>
+                    <p>حمّل ركن واختر ما تريد تعلّمه</p>
+                    @include('landing.partials.download-buttons')
+                </div>
+            </div>
+        </section>
+    @endif
 @endsection

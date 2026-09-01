@@ -5,16 +5,32 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Course;
 use App\Models\CoursePdf;
-use App\Models\CourseSection;
 use App\Models\DesignSetting;
+use App\Services\CoursePublishingService;
+use App\Services\CourseAuthoringConcurrencyService;
+use App\Services\CourseMediaFilePolicy;
+use App\Services\StoredFileDeletionService;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+use App\Support\DownloadFilename;
+use App\Support\UnicodeText;
 
 class CoursePdfController extends Controller
 {
+    public function __construct(
+        private readonly CoursePublishingService $publishingService,
+        private readonly CourseAuthoringConcurrencyService $authoring,
+        private readonly CourseMediaFilePolicy $filePolicy,
+        private readonly StoredFileDeletionService $fileDeletion
+    )
+    {
+    }
+
     /**
      * Get design settings for the views
      */
@@ -38,6 +54,10 @@ class CoursePdfController extends Controller
      */
     public function create(Course $course)
     {
+        if (!$course->is_coming_soon) {
+            return redirect()->route('admin.courses.pdfs.index', $course)
+                ->with('error', 'حوّل الكورس إلى مسودة قبل إضافة مرفق جديد');
+        }
         $designSettings = $this->getDesignSettings();
         $maxOrder = $course->pdfs()->max('order') ?? 0;
         return view('admin.course-pdfs.create', compact('course', 'designSettings', 'maxOrder'));
@@ -48,6 +68,8 @@ class CoursePdfController extends Controller
      */
     public function store(Request $request, Course $course)
     {
+        $this->assertDraft($course);
+        $this->normalizeText($request);
         $request->validate([
             'title' => 'required|string|max:255',
             'title_en' => 'nullable|string|max:255',
@@ -56,16 +78,24 @@ class CoursePdfController extends Controller
             'pdf_file' => 'required|file|mimes:pdf|max:51200', // Max 50MB
             'order' => 'nullable|integer|min:0',
             'is_active' => 'nullable|boolean',
-            'create_section' => 'nullable|boolean',
+            'authoring_version' => 'required|integer|min:1',
         ]);
 
         $stored = null;
         $metadataCreated = false;
+        $duplicate = false;
         try {
             $file = $request->file('pdf_file');
+            $metadata = $this->filePolicy->pdf($file);
             $stored = $this->storePdf($file, $course);
 
-            DB::transaction(function () use ($request, $course, $file, $stored): void {
+            DB::transaction(function () use ($request, $course, $file, $stored, $metadata, &$duplicate): void {
+                $lockedCourse = $this->authoring->lock($request, $course);
+                $this->assertDraft($lockedCourse);
+                if ($course->pdfs()->where('content_sha256', $metadata['sha256'])->lockForUpdate()->exists()) {
+                    $duplicate = true;
+                    return;
+                }
                 $maxOrder = $course->pdfs()->max('order') ?? 0;
                 $pdf = CoursePdf::create([
                     'course_id' => $course->id,
@@ -77,30 +107,27 @@ class CoursePdfController extends Controller
                     'storage_disk' => $stored['disk'],
                     'original_filename' => $this->safeOriginalFilename($file),
                     'file_size' => $file->getSize(),
+                    'content_sha256' => $metadata['sha256'],
                     'order' => $request->order ?? ($maxOrder + 1),
                     'is_active' => $request->has('is_active') ? $request->is_active : true,
                 ]);
-
-                if ($request->create_section) {
-                    $sectionMaxOrder = $course->sections()->max('order') ?? 0;
-                    CourseSection::create([
-                        'title' => $request->title,
-                        'course_id' => $course->id,
-                        'sectionable_type' => CoursePdf::class,
-                        'sectionable_id' => $pdf->id,
-                        'order' => $sectionMaxOrder + 1,
-                    ]);
-                }
+                $this->authoring->advance($lockedCourse);
             });
+            if ($duplicate) {
+                $this->fileDeletion->deleteOrQueue($stored['disk'], $stored['path']);
+                $stored = null;
+            }
             $metadataCreated = true;
 
             return redirect()
                 ->route('admin.courses.pdfs.index', $course)
-                ->with('success', 'تم رفع ملف PDF بنجاح');
+                ->with('success', $duplicate ? 'هذا الملف مضاف بالفعل' : 'تم رفع ملف PDF بنجاح');
 
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             if (is_array($stored) && !$metadataCreated) {
-                Storage::disk($stored['disk'])->delete($stored['path']);
+                $this->fileDeletion->deleteOrQueue($stored['disk'], $stored['path']);
             }
             report($e);
             return redirect()
@@ -126,6 +153,8 @@ class CoursePdfController extends Controller
     public function update(Request $request, Course $course, CoursePdf $pdf)
     {
         $this->assertPdfBelongsToCourse($course, $pdf);
+        $this->assertDraft($course);
+        $this->normalizeText($request);
         $request->validate([
             'title' => 'required|string|max:255',
             'title_en' => 'nullable|string|max:255',
@@ -134,7 +163,14 @@ class CoursePdfController extends Controller
             'pdf_file' => 'nullable|file|mimes:pdf|max:51200', // Max 50MB
             'order' => 'nullable|integer|min:0',
             'is_active' => 'nullable|boolean',
+            'authoring_version' => 'required|integer|min:1',
         ]);
+
+        if ($request->hasFile('pdf_file') && $pdf->courseSection && !$course->is_coming_soon) {
+            throw ValidationException::withMessages([
+                'pdf_file' => ['حوّل الكورس إلى مسودة قبل استبدال ملف ظاهر في خريطة الكورس'],
+            ]);
+        }
 
         $stored = null;
         $metadataUpdated = false;
@@ -153,37 +189,51 @@ class CoursePdfController extends Controller
             // If a new file is uploaded, replace the old one
             if ($request->hasFile('pdf_file')) {
                 $file = $request->file('pdf_file');
+                $metadata = $this->filePolicy->pdf($file);
                 $stored = $this->storePdf($file, $course);
                 $data['file_path'] = $stored['path'];
                 $data['storage_disk'] = $stored['disk'];
                 $data['original_filename'] = $this->safeOriginalFilename($file);
                 $data['file_size'] = $file->getSize();
+                $data['content_sha256'] = $metadata['sha256'];
             }
 
-            DB::transaction(function () use ($pdf, $data, $request): void {
-                $pdf->update($data);
-                if ($pdf->courseSection) {
-                    $pdf->courseSection->update(['title' => $request->title]);
+            DB::transaction(function () use ($course, $pdf, $data, $request): void {
+                $lockedCourse = $this->authoring->lock($request, $course);
+                $this->assertDraft($lockedCourse);
+                $lockedPdf = CoursePdf::query()->whereKey($pdf->id)
+                    ->where('course_id', $course->id)->lockForUpdate()->firstOrFail();
+                if (!empty($data['content_sha256']) && CoursePdf::query()
+                    ->where('course_id', $course->id)
+                    ->where('content_sha256', $data['content_sha256'])
+                    ->where('id', '<>', $lockedPdf->id)
+                    ->lockForUpdate()
+                    ->exists()) {
+                    throw ValidationException::withMessages(['pdf_file' => 'هذا الملف مضاف بالفعل']);
                 }
+                $lockedPdf->update($data);
+                if ($lockedPdf->courseSection) {
+                    $lockedPdf->courseSection->update(['title' => $request->title]);
+                }
+                $this->assertLiveCourseReady($course);
+                $this->authoring->advance($lockedCourse);
             });
             $metadataUpdated = true;
 
             // Remove the old object after the replacement metadata commits.
             if (is_array($stored)) {
-                try {
-                    Storage::disk($oldDisk)->delete($oldPath);
-                } catch (\Throwable $cleanupFailure) {
-                    report($cleanupFailure);
-                }
+                $this->fileDeletion->deleteOrQueue($oldDisk, $oldPath);
             }
 
             return redirect()
                 ->route('admin.courses.pdfs.index', $course)
                 ->with('success', 'تم تحديث ملف PDF بنجاح');
 
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             if (is_array($stored) && !$metadataUpdated) {
-                Storage::disk($stored['disk'])->delete($stored['path']);
+                $this->fileDeletion->deleteOrQueue($stored['disk'], $stored['path']);
             }
             report($e);
             return redirect()
@@ -196,35 +246,40 @@ class CoursePdfController extends Controller
     /**
      * Remove the specified PDF
      */
-    public function destroy(Course $course, CoursePdf $pdf)
+    public function destroy(Request $request, Course $course, CoursePdf $pdf)
     {
         $this->assertPdfBelongsToCourse($course, $pdf);
+        $this->assertDraft($course);
+        $request->validate(['authoring_version' => 'required|integer|min:1']);
         try {
             $disk = $pdf->storage_disk;
             $path = $pdf->file_path;
-            DB::transaction(function () use ($pdf): void {
-                if ($pdf->courseSection) {
-                    $pdf->courseSection->delete();
+            DB::transaction(function () use ($request, $course, $pdf): void {
+                $lockedCourse = $this->authoring->lock($request, $course);
+                $this->assertDraft($lockedCourse);
+                $lockedPdf = CoursePdf::query()->whereKey($pdf->id)
+                    ->where('course_id', $course->id)->lockForUpdate()->firstOrFail();
+                if ($lockedPdf->courseSection) {
+                    $lockedPdf->courseSection->delete();
                 }
-                $pdf->delete();
+                $lockedPdf->delete();
+                $this->assertLiveCourseReady($course);
+                $this->authoring->advance($lockedCourse);
             });
 
-            try {
-                Storage::disk($disk)->delete($path);
-            } catch (\Throwable $cleanupFailure) {
-                // The database no longer exposes this document. Keep deletion
-                // successful and report the orphan for asynchronous cleanup.
-                report($cleanupFailure);
-            }
+            $this->fileDeletion->deleteOrQueue($disk, $path);
 
             return redirect()
                 ->route('admin.courses.pdfs.index', $course)
                 ->with('success', 'تم حذف ملف PDF بنجاح');
 
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
+            report($e);
             return redirect()
                 ->back()
-                ->with('error', 'حدث خطأ أثناء حذف الملف: ' . $e->getMessage());
+                ->with('error', 'تعذر حذف الملف الآن');
         }
     }
 
@@ -233,42 +288,75 @@ class CoursePdfController extends Controller
      */
     public function reorder(Request $request, Course $course)
     {
+        $this->assertDraft($course);
         $request->validate([
             'order' => 'required|array',
-            'order.*' => 'integer|exists:course_pdfs,id',
+            'order.*' => [
+                'integer',
+                'distinct',
+                Rule::exists('course_pdfs', 'id')->where(
+                    fn ($query) => $query->where('course_id', $course->id)
+                ),
+            ],
+            'authoring_version' => 'required|integer|min:1',
         ]);
 
         try {
-            foreach ($request->order as $position => $pdfId) {
-                CoursePdf::where('id', $pdfId)
-                    ->where('course_id', $course->id)
-                    ->update(['order' => $position + 1]);
-            }
+            $version = DB::transaction(function () use ($request, $course): int {
+                $lockedCourse = $this->authoring->lock($request, $course);
+                $this->assertDraft($lockedCourse);
+                CoursePdf::query()->where('course_id', $course->id)
+                    ->whereIn('id', $request->order)->orderBy('id')->lockForUpdate()->get();
+                foreach ($request->order as $position => $pdfId) {
+                    CoursePdf::where('id', $pdfId)
+                        ->where('course_id', $course->id)
+                        ->update(['order' => $position + 1]);
+                }
+                return $this->authoring->advance($lockedCourse);
+            }, 3);
 
-            return response()->json(['success' => true, 'message' => 'تم تحديث الترتيب بنجاح']);
+            return response()->json(['success' => true, 'message' => 'تم تحديث الترتيب بنجاح', 'authoring_version' => $version]);
 
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+            report($e);
+            return response()->json(['success' => false, 'message' => 'تعذر تحديث الترتيب الآن'], 500);
         }
     }
 
     /**
      * Toggle PDF active status
      */
-    public function toggleStatus(Course $course, CoursePdf $pdf)
+    public function toggleStatus(Request $request, Course $course, CoursePdf $pdf)
     {
         $this->assertPdfBelongsToCourse($course, $pdf);
+        $this->assertDraft($course);
+        $request->validate(['authoring_version' => 'required|integer|min:1']);
         try {
-            $pdf->update(['is_active' => !$pdf->is_active]);
+            $version = DB::transaction(function () use ($request, $course, $pdf): int {
+                $lockedCourse = $this->authoring->lock($request, $course);
+                $this->assertDraft($lockedCourse);
+                $lockedPdf = CoursePdf::query()->whereKey($pdf->id)
+                    ->where('course_id', $course->id)->lockForUpdate()->firstOrFail();
+                $lockedPdf->update(['is_active' => !$lockedPdf->is_active]);
+                $this->assertLiveCourseReady($course);
+                $pdf->is_active = $lockedPdf->is_active;
+                return $this->authoring->advance($lockedCourse);
+            }, 3);
 
             return response()->json([
                 'success' => true,
                 'is_active' => $pdf->is_active,
-                'message' => $pdf->is_active ? 'تم تفعيل الملف' : 'تم إلغاء تفعيل الملف'
+                'message' => $pdf->is_active ? 'تم تفعيل الملف' : 'تم إلغاء تفعيل الملف',
+                'authoring_version' => $version,
             ]);
 
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+            report($e);
+            return response()->json(['success' => false, 'message' => 'تعذر تحديث حالة الملف الآن'], 500);
         }
     }
 
@@ -287,6 +375,22 @@ class CoursePdfController extends Controller
             'X-Content-Type-Options' => 'nosniff',
             'Cache-Control' => 'private, no-store',
         ], 'inline');
+    }
+
+    private function normalizeText(Request $request): void
+    {
+        $normalized = [];
+        foreach (['title', 'title_en'] as $field) {
+            $normalized[$field] = $request->filled($field)
+                ? UnicodeText::clean($request->input($field), false)
+                : null;
+        }
+        foreach (['description', 'description_en'] as $field) {
+            $normalized[$field] = $request->filled($field)
+                ? UnicodeText::clean($request->input($field))
+                : null;
+        }
+        $request->merge($normalized);
     }
 
     /** @return array{disk: string, path: string} */
@@ -311,14 +415,34 @@ class CoursePdfController extends Controller
 
     private function safeOriginalFilename(UploadedFile $file): string
     {
-        $name = basename(str_replace('\\', '/', $file->getClientOriginalName()));
-        $name = preg_replace('/[\x00-\x1F\x7F]+/u', '', $name) ?: 'document.pdf';
-
-        return Str::limit($name, 255, '');
+        return DownloadFilename::safe(
+            $file->getClientOriginalName(),
+            'document',
+            'pdf'
+        );
     }
 
     private function assertPdfBelongsToCourse(Course $course, CoursePdf $pdf): void
     {
         abort_unless((int) $pdf->course_id === (int) $course->id, 404);
+    }
+
+    private function assertLiveCourseReady(Course $course): void
+    {
+        if ($course->is_coming_soon) return;
+
+        $audit = $this->publishingService->audit($course->fresh());
+        if (!$audit['ready']) {
+            throw ValidationException::withMessages(['course' => $audit['issues']]);
+        }
+    }
+
+    private function assertDraft(Course $course): void
+    {
+        if (!$course->is_coming_soon) {
+            throw ValidationException::withMessages([
+                'course' => 'حوّل الكورس إلى مسودة قبل تغيير مرفقاته',
+            ]);
+        }
     }
 }

@@ -328,6 +328,14 @@ a.admin-metric:hover {
     white-space: pre-wrap;
 }
 
+.attachment-progress {
+    height: 8px;
+}
+
+.attachment-progress__bar {
+    width: 0;
+}
+
 @media (max-width: 767.98px) {
     .admin-page__header,
     .admin-page__heading {

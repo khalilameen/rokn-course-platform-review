@@ -9,14 +9,17 @@ use App\Models\Setting;
 use App\Models\Package;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 final class ProductionCapabilityService
 {
-    public function __construct(private readonly SocialAuthProviderRegistry $socialProviders)
-    {
-    }
+    public function __construct(
+        private readonly SocialAuthProviderRegistry $socialProviders,
+        private readonly RecoveryEvidenceService $recoveryEvidence
+    ) {}
 
     /**
      * Configuration readiness is deliberately separate from live provider
@@ -34,9 +37,10 @@ final class ProductionCapabilityService
      *     ai: array{ready: bool, reason: string},
      *     mail: array{ready: bool, reason: string},
      *     push: array{ready: bool, reason: string},
-     *     social: array{ready: bool, reason: string, google: array, facebook: array, tiktok: array, apple: array, callbacks: array},
+     *     social: array{ready: bool, reason: string, google: array, facebook: array, tiktok: array, apple: array, callbacks: array, handoff: array},
      *     app_links: array{ready: bool, reason: string, android: array, apple: array},
-     *     queue: array{ready: bool, reason: string, required_queues: list<string>, queues: array<string, array>}
+     *     queue: array{ready: bool, reason: string, required_queues: list<string>, queues: array<string, array>},
+     *     recovery: array{ready: bool, reason: string, checks: array, recovery_mode: bool, rpo_seconds: ?int, rto_seconds: ?int}
      *   }
      * }
      */
@@ -70,12 +74,12 @@ final class ProductionCapabilityService
         $uploadReady = $streamReady
             && (int) config('bunny.connect_timeout_seconds', 0) > 0
             && (int) config('bunny.upload_timeout_seconds', 0) >= 60;
-        $playbackReady = $bunnyEnabled && $this->validHostname($cdnHostname);
+        $playbackReady = $bunnyEnabled && $this->validBareHostname($cdnHostname);
         $signingReady = $bunnyEnabled && $signingKey !== '';
         $assetsReady = $bunnyEnabled
             && $storageZone !== ''
             && $storagePassword !== ''
-            && $this->validHostname($storageHostname)
+            && $this->validBareHostname($storageHostname)
             && $storageSigningKey !== '';
 
         $bunny = [
@@ -117,6 +121,20 @@ final class ProductionCapabilityService
         $social = $this->socialCapability();
         $appLinks = $this->appLinksCapability();
         $queue = $this->queueCapability();
+        $recoveryState = $this->recoveryEvidence->readiness();
+        $recovery = [
+            'ready' => (bool) ($recoveryState['ready'] ?? false)
+                && !(bool) ($recoveryState['recovery_mode'] ?? false),
+            'reason' => (bool) ($recoveryState['recovery_mode'] ?? false)
+                ? 'Recovery mode is active; payment and background mutations remain paused'
+                : ((bool) ($recoveryState['ready'] ?? false)
+                    ? 'Signed backup and restore evidence satisfies the configured RPO and RTO'
+                    : 'Signed backup, restore, encryption, schema, ledger, or media evidence is incomplete'),
+            'checks' => (array) ($recoveryState['checks'] ?? []),
+            'recovery_mode' => (bool) ($recoveryState['recovery_mode'] ?? false),
+            'rpo_seconds' => $recoveryState['rpo_seconds'] ?? null,
+            'rto_seconds' => $recoveryState['rto_seconds'] ?? null,
+        ];
 
         return [
             'ready' => $bunny['ready']
@@ -126,7 +144,8 @@ final class ProductionCapabilityService
                 && $push['ready']
                 && $social['ready']
                 && $appLinks['ready']
-                && $queue['ready'],
+                && $queue['ready']
+                && $recovery['ready'],
             'checked_at' => now()->toIso8601String(),
             'capabilities' => [
                 'bunny' => $bunny,
@@ -137,6 +156,7 @@ final class ProductionCapabilityService
                 'social' => $social,
                 'app_links' => $appLinks,
                 'queue' => $queue,
+                'recovery' => $recovery,
             ],
         ];
     }
@@ -334,11 +354,18 @@ final class ProductionCapabilityService
         $callbacksReady = $this->validSocialApiUrl($publicApiUrl)
             && config('social_auth.allow_legacy_pkce') === false
             && $returnUrls === ['rokn://auth'];
+        $handoffReady = $this->socialHandoffIsReady();
 
         $social = [
             'callbacks' => $this->item(
                 $callbacksReady,
                 $callbacksReady ? 'روابط العودة وPKCE مضبوطة للإنتاج' : 'Public API URL أو return URL أو سياسة PKCE غير صالحة'
+            ),
+            'handoff' => $this->item(
+                $handoffReady,
+                $handoffReady
+                    ? 'مسار OAuth والجلسة المشفرة مكتمل داخليًا'
+                    : 'مسار OAuth أو تشفير الجلسة غير مكتمل'
             ),
         ];
         foreach (['google', 'tiktok', 'apple', 'facebook'] as $provider) {
@@ -350,6 +377,7 @@ final class ProductionCapabilityService
         $social['declared_providers'] = $declaredProviders->all();
         $social['ready'] = $declaredProviders->isNotEmpty()
             && $callbacksReady
+            && $handoffReady
             && $declaredProviders->every(
                 fn (string $provider): bool => (bool) data_get($social, "{$provider}.ready")
             );
@@ -358,6 +386,29 @@ final class ProductionCapabilityService
             : 'إحدى طرق الدخول المعلنة أو عقد العودة ما زال ناقصًا';
 
         return $social;
+    }
+
+    public function socialHandoffIsReady(): bool
+    {
+        foreach ([
+            'api.auth-methods',
+            'api.social-login',
+            'api.social.start',
+            'api.social.callback',
+            'api.social.complete',
+        ] as $routeName) {
+            if (!Route::has($routeName)) {
+                return false;
+            }
+        }
+
+        try {
+            $probe = bin2hex(random_bytes(16));
+
+            return hash_equals($probe, Crypt::decryptString(Crypt::encryptString($probe)));
+        } catch (Throwable $exception) {
+            return false;
+        }
     }
 
     private function appLinksCapability(): array
@@ -568,6 +619,17 @@ final class ProductionCapabilityService
         }
 
         return $hostname !== ''
+            && filter_var($hostname, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME) !== false;
+    }
+
+    private function validBareHostname(string $hostname): bool
+    {
+        $hostname = strtolower(trim($hostname));
+
+        return $hostname !== ''
+            && !str_contains($hostname, ':')
+            && !str_contains($hostname, '/')
+            && !str_contains($hostname, '@')
             && filter_var($hostname, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME) !== false;
     }
 

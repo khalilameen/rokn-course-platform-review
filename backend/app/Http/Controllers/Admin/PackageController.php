@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Package;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class PackageController extends Controller
 {
@@ -49,6 +50,8 @@ class PackageController extends Controller
     private function validated(Request $request, ?Package $package = null): array
     {
         $request->merge([
+            'is_active' => $request->boolean('is_active'),
+            'direct_enabled' => $request->boolean('direct_enabled'),
             'google_enabled' => $request->boolean('google_enabled'),
             'apple_enabled' => $request->boolean('apple_enabled'),
         ]);
@@ -58,6 +61,8 @@ class PackageController extends Controller
             'name_en' => 'required|string|max:255',
             'price' => 'required|numeric|min:0.01',
             'coins' => 'required|integer|min:1',
+            'is_active' => 'required|boolean',
+            'direct_enabled' => 'required|boolean',
             'google_product_id' => [
                 'nullable', 'required_if:google_enabled,1', 'string', 'max:191',
                 'regex:/^[a-z0-9._]+$/',
@@ -109,7 +114,13 @@ class PackageController extends Controller
     {
         $validated = $this->validated($request, $package);
 
-        $package->update($validated);
+        try {
+            $package->update($validated);
+        } catch (\DomainException $exception) {
+            throw ValidationException::withMessages([
+                'coins' => [$exception->getMessage()],
+            ]);
+        }
 
         return redirect()->route('admin.packages.index')->with('success', 'تم تحديث الباقة بنجاح');
     }
@@ -122,10 +133,15 @@ class PackageController extends Controller
      */
     public function destroy(Package $package)
     {
-        if ($package->storePurchases()->exists()) {
+        if (
+            $package->orders()->exists()
+            || $package->storePurchases()->exists()
+            || filled($package->google_product_id)
+            || filled($package->apple_product_id)
+        ) {
             return redirect()->back()->with(
                 'error',
-                'لا يمكن حذف باقة لها مشتريات متجر. عطّلها مع الاحتفاظ بالسجل المالي.'
+                'لا يمكن حذف باقة دخلت دورة بيع. عطّل قنواتها مع الاحتفاظ بالسجل المالي.'
             );
         }
         $package->delete();

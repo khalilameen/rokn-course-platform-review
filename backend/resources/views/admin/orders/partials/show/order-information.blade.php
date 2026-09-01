@@ -150,7 +150,7 @@
                             <div>
                                 <small class="text-muted">
                                     <i class="fa fa-calendar"></i>
-                                    {{ $order->approved_at->format('Y-m-d H:i:s') }}
+                                    {{ \App\Support\BusinessClock::format($order->approved_at, 'Y-m-d H:i:s') }}
                                 </small>
                             </div>
                         </div>
@@ -177,8 +177,8 @@
                             <span>تاريخ الإنشاء:</span>
                         </div>
                         <div class="info-value">
-                            <strong>{{ $order->created_at->format('Y-m-d') }}</strong>
-                            <small class="text-muted">{{ $order->created_at->format('H:i:s') }}</small>
+                            <strong>{{ \App\Support\BusinessClock::format($order->created_at, 'Y-m-d') }}</strong>
+                            <small class="text-muted">{{ \App\Support\BusinessClock::format($order->created_at, 'H:i:s') }}</small>
                         </div>
                     </div>
 

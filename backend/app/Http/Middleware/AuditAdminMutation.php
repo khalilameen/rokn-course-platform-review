@@ -3,6 +3,8 @@
 namespace App\Http\Middleware;
 
 use App\Models\AdminAuditLog;
+use App\Models\Course;
+use App\Support\PrivacyFingerprint;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -48,6 +50,20 @@ final class AuditAdminMutation
                     return is_scalar($value) ? (string) $value : get_debug_type($value);
                 })
                 ->all();
+            $courseParameter = $request->route('course');
+            $courseId = is_object($courseParameter) && method_exists($courseParameter, 'getKey')
+                ? (int) $courseParameter->getKey()
+                : (is_numeric($courseParameter) ? (int) $courseParameter : null);
+            if ($courseId) {
+                $parameters['course_id'] = (string) $courseId;
+                if ($request->filled('authoring_version')) {
+                    $parameters['expected_authoring_version'] = (string) $request->integer('authoring_version');
+                }
+                $currentVersion = Course::query()->whereKey($courseId)->value('authoring_version');
+                $parameters['resulting_authoring_version'] = $currentVersion === null
+                    ? 'deleted'
+                    : (string) $currentVersion;
+            }
 
             AdminAuditLog::query()->create([
                 'request_id' => $requestId,
@@ -61,8 +77,8 @@ final class AuditAdminMutation
                 // credentials or personal values into the audit trail.
                 'request_fields' => $fields,
                 'response_status' => $response->getStatusCode(),
-                'ip_address' => $request->ip(),
-                'user_agent' => Str::limit((string) $request->userAgent(), 500, ''),
+                'ip_address' => PrivacyFingerprint::make($request->ip()),
+                'user_agent' => PrivacyFingerprint::make($request->userAgent()),
                 'occurred_at' => now(),
             ]);
         } catch (\Throwable $exception) {
@@ -83,4 +99,5 @@ final class AuditAdminMutation
 
         return (string) Str::uuid();
     }
+
 }

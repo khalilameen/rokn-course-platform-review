@@ -9,14 +9,21 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    public $withinTransaction = false;
+
     public function up(): void
     {
-        Schema::table('course_access_plans', function (Blueprint $table): void {
-            $table->unsignedInteger('minimum_paid_coins')->default(0)->after('price_coins');
-        });
+        if (!Schema::hasTable('course_access_plans')) return;
+        if (!Schema::hasColumn('course_access_plans', 'minimum_paid_coins')) {
+            Schema::table('course_access_plans', function (Blueprint $table): void {
+                $table->unsignedInteger('minimum_paid_coins')->default(0)->after('price_coins');
+            });
+        }
 
-        $coinValue = max(0.000001, (float) config('course_plans.net_usd_per_paid_coin', .001));
-        $safety = max(1, (float) config('course_plans.ai_cost_safety_multiplier', 2));
+        // Keep the historical calculation deterministic. Runtime pricing may
+        // evolve, but replaying this migration must not rewrite the baseline.
+        $coinValue = .001;
+        $safety = 2.0;
         DB::table('course_access_plans')
             ->where(function ($query): void {
                 $query->where('chat_enabled', true)
@@ -46,8 +53,8 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::table('course_access_plans', function (Blueprint $table): void {
-            $table->dropColumn('minimum_paid_coins');
-        });
+        if (Schema::hasTable('course_access_plans') && Schema::hasColumn('course_access_plans', 'minimum_paid_coins')) {
+            Schema::table('course_access_plans', fn (Blueprint $table) => $table->dropColumn('minimum_paid_coins'));
+        }
     }
 };

@@ -1,6 +1,6 @@
-import {useRoute} from '@react-navigation/native';
-import type {RootRoute} from '../../navigation/types';
-import React, {useCallback, useEffect, useState} from 'react';
+import {useNavigation, useRoute} from '@react-navigation/native';
+import type {RootNavigation, RootRoute} from '../../navigation/types';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -14,10 +14,7 @@ import {
   unlockAfterProject,
 } from '../../components/VideoPlayer/courseLearningApi';
 import {CourseLearningData} from '../../components/VideoPlayer/types';
-import {
-  includesCourseCertificate,
-  isGrantCourseAccess,
-} from '../../components/VideoPlayer/courseEntitlements';
+import {isGrantCourseAccess} from '../../components/VideoPlayer/courseEntitlements';
 import Module from '../../components/view/Module';
 import FullTrackUpgradeSheet from '../../components/FullTrackUpgradeSheet';
 import {rtlRowStyle, textDirection} from '../../constants/designSystem';
@@ -26,33 +23,41 @@ import {issueCertificate} from '../../services/roknApi';
 
 export default function Lessons() {
   const route = useRoute<RootRoute<'CourseDetails'>>();
+  const navigation = useNavigation<RootNavigation>();
   const courseId = String(route.params?.courseId || '');
   const [course, setCourse] = useState<CourseLearningData | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [fullTrackVisible, setFullTrackVisible] = useState(false);
+  const loadGenerationRef = useRef(0);
 
   const load = useCallback(async () => {
+    const generation = ++loadGenerationRef.current;
     setLoading(true);
     setLoadError('');
     try {
       const result = await loadCourseLearningData(courseId || undefined);
       const withLocalState = await applyLocalLearningState(result.course);
+      if (generation !== loadGenerationRef.current) return;
       setCourse(withLocalState);
     } catch {
-      setCourse(null);
-      setLoadError('تعذر تحميل خريطة الكورس الآن. مكانك محفوظ.');
+      if (generation !== loadGenerationRef.current) return;
+      setLoadError("تعذّر تحميل خريطة الكورس الآن\nمكانك محفوظ");
     } finally {
-      setLoading(false);
+      if (generation === loadGenerationRef.current) setLoading(false);
     }
   }, [courseId]);
 
   useEffect(() => {
     void load();
+    return () => {
+      loadGenerationRef.current += 1;
+    };
   }, [load]);
 
   const refreshAfterProjectPass = useCallback(
     async (projectId: string) => {
+      const generation = ++loadGenerationRef.current;
       // Give immediate feedback only after an authoritative pass, then fetch
       // again so URLs that were withheld while locked arrive from the API.
       setCourse(current =>
@@ -63,6 +68,7 @@ export default function Lessons() {
           reconcilePending: false,
         });
         const refreshed = await applyLocalLearningState(result.course);
+        if (generation !== loadGenerationRef.current) return;
         setCourse(refreshed);
       } catch {
         // Keep the confirmed local state visible. Opening the course again
@@ -72,11 +78,11 @@ export default function Lessons() {
     [courseId],
   );
 
-  if (loading) {
+  if (loading && !course) {
     return (
       <View style={styles.loading}>
         <ActivityIndicator color="#76A9FF" />
-        <Text style={styles.loadingText}>نرتب خريطة الكورس…</Text>
+        <Text style={styles.loadingText}>جارٍ تحميل خريطة الكورس</Text>
       </View>
     );
   }
@@ -84,7 +90,7 @@ export default function Lessons() {
   if (!course) {
     return (
       <View style={styles.loading}>
-        <Text style={styles.errorTitle}>تعذر فتح خريطة الكورس</Text>
+        <Text style={styles.errorTitle}>تعذّر فتح خريطة الكورس</Text>
         <Text style={styles.loadingText}>{loadError}</Text>
         <Pressable
           accessibilityRole="button"
@@ -97,18 +103,23 @@ export default function Lessons() {
   }
 
   const grantAccess = isGrantCourseAccess(course.accessType);
-  const certificateIncluded = includesCourseCertificate(course);
+  const hasProjects = course.modules.some(module => Boolean(module.project));
+  const hasAssessments = course.modules.some(
+    module => (module.quizzes || []).length > 0,
+  );
   const courseCompleted = course.modules.every(
     module =>
       module.reels.every(reel => reel.isCompleted) &&
-      (!module.project || module.project.status === 'passed'),
+      (!module.project || module.project.status === 'passed') &&
+      (module.quizzes || []).every(quiz => quiz.passed),
   );
-  const certificateReady = courseCompleted && certificateIncluded;
+  const certificateReady = course.certificateAvailable === true;
   const firstPendingModuleIndex = course.modules.findIndex(
     module =>
       !module.isLocked &&
       (module.reels.some(reel => !reel.isCompleted) ||
-        (module.project && module.project.status !== 'passed')),
+        (module.project && module.project.status !== 'passed') ||
+        (module.quizzes || []).some(quiz => !quiz.passed)),
   );
   const lastUnlockedModuleIndex = course.modules.reduce(
     (lastIndex, module, index) => (module.isLocked ? lastIndex : index),
@@ -126,7 +137,7 @@ export default function Lessons() {
         <Text style={styles.heading}>كل مقاطع الكورس أمامك</Text>
         <Text style={styles.introCopy}>
           افتح أي مقطع متاح
-          {'\n'}يظهر المشروع بعد آخر مقطع في الوحدة
+          {hasProjects ? '\nتظهر المشروعات في موضعها داخل الخريطة' : ''}
         </Text>
       </View>
 
@@ -141,12 +152,24 @@ export default function Lessons() {
       ))}
 
       <Pressable
-        accessibilityRole={grantAccess ? 'button' : undefined}
-        accessibilityLabel={
-          grantAccess ? 'عرض خيارات Rokn AI والشهادة' : undefined
+        accessibilityRole={
+          grantAccess || certificateReady ? 'button' : undefined
         }
-        disabled={!grantAccess}
-        onPress={() => setFullTrackVisible(true)}
+        accessibilityLabel={
+          grantAccess
+            ? 'عرض خيارات Rokn AI والشهادة'
+            : certificateReady
+            ? 'فتح شهادتك'
+            : undefined
+        }
+        disabled={!grantAccess && !certificateReady}
+        onPress={() => {
+          if (grantAccess) {
+            setFullTrackVisible(true);
+            return;
+          }
+          navigation.navigate('Profile', {tab: 'certificates'});
+        }}
         style={[
           styles.certificateCard,
           certificateReady && styles.certificateCardReady,
@@ -165,10 +188,18 @@ export default function Lessons() {
           </Text>
           <Text style={styles.certificateDescription}>
             {grantAccess
-              ? 'منحتك تفتح الكورس ومشروعاته كاملة\nأضف Rokn AI والشهادة عند الحاجة'
+              ? 'منحتك تفتح محتوى الكورس كاملًا\nأضف Rokn AI والشهادة عند الحاجة'
               : certificateReady
-              ? 'ستظهر في بورتفوليوك ويصل رمز QR إلى صفحة المشاركة.'
-              : 'تفتح بعد اعتماد مشروع التخرج.'}
+              ? 'ستظهر في بورتفوليوك ويصل رمز QR إلى صفحة المشاركة'
+              : hasProjects || hasAssessments
+              ? `تفتح بعد إكمال الكورس${
+                  hasProjects && hasAssessments
+                    ? ' واجتياز المشروع والاختبارات'
+                    : hasProjects
+                    ? ' واجتياز المشروع'
+                    : ' واجتياز الاختبارات'
+                }`
+              : 'تفتح بعد إكمال الكورس'}
           </Text>
         </View>
         <View style={styles.certificateState}>
@@ -219,7 +250,7 @@ const styles = StyleSheet.create({
   },
   retryButton: {
     minWidth: 170,
-    minHeight: 46,
+    minHeight: 48,
     borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',

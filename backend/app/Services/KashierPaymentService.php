@@ -30,10 +30,23 @@ final readonly class KashierPaymentService
     /**
      * @return array{order: Order, reused: bool, closed: ?string}
      */
-    public function beginCheckout(User $user, Package $package, string $clientRequestKey): array
+    public function beginCheckout(
+        User $user,
+        Package $package,
+        string $clientRequestKey,
+        ?float $expectedAmount = null,
+        ?int $expectedCoins = null
+    ): array
     {
-        return DB::transaction(function () use ($user, $package, $clientRequestKey): array {
+        return DB::transaction(function () use (
+            $user,
+            $package,
+            $clientRequestKey,
+            $expectedAmount,
+            $expectedCoins
+        ): array {
             User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $package = Package::query()->lockForUpdate()->findOrFail($package->id);
 
             $existing = null;
             if ($clientRequestKey !== '') {
@@ -69,6 +82,17 @@ final readonly class KashierPaymentService
             }
 
             if ($existing) {
+                if (
+                    ($expectedAmount !== null
+                        && (int) round((float) $existing->final_amount * 100)
+                            !== (int) round($expectedAmount * 100))
+                    || ($expectedCoins !== null
+                        && (int) $existing->package_coins !== $expectedCoins)
+                ) {
+                    throw new \UnexpectedValueException(
+                        'Checkout idempotency key was replayed with different package terms.'
+                    );
+                }
                 if ($existing->isCheckoutExpired()) {
                     $existing->update([
                         'status' => Order::STATUS_CANCELLED,
@@ -93,6 +117,37 @@ final readonly class KashierPaymentService
                 return ['order' => $existing, 'reused' => true, 'closed' => null];
             }
 
+            if (
+                !$package->is_active
+                || !$package->direct_enabled
+                || (float) $package->price <= 0
+                || (int) $package->coins <= 0
+            ) {
+                throw new \UnexpectedValueException(
+                    'This package is not available for checkout.'
+                );
+            }
+
+            $otherPendingCheckout = Order::query()
+                ->where('user_id', $user->id)
+                ->where('payment_method', Order::PAYMENT_METHOD_KASHIER)
+                ->where('status', Order::STATUS_PENDING)
+                ->where(function ($query): void {
+                    $query->where('checkout_expires_at', '>', now())
+                        ->orWhere(function ($legacy): void {
+                            $legacy->whereNull('checkout_expires_at')
+                                ->where('created_at', '>', now()->subMinutes(self::CHECKOUT_TTL_MINUTES));
+                        });
+                })
+                ->lockForUpdate()
+                ->latest('id')
+                ->first();
+            if ($otherPendingCheckout) {
+                throw new \UnexpectedValueException(
+                    'A previous payment is still pending confirmation.'
+                );
+            }
+
             Order::query()
                 ->where('user_id', $user->id)
                 ->where('package_id', $package->id)
@@ -105,6 +160,15 @@ final readonly class KashierPaymentService
 
             $baseAmount = (float) $package->price;
             $finalAmount = $this->pricing->directPrice($package);
+            if (
+                ($expectedAmount !== null
+                    && (int) round($finalAmount * 100) !== (int) round($expectedAmount * 100))
+                || ($expectedCoins !== null && (int) $package->coins !== $expectedCoins)
+            ) {
+                throw new \UnexpectedValueException(
+                    'Package terms changed before checkout.'
+                );
+            }
             $order = Order::create([
                 'user_id' => $user->id,
                 'package_id' => $package->id,
@@ -459,7 +523,7 @@ final readonly class KashierPaymentService
 
         return DB::transaction(function () use ($order, $transactionId, $gatewayResponse): bool {
             $expectedUserId = (int) $order->user_id;
-            User::query()->lockForUpdate()->findOrFail($expectedUserId);
+            User::withTrashed()->lockForUpdate()->findOrFail($expectedUserId);
             $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
             if (
                 $locked->status !== Order::STATUS_APPROVED
@@ -487,7 +551,8 @@ final readonly class KashierPaymentService
     public function financialReversalType(string $paymentStatus): ?string
     {
         return match (strtoupper(trim($paymentStatus))) {
-            'REFUND', 'REFUNDED', 'FULLY_REFUNDED' => Order::FINANCIAL_REFUNDED,
+            'REFUND', 'REFUNDED', 'FULLY_REFUNDED',
+            'PARTIAL_REFUND', 'PARTIALLY_REFUNDED' => Order::FINANCIAL_REFUNDED,
             'CHARGEBACK', 'DISPUTED' => Order::FINANCIAL_CHARGEBACK,
             'REVERSED', 'REVERSAL' => Order::FINANCIAL_REVERSED,
             default => null,
@@ -507,7 +572,16 @@ final readonly class KashierPaymentService
         $reason = 'Kashier reported payment status ' . strtoupper($paymentStatus) . '.';
 
         if ($order->status !== Order::STATUS_APPROVED) {
-            $this->orderLifecycle->cancelPending($order, null, $reason);
+            $closed = $this->orderLifecycle->cancelPending($order, null, $reason);
+            // A reversal can arrive before the delayed capture/success event.
+            // Preserve it on the order; otherwise the later capture would mint
+            // coins for money the provider has already returned.
+            $closed->forceFill([
+                'financial_status' => $type,
+                'reversed_at' => $closed->reversed_at ?: now(),
+                'reversal_reason' => $reason,
+                'payment_gateway_response' => $this->sanitizeGatewayResponse($params),
+            ])->save();
 
             return;
         }
@@ -544,7 +618,7 @@ final readonly class KashierPaymentService
 
         try {
             $expectedUserId = (int) $order->user_id;
-            User::query()->lockForUpdate()->findOrFail($expectedUserId);
+            User::withTrashed()->lockForUpdate()->findOrFail($expectedUserId);
             $order = Order::with(['user', 'package'])->lockForUpdate()->findOrFail($order->id);
             if ((int) $order->user_id !== $expectedUserId) {
                 throw new \RuntimeException('Kashier order ownership changed during fulfillment.');
@@ -586,6 +660,23 @@ final readonly class KashierPaymentService
                 throw new \RuntimeException('Invalid Kashier package order.');
             }
 
+            if ($order->reversed_at || in_array($order->financial_status, [
+                Order::FINANCIAL_REFUNDED,
+                Order::FINANCIAL_CHARGEBACK,
+                Order::FINANCIAL_REVERSED,
+                Order::FINANCIAL_PARTIALLY_RECOVERED,
+            ], true)) {
+                Log::warning('Kashier capture ignored because a reversal arrived first', [
+                    'order_ref' => $order->order_ref,
+                    'order_id' => $order->id,
+                    'financial_status' => $order->financial_status,
+                    'transaction_id' => $transactionId,
+                ]);
+                DB::commit();
+
+                return $order->fresh(['user', 'package']);
+            }
+
             $this->assertGatewayPaymentMatchesOrder($order, $gatewayResponse);
 
             if (
@@ -598,32 +689,14 @@ final readonly class KashierPaymentService
                 throw new \RuntimeException('Kashier transaction was already assigned to another order.');
             }
 
-            if ($order->status !== Order::STATUS_PENDING || $order->isCheckoutExpired()) {
-                $wasExpired = $order->status === Order::STATUS_PENDING
-                    && $order->isCheckoutExpired();
-                $updates = [
-                    'financial_status' => Order::FINANCIAL_REVIEW_REQUIRED,
-                    'payment_gateway_response' => $this->sanitizeGatewayResponse($gatewayResponse),
-                ];
-                if ($wasExpired) {
-                    $updates['status'] = Order::STATUS_CANCELLED;
-                }
-                if ($transactionId && !$order->transaction_id) {
-                    $updates['transaction_id'] = $transactionId;
-                }
-                $order->update($updates);
-
-                Log::critical('Kashier capture received for a closed checkout; fulfillment blocked', [
-                    'order_ref' => $order->order_ref,
-                    'order_id' => $order->id,
-                    'order_status' => $order->status,
-                    'checkout_expired' => $wasExpired,
-                    'transaction_id' => $transactionId,
-                ]);
-
-                DB::commit();
-
-                return $order->fresh(['user', 'package']);
+            $lateCapture = $order->status !== Order::STATUS_PENDING
+                || $order->isCheckoutExpired();
+            if (!in_array($order->status, [
+                Order::STATUS_PENDING,
+                Order::STATUS_CANCELLED,
+                Order::STATUS_REJECTED,
+            ], true)) {
+                throw new \RuntimeException('Kashier capture targets an unsupported order state.');
             }
 
             if ($transactionId === null) {
@@ -650,6 +723,19 @@ final readonly class KashierPaymentService
                 'payment_gateway_response' => $this->sanitizeGatewayResponse($gatewayResponse),
             ], $this->gatewaySettlementFacts($order, $gatewayResponse)));
 
+            if ($lateCapture) {
+                // Redirects, webhooks and reconciliation can arrive out of
+                // order. A provider-authenticated capture is still real money:
+                // credit it exactly once instead of leaving a charged learner
+                // waiting for manual review merely because a failure/timeout
+                // notification won the race.
+                Log::warning('Late Kashier capture recovered after checkout closure', [
+                    'order_ref' => $order->order_ref,
+                    'order_id' => $order->id,
+                    'transaction_id' => $transactionId,
+                ]);
+            }
+
             $paidCredit = $this->wallet->credit(
                 $order->user_id,
                 $this->coinAmount($order),
@@ -663,7 +749,8 @@ final readonly class KashierPaymentService
                 WalletTransaction::BUCKET_PAID
             );
             $this->financialProvenance->recordPaidPackageCredit($order, $paidCredit);
-            $user = $order->user->fresh();
+            /** @var User $user */
+            $user = User::withTrashed()->findOrFail($order->user_id);
 
             $user->purchasedPackages()->attach($order->package_id, [
                 'order_id' => $order->id,
@@ -676,6 +763,9 @@ final readonly class KashierPaymentService
             DB::commit();
 
             try {
+                if ($user->trashed()) {
+                    return $order->fresh(['user', 'package']);
+                }
                 StudentNotificationService::notifyUser(
                     $user,
                     StudentNotificationService::TYPE_PACKAGE_PURCHASED,
@@ -687,7 +777,8 @@ final readonly class KashierPaymentService
                     null,
                     Package::class,
                     $order->package_id,
-                    'package-purchased:order:' . $order->id
+                    'package-purchased:order:' . $order->id,
+                    ['coins' => $this->coinAmount($order)]
                 );
             } catch (\Throwable $notificationException) {
                 report($notificationException);
@@ -710,7 +801,7 @@ final readonly class KashierPaymentService
     {
         return DB::transaction(function () use ($order, $gatewayResponse): Order {
             $expectedUserId = (int) $order->user_id;
-            User::query()->lockForUpdate()->findOrFail($expectedUserId);
+            User::withTrashed()->lockForUpdate()->findOrFail($expectedUserId);
             $locked = Order::with(['user', 'package'])->lockForUpdate()->findOrFail($order->id);
             if ((int) $locked->user_id !== $expectedUserId) {
                 throw new \RuntimeException('Kashier order ownership changed while recording failure.');

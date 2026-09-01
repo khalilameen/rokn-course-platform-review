@@ -32,20 +32,30 @@
             <div class="row form-group">
                 <div class="col col-md-3"><label for="coins" class=" form-control-label">عدد العملات (Coins)</label></div>
                 <div class="col-12 col-md-9">
-                    <input type="number" id="coins" name="coins" placeholder="0" class="form-control" value="{{ old('coins', $package->coins) }}" required>
+                    <input type="number" id="coins" name="coins" placeholder="0" class="form-control" value="{{ old('coins', $package->coins) }}" @readonly(filled($package->google_product_id) || filled($package->apple_product_id)) required>
+                    @if(filled($package->google_product_id) || filled($package->apple_product_id))
+                        <small class="form-text text-muted">عدد العملات ثابت بعد ربط منتج متجر. للسعر أو الرصيد الجديد أنشئ باقة جديدة.</small>
+                    @endif
+                </div>
+            </div>
+            <div class="row form-group">
+                <div class="col col-md-3"><label class="form-control-label">الإتاحة</label></div>
+                <div class="col-12 col-md-9">
+                    <label class="mr-3"><input type="checkbox" name="is_active" value="1" @checked(old('is_active', $package->is_active))> ظاهرة في الكتالوج</label>
+                    <label><input type="checkbox" name="direct_enabled" value="1" @checked(old('direct_enabled', $package->direct_enabled))> متاحة عبر كاشير</label>
                 </div>
             </div>
             <div class="row form-group">
                 <div class="col col-md-3"><label for="google_product_id" class="form-control-label">منتج Google Play</label></div>
                 <div class="col-12 col-md-9">
-                    <input type="text" id="google_product_id" name="google_product_id" class="form-control" value="{{ old('google_product_id', $package->google_product_id) }}" placeholder="rokn.coins.4200">
+                    <input type="text" id="google_product_id" name="google_product_id" class="form-control" value="{{ old('google_product_id', $package->google_product_id) }}" placeholder="rokn.coins.4200" @readonly(filled($package->google_product_id))>
                     <label class="mt-2"><input type="checkbox" name="google_enabled" value="1" @checked(old('google_enabled', $package->google_enabled))> متاح للشراء في نسخة Play</label>
                 </div>
             </div>
             <div class="row form-group">
                 <div class="col col-md-3"><label for="apple_product_id" class="form-control-label">منتج App Store</label></div>
                 <div class="col-12 col-md-9">
-                    <input type="text" id="apple_product_id" name="apple_product_id" class="form-control" value="{{ old('apple_product_id', $package->apple_product_id) }}" placeholder="com.rokn.coins.4200">
+                    <input type="text" id="apple_product_id" name="apple_product_id" class="form-control" value="{{ old('apple_product_id', $package->apple_product_id) }}" placeholder="com.rokn.coins.4200" @readonly(filled($package->apple_product_id))>
                     <label class="mt-2"><input type="checkbox" name="apple_enabled" value="1" @checked(old('apple_enabled', $package->apple_enabled))> متاح للشراء في نسخة App Store</label>
                 </div>
             </div>

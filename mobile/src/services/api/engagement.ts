@@ -1,5 +1,7 @@
 import {publicRequest} from '../../constants/api';
-import {payload} from './common';
+import {learnerFacingText} from '../../utils/errorPayload';
+import {formatArabicDisplayText} from '../../constants/arabicFormatting';
+import {firstBoolean, payload} from './common';
 
 export type EngagementMessageKey =
   | 'guest_registration_prompt'
@@ -17,6 +19,7 @@ export type EngagementMessage = {
   link?: string;
   coins: number;
   dismissible: boolean;
+  cooldownHours: number;
   version: string;
   campaignKey?: string;
   taskId?: string;
@@ -33,55 +36,67 @@ type EngagementMessageDto = {
   link?: unknown;
   coins?: unknown;
   dismissible?: unknown;
+  cooldown_hours?: unknown;
   version?: unknown;
   campaign_key?: unknown;
   task_id?: unknown;
 };
 
-const text = (value: unknown): string =>
+const rawText = (value: unknown): string =>
   typeof value === 'string' ? value.trim() : '';
+
+const copyText = (value: unknown): string =>
+  formatArabicDisplayText(learnerFacingText(value));
+
+const imageUrl = (value: unknown) => {
+  const url = rawText(value);
+  return /^https:\/\//i.test(url) ? url : undefined;
+};
+
+const mapEngagementMessage = (
+  item: EngagementMessageDto | null,
+  expectedKey: EngagementMessageKey,
+): EngagementMessage | null => {
+  const id = rawText(item?.id);
+  const title = copyText(item?.title_ar);
+  const actionLabel = copyText(item?.action_label_ar);
+  if (
+    !item ||
+    rawText(item.key) !== expectedKey ||
+    !id ||
+    !title ||
+    !actionLabel
+  ) {
+    return null;
+  }
+  return {
+    id,
+    key: expectedKey,
+    title,
+    description: copyText(item.description_ar),
+    actionLabel,
+    secondaryActionLabel: copyText(item.secondary_action_label_ar),
+    imageUrl: imageUrl(item.image_url),
+    link: rawText(item.link) || undefined,
+    coins: Math.max(0, Number(item.coins || 0) || 0),
+    dismissible: firstBoolean(item.dismissible) ?? true,
+    cooldownHours: Math.max(0, Number(item.cooldown_hours || 0) || 0),
+    version: rawText(item.version) || id,
+    campaignKey: rawText(item.campaign_key) || undefined,
+    taskId: rawText(item.task_id) || undefined,
+  };
+};
 
 export const getEngagementMessage = async (
   key: EngagementMessageKey,
 ): Promise<EngagementMessage | null> => {
   const response = await publicRequest.get(`engagement/messages/${key}`);
   const item = payload<EngagementMessageDto | null>(response);
-  if (!item || text(item.key) !== key) return null;
-
-  return {
-    id: text(item.id),
-    key,
-    title: text(item.title_ar),
-    description: text(item.description_ar),
-    actionLabel: text(item.action_label_ar),
-    secondaryActionLabel: text(item.secondary_action_label_ar),
-    imageUrl: text(item.image_url) || undefined,
-    link: text(item.link) || undefined,
-    coins: Math.max(0, Number(item.coins || 0) || 0),
-    dismissible: item.dismissible !== false,
-    version: text(item.version) || text(item.id) || '1',
-    campaignKey: text(item.campaign_key) || undefined,
-    taskId: text(item.task_id) || undefined,
-  };
+  return mapEngagementMessage(item, key);
 };
 
 export const getNextEngagementMessage = async (): Promise<EngagementMessage | null> => {
   const response = await publicRequest.get('engagement/next');
   const item = payload<EngagementMessageDto | null>(response);
-  if (!item || text(item.key) !== 'coin_offer') return null;
-  return {
-    id: text(item.id),
-    key: 'coin_offer',
-    title: text(item.title_ar),
-    description: text(item.description_ar),
-    actionLabel: text(item.action_label_ar),
-    secondaryActionLabel: text(item.secondary_action_label_ar),
-    imageUrl: text(item.image_url) || undefined,
-    link: text(item.link) || undefined,
-    coins: Math.max(0, Number(item.coins || 0) || 0),
-    dismissible: item.dismissible !== false,
-    version: text(item.version) || text(item.id) || '1',
-    campaignKey: text(item.campaign_key) || undefined,
-    taskId: text(item.task_id) || undefined,
-  };
+  return mapEngagementMessage(item, 'coin_offer');
 };

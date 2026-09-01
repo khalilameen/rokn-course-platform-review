@@ -1,5 +1,5 @@
 @extends('admin.layouts.app')
-@section('page.title', 'تعديل اعدادات الموقع')
+@section('page.title', 'إعدادات التطبيق')
 
 @section('styles')
 <link rel="stylesheet" href="{{ asset('admin/assets/css/settings-dashboard.css') }}">
@@ -9,8 +9,8 @@
 
 <div class="admin-page settings-wrapper">
     <div class="settings-header">
-        <h1>⚙️ إعدادات الموقع</h1>
-        <p class="settings-header-description">إدارة وتخصيص إعدادات منصتك التعليمية</p>
+        <h1>إعدادات التطبيق</h1>
+        <p class="settings-header-description">التشغيل والروابط والتكاملات من مكان واحد</p>
     </div>
 
     <div class="settings-container">
@@ -19,12 +19,12 @@
                 <button class="settings-tab active" data-tab="general">
                     <i class="fa fa-cog"></i> عام
                 </button>
-                <!--<button class="settings-tab" data-tab="seo">
+                <button class="settings-tab" data-tab="seo">
                     <i class="fa fa-search"></i> SEO
                 </button>
                 <button class="settings-tab" data-tab="advanced">
                     <i class="fa fa-sliders"></i> متقدم
-                </button>-->
+                </button>
                 <button class="settings-tab" data-tab="integrations">
                     <i class="fa fa-plug"></i> التكاملات
                 </button>
@@ -54,13 +54,13 @@
                             <label for="site_name_ar">
                                 <i class="fa fa-globe"></i> اسم التطبيق (عربي)
                             </label>
-                            {!! Form::text('site_name_ar', null, ['class' => 'form-control-modern', 'id' => 'site_name_ar', 'placeholder' => 'مثال: منصة أستاذ']) !!}
+                            {!! Form::text('site_name_ar', null, ['class' => 'form-control-modern', 'id' => 'site_name_ar', 'placeholder' => 'رُكن']) !!}
                         </div>
                         <div class="form-group-modern">
                             <label for="site_name_en">
                                 <i class="fa fa-globe"></i> اسم التطبيق (English)
                             </label>
-                            {!! Form::text('site_name_en', null, ['class' => 'form-control-modern', 'id' => 'site_name_en', 'placeholder' => 'Example: Ostaz Platform']) !!}
+                            {!! Form::text('site_name_en', null, ['class' => 'form-control-modern', 'id' => 'site_name_en', 'placeholder' => 'Rokn']) !!}
                         </div>
                     </div>
 
@@ -73,9 +73,9 @@
                         </div>
                         <div class="form-group-modern">
                             <label for="phone">
-                                <i class="fa fa-phone"></i> رقم الجوال
+                                <i class="fa fa-phone"></i> رقم الهاتف
                             </label>
-                            {!! Form::text('phone', null, ['class' => 'form-control-modern', 'id' => 'phone', 'placeholder' => '+966 XX XXX XXXX']) !!}
+                            {!! Form::text('phone', null, ['class' => 'form-control-modern', 'id' => 'phone', 'placeholder' => '+20 10 0000 0000']) !!}
                         </div>
                     </div>
 
@@ -84,7 +84,7 @@
                             <label for="currency_code">
                                 <i class="fa fa-money"></i> رمز العملة
                             </label>
-                            {!! Form::text('currency_code', null, ['class' => 'form-control-modern', 'id' => 'currency_code', 'placeholder' => 'SAR / USD / EGP']) !!}
+                            {!! Form::text('currency_code', null, ['class' => 'form-control-modern', 'id' => 'currency_code', 'placeholder' => 'EGP']) !!}
                         </div>
                         <div class="form-group-modern">
                             <label for="google_maps_key">
@@ -129,17 +129,6 @@
                                 <i class="fa fa-tag"></i> عنوان الصفحة (Meta Title)
                             </label>
                             {!! Form::text('seo_meta_title_ar', null, ['class' => 'form-control-modern', 'id' => 'seo_meta_title_ar', 'placeholder' => 'عنوان يظهر في نتائج البحث (50-60 حرف)']) !!}
-                        </div>
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group-modern settings-grid-full">
-                            <label for="direct_checkout_discount_percent">
-                                <i class="fa fa-percent"></i> خصم باقات نسخة Android المباشرة
-                            </label>
-                            {!! Form::number('direct_checkout_discount_percent', $settings->direct_checkout_discount_percent ?? 10, ['class' => 'form-control-modern', 'id' => 'direct_checkout_discount_percent', 'min' => 0, 'max' => 50, 'step' => '0.01', 'required']) !!}
-                            <small class="text-muted">يُطبق على كاشير فقط. أسعار Google Play وApp Store تُدار من المتجرين.</small>
-                            @error('direct_checkout_discount_percent')<small class="text-danger">{{ $message }}</small>@enderror
                         </div>
                     </div>
 
@@ -271,11 +260,11 @@
                         <div class="form-row">
                             <div class="form-group-modern settings-grid-full">
                                 <label for="bunny_cdn_hostname">
-                                    <i class="fa fa-globe"></i> CDN Hostname (اختياري)
+                                    <i class="fa fa-globe"></i> CDN Hostname
                                 </label>
                                 {!! Form::text('bunny_cdn_hostname', null, ['class' => 'form-control-modern', 'id' => 'bunny_cdn_hostname', 'placeholder' => 'مثال: vz-abc123.b-cdn.net']) !!}
                                 <small class="settings-field-help">
-                                    اتركه فارغاً لاستخدام الرابط الافتراضي
+                                    اسم نطاق Stream المرتبط بالمكتبة بدون https أو أي مسار
                                 </small>
                             </div>
                         </div>
@@ -308,7 +297,7 @@
                     <div class="settings-cleanup-panel">
                         <h3 class="settings-cleanup-title">تنظيف فيديوهات Bunny بأمان</h3>
                         <p class="settings-cleanup-description">
-                            لا يُحذف أي فيديو تلقائيًا قبل مراجعته هنا. ويعيد العامل فحص ارتباطه بأي قسم نشط قبل الحذف.
+                            تُنظف الرفوعات المتروكة تلقائيًا بعد فترة الاحتفاظ. ويعيد العامل فحص ارتباط الفيديو بأي مقطع قبل الحذف.
                         </p>
                         <div class="settings-cleanup-filters">
                             <span class="badge badge-warning">بانتظار المراجعة: {{ $bunnyCleanupStats['pending_review'] }}</span>
@@ -396,48 +385,70 @@
                         روابط التطبيقات والصفحات
                     </h2>
 
-                    <div class="form-row">
-                        <div class="form-group-modern settings-grid-full">
-                            <label for="android_app_url">
-                                <i class="fab fa-android"></i> رابط تطبيق Android
-                            </label>
-                            {!! Form::textarea('android_app_url', null, ['class' => 'form-control-modern', 'id' => 'android_app_url', 'rows' => 3, 'placeholder' => 'https://play.google.com/store/apps/details?id=...']) !!}
-                            <small class="text-muted">رابط التطبيق على Google Play Store</small>
-                        </div>
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group-modern settings-grid-full">
-                            <label for="ios_app_url">
-                                <i class="fab fa-apple"></i> رابط تطبيق iOS
-                            </label>
-                            {!! Form::textarea('ios_app_url', null, ['class' => 'form-control-modern', 'id' => 'ios_app_url', 'rows' => 3, 'placeholder' => 'https://apps.apple.com/app/...']) !!}
-                            <small class="text-muted">رابط التطبيق على App Store</small>
-                        </div>
+                    <div class="alert alert-info mb-4">
+                        روابط Google Play وApp Store والنسخة المباشرة تُدار من
+                        <a href="{{ route('admin.app-versions.index') }}">إصدارات التطبيق</a>
                     </div>
 
                     <div class="form-row">
                         <div class="form-group-modern settings-grid-full">
                             <label for="about_us_url">
-                                <i class="fa fa-info-circle"></i> محتوى صفحة من نحن
+                                <i class="fa fa-info-circle"></i> رابط صفحة من نحن
                             </label>
-                            {!! Form::textarea('about_us_url', null, ['class' => 'form-control-modern', 'id' => 'about_us_url', 'rows' => 5, 'placeholder' => 'أضف محتوى صفحة من نحن...']) !!}
-                            <small class="text-muted">يمكنك إضافة نص أو HTML</small>
+                            {!! Form::url('about_us_url', null, ['class' => 'form-control-modern', 'id' => 'about_us_url', 'placeholder' => route('about')]) !!}
+                            <small class="text-muted">اتركه فارغًا لاستخدام الصفحة الرسمية داخل ركن</small>
+                            @error('about_us_url')<small class="text-danger">{{ $message }}</small>@enderror
                         </div>
                     </div>
 
                     <div class="form-row">
                         <div class="form-group-modern settings-grid-full">
                             <label for="privacy_policy_url">
-                                <i class="fa fa-shield-alt"></i> محتوى سياسة الخصوصية
+                                <i class="fa fa-shield-alt"></i> رابط سياسة الخصوصية
                             </label>
-                            {!! Form::textarea('privacy_policy_url', null, ['class' => 'form-control-modern', 'id' => 'privacy_policy_url', 'rows' => 5, 'placeholder' => 'أضف محتوى سياسة الخصوصية...']) !!}
-                            <small class="text-muted">يمكنك إضافة نص أو HTML</small>
+                            {!! Form::url('privacy_policy_url', null, ['class' => 'form-control-modern', 'id' => 'privacy_policy_url', 'placeholder' => route('privacy')]) !!}
+                            <small class="text-muted">اتركه فارغًا لاستخدام الصفحة الرسمية داخل ركن</small>
+                            @error('privacy_policy_url')<small class="text-danger">{{ $message }}</small>@enderror
                         </div>
                     </div>
                 </div>
 
                 <div class="tab-pane" id="wallet-support">
+                    <h2 class="section-title">
+                        <i class="fa fa-percent"></i>
+                        قناة الشراء المباشر
+                    </h2>
+
+                    <div class="form-row">
+                        <div class="form-group-modern settings-grid-full">
+                            <label for="direct_checkout_discount_percent">خصم نسخة Android المباشرة</label>
+                            {!! Form::number('direct_checkout_discount_percent', $settings->direct_checkout_discount_percent ?? 10, ['class' => 'form-control-modern', 'id' => 'direct_checkout_discount_percent', 'min' => 0, 'max' => 50, 'step' => '0.01', 'required']) !!}
+                            <small class="text-muted">يُطبّق على كاشير فقط وتظل أسعار Google Play وApp Store من المتجرين</small>
+                            @error('direct_checkout_discount_percent')<small class="text-danger">{{ $message }}</small>@enderror
+                        </div>
+                    </div>
+
+                    <h2 class="section-title settings-section-title--spaced">
+                        <i class="fa fa-share-alt"></i>
+                        روابط المنصة
+                    </h2>
+
+                    <div class="form-row">
+                        @foreach([
+                            'facebook_url' => ['فيسبوك', 'https://facebook.com/...'],
+                            'instagram_url' => ['إنستجرام', 'https://instagram.com/...'],
+                            'tiktok_url' => ['تيك توك', 'https://tiktok.com/@...'],
+                            'youtube_url' => ['يوتيوب', 'https://youtube.com/@...'],
+                            'telegram_url' => ['تليجرام', 'https://t.me/...'],
+                        ] as $field => [$label, $placeholder])
+                            <div class="form-group-modern">
+                                <label for="{{ $field }}">{{ $label }}</label>
+                                {!! Form::url($field, old($field, $designSettings->{$field}), ['class' => 'form-control-modern', 'id' => $field, 'placeholder' => $placeholder]) !!}
+                                @error($field)<small class="text-danger">{{ $message }}</small>@enderror
+                            </div>
+                        @endforeach
+                    </div>
+
                     <h2 class="section-title">
                         <i class="fa fa-whatsapp"></i>
                         دعم واتساب
@@ -489,18 +500,19 @@
                         <span>
                             القيم هنا تستطيع خفض حدود الخادم فقط ولا تستطيع تجاوزها
                             الكورسات المجانية والمنح المؤسسية لا تحصل على Rokn AI حتى لا تتحول المبادرة المجانية إلى تكلفة مفتوحة
-                            كل اشتراك له حد رسائل وتوكنز ودولار مستقل حسب فئته وهو أول حاجز يُفحص
-                            قواطع المنصة أدناه للطوارئ الكارثية فقط ويجب ضبطها أعلى من الذروة الطبيعية حتى لا تعطل الطلاب الدافعين
+                            كل عملية شراء لها حد رسائل وتوكنز ودولار مستقل حسب فئتها وهو أول حاجز يُفحص
+                            حدود المنصة أدناه للتنبيه المبكر فقط ولا توقف الطلاب الدافعين
+                            عند تجاوزها يصل تنبيه للأدمن بينما يظل الإيقاف مقصورًا على الطالب والفئة التي استنفدت ميزانيتها
                             ولا تُحفظ محادثات الطلاب كسجل طويل
                         </span>
                     </div>
 
                     <div class="form-row">
                         @foreach([
-                            'ai_daily_user_limit' => ['حد أمان يومي لكل اشتراك', config('openrouter.daily_user_limit', 100), 1],
-                            'ai_global_daily_request_limit' => ['قاطع طوارئ المنصة: طلبات يومية', config('openrouter.global_daily_request_limit', 5000), 1],
-                            'ai_global_daily_token_budget' => ['قاطع طوارئ المنصة: توكنز يومية', config('openrouter.global_daily_token_budget', 2100000), 1000],
-                            'ai_global_monthly_token_budget' => ['قاطع طوارئ المنصة: توكنز شهرية', config('openrouter.global_monthly_token_budget', 50000000), 1000],
+                            'ai_daily_user_limit' => ['حد أمان يومي لكل طالب وفئة', config('openrouter.daily_user_limit', 100), 1],
+                            'ai_global_daily_request_limit' => ['تنبيه عند عدد طلبات يومي', config('openrouter.global_daily_request_limit', 5000), 1],
+                            'ai_global_daily_token_budget' => ['تنبيه عند توكنز يومية', config('openrouter.global_daily_token_budget', 2100000), 1000],
+                            'ai_global_monthly_token_budget' => ['تنبيه عند توكنز شهرية', config('openrouter.global_monthly_token_budget', 50000000), 1000],
                             'ai_answer_cache_minutes' => ['مدة إعادة استخدام الإجابة المتطابقة بالدقائق', config('openrouter.answer_cache_minutes', 360), 5],
                         ] as $field => [$label, $fallback, $minimum])
                             <div class="form-group-modern">
@@ -627,7 +639,8 @@
             const libraryId = document.getElementById('bunny_library_id').value;
 
             if (!apiKey || !libraryId) {
-                bunnyTestResult.innerHTML = '<span class="settings-test-result--error">⚠️ يرجى إدخال API Key و Library ID</span>';
+                bunnyTestResult.textContent = 'أدخل مفتاح Bunny ومعرّف المكتبة';
+                bunnyTestResult.className = 'settings-test-result--error';
                 return;
             }
 
@@ -635,27 +648,26 @@
             testBunnyBtn.innerHTML = '<span class="save-loading"></span> جاري الاختبار...';
             bunnyTestResult.innerHTML = '';
 
-            fetch('{{ route("admin.settings.test-bunny") }}', {
+            window.RoknAdminRequest.request('{{ route("admin.settings.test-bunny") }}', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-CSRF-TOKEN': '{{ csrf_token() }}'
                 },
+                timeout: 20000,
                 body: JSON.stringify({
                     api_key: apiKey,
                     library_id: libraryId
                 })
             })
-            .then(response => response.json())
             .then(data => {
-                if (data.success) {
-                    bunnyTestResult.innerHTML = '<span class="settings-test-result--success">✅ ' + data.message + '</span>';
-                } else {
-                    bunnyTestResult.innerHTML = '<span class="settings-test-result--error">❌ ' + data.message + '</span>';
-                }
+                bunnyTestResult.textContent = data.message || 'تم الاتصال بمكتبة Bunny';
+                bunnyTestResult.className = 'settings-test-result--success';
             })
             .catch(error => {
-                bunnyTestResult.innerHTML = '<span class="settings-test-result--error">❌ خطأ في الاتصال</span>';
+                if (error.code === 'cancelled') return;
+                bunnyTestResult.textContent = error.message || 'تعذّر الاتصال بمكتبة Bunny';
+                bunnyTestResult.className = 'settings-test-result--error';
             })
             .finally(() => {
                 testBunnyBtn.disabled = false;

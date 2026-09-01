@@ -17,7 +17,8 @@ final readonly class AiEntitlementBudgetService
 {
     public function __construct(
         private CourseAccessPlanService $accessPlans,
-        private FinancialAnomalyService $financialRisk
+        private FinancialAnomalyService $financialRisk,
+        private AiPlatformUsageMonitor $platformUsage
     ) {
     }
 
@@ -25,9 +26,10 @@ final readonly class AiEntitlementBudgetService
         CourseEnrollment $enrollment,
         string $feature,
         int $estimatedTokens,
-        string $model
+        string $model,
+        ?string $requestId = null
     ): ?AiUsageEvent {
-        if (!in_array($feature, ['course_chat', 'project_feedback'], true)) {
+        if (!in_array($feature, AiEntitlementUsage::FEATURES, true)) {
             throw new \InvalidArgumentException('Unknown metered AI feature.');
         }
 
@@ -35,7 +37,8 @@ final readonly class AiEntitlementBudgetService
             $enrollment,
             $feature,
             $estimatedTokens,
-            $model
+            $model,
+            $requestId
         ): ?AiUsageEvent {
             $lockedEnrollment = CourseEnrollment::query()
                 ->lockForUpdate()
@@ -45,6 +48,23 @@ final readonly class AiEntitlementBudgetService
             }
             if (!$this->financialRisk->allowsVariableCostFeatures($lockedEnrollment)) {
                 throw new AiPlanLimitReachedException('This enrollment is under financial review.');
+            }
+
+            if ($requestId) {
+                $existing = AiUsageEvent::query()
+                    ->where('request_id', $requestId)
+                    ->lockForUpdate()
+                    ->first();
+                if ($existing) {
+                    if (
+                        (int) $existing->enrollment_id !== (int) $lockedEnrollment->id
+                        || (string) $existing->feature !== $feature
+                    ) {
+                        throw new \UnexpectedValueException('AI request identity conflict.');
+                    }
+
+                    return $existing;
+                }
             }
 
             $terms = $this->accessPlans->termsForEnrollment($lockedEnrollment);
@@ -79,26 +99,39 @@ final readonly class AiEntitlementBudgetService
             $usage->refresh();
 
             $estimatedTokens = max(1, $estimatedTokens);
-            $isChat = $feature === 'course_chat';
+            $isChat = $feature === AiEntitlementUsage::FEATURE_COURSE_CHAT;
+            $isFollowup = $feature === AiEntitlementUsage::FEATURE_PROJECT_FOLLOWUP;
             $tokenBudget = (int) ($isChat
                 ? ($terms['chat_token_budget'] ?? 0)
-                : ($terms['project_feedback_token_budget'] ?? 0));
+                : ($isFollowup
+                    ? ($terms['project_followup_token_budget'] ?? 0)
+                    : ($terms['project_feedback_token_budget'] ?? 0)));
             $costBudgetMicros = $this->toUsdMicros($isChat
                 ? ($terms['ai_budget_usd'] ?? 0)
-                : ($terms['project_feedback_budget_usd'] ?? 0));
+                : ($isFollowup
+                    ? ($terms['project_followup_budget_usd'] ?? 0)
+                    : ($terms['project_feedback_budget_usd'] ?? 0)));
             $reserveCostMicros = max(1, $this->toUsdMicros($isChat
                 ? ($terms['request_reserve_usd'] ?? 0)
-                : ($terms['project_feedback_reserve_usd'] ?? 0)));
+                : ($isFollowup
+                    ? ($terms['project_followup_reserve_usd'] ?? 0)
+                    : ($terms['project_feedback_reserve_usd'] ?? 0))));
             $featureAllowed = $isChat
                 ? (bool) ($terms['chat_enabled'] ?? false)
-                : in_array($terms['project_feedback_level'] ?? null, ['report', 'enhanced'], true);
+                : ($isFollowup
+                    ? ($terms['project_feedback_level'] ?? null) === 'enhanced'
+                        && (int) ($terms['project_followup_message_limit'] ?? 0) > 0
+                    : in_array($terms['project_feedback_level'] ?? null, ['report', 'enhanced'], true));
+            $requestLimit = $isChat
+                ? (int) ($terms['chat_message_limit'] ?? 0)
+                : ($isFollowup ? (int) ($terms['project_followup_message_limit'] ?? 0) : null);
 
             if (
                 !$featureAllowed
                 || (
-                    $isChat
+                    $requestLimit !== null
                     && $usage->used_requests + $usage->reserved_requests + 1
-                        > (int) ($terms['chat_message_limit'] ?? 0)
+                        > $requestLimit
                 )
                 || $usage->used_tokens + $usage->reserved_tokens + $estimatedTokens > $tokenBudget
                 || $this->toUsdMicros($usage->used_cost_usd)
@@ -118,7 +151,7 @@ final readonly class AiEntitlementBudgetService
             ])->save();
 
             return AiUsageEvent::create([
-                'request_id' => (string) Str::uuid(),
+                'request_id' => $requestId ?: (string) Str::uuid(),
                 'enrollment_id' => $lockedEnrollment->id,
                 'access_plan_id' => $planId,
                 'user_id' => $lockedEnrollment->user_id,
@@ -138,7 +171,8 @@ final readonly class AiEntitlementBudgetService
         if (!$event) {
             return;
         }
-        DB::transaction(function () use ($event, $providerResult): void {
+        $didSettle = false;
+        DB::transaction(function () use ($event, $providerResult, &$didSettle): void {
             $lockedEvent = AiUsageEvent::query()->lockForUpdate()->find($event->id);
             if (!$lockedEvent) {
                 return;
@@ -201,6 +235,29 @@ final readonly class AiEntitlementBudgetService
             $metadata['usage_source'] = $providerTotal > 0 && $providerCostWasReported
                 ? 'provider'
                 : 'reservation_fallback';
+            $acceptedResponse = trim((string) data_get($providerResult, 'message', ''));
+            if ($acceptedResponse !== '') {
+                // The accepted text enables a safe idempotent replay. The
+                // provider envelope and failed output are never persisted.
+                $metadata['accepted_response'] = mb_substr($acceptedResponse, 0, 12000);
+            }
+            $requestContext = data_get($providerResult, 'request_context');
+            if (is_array($requestContext)) {
+                $metadata['request_context'] = array_filter([
+                    'question_hash' => isset($requestContext['question_hash'])
+                        ? substr((string) $requestContext['question_hash'], 0, 64)
+                        : null,
+                    'lesson_id' => isset($requestContext['lesson_id'])
+                        ? max(0, (int) $requestContext['lesson_id'])
+                        : null,
+                    'language' => isset($requestContext['language'])
+                        ? substr((string) $requestContext['language'], 0, 12)
+                        : null,
+                    'prompt_version' => isset($requestContext['prompt_version'])
+                        ? substr((string) $requestContext['prompt_version'], 0, 64)
+                        : null,
+                ], static fn ($value): bool => $value !== null && $value !== '');
+            }
             $egpFacts = [];
             if (Schema::hasColumn('ai_usage_events', 'cost_egp')) {
                 $fxRate = max(0, (float) (Setting::query()->value('openrouter_usd_to_egp_rate') ?? 0));
@@ -221,7 +278,15 @@ final readonly class AiEntitlementBudgetService
                 'metadata' => $metadata,
                 'completed_at' => now(),
             ] + $egpFacts)->save();
+            $didSettle = true;
         }, 3);
+
+        if ($didSettle) {
+            // Monitoring is intentionally outside the entitlement transaction.
+            // A reporting outage must never turn a successful paid AI request
+            // into an application failure or hold its reservation open.
+            $this->platformUsage->record($event->id);
+        }
     }
 
     public function release(?AiUsageEvent $event, ?string $reason = null): void
@@ -255,7 +320,9 @@ final readonly class AiEntitlementBudgetService
             }
             $metadata = is_array($lockedEvent->metadata) ? $lockedEvent->metadata : [];
             if ($reason) {
-                $metadata['reason'] = substr($reason, 0, 180);
+                $metadata['reason'] = preg_match('/^[a-z0-9_:-]{1,64}$/i', $reason)
+                    ? strtolower($reason)
+                    : 'request_failed';
             }
             $lockedEvent->forceFill([
                 'status' => 'failed',

@@ -51,6 +51,7 @@ class PaymentReconciliationFindingController extends Controller
             )
             ->orderByRaw("CASE state WHEN 'open' THEN 0 WHEN 'ignored' THEN 1 ELSE 2 END")
             ->latest('last_seen_at')
+            ->latest('id')
             ->paginate(30)
             ->withQueryString();
 

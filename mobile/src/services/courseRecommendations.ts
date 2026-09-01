@@ -18,6 +18,12 @@ type RankedCourse = {
   baseScore: number;
 };
 
+const boundedHomeOrder = (value: unknown): number => {
+  if (value === null || value === undefined || value === '') return 100;
+  const parsed = Number(value);
+  return Math.max(0, Math.min(1000, Number.isFinite(parsed) ? parsed : 100));
+};
+
 const isActionableCourse = (course: DemoCourse): boolean => {
   const progress = Number(course.progress || 0);
   return (
@@ -34,10 +40,7 @@ const rankCourse = (
   originalIndex: number,
   preferredCategories: ReadonlySet<DemoCourse['category']>,
 ): RankedCourse => {
-  const configuredOrder = Math.max(
-    0,
-    Math.min(1000, Number(course.homeSortOrder ?? 100) || 100),
-  );
+  const configuredOrder = boundedHomeOrder(course.homeSortOrder);
   const baseScore =
     (preferredCategories.has(course.category) ? 240 : 0) +
     (course.isMainCourse ? 90 : 0) +

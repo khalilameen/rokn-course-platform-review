@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Services\BunnyService;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class SavedFolderResource extends JsonResource
@@ -19,8 +20,8 @@ class SavedFolderResource extends JsonResource
             'name' => (string)$this->name,
             'image' => $this->resolveFolderImage(),
             'lessons_count' => $this->lessons_count ?? (int)$this->lessons()->count(),
-            'created_at' => (string)$this->created_at,
-            'updated_at' => (string)$this->updated_at,
+            'created_at' => $this->created_at?->toIso8601String(),
+            'updated_at' => $this->updated_at?->toIso8601String(),
         ];
     }
 
@@ -33,6 +34,13 @@ class SavedFolderResource extends JsonResource
         if ($firstLesson) {
             $lessonImage = trim((string) ($firstLesson->thumbnail_path ?: $firstLesson->image));
             if ($lessonImage !== '') {
+                $signed = app(BunnyService::class)->generateBunnySignedUrl($lessonImage);
+                if ($signed) {
+                    return $signed;
+                }
+
+                // Older authoring records store a public thumbnail path
+                // rather than a Bunny media identifier.
                 return $lessonImage;
             }
 

@@ -17,6 +17,7 @@ class ItemList extends Model
         'category_id',
         'course_id',
         'type',
+        'authoring_request_id',
         'priority',
         'description',
         'description_ar',
@@ -55,6 +56,12 @@ class ItemList extends Model
     public function scopeQuiz($query){
         return $query->where("type",'quiz');
     }
+    public function scopeStandaloneQuiz($query)
+    {
+        return $query->quiz()
+            ->whereNull('course_id')
+            ->whereDoesntHave('courseSection');
+    }
     public function scopeCourse($query){
         return $query->where("type",'course');
     }
@@ -92,7 +99,7 @@ class ItemList extends Model
     }
 
     public function parentCourse(){
-        return $this->belongsTo(ItemList::class, 'id', 'parent_id');
+        return $this->belongsTo(ItemList::class, 'parent_id', 'id');
     }
 
     public function course(){

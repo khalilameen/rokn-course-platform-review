@@ -157,6 +157,72 @@ final class AccountDeletionService
                 }
             }
 
+            if (Schema::hasTable('feedback_reports')) {
+                $feedbackReportIds = DB::table('feedback_reports')
+                    ->where('user_id', $userId)
+                    ->pluck('id');
+                if ($feedbackReportIds->isNotEmpty() && Schema::hasTable('feedback_attachments')) {
+                    DB::table('feedback_attachments')
+                        ->whereIn('feedback_report_id', $feedbackReportIds)
+                        ->get(['disk', 'path'])
+                        ->each(function ($attachment) use (&$storedFiles): void {
+                            $storedFiles[] = [
+                                'disk' => (string) $attachment->disk,
+                                'path' => (string) $attachment->path,
+                            ];
+                        });
+                    DB::table('feedback_attachments')
+                        ->whereIn('feedback_report_id', $feedbackReportIds)
+                        ->delete();
+                }
+                DB::table('feedback_reports')->whereIn('id', $feedbackReportIds)->delete();
+            }
+
+            // Usage totals and costs remain as financial/operational evidence,
+            // but accepted AI replies and request context are personal content.
+            if (Schema::hasTable('ai_usage_events')) {
+                DB::table('ai_usage_events')->where('user_id', $userId)->update([
+                    'metadata' => null,
+                    'updated_at' => now(),
+                ]);
+            }
+            if (Schema::hasTable('playback_sessions')) {
+                // Aggregate playback timings remain useful for media health;
+                // host/device diagnostics are not part of the learning record.
+                DB::table('playback_sessions')->where('user_id', $userId)->update(
+                    $this->onlyExistingColumns('playback_sessions', [
+                        'source_host' => null,
+                        'diagnostics' => null,
+                        'last_error_code' => null,
+                        'updated_at' => now(),
+                    ])
+                );
+            }
+            if (Schema::hasTable('product_events')) {
+                // Retain anonymous funnel totals without a device/session join key.
+                DB::table('product_events')->where('user_id', $userId)->update(
+                    $this->onlyExistingColumns('product_events', [
+                        'user_id' => null,
+                        'actor_key' => null,
+                        'session_key' => null,
+                    ])
+                );
+            }
+            if (Schema::hasTable('attendances') && Schema::hasColumn('attendances', 'notes')) {
+                DB::table('attendances')->where('user_id', $userId)->update([
+                    'notes' => null,
+                    'updated_at' => now(),
+                ]);
+            }
+            if (Schema::hasTable('project_feedback_threads')) {
+                // Explicit deletion is required because users are soft-deleted;
+                // the database cascade would otherwise never run.
+                DB::table('project_feedback_threads')->where('user_id', $userId)->delete();
+            }
+            if (Schema::hasTable('course_chat_turns')) {
+                DB::table('course_chat_turns')->where('user_id', $userId)->delete();
+            }
+
             // HasPhoto historically deleted these files synchronously from a
             // model event. Capture them in the durable outbox instead, then
             // remove only the database references inside this transaction.
@@ -198,6 +264,13 @@ final class AccountDeletionService
             $this->deleteByUserIdIfPresent('user_notes', $userId);
             $this->deleteByUserIdIfPresent('course_ratings', $userId);
             $this->deleteByUserIdIfPresent('rates', $userId);
+            $this->deleteByUserIdIfPresent('order_notifications', $userId);
+            $this->deleteByUserIdIfPresent('order_requests', $userId);
+            $this->deleteByUserIdIfPresent('driver_requests', $userId);
+            $this->deleteByUserIdIfPresent('service_user', $userId);
+            $this->deleteByUserIdIfPresent('store_user', $userId);
+            $this->deleteByUserIdIfPresent('whatsapp_link_tokens', $userId);
+            $this->deleteByUserIdIfPresent('user_whatsapp_connections', $userId);
 
             $tokenTable = (string) config('multiple-tokens-auth.table', 'api_tokens');
             $this->deleteByUserIdIfPresent($tokenTable, $userId);
@@ -283,7 +356,10 @@ final class AccountDeletionService
         }
         $cleanupPending = AccountFileDeletion::query()
             ->whereIn('id', $cleanupOutboxIds)
-            ->where('status', '<>', AccountFileDeletion::STATUS_COMPLETED)
+            ->whereNotIn('status', [
+                AccountFileDeletion::STATUS_COMPLETED,
+                AccountFileDeletion::STATUS_SKIPPED,
+            ])
             ->exists();
 
         if ($remotePortfolioCleanupPending) {
@@ -346,18 +422,19 @@ final class AccountDeletionService
             if ($disk === '' || $path === '' || filter_var($path, FILTER_VALIDATE_URL)) {
                 continue;
             }
-            $row = AccountFileDeletion::query()->firstOrCreate(
+            $row = AccountFileDeletion::query()->updateOrCreate(
                 ['disk' => $disk, 'path_hash' => hash('sha256', $path)],
                 [
                     'user_id' => $userId,
                     'path' => $path,
                     'status' => AccountFileDeletion::STATUS_PENDING,
+                    'attempts' => 0,
                     'available_at' => now(),
+                    'completed_at' => null,
+                    'last_error' => null,
                 ]
             );
-            if ($row->status !== AccountFileDeletion::STATUS_COMPLETED) {
-                $ids[] = (int) $row->id;
-            }
+            $ids[] = (int) $row->id;
         }
 
         return array_values(array_unique($ids));

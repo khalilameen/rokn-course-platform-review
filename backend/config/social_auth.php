@@ -9,7 +9,7 @@ return [
         explode(',', (string) env('SOCIAL_AUTH_PROVIDERS', 'google,tiktok,facebook,apple'))
     )))),
     'recommended_provider' => env('SOCIAL_AUTH_RECOMMENDED_PROVIDER', 'google'),
-    'recommendation_badge' => 'احصل على ٢٠ عملة مجانية عند التسجيل لأول مرة!',
+    'recommendation_badge' => 'احصل على ٢٠ عملة عند التسجيل لأول مرة',
     'welcome_bonus_coins' => (int) env('WELCOME_BONUS_COINS', 20),
     'otp_enabled' => false,
     'password_login_visible' => false,

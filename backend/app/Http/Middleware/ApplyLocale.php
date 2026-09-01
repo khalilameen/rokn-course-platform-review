@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\RoknLocale;
 use Closure;
 
 class ApplyLocale
@@ -15,19 +16,15 @@ class ApplyLocale
      */
     public function handle($request, Closure $next)
     {
-        $segments = collect($request->segments());
-
-        $locale = $segments->first();
-
-        /*if (! in_array($locale, config('app.locales'))) {
-            $locale = 'ar';
-            app()->setLocale($locale);
-            $segments->prepend($locale);
-
-            return redirect($segments->implode('/'));
-        }*/
-
+        $locale = RoknLocale::normalize($request->segment(1))
+            ?? RoknLocale::normalize($request->session()->get('locale'))
+            ?? RoknLocale::normalize((string) config('app.locale', 'ar'))
+            ?? RoknLocale::ARABIC;
         app()->setLocale($locale);
-        return $next($request);
+
+        $response = $next($request);
+        $response->headers->set('Content-Language', RoknLocale::normalize(app()->getLocale()) ?? $locale);
+
+        return $response;
     }
 }

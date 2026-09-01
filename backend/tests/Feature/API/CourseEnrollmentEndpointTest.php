@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\API;
 
 use App\Http\Controllers\API\CoursePurchaseController;
+use App\Models\PaymentMethod;
 use Illuminate\Http\Request;
 
 /**
@@ -27,8 +28,26 @@ class CourseEnrollmentEndpointTest extends ApiTestCase
 
     public function test_can_get_payment_methods(): void
     {
-        $response = $this->actingAs($this->user, 'api')->getJson('/api/v1/courses/payment-methods');
-        $this->assertNotEquals(404, $response->status());
+        PaymentMethod::query()->create([
+            'name' => 'غير جاهزة',
+            'account_details' => PaymentMethod::DEFAULT_ACCOUNT_DETAILS,
+            'is_active' => true,
+            'is_default' => false,
+        ]);
+        PaymentMethod::query()->create([
+            'name' => 'طريقة جاهزة',
+            'account_details' => 'بيانات دفع صحيحة',
+            'is_active' => true,
+            'is_default' => false,
+        ]);
+
+        $response = $this->actingAs($this->user, 'api')
+            ->getJson('/api/v1/courses/payment-methods')
+            ->assertOk();
+
+        $names = collect($response->json('data'))->pluck('name');
+        self::assertTrue($names->contains('طريقة جاهزة'));
+        self::assertFalse($names->contains('غير جاهزة'));
     }
 
     public function test_can_authorize_course(): void

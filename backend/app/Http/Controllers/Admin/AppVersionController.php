@@ -5,10 +5,16 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\AppVersion;
+use App\Services\AppReleasePolicyService;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class AppVersionController extends Controller
 {
+    public function __construct(private readonly AppReleasePolicyService $releasePolicy)
+    {
+    }
+
     /**
      * Display a listing of the resource.
      *
@@ -17,7 +23,9 @@ class AppVersionController extends Controller
     public function index()
     {
         $versions = AppVersion::orderBy('id', 'desc')->paginate(10);
-        return view('admin.app-versions.index', compact('versions'));
+        $releaseReadiness = $this->releasePolicy->launchReadiness();
+
+        return view('admin.app-versions.index', compact('versions', 'releaseReadiness'));
     }
 
     /**
@@ -27,7 +35,25 @@ class AppVersionController extends Controller
      */
     public function create()
     {
-        return view('admin.app-versions.create');
+        $latestIdentifiers = collect($this->releasePolicy->channels())
+            ->mapWithKeys(function (string $channel): array {
+                $platform = $this->releasePolicy->platformForChannel($channel);
+                $identifier = $channel === AppReleasePolicyService::CHANNEL_APP_STORE
+                    ? 'build_number'
+                    : 'version_code';
+
+                return [$channel => [
+                    'channel' => (int) AppVersion::query()
+                        ->where('platform', $platform)
+                        ->where('distribution_channel', $channel)
+                        ->max($identifier),
+                    'platform' => (int) AppVersion::query()
+                        ->where('platform', $platform)
+                        ->max($identifier),
+                ]];
+            })->all();
+
+        return view('admin.app-versions.create', compact('latestIdentifiers'));
     }
 
     /**
@@ -53,8 +79,9 @@ class AppVersionController extends Controller
      */
     public function show($id)
     {
-        $version = AppVersion::findOrFail($id);
-        return view('admin.app-versions.show', compact('version'));
+        AppVersion::findOrFail($id);
+
+        return redirect()->route('admin.app-versions.edit', $id);
     }
 
     /**
@@ -66,6 +93,12 @@ class AppVersionController extends Controller
     public function edit($id)
     {
         $version = AppVersion::findOrFail($id);
+        if ($version->distribution_channel === null) {
+            return redirect()->route('admin.app-versions.index')->with(
+                'error',
+                'هذا سجل قديم بلا قناة محددة ويمكن إيقافه فقط. أنشئ إصدارًا جديدًا للقناة الصحيحة.'
+            );
+        }
         return view('admin.app-versions.edit', compact('version'));
     }
 
@@ -79,7 +112,7 @@ class AppVersionController extends Controller
     public function update(Request $request, $id)
     {
         $version = AppVersion::findOrFail($id);
-        $data = $this->validatedPayload($request, $version->id);
+        $data = $this->validatedPayload($request, $version);
 
         $version->update($data);
 
@@ -95,6 +128,12 @@ class AppVersionController extends Controller
     public function destroy($id)
     {
         $version = AppVersion::findOrFail($id);
+        if ($version->is_active) {
+            return redirect()->back()->with(
+                'error',
+                'أوقف الإصدار أولًا حتى لا يختفي رابط التحميل أو التحديث أثناء الحذف'
+            );
+        }
         $version->delete();
 
         return redirect()->route('admin.app-versions.index')->with('success', 'تم حذف الإصدار بنجاح');
@@ -127,7 +166,7 @@ class AppVersionController extends Controller
      * Keep the dashboard contract aligned with the native stores: Android is
      * ordered by versionCode and iOS by CFBundleVersion (build number).
      */
-    private function validatedPayload(Request $request, ?int $ignoreId = null): array
+    private function validatedPayload(Request $request, ?AppVersion $existing = null): array
     {
         $platform = (string) $request->input('platform');
         $channel = (string) $request->input('distribution_channel');
@@ -148,7 +187,7 @@ class AppVersionController extends Controller
                     ->where(fn ($query) => $query
                         ->where('platform', 'android')
                         ->where('distribution_channel', $channel))
-                    ->ignore($ignoreId),
+                    ->ignore($existing?->id),
             ],
             'build_number' => [
                 Rule::requiredIf($platform === 'ios'),
@@ -159,7 +198,7 @@ class AppVersionController extends Controller
                     ->where(fn ($query) => $query
                         ->where('platform', 'ios')
                         ->where('distribution_channel', $channel))
-                    ->ignore($ignoreId),
+                    ->ignore($existing?->id),
             ],
             'is_force_update' => ['sometimes', 'boolean'],
             'is_active' => ['sometimes', 'boolean'],
@@ -172,8 +211,13 @@ class AppVersionController extends Controller
                 'max:2048',
                 'url',
                 function (string $attribute, $value, $fail) use ($channel): void {
-                    if (!$this->isAllowedDownloadUrl($channel, $value)) {
-                        $fail('استخدم رابط HTTPS رسميًا للمتجر أو لنطاق ركن فقط.');
+                    if (!$this->releasePolicy->isAllowedDownloadUrl($channel, $value)) {
+                        $fail(match ($channel) {
+                            'play' => 'استخدم صفحة تطبيق ركن الصحيحة على Google Play',
+                            'appstore' => 'استخدم صفحة تطبيق ركن على App Store',
+                            'direct' => 'استخدم رابط APK مباشرًا على rokn.app',
+                            default => 'رابط التحديث لا يطابق قناة التوزيع',
+                        });
                     }
                 },
             ],
@@ -186,6 +230,55 @@ class AppVersionController extends Controller
         $data['version_code'] = $platform === 'android' ? (int) $data['version_code'] : null;
         $data['build_number'] = $platform === 'ios' ? (int) $data['build_number'] : null;
 
+        if ($existing) {
+            $immutableChanged = $existing->platform !== $data['platform']
+                || $existing->distribution_channel !== $data['distribution_channel']
+                || $existing->version_name !== $data['version_name']
+                || (int) $existing->version_code !== (int) $data['version_code']
+                || (int) $existing->build_number !== (int) $data['build_number'];
+            if ($immutableChanged) {
+                throw ValidationException::withMessages([
+                    'version_name' => 'هوية الإصدار والقناة والرقم الداخلي لا تتغير بعد إنشائه. أنشئ إصدارًا جديدًا.',
+                ]);
+            }
+        } else {
+            $identifierColumn = $platform === 'android' ? 'version_code' : 'build_number';
+            $candidate = (int) $data[$identifierColumn];
+            $channelMaximum = (int) AppVersion::query()
+                ->where('platform', $platform)
+                ->where('distribution_channel', $channel)
+                ->max($identifierColumn);
+            $platformMaximum = (int) AppVersion::query()
+                ->where('platform', $platform)
+                ->max($identifierColumn);
+            $sameBuildVersionNames = AppVersion::query()
+                ->where('platform', $platform)
+                ->where($identifierColumn, $candidate)
+                ->pluck('version_name')
+                ->map(fn ($name): string => (string) $name)
+                ->unique();
+            if (
+                $sameBuildVersionNames->isNotEmpty()
+                && !$sameBuildVersionNames->contains($data['version_name'])
+            ) {
+                throw ValidationException::withMessages([
+                    'version_name' => 'نفس رقم البناء يجب أن يحمل نفس اسم الإصدار في كل قنوات التوزيع.',
+                ]);
+            }
+            // Play and direct may publish the same Android build identity, but
+            // neither channel may introduce a lower build than users could
+            // already have installed from the other one.
+            if (
+                ($channelMaximum > 0 && $candidate <= $channelMaximum)
+                || ($platformMaximum > 0 && $candidate < $platformMaximum)
+            ) {
+                $minimum = max($channelMaximum + 1, $platformMaximum);
+                throw ValidationException::withMessages([
+                    $identifierColumn => "استخدم رقمًا لا يقل عن {$minimum}. الرجوع إلى رقم أقدم يمنع التحديث فوق النسخة المثبتة.",
+                ]);
+            }
+        }
+
         return $data;
     }
 
@@ -197,24 +290,6 @@ class AppVersionController extends Controller
             : $channel === 'appstore' && (int) $version->build_number > 0;
 
         return $hasIdentifier
-            && $this->isAllowedDownloadUrl($channel, $version->download_url);
-    }
-
-    private function isAllowedDownloadUrl(string $channel, $value): bool
-    {
-        $parts = is_string($value) ? parse_url($value) : false;
-        $host = strtolower((string) ($parts['host'] ?? ''));
-        $allowedHosts = match ($channel) {
-            'play' => ['play.google.com'],
-            'appstore' => ['apps.apple.com'],
-            'direct' => ['rokn.app', 'www.rokn.app', 'rokn.com', 'www.rokn.com'],
-            default => [],
-        };
-
-        return (bool) $parts
-            && strtolower((string) ($parts['scheme'] ?? '')) === 'https'
-            && !isset($parts['user'])
-            && !isset($parts['pass'])
-            && in_array($host, $allowedHosts, true);
+            && $this->releasePolicy->isAllowedDownloadUrl($channel, $version->download_url);
     }
 }

@@ -8,6 +8,8 @@ use App\Models\User;
 use App\Models\ItemList;
 use App\Models\DesignSetting;
 use Illuminate\Http\Request;
+use App\Support\BusinessClock;
+use App\Support\CsvCell;
 
 class ExamResultController extends Controller
 {
@@ -25,7 +27,7 @@ class ExamResultController extends Controller
     public function index(Request $request)
     {
         $query = $this->buildExamResultsQuery($request);
-        $examResults = $query->paginate(20);
+        $examResults = $query->paginate(20)->withQueryString();
         $designSettings = $this->getDesignSettings();
 
         return view('admin.exam-results.index', [
@@ -44,16 +46,19 @@ class ExamResultController extends Controller
             ->when($request->quiz_id, fn($q, $id) => $q->where('quiz_id', $id))
             ->when($request->search, fn($q, $search) => $this->applySearchFilter($q, $search))
             ->when($request->grade, fn($q, $grade) => $this->applyGradeFilter($q, $grade))
-            ->orderBy('completed_at', 'desc');
+            ->orderByDesc('completed_at')
+            ->orderByDesc('id');
     }
 
     private function applySearchFilter($query, $search)
     {
-        return $query->whereHas('user', function($q) use ($search) {
-            $q->where('name', 'like', "%{$search}%")
-              ->orWhere('email', 'like', "%{$search}%");
-        })->orWhereHas('quiz', function($q) use ($search) {
-            $q->where('title', 'like', "%{$search}%");
+        return $query->where(function ($matches) use ($search): void {
+            $matches->whereHas('user', function($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%");
+            })->orWhereHas('quiz', function($q) use ($search) {
+                $q->where('title', 'like', "%{$search}%");
+            });
         });
     }
 
@@ -77,16 +82,21 @@ class ExamResultController extends Controller
     private function getReferencedExams()
     {
         $referencedQuizIds = ExamAttempt::distinct()->pluck('quiz_id');
+        $quizzes = ItemList::query()
+            ->whereIn('id', $referencedQuizIds)
+            ->where('type', 'quiz')
+            ->get(['id', 'title', 'title_ar', 'title_en'])
+            ->keyBy('id');
 
-        return $referencedQuizIds->map(function($quizId) {
-            $quiz = ItemList::where('id', $quizId)
-                ->where('type', 'quiz')
-                ->first(['id', 'title']);
+        return $referencedQuizIds
+            ->map(function($quizId) use ($quizzes) {
+                $quiz = $quizzes->get($quizId);
 
-            return $quiz && $quiz->title
-                ? $quiz
-                : (object)['id' => $quizId, 'title' => "امتحان رقم $quizId"];
-        })->sortBy('title');
+                return $quiz && $quiz->title
+                    ? $quiz
+                    : (object)['id' => $quizId, 'title' => "امتحان رقم $quizId"];
+            })
+            ->sortBy('title');
     }
 
     /**
@@ -149,7 +159,8 @@ class ExamResultController extends Controller
         $examResults = ExamAttempt::with(['quiz:id,title,description'])
             ->where('user_id', $studentId)
             ->completed()
-            ->orderBy('completed_at', 'desc')
+            ->orderByDesc('completed_at')
+            ->orderByDesc('id')
             ->paginate(10);
 
         $designSettings = $this->getDesignSettings();
@@ -162,26 +173,16 @@ class ExamResultController extends Controller
      */
     public function export(Request $request)
     {
-        $query = ExamAttempt::with(['user:id,name,email', 'quiz:id,title'])
-            ->completed()
-            ->when($request->student_id, function($q, $studentId) {
-                return $q->where('user_id', $studentId);
-            })
-            ->when($request->quiz_id, function($q, $quizId) {
-                return $q->where('quiz_id', $quizId);
-            })
-            ->orderBy('completed_at', 'desc');
+        $query = $this->buildExamResultsQuery($request);
 
-        $examResults = $query->get();
-
-        $filename = 'exam_results_' . date('Y-m-d_H-i-s') . '.csv';
+        $filename = 'exam_results_' . BusinessClock::now()->format('Y-m-d_H-i-s') . '.csv';
 
         $headers = [
             'Content-Type' => 'text/csv; charset=UTF-8',
             'Content-Disposition' => 'attachment; filename="' . $filename . '"',
         ];
 
-        $callback = function() use ($examResults) {
+        $callback = function() use ($query) {
             $file = fopen('php://output', 'w');
 
             // Add BOM for Arabic text
@@ -202,17 +203,18 @@ class ExamResultController extends Controller
                 'النجح/الرسوب'
             ]);
 
-            // Data
-            foreach ($examResults as $result) {
+            // Keep export memory flat even after the attempt table grows into
+            // the hundreds of thousands. Eager relations are loaded per chunk.
+            foreach ($query->reorder()->lazyByIdDesc(500) as $result) {
                 $quizTitle = $result->quiz && $result->quiz->title
                     ? $result->quiz->title
                     : "امتحان رقم {$result->quiz_id}";
 
-                fputcsv($file, [
+                fputcsv($file, CsvCell::row([
                     $result->user->name,
                     $result->user->email,
                     $quizTitle,
-                    $result->completed_at->format('Y-m-d H:i:s'),
+                    BusinessClock::format($result->completed_at, 'Y-m-d H:i:s'),
                     $result->time_taken_minutes,
                     $result->total_questions,
                     $result->answered_questions,
@@ -220,7 +222,7 @@ class ExamResultController extends Controller
                     $result->score_percentage,
                     $result->score_points,
                     $result->is_passed ? 'نجح' : 'راسب'
-                ]);
+                ]));
             }
 
             fclose($file);
@@ -234,13 +236,21 @@ class ExamResultController extends Controller
      */
     public function getStats(Request $request)
     {
+        $aggregate = ExamAttempt::completed()
+            ->selectRaw('COUNT(*) as total_attempts')
+            ->selectRaw('SUM(CASE WHEN is_passed THEN 1 ELSE 0 END) as passed_attempts')
+            ->selectRaw('SUM(CASE WHEN NOT is_passed THEN 1 ELSE 0 END) as failed_attempts')
+            ->selectRaw('AVG(score_percentage) as average_score')
+            ->selectRaw('COUNT(DISTINCT user_id) as total_students')
+            ->selectRaw('COUNT(DISTINCT quiz_id) as total_exams')
+            ->first();
         $stats = [
-            'total_attempts' => ExamAttempt::completed()->count(),
-            'passed_attempts' => ExamAttempt::completed()->where('is_passed', true)->count(),
-            'failed_attempts' => ExamAttempt::completed()->where('is_passed', false)->count(),
-            'average_score' => ExamAttempt::completed()->avg('score_percentage'),
-            'total_students' => ExamAttempt::completed()->distinct('user_id')->count(),
-            'total_exams' => ExamAttempt::completed()->distinct('quiz_id')->count(),
+            'total_attempts' => (int) ($aggregate?->total_attempts ?? 0),
+            'passed_attempts' => (int) ($aggregate?->passed_attempts ?? 0),
+            'failed_attempts' => (int) ($aggregate?->failed_attempts ?? 0),
+            'average_score' => (float) ($aggregate?->average_score ?? 0),
+            'total_students' => (int) ($aggregate?->total_students ?? 0),
+            'total_exams' => (int) ($aggregate?->total_exams ?? 0),
         ];
 
         $stats['pass_rate'] = $stats['total_attempts'] > 0

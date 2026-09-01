@@ -9,15 +9,26 @@ use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
+    public $withinTransaction = false;
+
     public function up(): void
     {
-        Schema::table('settings', function (Blueprint $table): void {
-            $table->unsignedSmallInteger('streak_reward_days')->default(7);
-            $table->unsignedInteger('streak_reward_coins')->default(100);
-            $table->unsignedInteger('streak_reward_rolling_30_day_cap')->default(400);
-        });
+        if (Schema::hasTable('settings')) {
+            Schema::table('settings', function (Blueprint $table): void {
+                if (!Schema::hasColumn('settings', 'streak_reward_days')) {
+                    $table->unsignedSmallInteger('streak_reward_days')->default(7);
+                }
+                if (!Schema::hasColumn('settings', 'streak_reward_coins')) {
+                    $table->unsignedInteger('streak_reward_coins')->default(100);
+                }
+                if (!Schema::hasColumn('settings', 'streak_reward_rolling_30_day_cap')) {
+                    $table->unsignedInteger('streak_reward_rolling_30_day_cap')->default(400);
+                }
+            });
+        }
 
-        Schema::create('user_reward_checkins', function (Blueprint $table): void {
+        if (!Schema::hasTable('user_reward_checkins')) {
+            Schema::create('user_reward_checkins', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->date('checkin_date');
@@ -25,9 +36,11 @@ return new class extends Migration
 
             $table->unique(['user_id', 'checkin_date'], 'reward_checkin_user_date_unique');
             $table->index('checkin_date', 'reward_checkin_date_index');
-        });
+            });
+        }
 
-        Schema::create('reward_rules', function (Blueprint $table): void {
+        if (!Schema::hasTable('reward_rules')) {
+            Schema::create('reward_rules', function (Blueprint $table): void {
             $table->id();
             $table->string('event_key', 64)->unique();
             $table->string('title_ar');
@@ -41,11 +54,12 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index(['is_active', 'sort_order'], 'reward_rules_active_order_index');
-        });
+            });
+        }
 
-        $settings = DB::table('settings')->first();
+        $settings = Schema::hasTable('settings') ? DB::table('settings')->first() : null;
         $now = now();
-        DB::table('reward_rules')->insert([
+        DB::table('reward_rules')->insertOrIgnore([
             $this->rule('welcome_bonus', 'هدية أول تسجيل', 'Welcome bonus', (int) ($settings->welcome_bonus_coins ?? 20), 1, null, null, 10, $now),
             $this->rule('daily_checkin', 'فتح التطبيق يوميًا', 'Daily check-in', (int) ($settings->daily_reward_coins ?? 15), 1, null, (int) ($settings->daily_reward_rolling_30_day_cap ?? 150), 20, $now),
             $this->rule('streak_milestone', 'اكتمال الاستمرارية', 'Streak milestone', 100, 7, null, 400, 30, $now),
@@ -60,13 +74,15 @@ return new class extends Migration
         Schema::dropIfExists('reward_rules');
         Schema::dropIfExists('user_reward_checkins');
 
-        Schema::table('settings', function (Blueprint $table): void {
-            $table->dropColumn([
-                'streak_reward_days',
-                'streak_reward_coins',
-                'streak_reward_rolling_30_day_cap',
-            ]);
-        });
+        if (Schema::hasTable('settings')) {
+            $columns = array_values(array_filter(
+                ['streak_reward_days', 'streak_reward_coins', 'streak_reward_rolling_30_day_cap'],
+                static fn (string $column): bool => Schema::hasColumn('settings', $column)
+            ));
+            if ($columns !== []) {
+                Schema::table('settings', fn (Blueprint $table) => $table->dropColumn($columns));
+            }
+        }
     }
 
     private function rule(

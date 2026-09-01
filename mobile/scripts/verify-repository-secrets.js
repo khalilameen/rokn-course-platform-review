@@ -128,6 +128,7 @@ const secretNames = [
 ];
 const auditedNonSecretNames = new Set([
   'DEVICE_TOKEN',
+  'LEGACY_SECURE_TOKEN_KEYS',
   'ROKN_SMOKE_OAUTH_PASSWORD_FIELD',
   'SECURE_TOKEN_KEY',
 ]);

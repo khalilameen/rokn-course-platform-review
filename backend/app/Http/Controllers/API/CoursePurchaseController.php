@@ -11,11 +11,13 @@ use App\Http\Requests\API\CourseAuthorizationRequest;
 use App\Models\Bill;
 use App\Models\Course;
 use App\Models\CourseEnrollment;
+use App\Models\CouponRedemption;
 use App\Models\Order;
 use App\Models\Package;
 use App\Models\Setting;
 use App\Services\AiEntitlementBudgetService;
 use App\Services\CourseAccessPlanService;
+use App\Services\CourseCouponService;
 use App\Services\FinancialAnomalyService;
 use App\Services\FinancialProvenanceService;
 use App\Services\StudentNotificationService;
@@ -23,15 +25,87 @@ use App\Services\WalletService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 final class CoursePurchaseController extends Controller
 {
+    public function quote(
+        CourseAuthorizationRequest $request,
+        CourseAccessPlanService $planService,
+        CourseCouponService $coupons
+    ): JsonResponse {
+        $user = auth('api')->user();
+        $course = Course::findOrFail($request->course_id);
+        if (!$this->isAvailableForNewPurchase($course)) {
+            return response()->json([
+                'status' => 409,
+                'success' => false,
+                'code' => 'course_not_available',
+                'message' => 'هذا الكورس غير متاح للشراء الآن',
+                'data' => null,
+            ], 409);
+        }
+
+        try {
+            $plan = $planService->selectedPlan(
+                $course,
+                $request->filled('access_plan_code')
+                    ? strtolower(trim((string) $request->input('access_plan_code')))
+                    : null
+            );
+            $price = $plan
+                ? max(0, (int) $plan->price_coins)
+                : max(0, (int) ($course->price ?? 0));
+            $minimumPaid = max(0, (int) ($plan?->minimum_paid_coins ?? 0));
+            $quote = $coupons->quote(
+                (int) $user->id,
+                (int) $course->id,
+                $price,
+                $minimumPaid,
+                $request->input('coupon_code')
+            );
+
+            return response()->json([
+                'status' => 200,
+                'success' => true,
+                'message' => 'تم حساب الإجمالي',
+                'data' => [
+                    'course_id' => (int) $course->id,
+                    'access_plan_code' => $plan?->code,
+                    'original_price' => $price,
+                    'discount_amount' => (int) $quote['discount'],
+                    'final_price' => (int) $quote['final'],
+                    'coupon' => $quote['coupon'] ? [
+                        'code' => $quote['code'],
+                        'discount_percentage' => (int) $quote['percentage'],
+                    ] : null,
+                ],
+            ]);
+        } catch (\DomainException $exception) {
+            $code = $exception->getMessage();
+
+            return response()->json([
+                'status' => 422,
+                'success' => false,
+                'code' => $code,
+                'message' => match ($code) {
+                    'coupon_already_used' => 'استخدمت هذا الكود من قبل',
+                    'coupon_not_applicable' => 'لا ينطبق الخصم على هذه الفئة',
+                    'coupon_quota_reached' => 'اكتمل عدد مرات استخدام هذا الكود',
+                    default => 'الكود غير صحيح أو انتهت صلاحيته',
+                },
+                'data' => null,
+            ], 422);
+        }
+    }
+
     public function authorizeCourse(
         CourseAuthorizationRequest $request,
         WalletService $walletService,
         FinancialProvenanceService $provenance,
         FinancialAnomalyService $financialRisk,
         CourseAccessPlanService $planService,
+        CourseCouponService $coupons,
         AiEntitlementBudgetService $aiBudget
     ): JsonResponse
     {
@@ -43,6 +117,10 @@ final class CoursePurchaseController extends Controller
         $clientIdempotencyKey = $request->filled('idempotency_key')
             ? (string) $request->input('idempotency_key')
             : null;
+        $requestedCouponCode = $coupons->normalize($request->input('coupon_code'));
+        $expectedPrice = $request->filled('expected_price')
+            ? $request->integer('expected_price')
+            : null;
         try {
             $result = DB::transaction(function () use (
                 $user,
@@ -50,9 +128,12 @@ final class CoursePurchaseController extends Controller
                 $walletService,
                 $provenance,
                 $planService,
+                $coupons,
                 $aiBudget,
                 $requestedPlanCode,
-                $clientIdempotencyKey
+                $requestedCouponCode,
+                $clientIdempotencyKey,
+                $expectedPrice
             ): array {
                 // Money paths acquire learner and course locks in this order.
                 \App\Models\User::query()->lockForUpdate()->findOrFail($user->id);
@@ -75,7 +156,9 @@ final class CoursePurchaseController extends Controller
                         if (!$this->isSamePurchaseReplay(
                             $replayedOrder,
                             (int) $lockedCourse->id,
-                            $requestedPlanCode
+                            $requestedPlanCode,
+                            $requestedCouponCode,
+                            $expectedPrice
                         )) {
                             throw new \DomainException('checkout_idempotency_conflict');
                         }
@@ -109,18 +192,17 @@ final class CoursePurchaseController extends Controller
                     ];
                 }
 
-                $selectedPlan = $planService->selectedPlan(
-                    $lockedCourse,
-                    $requestedPlanCode,
-                    true
-                );
+                if (!$this->isAvailableForNewPurchase($lockedCourse)) {
+                    throw new \DomainException('course_not_available');
+                }
+
+                $selectedPlan = $planService->selectedPlan($lockedCourse, $requestedPlanCode, true);
                 $amount = $selectedPlan
                     ? max(0, (int) $selectedPlan->price_coins)
                     : max(0, (int) ($lockedCourse->price ?? 0));
                 if (
-                    $lockedCourse->is_coming_soon
-                    || (!$selectedPlan && ($lockedCourse->price === null || (float) $lockedCourse->price < 0))
-                    || !$lockedCourse->sections()->exists()
+                    !$selectedPlan
+                    && ($lockedCourse->price === null || (float) $lockedCourse->price < 0)
                 ) {
                     throw new \DomainException('course_not_available');
                 }
@@ -138,6 +220,19 @@ final class CoursePurchaseController extends Controller
                 $planSnapshot = $selectedPlan
                     ? $planService->snapshot($selectedPlan, now())
                     : null;
+                $minimumPaidCoins = max(0, (int) ($planSnapshot['minimum_paid_coins'] ?? 0));
+                $couponQuote = $coupons->quote(
+                    (int) $user->id,
+                    (int) $lockedCourse->id,
+                    $amount,
+                    $minimumPaidCoins,
+                    $requestedCouponCode,
+                    true
+                );
+                $finalAmount = (int) $couponQuote['final'];
+                if ($expectedPrice !== null && $expectedPrice !== $finalAmount) {
+                    throw new \DomainException('course_price_changed');
+                }
 
                 $order = Order::create([
                     'user_id' => $user->id,
@@ -145,16 +240,18 @@ final class CoursePurchaseController extends Controller
                     'access_plan_id' => $selectedPlan?->id,
                     'access_plan_snapshot' => $planSnapshot,
                     'checkout_request_key' => $checkoutKey,
+                    'coupon_id' => $couponQuote['coupon']?->id,
+                    'coupon_code' => $couponQuote['code'],
                     'payment_method' => Order::PAYMENT_METHOD_WALLET_COINS,
                     'amount' => $amount,
-                    'discount_amount' => 0,
-                    'final_amount' => $amount,
+                    'discount_amount' => $couponQuote['discount'],
+                    'final_amount' => $finalAmount,
                     'status' => Order::STATUS_APPROVED,
                     'financial_status' => Order::FINANCIAL_SETTLED,
                     'approved_at' => now(),
                     'approved_by' => null,
                     'is_premium_user' => $user->isPremiumUser(),
-                    'notes' => 'Idempotency: ' . $walletIdempotencyKey,
+                    'notes' => 'Wallet course purchase',
                 ]);
 
                 // The user and course rows are both locked above. Derive the
@@ -166,7 +263,6 @@ final class CoursePurchaseController extends Controller
                     (int) $user->id,
                     (int) $lockedCourse->id
                 );
-                $minimumPaidCoins = max(0, (int) ($planSnapshot['minimum_paid_coins'] ?? 0));
                 $paidFloorRemaining = max(
                     0,
                     $minimumPaidCoins - $walletService->coursePaidContribution(
@@ -176,11 +272,11 @@ final class CoursePurchaseController extends Controller
                 );
                 $maximumRewardForPurchase = min(
                     $rewardContribution['remaining'],
-                    max(0, $amount - min($amount, $paidFloorRemaining))
+                    max(0, $finalAmount - min($finalAmount, $paidFloorRemaining))
                 );
                 $walletTransaction = $walletService->debit(
                     $user->id,
-                    $amount,
+                    $finalAmount,
                     'course_purchase',
                     $walletIdempotencyKey,
                     $lockedCourse,
@@ -188,13 +284,17 @@ final class CoursePurchaseController extends Controller
                         'course_title' => $lockedCourse->name_ar,
                         'minimum_paid_coins' => $minimumPaidCoins,
                         'paid_floor_remaining_before_purchase' => $paidFloorRemaining,
+                        'original_price_coins' => $amount,
+                        'coupon_id' => $couponQuote['coupon']?->id,
+                        'coupon_discount_coins' => $couponQuote['discount'],
                     ],
                     $maximumRewardForPurchase
                 );
 
                 // Course orders preserve the paid/reward coin attribution.
                 $order->forceFill([
-                    'total_coins' => $amount,
+                    'wallet_transaction_id' => $walletTransaction->id,
+                    'total_coins' => $finalAmount,
                     'paid_coins' => (int) $walletTransaction->paid_amount,
                     'reward_coins' => (int) $walletTransaction->reward_amount,
                 ])->save();
@@ -207,13 +307,28 @@ final class CoursePurchaseController extends Controller
                     'bill_number' => Bill::generateBillNumber(),
                     'amount' => $amount,
                     'tax_amount' => 0,
-                    'total_amount' => $amount,
+                    'total_amount' => $finalAmount,
                     'payment_status' => Bill::PAYMENT_STATUS_PAID,
                     'payment_method' => Order::PAYMENT_METHOD_WALLET_COINS,
                     'due_date' => now(),
                     'paid_at' => now(),
-                    'notes' => 'Paid via Rokn coins',
+                    'notes' => $couponQuote['coupon']
+                        ? 'Paid via Rokn coins with coupon #'.$couponQuote['coupon']->id
+                        : 'Paid via Rokn coins',
                 ]);
+
+                if ($couponQuote['coupon']) {
+                    CouponRedemption::create([
+                        'coupon_id' => $couponQuote['coupon']->id,
+                        'user_id' => $user->id,
+                        'course_id' => $lockedCourse->id,
+                        'order_id' => $order->id,
+                        'coupon_code' => $couponQuote['code'],
+                        'discount_percentage' => $couponQuote['percentage'],
+                        'discount_coins' => $couponQuote['discount'],
+                        'redeemed_at' => now(),
+                    ]);
+                }
 
                 $enrollment = $existingEnrollment ?: new CourseEnrollment([
                     'user_id' => $user->id,
@@ -238,7 +353,10 @@ final class CoursePurchaseController extends Controller
                     'enrollment' => $enrollment,
                     'order' => $order,
                     'bill' => $bill,
-                    'amount' => $amount,
+                    'amount' => $finalAmount,
+                    'original_amount' => $amount,
+                    'discount_amount' => (int) $couponQuote['discount'],
+                    'coupon_code' => $couponQuote['code'],
                     'remaining_balance' => $walletTransaction->balance_after,
                     'paid_coins' => (int) $walletTransaction->paid_amount,
                     'reward_coins' => (int) $walletTransaction->reward_amount,
@@ -271,6 +389,7 @@ final class CoursePurchaseController extends Controller
                 )
             );
             $recommendedPackages = Package::query()
+                ->where('is_active', true)
                 ->where('coins', '>=', $deficit)
                 ->where('coins', '>', 0)
                 ->where('price', '>', 0)
@@ -282,7 +401,7 @@ final class CoursePurchaseController extends Controller
                 'status' => 400,
                 'success' => false,
                 'code' => 'insufficient_coins',
-                'message' => 'Insufficient wallet balance',
+                'message' => 'رصيدك لا يكفي',
                 'data' => [
                     'required_coins' => $exception->required,
                     // Legacy clients read the real wallet total from current_coins.
@@ -312,27 +431,50 @@ final class CoursePurchaseController extends Controller
                 'status' => 409,
                 'success' => false,
                 'code' => 'financial_provenance_unavailable',
-                'message' => 'Course purchase is temporarily unavailable. Your balance was not changed.',
+                'message' => "تعذّر إكمال الشراء الآن\nلم يتغير رصيدك",
                 'data' => null,
             ], 409);
+        } catch (ValidationException $exception) {
+            return response()->json([
+                'status' => 422,
+                'success' => false,
+                'code' => 'course_plan_unavailable',
+                'message' => collect($exception->errors())->flatten()->first()
+                    ?: 'راجع الفئة المختارة',
+                'errors' => $exception->errors(),
+                'data' => null,
+            ], 422);
         } catch (\DomainException $exception) {
             $code = $exception->getMessage();
+            $couponFailure = in_array($code, [
+                'coupon_invalid',
+                'coupon_already_used',
+                'coupon_not_applicable',
+                'coupon_quota_reached',
+            ], true);
 
             return response()->json([
-                'status' => 409,
+                'status' => $couponFailure ? 422 : 409,
                 'success' => false,
                 'code' => $code,
-                'message' => $code === 'checkout_idempotency_conflict'
-                    ? 'This idempotency key was already used for a different purchase.'
-                    : 'This course is not available to unlock yet.',
+                'message' => match ($code) {
+                    'checkout_idempotency_conflict' => "تغيّر طلب الشراء أثناء التنفيذ\nأعد المحاولة",
+                    'coupon_already_used' => 'استخدمت هذا الكود من قبل',
+                    'coupon_not_applicable' => 'لا ينطبق الخصم على هذه الفئة',
+                    'coupon_quota_reached' => 'اكتمل عدد مرات استخدام هذا الكود',
+                    'coupon_invalid' => 'الكود غير صحيح أو انتهت صلاحيته',
+                    'course_price_changed' => 'تغير السعر\nراجع الإجمالي قبل الشراء',
+                    default => 'هذا الكورس غير متاح للشراء الآن',
+                },
                 'data' => null,
-            ], 409);
+            ], $couponFailure ? 422 : 409);
         } catch (\Throwable $exception) {
+            $this->rethrowExpectedRequestException($exception);
             report($exception);
             return response()->json([
                 'status' => 500,
                 'success' => false,
-                'message' => 'An error occurred while processing your request',
+                'message' => "تعذّر إكمال الشراء\nحاول مرة أخرى",
                 'data' => null,
             ], 500);
         }
@@ -349,7 +491,8 @@ final class CoursePurchaseController extends Controller
                     '/courses/' . $course->id,
                     Course::class,
                     $course->id,
-                    'course-enrolled:order:' . ($result['order']?->id ?? $result['enrollment']->id)
+                    'course-enrolled:order:' . ($result['order']?->id ?? $result['enrollment']->id),
+                    ['course' => (string) ($course->name_ar ?: $course->name_en)]
                 );
             } catch (\Throwable $exception) {
                 // A push outage must never turn a completed purchase into an apparent failure.
@@ -382,13 +525,16 @@ final class CoursePurchaseController extends Controller
             'status' => 200,
             'success' => true,
             'message' => $result['already_enrolled']
-                ? 'Course access was already granted'
-                : 'Course access granted successfully',
+                ? 'الكورس مضاف إلى حسابك بالفعل'
+                : 'تمت إضافة الكورس إلى حسابك',
             'data' => [
                 'order_id' => $result['order']?->id,
                 'bill_id' => $result['bill']?->id,
                 'enrollment_id' => $result['enrollment']->id,
                 'amount_deducted' => $result['amount'],
+                'original_price' => (int) ($result['original_amount'] ?? $result['order']?->amount ?? 0),
+                'discount_amount' => (int) ($result['discount_amount'] ?? $result['order']?->discount_amount ?? 0),
+                'coupon_code' => $result['coupon_code'] ?? $result['order']?->coupon_code,
                 'remaining_balance' => $totalBalance,
                 'total_balance' => $totalBalance,
                 'purchased_balance' => $purchasedBalance,
@@ -426,10 +572,19 @@ final class CoursePurchaseController extends Controller
         return $wallet->courseRewardContribution($userId, $courseId, $cap);
     }
 
+    private function isAvailableForNewPurchase(Course $course): bool
+    {
+        return $course->parent_id === null
+            && (bool) $course->is_catalog_visible
+            && $course->isPublishedForLearning();
+    }
+
     private function isSamePurchaseReplay(
         Order $order,
         int $courseId,
-        ?string $requestedPlanCode
+        ?string $requestedPlanCode,
+        ?string $requestedCouponCode,
+        ?int $expectedPrice
     ): bool
     {
         if (
@@ -442,9 +597,14 @@ final class CoursePurchaseController extends Controller
             return false;
         }
 
-        if ($requestedPlanCode === null) {
-            return true;
+        if (!hash_equals((string) $order->coupon_code, (string) $requestedCouponCode)) {
+            return false;
         }
+        if ($expectedPrice !== null && (int) $order->final_amount !== $expectedPrice) {
+            return false;
+        }
+
+        if ($requestedPlanCode === null) return true;
 
         return (string) data_get($order->access_plan_snapshot, 'code') === $requestedPlanCode;
     }

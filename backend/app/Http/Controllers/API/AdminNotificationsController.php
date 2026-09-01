@@ -22,9 +22,18 @@ final class AdminNotificationsController extends Controller
     {
         return $this->responses->resource(
             AdminNotificationsResource::collection(
-                AdminNotification::query()->available()->orderBy('priority')->get()
+                // This legacy public feed is announcements only. Transactional
+                // and retention templates are internal control-plane content;
+                // the two guest-safe messages have explicit keyed endpoints.
+                AdminNotification::query()
+                    ->available()
+                    ->where('surface', 'announcement')
+                    ->whereNull('system_key')
+                    ->orderBy('priority')
+                    ->orderBy('id')
+                    ->get()
             ),
-            'Admin notifications retrieved successfully'
+            'تم تحميل الإعلانات'
         );
     }
 
@@ -39,9 +48,9 @@ final class AdminNotificationsController extends Controller
 
         $message = $messages->publicMessage($systemKey);
         if (!$message) {
-            return $this->responses->success(null, 'Engagement message is disabled');
+            return $this->responses->success(null, 'لا توجد رسالة الآن');
         }
 
-        return $this->responses->success($message, 'Engagement message retrieved successfully');
+        return $this->responses->success($message, 'تم تحميل الرسالة');
     }
 }

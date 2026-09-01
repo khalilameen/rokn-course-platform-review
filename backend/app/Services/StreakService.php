@@ -4,12 +4,13 @@ namespace App\Services;
 
 use App\Models\StudentSectionProgress;
 use Carbon\Carbon;
+use App\Support\BusinessClock;
 
 class StreakService
 {
     /**
-     * Get distinct activity dates (Y-m-d) when user completed at least one section.
-     * Uses app timezone for date extraction.
+     * Get distinct calendar days when the learner first completed a section.
+     * completed_at is immutable; updated_at can move during moderation or repair.
      *
      * @param int $userId
      * @param Carbon|null $from
@@ -18,21 +19,23 @@ class StreakService
      */
     public static function getActivityDatesForUser(int $userId, ?Carbon $from = null, ?Carbon $to = null): array
     {
-        $query = StudentSectionProgress::where('user_id', $userId)
-            ->where('is_completed', true);
+        $query = StudentSectionProgress::query()
+            ->where('user_id', $userId)
+            ->where('is_completed', true)
+            ->whereNotNull('completed_at');
 
         if ($from !== null) {
-            $query->where('updated_at', '>=', $from);
+            $query->where('completed_at', '>=', $from);
         }
         if ($to !== null) {
-            $query->where('updated_at', '<=', $to);
+            $query->where('completed_at', '<', $to);
         }
 
-        $timezone = config('app.timezone', 'Asia/Riyadh');
+        $timezone = BusinessClock::timezoneName();
 
-        return $query->get()
+        return $query->get(['completed_at'])
             ->map(function ($progress) use ($timezone) {
-                return Carbon::parse($progress->updated_at)->timezone($timezone)->format('Y-m-d');
+                return Carbon::parse($progress->completed_at)->timezone($timezone)->format('Y-m-d');
             })
             ->unique()
             ->values()
@@ -47,16 +50,21 @@ class StreakService
      */
     public static function getStreakDataForUser(int $userId): array
     {
-        $timezone = config('app.timezone', 'Asia/Riyadh');
-        $now = Carbon::now($timezone);
+        $timezone = BusinessClock::timezoneName();
+        $now = Carbon::instance(BusinessClock::now());
 
         // Week: Sunday to Saturday
         $weekStart = $now->copy()->startOfWeek(Carbon::SUNDAY);
         $weekEnd = $now->copy()->endOfWeek(Carbon::SATURDAY);
 
-        // Fetch activity dates for the week plus a few days before (for streak calculation)
-        $lookbackStart = $weekStart->copy()->subDays(14);
-        $activityDates = self::getActivityDatesForUser($userId, $lookbackStart, $weekEnd);
+        // Keep a bounded year of history so a real long streak is not silently
+        // capped by the seven-day presentation window.
+        $lookbackStart = $now->copy()->subDays(370)->startOfDay()->utc();
+        $activityDates = self::getActivityDatesForUser(
+            $userId,
+            $lookbackStart,
+            $weekEnd->copy()->addDay()->startOfDay()->utc()
+        );
         $activitySet = array_flip($activityDates);
 
         $today = $now->format('Y-m-d');

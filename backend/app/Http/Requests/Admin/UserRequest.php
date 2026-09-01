@@ -2,11 +2,22 @@
 
 namespace App\Http\Requests\Admin;
 
+use App\Support\UnicodeText;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class UserRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        if ($this->input('name') !== null) {
+            $this->merge(['name' => UnicodeText::clean($this->input('name'), false)]);
+        }
+        if ($this->input('phone') !== null) {
+            $this->merge(['phone' => UnicodeText::identifier($this->input('phone'))]);
+        }
+    }
+
     /**
      * Determine if the user is authorized to make this request.
      *

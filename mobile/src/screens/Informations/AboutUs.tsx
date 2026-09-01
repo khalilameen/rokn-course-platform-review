@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useEffect, useState} from 'react';
 import {Image, StyleSheet, Text, View} from 'react-native';
 import {Container, Content} from '../../components/containers/Containers';
 import {
@@ -16,30 +16,39 @@ import {
   textDirection,
   useResponsiveLayout,
 } from '../../constants/designSystem';
+import {getManagedPublicContent} from '../../services/publicContent';
 
 const PRINCIPLES = [
   {
     index: '٠١',
-    title: 'مقطع قصير بدل محاضرة طويلة',
-    description:
-      'كل مقطع يشرح فكرة واحدة بوضوح لتتقدم في وقت قصير',
+    title: 'فكرة واحدة في كل مقطع',
+    description: 'تعلم واضح يناسب وقتك',
   },
   {
     index: '٠٢',
-    title: 'التطبيق قبل الاستهلاك',
-    description:
-      'مشاريع عبور عملية تحوّل المشاهدة إلى عمل حقيقي، من دون تعطيل من بذل مجهودًا صادقًا.',
+    title: 'تعلم بالممارسة',
+    description: 'مشروعات تثبت ما تعلمته وتجهزك لما بعد الكورس',
   },
   {
     index: '٠٣',
-    title: 'المساعدة داخل الرحلة',
-    description:
-      'مدرب ذكي يجيبك في سياق ما تتعلمه، كي لا تضطر إلى ترك الكورس والبحث بعيدًا.',
+    title: 'المساعدة وقت الحاجة',
+    description: 'اسأل داخل الكورس واستكمل من حيث توقفت',
   },
 ];
 
 export default function AboutUs() {
-  const {isTablet} = useResponsiveLayout();
+  const {fontScale, isTablet} = useResponsiveLayout();
+  const wideHero = isTablet && fontScale <= 1.25;
+  const [managedBody, setManagedBody] = useState('');
+  useEffect(() => {
+    let active = true;
+    void getManagedPublicContent('about')
+      .then(body => active && setManagedBody(body))
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   return (
     <Container noPadding>
@@ -47,8 +56,8 @@ export default function AboutUs() {
         <ResponsiveFrame>
           <HeaderWithBack title="عن رُكن" />
 
-          <PremiumCard style={[styles.hero, isTablet && styles.heroTablet]}>
-            <View style={[styles.logoShell, isTablet && styles.logoShellTablet]}>
+          <PremiumCard style={[styles.hero, wideHero && styles.heroTablet]}>
+            <View style={[styles.logoShell, wideHero && styles.logoShellTablet]}>
               <Image
                 resizeMode="contain"
                 source={require('../../assets/images/authLogo.png')}
@@ -60,23 +69,22 @@ export default function AboutUs() {
                 منصة تعليم عربية من مصر
               </Text>
               <Text style={styles.heroTitle}>
-                نتعلم كما نعيش اليوم:{'\n'}بسرعة، لكن بعمق.
+                تعلم دقيقة بدقيقة
               </Text>
               <Text style={styles.heroDescription}>
-                رُكن يحوّل منطق منصات الفيديو القصير إلى تجربة تعليمية منظمة:
-                كورسات من مقاطع قصيرة مترابطة ومشروعات تثبت ما تعلمته ومسار واضح حتى
-                الشهادة والبورتفوليو.
+                {managedBody ||
+                  'كورسات قصيرة ومنظمة\nشاهد وطبّق واستكمل حتى الشهادة'}
               </Text>
             </View>
           </PremiumCard>
 
-          <SectionHeading
-            eyebrow="فلسفة المنتج"
+          {!managedBody && <SectionHeading
+            eyebrow="كيف تتعلم"
             style={styles.heading}
-            title="بسيط في الاستخدام، جاد في النتيجة"
-          />
+            title="كل ما تحتاجه في مسار واحد"
+          />}
 
-          <View style={[styles.cards, isTablet && styles.cardsTablet]}>
+          {!managedBody && <View style={[styles.cards, isTablet && styles.cardsTablet]}>
             {PRINCIPLES.map(item => (
               <PremiumCard
                 accessibilityLabel={`${item.title}. ${item.description}`}
@@ -87,21 +95,21 @@ export default function AboutUs() {
                 <Text style={styles.cardDescription}>{item.description}</Text>
               </PremiumCard>
             ))}
-          </View>
+          </View>}
 
-          <PremiumCard style={styles.promiseCard}>
+          {!managedBody && <PremiumCard style={styles.promiseCard}>
             <View style={styles.promiseLine} />
             <View style={styles.promiseCopy}>
-              <Text style={styles.promiseTitle}>وعد رُكن</Text>
+              <Text style={styles.promiseTitle}>الهدف واضح</Text>
               <Text style={styles.promiseDescription}>
-                لا نحشو الشاشة بما لا يخدم تعلّمك، ولا نقيس النجاح بعدد الساعات.
-                هدفنا أن تصل إلى إنجاز تستطيع عرضه، لا إلى قائمة فيديوهات شاهدتها
-                فقط.
+                شاهد ما تحتاجه
+                {'\n'}طبّق ما تعلمته
+                {'\n'}احتفظ بإنجاز يمكنك عرضه
               </Text>
             </View>
-          </PremiumCard>
+          </PremiumCard>}
 
-          <Text style={styles.footer}>صُمّم بعناية للمتعلم العربي.</Text>
+          <Text style={styles.footer}>تعلم بطريقتك</Text>
         </ResponsiveFrame>
       </Content>
     </Container>

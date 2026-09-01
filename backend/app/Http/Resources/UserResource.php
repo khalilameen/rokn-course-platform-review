@@ -76,7 +76,7 @@ class UserResource extends UsersResource
                 $query->whereNull('expires_at')
                       ->orWhere('expires_at', '>', now());
             })
-            ->with('course')
+            ->with(['course.accessPlans' => fn ($plans) => $plans->where('is_active', true)])
             ->get();
 
         // Extract courses from enrollments

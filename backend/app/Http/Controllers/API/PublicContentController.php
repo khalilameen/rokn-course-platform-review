@@ -5,12 +5,13 @@ declare(strict_types=1);
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
-use App\Models\DesignSetting;
-use App\Models\Setting;
 use App\Services\ApiResponseService;
+use App\Services\ManagedPublicContentService;
+use App\Services\PublicAppSettingsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Lang;
+use App\Support\RoknLocale;
 
 final class PublicContentController extends Controller
 {
@@ -25,14 +26,13 @@ final class PublicContentController extends Controller
     public function show(
         Request $request,
         string $page,
-        ApiResponseService $responses
+        ApiResponseService $responses,
+        ManagedPublicContentService $managedContent,
+        PublicAppSettingsService $publicSettings
     ): JsonResponse {
         abort_unless(array_key_exists($page, self::PAGES), 404);
 
-        $locale = str_starts_with(
-            strtolower((string) $request->header('Accept-Language', 'ar')),
-            'en'
-        ) ? 'en' : 'ar';
+        $locale = RoknLocale::fromRequest($request);
         $translation = Lang::get(self::PAGES[$page], [], $locale);
         abort_unless(is_array($translation), 404);
 
@@ -45,13 +45,21 @@ final class PublicContentController extends Controller
             'web_url' => $this->webUrl($page),
         ];
 
+        $managedBody = $managedContent->body($page, $locale);
+        $payload['managed_body'] = $managedBody;
+        $payload['source'] = $managedBody !== null ? 'dashboard' : 'application';
+        $payload['revision'] = hash('sha256', implode('|', [
+            $page,
+            $locale,
+            (string) ($managedBody ?? ''),
+        ]));
+
         if ($page === 'contact') {
-            $settings = Setting::query()->firstOrNew();
-            $design = DesignSetting::getDefaultSettings();
+            $settings = $publicSettings->snapshot();
             $payload['contact'] = [
-                'email' => $settings->email,
-                'phone' => $settings->phone,
-                'whatsapp' => $settings->support_whatsapp_url ?: $design->whatsapp_url,
+                'email' => $settings['support_contacts']['email'] ?? null,
+                'phone' => $settings['support_contacts']['phone'] ?? null,
+                'whatsapp' => $settings['support_contacts']['whatsapp'] ?? null,
                 'form' => [
                     'method' => 'POST',
                     'endpoint' => '/api/v1/contact',
@@ -61,7 +69,11 @@ final class PublicContentController extends Controller
             ];
         }
 
-        return $responses->success($payload, 'Public content page retrieved successfully');
+        return $responses->success($payload, 'تم تحميل الصفحة')->withHeaders([
+            'Cache-Control' => 'public, max-age=60, stale-if-error=300',
+            'ETag' => '"'.$payload['revision'].'"',
+            'Vary' => 'Accept-Language',
+        ]);
     }
 
     private function webUrl(string $page): string

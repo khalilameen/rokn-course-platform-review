@@ -4,6 +4,8 @@ use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\SyslogUdpHandler;
 
+$redact = [\App\Logging\RedactSensitiveContext::class];
+
 return [
 
     /*
@@ -39,12 +41,14 @@ return [
             'driver' => 'stack',
             'channels' => ['single'],
             'ignore_exceptions' => false,
+            'tap' => $redact,
         ],
 
         'single' => [
             'driver' => 'single',
             'path' => storage_path('logs/laravel.log'),
             'level' => 'debug',
+            'tap' => $redact,
         ],
 
         'daily' => [
@@ -52,6 +56,7 @@ return [
             'path' => storage_path('logs/laravel.log'),
             'level' => 'debug',
             'days' => 14,
+            'tap' => $redact,
         ],
 
         'slack' => [
@@ -60,6 +65,7 @@ return [
             'username' => 'Laravel Log',
             'emoji' => ':boom:',
             'level' => 'critical',
+            'tap' => $redact,
         ],
 
         'papertrail' => [
@@ -70,6 +76,7 @@ return [
                 'host' => env('PAPERTRAIL_URL'),
                 'port' => env('PAPERTRAIL_PORT'),
             ],
+            'tap' => $redact,
         ],
 
         'stderr' => [
@@ -79,16 +86,19 @@ return [
             'with' => [
                 'stream' => 'php://stderr',
             ],
+            'tap' => $redact,
         ],
 
         'syslog' => [
             'driver' => 'syslog',
             'level' => 'debug',
+            'tap' => $redact,
         ],
 
         'errorlog' => [
             'driver' => 'errorlog',
             'level' => 'debug',
+            'tap' => $redact,
         ],
 
         'null' => [

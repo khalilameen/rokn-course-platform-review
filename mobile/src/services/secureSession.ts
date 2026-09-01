@@ -6,8 +6,10 @@ const USER_DATA_KEY = 'USER_DATA';
 const LEGACY_REDUX_AUTH_KEY = 'persist:auth';
 const MIGRATION_KEY = '@rokn/auth-secure-migration-v1';
 const MIGRATION_VERSION = '2';
-const SECURE_TOKEN_KEY = 'rokn.auth.api-token.v1';
+const SECURE_TOKEN_KEY = 'rokn.auth.api-token.v2';
+const LEGACY_SECURE_TOKEN_KEYS = ['rokn.auth.api-token.v1'] as const;
 const SECURE_STORAGE_PROBE_KEY = 'rokn.auth.storage-probe.v1';
+const PENDING_SOCIAL_AUTH_KEY = 'rokn.auth.pending-social.v1';
 export const secureStoreOptionsForPlatform = (
   platform: string,
 ): SecureStore.SecureStoreOptions =>
@@ -59,6 +61,36 @@ const secureDeleteItem = (key: string) => {
   if (!module?.deleteItem) throw storageFailure('MODULE');
   return module.deleteItem(key);
 };
+
+const readSecureToken = async (): Promise<string | null> => {
+  const current = String((await secureGetItem(SECURE_TOKEN_KEY)) || '').trim();
+  if (current) return current;
+  for (const legacyKey of LEGACY_SECURE_TOKEN_KEYS) {
+    const legacy = String((await secureGetItem(legacyKey)) || '').trim();
+    if (!legacy) continue;
+    // Copy before retiring a logical key. Keep the adjacent v1 copy during
+    // this compatibility window so a deliberate downgrade can still restore
+    // the same owner instead of appearing as an unexplained logout.
+    await secureSetItem(SECURE_TOKEN_KEY, legacy);
+    return legacy;
+  }
+  return null;
+};
+
+const writeSecureToken = async (token: string) => {
+  const normalized = token.trim();
+  if (!normalized) throw storageFailure('MISSING_TOKEN');
+  await secureSetItem(SECURE_TOKEN_KEY, normalized);
+  await Promise.all(
+    LEGACY_SECURE_TOKEN_KEYS.map(key => secureSetItem(key, normalized)),
+  );
+};
+
+const deleteSecureTokens = () =>
+  Promise.all([
+    secureDeleteItem(SECURE_TOKEN_KEY),
+    ...LEGACY_SECURE_TOKEN_KEYS.map(key => secureDeleteItem(key)),
+  ]);
 
 let storageAvailabilityPromise: Promise<void> | null = null;
 
@@ -122,6 +154,47 @@ export const assertSecureSessionStorageAvailable = async () => {
   }
   await storageAvailabilityPromise;
 };
+
+export type PendingSocialAuthAttempt = {
+  provider: 'google' | 'tiktok' | 'facebook';
+  verifier: string;
+  startedAt: string;
+  callbackUrl?: string;
+  purpose?: 'login' | 'reauth';
+  completedSession?: unknown;
+};
+
+export const savePendingSocialAuthAttempt = async (
+  attempt: PendingSocialAuthAttempt,
+) => {
+  await secureSetItem(PENDING_SOCIAL_AUTH_KEY, JSON.stringify(attempt));
+};
+
+export const loadPendingSocialAuthAttempt = async () => {
+  const value = await secureGetItem(PENDING_SOCIAL_AUTH_KEY);
+  if (!value) return null;
+  try {
+    const attempt = JSON.parse(value) as Partial<PendingSocialAuthAttempt>;
+    if (
+      !['google', 'tiktok', 'facebook'].includes(String(attempt.provider)) ||
+      typeof attempt.verifier !== 'string' ||
+      !/^[A-Za-z0-9._~-]{43,128}$/.test(attempt.verifier) ||
+      typeof attempt.startedAt !== 'string' ||
+      (attempt.purpose !== undefined &&
+        !['login', 'reauth'].includes(attempt.purpose))
+    ) {
+      await secureDeleteItem(PENDING_SOCIAL_AUTH_KEY);
+      return null;
+    }
+    return attempt as PendingSocialAuthAttempt;
+  } catch {
+    await secureDeleteItem(PENDING_SOCIAL_AUTH_KEY);
+    return null;
+  }
+};
+
+export const deletePendingSocialAuthAttempt = () =>
+  secureDeleteItem(PENDING_SOCIAL_AUTH_KEY);
 
 const SENSITIVE_SESSION_KEYS = new Set([
   'api_token',
@@ -190,6 +263,7 @@ export type SessionProfile = {
   username?: string;
   avatar?: string;
   profile_image?: string;
+  image?: string;
   wallet_purchased_coins?: string | number;
 };
 
@@ -201,8 +275,15 @@ export type SessionProfile = {
 export const extractApiToken = (value: unknown): string | null => {
   const candidates = [
     nestedValue(value, ['api_token']),
+    nestedValue(value, ['apiToken']),
+    nestedValue(value, ['token']),
+    nestedValue(value, ['access_token']),
     nestedValue(value, ['data', 'api_token']),
+    nestedValue(value, ['data', 'apiToken']),
+    nestedValue(value, ['data', 'token']),
+    nestedValue(value, ['data', 'access_token']),
     nestedValue(value, ['data', 'data', 'api_token']),
+    nestedValue(value, ['data', 'data', 'token']),
     nestedValue(value, ['user', 'api_token']),
     nestedValue(value, ['data', 'user', 'api_token']),
   ];
@@ -218,10 +299,33 @@ export const extractUserProfile = (value: unknown): SessionProfile => {
     nestedValue(value, ['user']),
     nestedValue(value, ['data', 'user']),
     nestedValue(value, ['data', 'data', 'user']),
+    nestedValue(value, ['profile']),
+    nestedValue(value, ['data', 'profile']),
+    nestedValue(value, ['student']),
+    nestedValue(value, ['data', 'student']),
     nestedValue(value, ['data']),
     value,
   ];
-  return (candidates.find(isRecord) as SessionProfile | undefined) ?? {};
+  const profile = candidates.find(isRecord) as SessionProfile | undefined;
+  if (!profile) return {};
+  const clean = {...profile};
+  if (clean.id === undefined && clean.user_id === undefined) {
+    const legacyOwner =
+      clean.userId ?? clean.student_id ?? clean.studentId ?? clean.social_id;
+    if (legacyOwner !== undefined && legacyOwner !== null) {
+      clean.user_id = legacyOwner as string | number;
+    }
+  }
+  for (const key of ['avatar', 'profile_image', 'image'] as const) {
+    const uri = clean[key];
+    if (
+      typeof uri === 'string' &&
+      /\/images\/service\.jpg(?:\?|#|$)/i.test(uri.trim())
+    ) {
+      delete clean[key];
+    }
+  }
+  return clean;
 };
 
 /** Remove credentials recursively without changing the compatible envelope. */
@@ -258,11 +362,74 @@ const attachTokenInMemory = (
   return {...storedProfile, api_token: apiToken};
 };
 
+const sessionOwnerKey = (value: unknown): string => {
+  const profile = extractUserProfile(value);
+  const id = profile.id ?? profile.user_id;
+  return id === undefined || id === null ? '' : String(id).trim();
+};
+
+/**
+ * Login is normally preceded by logout, but deep links and shared devices can
+ * replace one valid session directly. Quiesce the old account while its token
+ * and profile are still current, then remove only its scoped local state.
+ */
+const clearPreviousAccountBeforeReplacement = async () => {
+  const helpers = await import('../constants/helpers');
+  const accountScope = await helpers.getCurrentAccountStorageScope();
+  const [reminders, push, deviceSessions, learning, chat] = await Promise.all([
+    import('./smartReminders'),
+    import('./pushNotifications'),
+    import('./deviceSessions'),
+    import('../components/VideoPlayer/courseLearningApi'),
+    import('../utils/fileCache'),
+  ]);
+
+  reminders.cancelLearningReminders();
+  await reminders.setSmartRemindersEnabled(false).catch(() => undefined);
+  const previousPushToken = await push
+    .getCurrentPushDeviceToken()
+    .catch(() => null);
+  // A direct account switch is also a logout from this installation. Close
+  // the old bearer while it is still the active secure session; otherwise a
+  // discarded token remains listed as a live device for up to its full TTL.
+  await deviceSessions
+    .revokeCurrentDeviceSession(previousPushToken)
+    .catch(() => undefined);
+  await push.clearCurrentPushDeviceRegistration();
+  await learning.clearCurrentAccountLearningFiles(accountScope);
+  await chat.clearTransientChatCache({accountBoundary: true});
+  await helpers.clearLegacyUnscopedPersonalStorage();
+  await helpers.clearAccountScopedStorage(accountScope, {
+    preserveFinancialRecovery: true,
+  });
+};
+
+const revokeReplacedBearerForSameAccount = async () => {
+  const [push, deviceSessions] = await Promise.all([
+    import('./pushNotifications'),
+    import('./deviceSessions'),
+  ]);
+  const pushToken = await push.getCurrentPushDeviceToken().catch(() => null);
+  await deviceSessions
+    .revokeCurrentDeviceSession(pushToken)
+    .catch(() => undefined);
+};
+
 let migrationPromise: Promise<void> | null = null;
 let cachedSession: unknown = null;
 let sessionCacheReady = false;
 let sessionLoadPromise: Promise<unknown> | null = null;
 let sessionCacheEpoch = 0;
+let sessionMutationTail: Promise<unknown> = Promise.resolve();
+
+const serializeSessionMutation = <T>(operation: () => Promise<T>) => {
+  const result = sessionMutationTail.then(operation, operation);
+  sessionMutationTail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+};
 
 const performLegacyMigration = async () => {
   const [rawUserData, rawPersistedAuth, migrationVersion, secureToken] =
@@ -270,7 +437,7 @@ const performLegacyMigration = async () => {
       AsyncStorage.getItem(USER_DATA_KEY),
       AsyncStorage.getItem(LEGACY_REDUX_AUTH_KEY),
       AsyncStorage.getItem(MIGRATION_KEY),
-      secureGetItem(SECURE_TOKEN_KEY),
+      readSecureToken(),
     ]);
 
   const asyncSession = parseJson(rawUserData);
@@ -278,7 +445,14 @@ const performLegacyMigration = async () => {
   const legacyToken =
     extractApiToken(asyncSession) ?? extractApiToken(reduxSession);
   const tokenToKeep = legacyToken ?? secureToken;
-  const sessionToKeep = rawUserData !== null ? asyncSession : reduxSession;
+  // A partially written USER_DATA value must not shadow the older Redux copy.
+  // Prefer the new record only when it is structurally usable; this is the
+  // common recovery path after the process dies between the two old writes.
+  const sessionToKeep = isRecord(asyncSession)
+    ? asyncSession
+    : isRecord(reduxSession)
+    ? reduxSession
+    : null;
   const hasLegacyCredential = Boolean(legacyToken);
   const hasReduxDuplicate = rawPersistedAuth !== null;
   const needsMigration =
@@ -289,8 +463,8 @@ const performLegacyMigration = async () => {
   if (!needsMigration) return;
 
   // Never erase a plaintext credential until its secure copy has succeeded.
-  if (tokenToKeep && tokenToKeep !== secureToken) {
-    await secureSetItem(SECURE_TOKEN_KEY, tokenToKeep);
+  if (tokenToKeep && sessionToKeep && tokenToKeep !== secureToken) {
+    await writeSecureToken(tokenToKeep);
   }
 
   if (sessionToKeep !== null) {
@@ -318,37 +492,94 @@ export const migrateLegacySession = async () => {
   await migrationPromise;
 };
 
-export const saveSecureSession = async (session: unknown) => {
+const persistSecureSession = async (session: unknown) => {
   const apiToken = extractApiToken(session);
+  if (!apiToken) {
+    throw new Error('SESSION_STORAGE_UNAVAILABLE_MISSING_TOKEN');
+  }
+  const profile = extractUserProfile(session);
+  if (profile.id === undefined && profile.user_id === undefined) {
+    throw new Error('SESSION_STORAGE_UNAVAILABLE_INVALID_PROFILE');
+  }
+  const rawPreviousSession = parseJson(
+    await AsyncStorage.getItem(USER_DATA_KEY),
+  );
+  const previousSession =
+    sessionCacheReady && cachedSession ? cachedSession : rawPreviousSession;
+  const previousOwner = sessionOwnerKey(previousSession);
+  const nextOwner = sessionOwnerKey(session);
+  if (previousOwner && nextOwner && previousOwner !== nextOwner) {
+    await clearPreviousAccountBeforeReplacement();
+  }
   const sanitized = sanitizeSessionForStorage(session);
-  const previousToken = await secureGetItem(SECURE_TOKEN_KEY);
+  const previousToken = await readSecureToken();
   const tokenChanged = Boolean(apiToken && apiToken !== previousToken);
 
+  if (
+    tokenChanged &&
+    previousToken &&
+    previousOwner &&
+    previousOwner === nextOwner
+  ) {
+    // Re-signing into the same account replaces this installation's bearer.
+    // Revoke the superseded session instead of leaving an invisible duplicate
+    // in the device list until server expiry.
+    await revokeReplacedBearerForSameAccount();
+  }
+
   if (tokenChanged && apiToken) {
-    await secureSetItem(SECURE_TOKEN_KEY, apiToken);
+    await writeSecureToken(apiToken);
   }
 
   try {
     await AsyncStorage.setItem(USER_DATA_KEY, JSON.stringify(sanitized));
-    await AsyncStorage.removeItem(LEGACY_REDUX_AUTH_KEY);
-    await AsyncStorage.setItem(MIGRATION_KEY, MIGRATION_VERSION);
-    migrationPromise = Promise.resolve();
-    sessionCacheEpoch += 1;
-    cachedSession = attachTokenInMemory(sanitized, apiToken);
-    sessionCacheReady = true;
-    sessionLoadPromise = null;
   } catch (error) {
     // Avoid pairing a newly written token with another account's old profile.
     if (tokenChanged) {
       if (previousToken) {
-        await secureSetItem(SECURE_TOKEN_KEY, previousToken);
+        await writeSecureToken(previousToken);
       } else {
-        await secureDeleteItem(SECURE_TOKEN_KEY);
+        await deleteSecureTokens();
       }
     }
     throw error;
   }
+
+  // The credential and matching profile are now durable. Migration markers
+  // and removal of an obsolete Redux duplicate are housekeeping; a failure
+  // there must not report that the completed social login was lost.
+  sessionCacheEpoch += 1;
+  cachedSession = attachTokenInMemory(sanitized, apiToken);
+  sessionCacheReady = true;
+  sessionLoadPromise = null;
+  migrationPromise = Promise.resolve();
+  await Promise.allSettled([
+    AsyncStorage.removeItem(LEGACY_REDUX_AUTH_KEY),
+    AsyncStorage.setItem(MIGRATION_KEY, MIGRATION_VERSION),
+  ]);
 };
+
+export const saveSecureSession = (session: unknown) =>
+  serializeSessionMutation(() => persistSecureSession(session));
+
+/** Apply a profile mutation only while the same account still owns the session. */
+export const updateSecureSessionForOwner = (
+  expectedOwner: string,
+  update: (session: unknown) => unknown,
+) =>
+  serializeSessionMutation(async () => {
+    const normalizedOwner = expectedOwner.trim();
+    const current = await loadSecureSession();
+    if (!normalizedOwner || sessionOwnerKey(current) !== normalizedOwner) {
+      throw new Error('ACCOUNT_CHANGED_DURING_SESSION_UPDATE');
+    }
+    const next = update(current);
+    if (sessionOwnerKey(next) !== normalizedOwner) {
+      throw new Error('SESSION_UPDATE_OWNER_MISMATCH');
+    }
+    await persistSecureSession(next);
+    return next;
+  });
 
 export const loadSecureSession = async () => {
   if (sessionCacheReady) {
@@ -359,22 +590,39 @@ export const loadSecureSession = async () => {
   }
 
   const loadEpoch = sessionCacheEpoch;
-  sessionLoadPromise = (async () => {
+  const load = (async () => {
     await migrateLegacySession();
     const [rawProfile, apiToken] = await Promise.all([
       AsyncStorage.getItem(USER_DATA_KEY),
-      secureGetItem(SECURE_TOKEN_KEY),
+      readSecureToken(),
     ]);
+    const storedProfile = parseJson(rawProfile);
 
     let restoredSession: unknown = null;
-    if (rawProfile === null) {
+    if (rawProfile === null || !isRecord(storedProfile)) {
       // A secure token without its profile can only be a partially completed
       // logout. Remove it instead of resurrecting an ownerless session.
       if (apiToken) {
-        await secureDeleteItem(SECURE_TOKEN_KEY);
+        await deleteSecureTokens();
       }
+      if (rawProfile !== null) {
+        await AsyncStorage.removeItem(USER_DATA_KEY);
+      }
+    } else if (!apiToken) {
+      // A profile is not a session. Android backup/key rotation or an
+      // interrupted logout can leave the non-secret half behind; keeping it
+      // would make guest caches use the previous learner's account scope.
+      await AsyncStorage.removeItem(USER_DATA_KEY);
     } else {
-      restoredSession = attachTokenInMemory(parseJson(rawProfile), apiToken);
+      restoredSession = attachTokenInMemory(storedProfile, apiToken);
+      const profile = extractUserProfile(restoredSession);
+      if (profile.id === undefined && profile.user_id === undefined) {
+        await Promise.all([
+          deleteSecureTokens(),
+          AsyncStorage.removeItem(USER_DATA_KEY),
+        ]);
+        restoredSession = null;
+      }
     }
 
     // A logout or account switch may finish while the keychain read is in
@@ -385,11 +633,26 @@ export const loadSecureSession = async () => {
     cachedSession = restoredSession;
     sessionCacheReady = true;
     return restoredSession;
-  })().finally(() => {
-    sessionLoadPromise = null;
   });
+  let trackedLoad: Promise<unknown>;
+  trackedLoad = load().finally(() => {
+    if (sessionLoadPromise === trackedLoad) sessionLoadPromise = null;
+  });
+  sessionLoadPromise = trackedLoad;
+  return trackedLoad;
+};
 
-  return sessionLoadPromise;
+/**
+ * Let a foreground retry replace a native keychain read that never settled.
+ * The epoch prevents the abandoned read from restoring an older owner if the
+ * OS eventually calls it back after a logout, login or replacement attempt.
+ */
+export const abandonPendingSecureSessionRestore = () => {
+  if (sessionCacheReady || !sessionLoadPromise) return false;
+  sessionCacheEpoch += 1;
+  sessionLoadPromise = null;
+  migrationPromise = null;
+  return true;
 };
 
 /** Single source of truth for cold-start Redux hydration. */
@@ -401,13 +664,14 @@ export const restoreSecureAuthState = async () => {
   };
 };
 
-export const deleteSecureSession = async () => {
+const performDeleteSecureSession = async () => {
   sessionCacheEpoch += 1;
   cachedSession = null;
   sessionCacheReady = true;
   sessionLoadPromise = null;
   const results = await Promise.allSettled([
-    secureDeleteItem(SECURE_TOKEN_KEY),
+    deleteSecureTokens(),
+    secureDeleteItem(PENDING_SOCIAL_AUTH_KEY),
     AsyncStorage.removeItem(USER_DATA_KEY),
     AsyncStorage.removeItem(LEGACY_REDUX_AUTH_KEY),
   ]);
@@ -415,15 +679,24 @@ export const deleteSecureSession = async () => {
   return results.every(result => result.status === 'fulfilled');
 };
 
-export const clearSecureSessionStorage = async () => {
+export const deleteSecureSession = () =>
+  serializeSessionMutation(performDeleteSecureSession);
+
+const performClearSecureSessionStorage = async () => {
   sessionCacheEpoch += 1;
   cachedSession = null;
   sessionCacheReady = true;
   sessionLoadPromise = null;
-  await secureDeleteItem(SECURE_TOKEN_KEY);
+  await Promise.all([
+    deleteSecureTokens(),
+    secureDeleteItem(PENDING_SOCIAL_AUTH_KEY),
+  ]);
   await AsyncStorage.clear();
   migrationPromise = null;
 };
+
+export const clearSecureSessionStorage = () =>
+  serializeSessionMutation(performClearSecureSessionStorage);
 
 /** Test isolation for the module-level migration de-duplication promise. */
 export const resetSecureSessionMigrationForTests = () => {
@@ -433,4 +706,5 @@ export const resetSecureSessionMigrationForTests = () => {
   sessionLoadPromise = null;
   sessionCacheEpoch = 0;
   storageAvailabilityPromise = null;
+  sessionMutationTail = Promise.resolve();
 };

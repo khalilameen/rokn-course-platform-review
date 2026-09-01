@@ -1335,3 +1335,118 @@ body.admin-shell.open .modern-nav .menu-text {
 }
 
 .admin-skip-link:focus { transform: translateY(0); }
+
+/* Usability baseline shared by every dashboard form. */
+body.admin-shell :is(input.form-control, select.form-control, button.btn, a.btn) {
+    min-height: 44px;
+}
+
+body.admin-shell textarea.form-control {
+    min-height: 104px;
+    resize: vertical;
+}
+
+body.admin-shell :is(input, select, textarea, button, a[href]):focus-visible {
+    outline: 3px solid #2563eb !important;
+    outline-offset: 2px;
+    box-shadow: none !important;
+}
+
+body.admin-shell :is(input, textarea)::placeholder {
+    color: #6b7280;
+    opacity: 1;
+}
+
+body.admin-shell .table-responsive {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+body.admin-shell img,
+body.admin-shell video {
+    max-width: 100%;
+}
+
+body.admin-shell [id] {
+    scroll-margin-top: 88px;
+}
+
+/* Long Arabic copy, URLs and mixed-direction identifiers must never escape a card. */
+body.admin-shell :is(
+    .admin-page__title,
+    .admin-page__description,
+    .card-title,
+    .card-text,
+    .admin-detail-value,
+    .alert,
+    label
+) {
+    overflow-wrap: anywhere;
+}
+
+body.admin-shell :is(code, kbd, samp, .admin-code, [dir="ltr"], bdi) {
+    unicode-bidi: isolate;
+}
+
+body.admin-shell .admin-page__actions,
+body.admin-shell .card-header {
+    min-width: 0;
+    flex-wrap: wrap;
+}
+
+body.admin-shell .modal-dialog {
+    width: auto;
+    max-width: min(var(--bs-modal-width, 500px), calc(100vw - 24px));
+    margin-inline: auto;
+}
+
+body.admin-shell .modal-content {
+    max-height: calc(100dvh - 24px);
+}
+
+body.admin-shell .modal-body {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+@media (max-width: 768px) {
+    body.admin-shell #right-panel > .content {
+        padding-inline: 12px;
+    }
+
+    body.admin-shell .form-row > [class*="col-"],
+    body.admin-shell .row > [class*="col-"] {
+        min-width: 0;
+    }
+
+    body.admin-shell :is(input.form-control, select.form-control, textarea.form-control) {
+        font-size: 16px;
+    }
+
+    body.admin-shell .admin-page__actions > :is(.btn, a, button) {
+        flex: 1 1 auto;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body.admin-shell *,
+    body.admin-shell *::before,
+    body.admin-shell *::after {
+        scroll-behavior: auto !important;
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+    }
+}
+
+@media (forced-colors: active) {
+    body.admin-shell :is(input, select, textarea, button, a[href]):focus-visible {
+        outline: 3px solid Highlight !important;
+    }
+
+    body.admin-shell :is(.badge, .alert, .card) {
+        border: 1px solid CanvasText;
+    }
+}

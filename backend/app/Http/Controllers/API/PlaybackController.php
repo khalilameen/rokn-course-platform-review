@@ -36,12 +36,28 @@ final class PlaybackController extends Controller
                     'playback_session_id',
                     'client_capabilities',
                 ])),
-                'Playback manifest issued successfully'
+                'الفيديو جاهز للتشغيل'
             );
         } catch (AuthorizationException $exception) {
-            return $responses->error($exception->getMessage(), 403);
+            return $responses->error(
+                'أكمل المحتوى السابق لفتح هذا المقطع',
+                403,
+                null,
+                ['code' => 'lesson_locked']
+            );
         } catch (RuntimeException $exception) {
-            return $responses->error($exception->getMessage(), 409);
+            report($exception);
+            $processing = str_contains(strtolower($exception->getMessage()), 'prepared')
+                || str_contains(strtolower($exception->getMessage()), 'ready');
+
+            return $responses->error(
+                $processing
+                    ? "الفيديو قيد التجهيز\nحاول بعد قليل"
+                    : "تعذر تشغيل الفيديو الآن\nحاول مرة أخرى",
+                409,
+                null,
+                ['code' => $processing ? 'video_processing' : 'video_unavailable']
+            );
         }
     }
 }

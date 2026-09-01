@@ -6,27 +6,28 @@ namespace App\Services;
 
 use App\Models\Course;
 use App\Models\CourseEnrollment;
-use App\Models\CourseSection;
+use App\Models\Lesson;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 
 final readonly class CourseReadCompatibilityService
 {
-    public function __construct(private CourseDurationService $duration)
-    {
-    }
+    public function __construct(
+        private CourseDurationService $duration,
+        private CourseChatAccessService $courseAccess,
+        private CourseCatalogueQueryService $catalogue
+    ) {}
 
     /**
      * @return array{course: Course, is_enrolled: bool}
      */
     public function legacyCourse(Course $course, ?User $user): array
     {
-        $isEnrolled = $user !== null
-            && $this->activeDirectEnrollment((int) $user->id, (int) $course->id) !== null;
+        $isEnrolled = $course->isPublishedForLearning()
+            && $user !== null
+            && $this->courseAccess->hasLearningAccess((int) $user->id, (int) $course->id);
 
-        if (!$isEnrolled && (
-            ((bool) $course->is_coming_soon && !(bool) $course->is_catalog_visible)
-            || (!(bool) $course->is_coming_soon && !$course->sections()->exists())
-        )) {
+        if (!$isEnrolled && !$this->catalogue->isPubliclyDiscoverable((int) $course->id)) {
             abort(404);
         }
 
@@ -35,31 +36,46 @@ final readonly class CourseReadCompatibilityService
             'grade',
             'coursePath',
             'classifications',
+            'teacher' => fn ($teacher) => $teacher
+                ->where('active', true)
+                ->whereIn('role', ['teacher', 'admin']),
+            'teacher.photo',
+            'teachers' => fn ($teachers) => $teachers
+                ->where('users.active', true)
+                ->orderBy('users.id'),
             'teachers.photo',
             'sections.sectionable',
             'modules.attachments',
             'modules.sections.sectionable',
+            'activePdfs',
+            'accessPlans' => fn ($plans) => $plans->where('is_active', true),
         ]);
+        $this->loadLessonMediaState($course);
         $this->duration->attach($course);
 
         return ['course' => $course, 'is_enrolled' => $isEnrolled];
     }
 
     /**
-     * @return array{course: Course, has_access: bool, access_type: string, unavailable: bool}
+     * @return array{course: Course, has_access: bool, access_type: string, unavailable: bool, entitlement: array<string,mixed>, enrollment: CourseEnrollment|null}
      */
     public function detailedCourse(int $courseId, ?User $user): array
     {
-        $access = $user
-            ? $this->detailAccess((int) $user->id, $courseId)
-            : ['has_access' => false, 'access_type' => 'none'];
-
-        $course = Course::with([
+        $course = $this->catalogue->withPublicPlanFacts(Course::query())->with([
             'photo',
             'grade',
             'coursePath',
             'classifications',
+            'teacher' => fn ($teacher) => $teacher
+                ->where('active', true)
+                ->whereIn('role', ['teacher', 'admin']),
+            'teacher.photo',
+            'teachers' => fn ($teachers) => $teachers
+                ->where('users.active', true)
+                ->orderBy('users.id'),
             'teachers.photo',
+            'activePdfs',
+            'accessPlans' => fn ($plans) => $plans->where('is_active', true),
             'sections.sectionable',
             'modules' => function ($modules): void {
                 $modules->with([
@@ -72,14 +88,30 @@ final readonly class CourseReadCompatibilityService
         ])->findOrFail($courseId);
         $course->loadCount(['ratings', 'activeEnrollments']);
         $course->loadAvg('ratings', 'rating');
+        $this->loadLessonMediaState($course);
         $this->duration->attach($course);
+        $resolution = $user
+            ? $this->courseAccess->resolveEntitlement((int) $user->id, $courseId)
+            : [
+                'entitlement' => ['has_learning_access' => false, 'access_type' => 'none'],
+                'enrollment' => null,
+            ];
+        $access = $resolution['entitlement'];
+
+        $publishedForLearning = $course->isPublishedForLearning();
+        $hasAccess = $publishedForLearning && (bool) $access['has_learning_access'];
+        $enrollment = $hasAccess ? $resolution['enrollment'] : null;
 
         return [
             'course' => $course,
-            'has_access' => $access['has_access'],
+            // An old enrollment must never turn a draft back into live
+            // content. Announced courses still use the public short resource.
+            'has_access' => $hasAccess,
             'access_type' => $access['access_type'],
-            'unavailable' => !$access['has_access']
-                && ((bool) $course->is_coming_soon || !$course->sections()->exists()),
+            'entitlement' => $access,
+            'enrollment' => $enrollment,
+            'unavailable' => !$hasAccess
+                && !$this->catalogue->isPubliclyDiscoverable((int) $course->id),
         ];
     }
 
@@ -88,103 +120,60 @@ final readonly class CourseReadCompatibilityService
      */
     public function progressCourse(int $userId, int $courseId): array
     {
-        $enrollment = CourseEnrollment::query()
-            ->where('user_id', $userId)
-            ->where('course_id', $courseId)
-            ->where('is_active', true)
-            ->first();
-        $accessType = 'direct';
-
-        if (!$enrollment) {
-            $parent = $this->parentAccess($userId, $courseId);
-            $enrollment = $parent['enrollment'];
-            $accessType = 'parent';
-        }
+        $resolution = $this->courseAccess->resolveEntitlement($userId, $courseId);
+        $entitlement = $resolution['entitlement'];
+        $enrollment = $entitlement['has_learning_access']
+            ? $resolution['enrollment']
+            : null;
 
         if (!$enrollment) {
             return [
                 'course' => null,
                 'enrollment' => null,
-                'access_type' => $accessType,
+                'access_type' => 'none',
             ];
         }
 
         $course = Course::with([
             'sections' => fn ($sections) => $sections->orderBy('order'),
-        ])->findOrFail($courseId);
+        ])->where('is_coming_soon', false)->findOrFail($courseId);
+
+        if (!$course->isPublishedForLearning()) {
+            return [
+                'course' => null,
+                'enrollment' => null,
+                'access_type' => 'none',
+            ];
+        }
 
         return [
             'course' => $course,
             'enrollment' => $enrollment,
-            'access_type' => $accessType,
+            'access_type' => (string) $entitlement['access_type'],
         ];
     }
 
     public function hasLearningAccess(int $userId, int $courseId): bool
     {
-        if ($this->activeDirectEnrollment($userId, $courseId) !== null) {
-            return true;
-        }
+        $course = Course::query()->find($courseId);
 
-        return $this->parentAccess($userId, $courseId)['has_access'];
+        return $course !== null
+            && $course->isPublishedForLearning()
+            && $this->courseAccess->hasLearningAccess($userId, $courseId);
     }
 
-    private function activeDirectEnrollment(int $userId, int $courseId): ?CourseEnrollment
+    private function loadLessonMediaState(Course $course): void
     {
-        $enrollment = CourseEnrollment::query()
-            ->where('user_id', $userId)
-            ->where('course_id', $courseId)
-            ->where('is_active', true)
-            ->first();
-
-        return $enrollment && $enrollment->isActive() ? $enrollment : null;
-    }
-
-    /**
-     * @return array{has_access: bool, access_type: string}
-     */
-    private function detailAccess(int $userId, int $courseId): array
-    {
-        if ($this->activeDirectEnrollment($userId, $courseId) !== null) {
-            return ['has_access' => true, 'access_type' => 'direct'];
-        }
-
-        $parent = $this->parentAccess($userId, $courseId);
-
-        return [
-            'has_access' => $parent['has_access'],
-            'access_type' => $parent['has_access'] ? 'parent' : 'none',
-        ];
-    }
-
-    /**
-     * @return array{has_access: bool, enrollment: CourseEnrollment|null}
-     */
-    private function parentAccess(int $userId, int $courseId): array
-    {
-        $parentCourseIds = CourseSection::query()
-            ->where('sectionable_type', Course::class)
-            ->where('sectionable_id', $courseId)
-            ->pluck('course_id')
-            ->all();
-
-        if ($parentCourseIds === []) {
-            return ['has_access' => false, 'enrollment' => null];
-        }
-
-        $enrollment = CourseEnrollment::query()
-            ->where('user_id', $userId)
-            ->whereIn('course_id', $parentCourseIds)
-            ->where('is_active', true)
-            ->where(function ($enrollments): void {
-                $enrollments->whereNull('expires_at')->orWhere('expires_at', '>', now());
-            })
-            ->first();
-
-        if (!$enrollment || !$enrollment->isActive()) {
-            return ['has_access' => false, 'enrollment' => null];
-        }
-
-        return ['has_access' => true, 'enrollment' => $enrollment];
+        $course->sections->loadMorph('sectionable', [
+            Lesson::class => ['mediaState'],
+        ]);
+        $moduleSections = new EloquentCollection(
+            $course->modules
+                ->flatMap(fn ($module) => $module->sections)
+                ->all()
+        );
+        $moduleSections->loadMorph('sectionable', [
+            Lesson::class => ['mediaState'],
+        ]);
     }
 }

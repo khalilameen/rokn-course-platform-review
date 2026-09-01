@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Traits\InvalidatesCourseCatalogue;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use App\Traits\ResolvesLocalizedAttributes;
 
 class Path extends Model
 {
-    use HasFactory, ResolvesLocalizedAttributes;
+    use HasFactory, ResolvesLocalizedAttributes, InvalidatesCourseCatalogue;
 
     protected $fillable = [
         'title_ar',

@@ -36,10 +36,16 @@
                             <form class="admin-inline-hidden" id="deleteForm{{$question->id}}" action="{{ route('admin.questions.destroy', $question->id) }}" method="post">
                                 <input name="_method" type="hidden" value="DELETE">
                                 @csrf
+                                <input type="hidden" name="editor_version" value="{{ hash('sha256', $question->id.'|'.optional($question->updated_at)->format('Y-m-d H:i:s.u')) }}">
                             </form>
                     </div>
                     @endforeach
                 </div>
+                @if($questions->hasPages())
+                    <div class="card-footer d-flex justify-content-center">
+                        {{ $questions->links() }}
+                    </div>
+                @endif
             </div>
         </div>
     </div>

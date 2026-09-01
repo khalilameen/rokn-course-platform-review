@@ -32,7 +32,7 @@ interface Props {
   erorrMessage?: string;
   onLayout?: ViewProps['onLayout'];
   password?: boolean | string;
-  inputRef?: React.Ref<View>;
+  inputRef?: React.Ref<TextInput>;
   value?: string;
   onChangeText?: (text: string) => void;
 }
@@ -61,7 +61,6 @@ const Input: React.FC<Props> = ({
     <>
       <View
         onLayout={onLayout}
-        ref={inputRef}
         style={[
           styles.container,
           contentContainerStyle,
@@ -71,10 +70,12 @@ const Input: React.FC<Props> = ({
         {rightContent && <View style={styles.iconRight}>{rightContent()}</View>}
 
         <TextInput
+          ref={inputRef}
           accessibilityLabel={
             inputOptions.accessibilityLabel ?? inputOptions.placeholder
           }
           allowFontScaling
+          accessibilityState={{disabled: inputOptions.editable === false}}
           selectionColor={Colors.mainColor}
           style={[styles.textInputContainer, textInputContainer, optionStyle]}
           placeholderTextColor={'#B0B0B0'}
@@ -88,11 +89,10 @@ const Input: React.FC<Props> = ({
         {password && (
           <TouchableOpacity
             accessibilityLabel={
-              state.showPassword
-                ? 'إخفاء كلمة المرور'
-                : 'إظهار كلمة المرور'
+              state.showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'
             }
             accessibilityRole="button"
+            accessibilityState={{checked: state.showPassword}}
             style={styles.iconLeft}
             onPress={() => {
               setstate(old => ({
@@ -107,6 +107,8 @@ const Input: React.FC<Props> = ({
       {!!erorrMessage && (
         <View>
           <Text
+            accessibilityLiveRegion="assertive"
+            accessibilityRole="alert"
             style={[
               styles.errorMessage,
               {fontFamily: Fonts.regular},
@@ -149,11 +151,13 @@ const styles = StyleSheet.create({
     ...fixedIconSlot,
     width: PixelPerfect(38),
     minWidth: PixelPerfect(38),
+    minHeight: 48,
   },
   iconRight: {
     ...fixedIconSlot,
     width: PixelPerfect(38),
     minWidth: PixelPerfect(38),
+    minHeight: 48,
   },
   errorMessage: {
     ...textDirection,

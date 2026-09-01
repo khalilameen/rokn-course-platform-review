@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Jobs;
 
 use App\Models\AccountFileDeletion;
+use App\Services\StoredFileReferenceService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -35,11 +36,14 @@ final class DeleteAccountFile implements ShouldQueue, ShouldBeUnique
         return 'account-file-deletion:' . $this->deletionId;
     }
 
-    public function handle(): void
+    public function handle(StoredFileReferenceService $references): void
     {
         $deletion = DB::transaction(function (): ?AccountFileDeletion {
             $row = AccountFileDeletion::query()->lockForUpdate()->find($this->deletionId);
-            if (!$row || $row->status === AccountFileDeletion::STATUS_COMPLETED) {
+            if (!$row || in_array($row->status, [
+                AccountFileDeletion::STATUS_COMPLETED,
+                AccountFileDeletion::STATUS_SKIPPED,
+            ], true)) {
                 return null;
             }
             $row->forceFill([
@@ -58,6 +62,16 @@ final class DeleteAccountFile implements ShouldQueue, ShouldBeUnique
             $path = ltrim((string) $deletion->path, '/');
             if ($path === '' || filter_var($path, FILTER_VALIDATE_URL)) {
                 throw new RuntimeException('Stored cleanup path is invalid.');
+            }
+            if ($references->isReferenced((string) $deletion->disk, $path)) {
+                $deletion->forceFill([
+                    'status' => AccountFileDeletion::STATUS_SKIPPED,
+                    'path' => null,
+                    'completed_at' => now(),
+                    'available_at' => null,
+                    'last_error' => 'path_is_referenced',
+                ])->save();
+                return;
             }
             $disk = Storage::disk((string) $deletion->disk);
             if ($disk->exists($path) && !$disk->delete($path)) {
@@ -83,11 +97,17 @@ final class DeleteAccountFile implements ShouldQueue, ShouldBeUnique
 
     public function failed(Throwable $exception): void
     {
-        AccountFileDeletion::query()->whereKey($this->deletionId)->update([
+        AccountFileDeletion::query()
+            ->whereKey($this->deletionId)
+            ->whereNotIn('status', [
+                AccountFileDeletion::STATUS_COMPLETED,
+                AccountFileDeletion::STATUS_SKIPPED,
+            ])
+            ->update([
             'status' => AccountFileDeletion::STATUS_FAILED,
             'available_at' => now()->addHour(),
             'last_error' => class_basename($exception),
             'updated_at' => now(),
-        ]);
+            ]);
     }
 }

@@ -1,16 +1,20 @@
-import {useFocusEffect, useNavigation} from '@react-navigation/native';
-import type {RootNavigation} from '../../navigation/types';
-import React, {useCallback, useState} from 'react';
 import {
+  useFocusEffect,
+  useNavigation,
+  useRoute,
+} from '@react-navigation/native';
+import type {RootNavigation, RootRoute} from '../../navigation/types';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import {
+  Alert,
   Image,
-  Linking,
   Pressable,
-  Share,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import {useSelector} from 'react-redux';
+import {openExternalUrlOnce, shareOnce} from '../../services/systemActions';
 import {SettingsIcon, ShareProfileIcon} from '../../assets/SVG';
 import TabBar from '../../components/TabBar';
 import {Container, Content} from '../../components/containers/Containers';
@@ -32,7 +36,11 @@ import {
 import Certificates from './Certificates';
 import Gallery from './Gallery';
 import SavedVideos from './SavedVideos';
-import {extractApiToken, extractUserProfile} from '../../constants/helpers';
+import {
+  extractApiToken,
+  extractUserProfile,
+  getCurrentAccountStorageScope,
+} from '../../constants/helpers';
 import {
   getPortfolioProfile,
   getProfile,
@@ -42,37 +50,65 @@ import {
 } from '../../services/roknApi';
 import type {RootState} from '../../store/store';
 import {portfolioUrlFor} from '../../services/publicLinks';
+import {isolateBidirectionalText} from '../../constants/arabicFormatting';
 
 type ProfileTab = 'portfolio' | 'certificates' | 'saved';
 export default function Profile() {
   const navigation = useNavigation<RootNavigation>();
+  const route = useRoute<RootRoute<'Profile'>>();
   const storedUser = useSelector((state: RootState) => state.auth.userData);
   const user = extractUserProfile(storedUser);
   const hasStoredToken = Boolean(extractApiToken(storedUser));
+  const identityKey = hasStoredToken
+    ? String(user.id ?? user.user_id ?? 'authenticated')
+    : 'guest';
   const [activeTab, setActiveTab] = useState<ProfileTab>('portfolio');
   const [serverSession, setServerSession] = useState<boolean | null>(null);
   const [remoteProfile, setRemoteProfile] = useState<ProfileDto | null>(null);
   const [portfolioProfile, setPortfolioProfile] =
     useState<PortfolioProfile | null>(null);
+  const [loadedIdentity, setLoadedIdentity] = useState('');
   const [profileError, setProfileError] = useState('');
+  const [avatarFailed, setAvatarFailed] = useState(false);
   const [reloadProfile, setReloadProfile] = useState(0);
   const authenticatedIdentity =
     serverSession === true || (serverSession === null && hasStoredToken);
+  const visibleRemoteProfile =
+    loadedIdentity === identityKey ? remoteProfile : null;
+  const visiblePortfolioProfile =
+    loadedIdentity === identityKey ? portfolioProfile : null;
   const displayName =
-    remoteProfile?.name ||
+    visibleRemoteProfile?.name ||
     (authenticatedIdentity ? user.name : '') ||
     'ضيف ركن';
   const role =
-    remoteProfile?.jobTitle ||
+    visibleRemoteProfile?.jobTitle ||
     (authenticatedIdentity ? user.job_title : '') ||
     '';
   const username =
-    portfolioProfile?.slug ||
+    visiblePortfolioProfile?.slug ||
     (authenticatedIdentity ? user.portfolio_slug || user.username : '') ||
     '';
   const publicPortfolioUrl =
-    portfolioProfile?.publicUrl || portfolioUrlFor(username);
+    visiblePortfolioProfile?.publicUrl || portfolioUrlFor(username);
   const canSharePortfolio = Boolean(username);
+  const avatarUri = useMemo(
+    () =>
+      visibleRemoteProfile?.avatar ||
+      (authenticatedIdentity ? user.avatar || user.profile_image : ''),
+    [
+      authenticatedIdentity,
+      user.avatar,
+      user.profile_image,
+      visibleRemoteProfile?.avatar,
+    ],
+  );
+
+  useEffect(() => setAvatarFailed(false), [avatarUri]);
+
+  useEffect(() => {
+    if (route.params?.tab) setActiveTab(route.params.tab);
+  }, [route.params?.tab]);
 
   useFocusEffect(
     useCallback(() => {
@@ -80,14 +116,19 @@ export default function Profile() {
       let active = true;
       void (async () => {
         if (active) setProfileError('');
+        const accountScope = await getCurrentAccountStorageScope();
         const sessionAvailable = await hasSession();
-        if (active && requestGeneration === reloadProfile) {
-          setServerSession(sessionAvailable);
-        }
+        if (
+          !active ||
+          requestGeneration !== reloadProfile ||
+          (await getCurrentAccountStorageScope()) !== accountScope
+        ) return;
+        setServerSession(sessionAvailable);
         if (!sessionAvailable) {
           if (active) {
             setRemoteProfile(null);
             setPortfolioProfile(null);
+            setLoadedIdentity(identityKey);
           }
           return;
         }
@@ -95,26 +136,32 @@ export default function Profile() {
           getProfile(),
           getPortfolioProfile(),
         ]);
+        if (
+          !active ||
+          requestGeneration !== reloadProfile ||
+          (await getCurrentAccountStorageScope()) !== accountScope
+        ) {
+          return;
+        }
         if (active && profileResult.status === 'fulfilled') {
           setRemoteProfile(profileResult.value);
         }
         if (active && portfolioResult.status === 'fulfilled') {
           setPortfolioProfile(portfolioResult.value);
         }
+        setLoadedIdentity(identityKey);
         if (
           active &&
           (profileResult.status === 'rejected' ||
             portfolioResult.status === 'rejected')
         ) {
-          setProfileError(
-            'تعذّر تحديث الحساب. المعروض الآن آخر نسخة محفوظة على الجهاز.',
-          );
+          setProfileError('تعذّر تحديث بعض بيانات الحساب');
         }
       })();
       return () => {
         active = false;
       };
-    }, [reloadProfile]),
+    }, [identityKey, reloadProfile]),
   );
   const tabs: {key: ProfileTab; label: string}[] = [
     {key: 'portfolio', label: 'أعمالي'},
@@ -122,12 +169,25 @@ export default function Profile() {
     {key: 'saved', label: 'المحفوظات'},
   ];
 
-  const sharePortfolio = () =>
-    Share.share({
-      title: `بورتفوليو ${displayName} على ركن`,
-      message: `شاهد أعمالي وشهاداتي الموثقة على ركن\n${publicPortfolioUrl}`,
-      url: publicPortfolioUrl,
-    });
+  const sharePortfolio = async () => {
+    try {
+      await shareOnce('portfolio', {
+        title: `بورتفوليو ${displayName} على ركن`,
+        message: `شاهد أعمالي وشهاداتي الموثقة على ركن\n${publicPortfolioUrl}`,
+        url: publicPortfolioUrl,
+      });
+    } catch {
+      Alert.alert('تعذّرت المشاركة', 'حاول مرة أخرى');
+    }
+  };
+
+  const openPortfolio = async () => {
+    try {
+      await openExternalUrlOnce(publicPortfolioUrl);
+    } catch {
+      Alert.alert('تعذّر فتح الرابط', 'حاول مرة أخرى');
+    }
+  };
 
   return (
     <Container noPadding>
@@ -149,6 +209,7 @@ export default function Profile() {
 
           {!!profileError && authenticatedIdentity && (
             <Pressable
+              accessibilityLiveRegion="polite"
               accessibilityRole="button"
               onPress={() => setReloadProfile(value => value + 1)}
               style={styles.staleNotice}>
@@ -160,15 +221,11 @@ export default function Profile() {
           <PremiumCard style={styles.profileCard}>
             <View style={styles.profileTop}>
               <Image
+                accessibilityLabel={`صورة ${displayName}`}
+                onError={() => setAvatarFailed(true)}
                 source={
-                  remoteProfile?.avatar ||
-                  (authenticatedIdentity && (user.avatar || user.profile_image))
-                    ? {
-                        uri:
-                          remoteProfile?.avatar ||
-                          user.avatar ||
-                          user.profile_image,
-                      }
+                  avatarUri && !avatarFailed
+                    ? {uri: avatarUri}
                     : require('../../assets/images/default-avatar.png')
                 }
                 style={styles.avatar}
@@ -188,7 +245,7 @@ export default function Profile() {
                 <Pressable
                   accessibilityLabel="مشاركة البورتفوليو"
                   accessibilityRole="button"
-                  onPress={sharePortfolio}
+                  onPress={() => void sharePortfolio()}
                   style={({pressed}) => [
                     styles.shareButton,
                     pressed && styles.pressed,
@@ -201,13 +258,13 @@ export default function Profile() {
               <Pressable
                 accessibilityLabel="فتح رابط مشاركة البورتفوليو"
                 accessibilityRole="link"
-                onPress={() => Linking.openURL(publicPortfolioUrl)}
+                onPress={() => void openPortfolio()}
                 style={({pressed}) => [
                   styles.publicLink,
                   pressed && styles.pressed,
                 ]}>
                 <Text numberOfLines={1} style={styles.publicLinkText}>
-                  rokn.app/@{username}
+                  {isolateBidirectionalText(`rokn.app/@${username}`)}
                 </Text>
               </Pressable>
             )}
@@ -239,11 +296,15 @@ export default function Profile() {
             })}
           </View>
 
-          {activeTab === 'portfolio' && <Gallery />}
+          {activeTab === 'portfolio' && <Gallery key={`portfolio:${identityKey}`} />}
           {activeTab === 'certificates' && (
-            <Certificates displayName={displayName} username={username} />
+            <Certificates
+              key={`certificates:${identityKey}`}
+              displayName={displayName}
+              username={username}
+            />
           )}
-          {activeTab === 'saved' && <SavedVideos />}
+          {activeTab === 'saved' && <SavedVideos key={`saved:${identityKey}`} />}
         </ResponsiveFrame>
       </Content>
       <TabBar />
@@ -313,7 +374,12 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Palette.lineSoft,
   },
-  publicLinkText: {...Type.bodyStrong, ...textDirection, color: '#8BB5FF'},
+  publicLinkText: {
+    ...Type.bodyStrong,
+    color: '#8BB5FF',
+    writingDirection: 'ltr',
+    textAlign: 'left',
+  },
   tabs: {
     ...rtlRowStyle,
     backgroundColor: Palette.surface,

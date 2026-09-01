@@ -38,8 +38,23 @@ const RoknCoin = React.memo(({size = 30, style}: Props) => (
         </LinearGradient>
       </Defs>
       <Circle cx="50" cy="50" r="47" fill="url(#coinRim)" />
-      <Circle cx="50" cy="50" r="41" fill="url(#coinFace)" stroke="#FFF0A1" strokeWidth="1.7" />
-      <Circle cx="50" cy="50" r="36.5" fill="none" stroke="#C77A10" strokeOpacity="0.72" strokeWidth="1.4" />
+      <Circle
+        cx="50"
+        cy="50"
+        r="41"
+        fill="url(#coinFace)"
+        stroke="#FFF0A1"
+        strokeWidth="1.7"
+      />
+      <Circle
+        cx="50"
+        cy="50"
+        r="36.5"
+        fill="none"
+        stroke="#C77A10"
+        strokeOpacity="0.72"
+        strokeWidth="1.4"
+      />
       <Path
         d="M29 25h28c13 0 21 7 21 18 0 9-5 15-14 18l15 18H61L49 62h-6v17H29V25Zm14 11v15h12c6 0 9-3 9-8s-3-7-9-7H43Z"
         fill="#F8D66F"
@@ -48,8 +63,22 @@ const RoknCoin = React.memo(({size = 30, style}: Props) => (
         strokeLinejoin="round"
       />
       <Path d="m49 39 10 5-10 5V39Z" fill="#C67910" />
-      <Path d="M47 83h34V62" fill="none" stroke="#B66F0B" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-      <Path d="M17 38c5-13 16-23 30-27" fill="none" stroke="#FFF7C8" strokeOpacity="0.86" strokeWidth="3" strokeLinecap="round" />
+      <Path
+        d="M47 83h34V62"
+        fill="none"
+        stroke="#B66F0B"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M17 38c5-13 16-23 30-27"
+        fill="none"
+        stroke="#FFF7C8"
+        strokeOpacity="0.86"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
     </Svg>
   </View>
 ));
@@ -104,9 +133,7 @@ export const CoinAmount = ({
     accessibilityLabel={`${formatArabicNumber(value)} من رصيد ركن`}
     style={[styles.amount, style]}>
     <Text
-      adjustsFontSizeToFit
-      maxFontSizeMultiplier={1.35}
-      minimumFontScale={0.78}
+      maxFontSizeMultiplier={2}
       numberOfLines={1}
       style={[styles.amountText, textStyle]}>
       {formatArabicNumber(value)}

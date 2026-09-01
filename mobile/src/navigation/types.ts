@@ -30,6 +30,8 @@ export const LOGIN_RETURN_TO_PARAMLESS_ROUTES = [
   'MyCorner',
   'Profile',
   'Settings',
+  'EditAccount',
+  'DeviceSessions',
 ] as const;
 
 export type LoginReturnToParamlessRoute =
@@ -63,13 +65,13 @@ export type RootStackParamList = {
   LanguageSelect: undefined;
   Login: LoginRouteParams | undefined;
   EditAccount: undefined;
-  Feedback: {sourceScreen?: string} | undefined;
+  Feedback: {sourceScreen?: string; caseId?: string} | undefined;
   Home: undefined;
   Reels: ReelsRouteParams;
   CourseDetails: CourseDetailsRouteParams;
   MyCorner: undefined;
   Wallet: undefined;
-  Profile: undefined;
+  Profile: {tab?: 'portfolio' | 'certificates' | 'saved'} | undefined;
   AboutUs: undefined;
   PrivacyPolicy: undefined;
   TermsOfUse: undefined;
@@ -77,7 +79,6 @@ export type RootStackParamList = {
   Notifications: undefined;
   Settings: undefined;
   DeviceSessions: undefined;
-  SearchScreen: {inputSearch: string};
 };
 
 export type RootNavigation = NativeStackNavigationProp<RootStackParamList>;

@@ -7,6 +7,8 @@ namespace App\Services;
 use App\Models\Setting;
 use App\Models\User;
 use App\Models\WalletTransaction;
+use Illuminate\Support\Facades\Cache;
+use Throwable;
 
 final readonly class WalletQueryService
 {
@@ -18,12 +20,19 @@ final readonly class WalletQueryService
         $recent = WalletTransaction::query()
             ->where('user_id', $user->id)
             ->latest('occurred_at')
+            ->latest('id')
             ->limit(10)
             ->get()
             ->map(fn (WalletTransaction $transaction): array => $this->payload($transaction));
 
         $freshUser = $user->fresh();
-        $setting = Setting::query()->first() ?? new Setting();
+        try {
+            $setting = Cache::remember('wallet:public-settings:v2', 30, fn () =>
+                Setting::query()->first()
+            ) ?? new Setting();
+        } catch (Throwable) {
+            $setting = Setting::query()->first() ?? new Setting();
+        }
         $totalBalance = max(0, (int) $freshUser->wallet_coins);
         $purchasedBalance = min($totalBalance, max(0, (int) $freshUser->wallet_purchased_coins));
         $rewardBalance = $totalBalance - $purchasedBalance;
@@ -60,6 +69,7 @@ final readonly class WalletQueryService
         $transactions = WalletTransaction::query()
             ->where('user_id', $user->id)
             ->latest('occurred_at')
+            ->latest('id')
             ->paginate($perPage);
 
         return [

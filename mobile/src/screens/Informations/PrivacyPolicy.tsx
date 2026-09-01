@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import {Alert, Pressable, StyleSheet, Text, View} from 'react-native';
 import {Container, Content} from '../../components/containers/Containers';
 import {
@@ -18,6 +18,7 @@ import {
   useResponsiveLayout,
 } from '../../constants/designSystem';
 import {openSupportWhatsApp} from '../../services/supportWhatsApp';
+import {getManagedPublicContent} from '../../services/publicContent';
 
 const SECTIONS = [
   {
@@ -83,7 +84,25 @@ const SECTIONS = [
 ];
 
 export default function PrivacyPolicy() {
-  const {isTablet} = useResponsiveLayout();
+  const {fontScale, isTablet, width} = useResponsiveLayout();
+  const stackContact = width < 430 || fontScale > 1.2;
+  const [managedBody, setManagedBody] = useState('');
+  useEffect(() => {
+    let active = true;
+    void getManagedPublicContent('privacy')
+      .then(body => active && setManagedBody(body))
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+  const visibleSections = useMemo(
+    () =>
+      managedBody
+        ? [{number: '٠١', title: 'سياسة الخصوصية', body: managedBody}]
+        : SECTIONS,
+    [managedBody],
+  );
 
   const contactSupport = async () => {
     try {
@@ -93,7 +112,7 @@ export default function PrivacyPolicy() {
     } catch {
       Alert.alert(
         'تعذّر فتح واتساب',
-        'لم نتمكن من تحميل رقم الدعم. تأكد من الاتصال ثم حاول مرة أخرى.',
+        "تعذّر تحميل رقم الدعم\nتحقق من الاتصال ثم حاول مرة أخرى",
       );
     }
   };
@@ -127,7 +146,7 @@ export default function PrivacyPolicy() {
           />
 
           <View style={[styles.grid, isTablet && styles.gridTablet]}>
-            {SECTIONS.map(section => (
+            {visibleSections.map(section => (
               <PremiumCard
                 accessibilityLabel={`${section.title}. ${section.body}`}
                 key={section.number}
@@ -141,7 +160,11 @@ export default function PrivacyPolicy() {
             ))}
           </View>
 
-          <PremiumCard style={styles.contactCard}>
+          <PremiumCard
+            style={[
+              styles.contactCard,
+              stackContact && styles.contactCardStacked,
+            ]}>
             <View style={styles.contactCopy}>
               <Text style={styles.contactTitle}>لديك طلب بخصوص بياناتك؟</Text>
               <Text style={styles.contactDescription}>
@@ -151,7 +174,11 @@ export default function PrivacyPolicy() {
             <Pressable
               accessibilityRole="button"
               onPress={contactSupport}
-              style={({pressed}) => [styles.contactButton, pressed && styles.pressed]}>
+              style={({pressed}) => [
+                styles.contactButton,
+                stackContact && styles.contactButtonStacked,
+                pressed && styles.pressed,
+              ]}>
               <Text style={styles.contactButtonText}>تواصل عبر واتساب</Text>
             </Pressable>
           </PremiumCard>
@@ -241,6 +268,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(52,120,246,0.075)',
   },
   contactCopy: {flex: 1, minWidth: 0},
+  contactCardStacked: {alignItems: 'stretch', flexDirection: 'column'},
   contactTitle: {
     ...Type.bodyStrong,
     ...textDirection,
@@ -259,6 +287,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
     backgroundColor: Palette.primary,
   },
+  contactButtonStacked: {alignItems: 'center', alignSelf: 'stretch'},
   contactButtonText: {...Type.bodyStrong, color: Palette.text},
   pressed: {opacity: 0.72, transform: [{scale: 0.985}]},
 });

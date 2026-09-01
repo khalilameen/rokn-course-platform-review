@@ -2,10 +2,13 @@
 
 namespace App\Models;
 
+use App\Support\RoknPublicUrl;
+
 use App\Models\UserNote;
 use App\Models\Classification;
 use App\Traits\HasPhoto;
 use App\Traits\HasApiTokens;
+use App\Traits\InvalidatesCourseCatalogue;
 use App\Traits\ResolvesLocalizedAttributes;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Builder;
@@ -16,7 +19,36 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class User extends Authenticatable
 {
-    use Notifiable, HasPhoto, HasApiTokens, SoftDeletes, ResolvesLocalizedAttributes;
+    use Notifiable, HasPhoto, HasApiTokens, SoftDeletes, ResolvesLocalizedAttributes, InvalidatesCourseCatalogue;
+
+    /**
+     * Catalogue rows embed instructor identity. Student/profile/session writes
+     * are far more frequent and must not churn every cached home page.
+     */
+    public function shouldInvalidateCourseCatalogue(): bool
+    {
+        if (!in_array(strtolower((string) $this->role), ['teacher', 'admin'], true)) {
+            return false;
+        }
+
+        if (!$this->exists || $this->wasRecentlyCreated) {
+            return true;
+        }
+
+        return $this->wasChanged([
+            'name',
+            'name_ar',
+            'name_en',
+            'job_title',
+            'bio',
+            'bio_ar',
+            'bio_en',
+            'profile_image',
+            'role',
+            'active',
+            'deleted_at',
+        ]);
+    }
 
     public function whatsappConnection(): HasOne
     {
@@ -77,14 +109,16 @@ class User extends Authenticatable
      *
      * @return string|null
      */
-    public function getProfileImageUrlAttribute()
+    public function getProfileImageUrlAttribute(): ?string
     {
         if (!$this->profile_image) {
-            return $this->image; // Fallback to HasPhoto image if available
+            return null;
         }
 
         if (filter_var($this->profile_image, FILTER_VALIDATE_URL)) {
-            return $this->profile_image;
+            return str_starts_with(strtolower((string) $this->profile_image), 'https://')
+                ? (string) $this->profile_image
+                : null;
         }
 
         return asset('storage/' . $this->profile_image);
@@ -101,7 +135,7 @@ class User extends Authenticatable
             return null;
         }
 
-        return route('portfolio.public', ['slug' => $this->portfolio_slug]);
+        return RoknPublicUrl::portfolio((string) $this->portfolio_slug);
     }
 
     /**
@@ -177,7 +211,18 @@ class User extends Authenticatable
      */
     public function scopeActive(Builder $builder)
     {
-        $builder->where('active', true);
+        return $builder->where('active', true);
+    }
+
+    /** The only learner role used by the mobile product. */
+    public function scopeStudents(Builder $builder): Builder
+    {
+        return $builder->whereRaw('LOWER(role) = ?', ['client']);
+    }
+
+    public function scopeAdministrators(Builder $builder): Builder
+    {
+        return $builder->whereRaw('LOWER(role) = ?', ['admin']);
     }
 
 

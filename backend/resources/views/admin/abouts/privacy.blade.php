@@ -12,6 +12,7 @@
             'pageDescription' => 'حرّر النص المنشور بالعربية والإنجليزية.',
             'pageIcon' => 'fa-user-secret',
         ])
+    <div class="mb-3"><a class="btn btn-light" href="{{ route('admin.about') }}">عن ركن</a> <a class="btn btn-light" href="{{ route('admin.privacy') }}">سياسة الخصوصية</a> <a class="btn btn-light" href="{{ route('admin.policy') }}">شروط الاستخدام</a></div>
     <div class="row">
         <div class="col-md-12">
             {!! Form::model($about,['method' => 'PATCH', 'files' => true, 'url' => route('admin.abouts.update', $about->id)]) !!}

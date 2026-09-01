@@ -13,7 +13,7 @@ describe('first-launch experience', () => {
       false,
     );
     expect(navigation).toContain(
-      "initialRouteName={needsArabicBootstrap ? 'LanguageSelect' : 'Home'}",
+      "const needsArabicBootstrap = languageCode === 'en' && !I18nManager.isRTL",
     );
     expect(navigation).not.toMatch(/Onboarding|ابدأ الآن|مزايا/);
     expect(languageBootstrap).toContain("routes: [{name: 'Home'}]");

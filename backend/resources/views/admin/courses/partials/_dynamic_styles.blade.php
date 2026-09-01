@@ -319,21 +319,6 @@ body.dark-mode .course-show-header .subtitle {
     color: var(--text-secondary) !important;
 }
 
-.course-type-badge.type-center {
-    background: {{ hexToRgba($colorSuccess, 0.2) }} !important;
-    color: var(--color-success) !important;
-}
-
-.course-type-badge.type-online {
-    background: {{ hexToRgba($colorPrimary, 0.2) }} !important;
-    color: var(--color-primary) !important;
-}
-
-.course-type-badge.type-both {
-    background: {{ hexToRgba($colorAccent, 0.2) }} !important;
-    color: var(--color-accent) !important;
-}
-
 .course-description {
     color: var(--text-secondary) !important;
 }

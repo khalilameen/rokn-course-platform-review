@@ -6,8 +6,10 @@ namespace App\Services;
 
 use App\Models\Order;
 use Carbon\CarbonInterface;
+use App\Support\BusinessClock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 final class PaymentChannelReportService
 {
@@ -36,12 +38,14 @@ final class PaymentChannelReportService
      */
     public function summary(
         ?CarbonInterface $from = null,
-        ?CarbonInterface $to = null
+        ?CarbonInterface $to = null,
+        ?Builder $scope = null
     ): array {
-        $query = Order::query()
+        $query = $scope ? clone $scope : Order::query();
+        $query->withoutEagerLoads()->reorder()
             ->whereIn('payment_method', $this->methods())
             ->whereNotNull('package_id')
-            ->where('status', Order::STATUS_APPROVED);
+            ->financiallyEffective();
 
         if ($from !== null) {
             $query->where('approved_at', '>=', $from);
@@ -104,6 +108,48 @@ final class PaymentChannelReportService
                 fn (array $row): bool => $row['currency'] !== 'EGP' && ($row['live_count'] + $row['test_count']) > 0
             ),
         ];
+    }
+
+    /**
+     * One grouped query supplies the dashboard chart and month comparison.
+     * Calling summary() once per month scanned the same settled-order range
+     * eight times on every dashboard visit.
+     *
+     * @return Collection<string, float> keyed by YYYY-MM
+     */
+    public function monthlyEgpGross(
+        CarbonInterface $from,
+        CarbonInterface $to
+    ): Collection {
+        $totals = collect();
+        Order::query()
+            ->whereIn('payment_method', $this->methods())
+            ->whereNotNull('package_id')
+            ->financiallyEffective()
+            ->where('approved_at', '>=', $from)
+            ->where('approved_at', '<', $to)
+            ->whereRaw("UPPER(COALESCE(gateway_currency, 'EGP')) = 'EGP'")
+            ->where(function ($query): void {
+                $query->whereNull('gateway_settlement_status')
+                    ->orWhere('gateway_settlement_status', '<>', 'test_purchase');
+            })
+            ->select(['id', 'approved_at', 'gateway_gross_amount', 'final_amount'])
+            ->eachById(500, function ($orders) use ($totals): void {
+                foreach ($orders as $order) {
+                    $month = $order->approved_at
+                        ->copy()
+                        ->utc()
+                        ->setTimezone(BusinessClock::timezoneName())
+                        ->format('Y-m');
+                    $totals->put(
+                        $month,
+                        (float) $totals->get($month, 0)
+                            + (float) ($order->gateway_gross_amount ?? $order->final_amount ?? 0)
+                    );
+                }
+            }, 'id');
+
+        return $totals->sortKeys();
     }
 
     /** @return array<string, mixed> */

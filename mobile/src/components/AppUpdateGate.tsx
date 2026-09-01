@@ -1,6 +1,7 @@
 import React, {FC, useEffect, useRef, useState} from 'react';
 import {
   ActivityIndicator,
+  Image,
   Linking,
   Modal,
   Pressable,
@@ -18,6 +19,7 @@ import {
   textDirection,
 } from '../constants/designSystem';
 import type {AppUpdateNotice} from '../services/appVersionPolicy';
+import {useReducedMotion} from '../hooks/useReducedMotion';
 
 type Props = {
   notice: AppUpdateNotice | null;
@@ -26,6 +28,7 @@ type Props = {
 
 const AppUpdateGate: FC<Props> = ({notice, onDismiss}) => {
   const insets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
   const [opening, setOpening] = useState(false);
   const [linkError, setLinkError] = useState(false);
   const openingFlightRef = useRef<symbol | null>(null);
@@ -60,7 +63,7 @@ const AppUpdateGate: FC<Props> = ({notice, onDismiss}) => {
   const canDismiss = !notice.isBlocking || unavailable;
   return (
     <Modal
-      animationType="fade"
+      animationType={reducedMotion ? 'none' : 'fade'}
       onRequestClose={canDismiss ? onDismiss : () => undefined}
       statusBarTranslucent
       transparent
@@ -73,21 +76,29 @@ const AppUpdateGate: FC<Props> = ({notice, onDismiss}) => {
             {
               paddingTop: Math.max(insets.top, Spacing.lg),
               paddingBottom: Math.max(insets.bottom, Spacing.lg),
+              paddingLeft: Math.max(insets.left + Spacing.md, Spacing.lg),
+              paddingRight: Math.max(insets.right + Spacing.md, Spacing.lg),
             },
           ]}
           showsVerticalScrollIndicator={false}>
           <View accessibilityViewIsModal style={styles.card}>
             <View style={styles.mark}>
-              <Text style={styles.markText}>R</Text>
+              <Image
+                accessible={false}
+                accessibilityIgnoresInvertColors
+                importantForAccessibility="no"
+                source={require('../assets/images/authLogo.png')}
+                style={styles.markImage}
+              />
             </View>
-            <Text style={styles.title}>
-              {notice.isBlocking ? 'حدّث ركن للمتابعة' : 'نسخة جديدة من ركن'}
+            <Text accessibilityRole="header" style={styles.title}>
+              {notice.isBlocking ? 'حدّث ركن للمتابعة' : 'يتوفر تحديث جديد'}
             </Text>
-            <Text style={styles.message}>{notice.message}</Text>
+            <Text accessibilityLiveRegion="polite" style={styles.message}>
+              {notice.message}
+            </Text>
             {!!notice.releaseNotes && (
-              <Text numberOfLines={5} style={styles.notes}>
-                {notice.releaseNotes}
-              </Text>
+              <Text style={styles.notes}>{notice.releaseNotes}</Text>
             )}
             {unavailable && (
               <Text accessibilityRole="alert" style={styles.error}>
@@ -97,6 +108,7 @@ const AppUpdateGate: FC<Props> = ({notice, onDismiss}) => {
             {!!notice.downloadUrl && (
               <Pressable
                 accessibilityRole="button"
+                accessibilityState={{busy: opening, disabled: opening}}
                 disabled={opening}
                 onPress={openUpdate}
                 style={({pressed}) => [
@@ -158,7 +170,7 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.primarySoft,
     marginBottom: Spacing.md,
   },
-  markText: {...Type.title, color: Palette.primary},
+  markImage: {width: 31, height: 31, resizeMode: 'contain'},
   title: {...Type.title, ...textDirection, color: Palette.text},
   message: {
     ...Type.body,

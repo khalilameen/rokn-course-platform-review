@@ -87,17 +87,27 @@ final class ClientEventController extends Controller
                 ]
             );
         } catch (QueryException $exception) {
-            // Event storage is best-effort and does not block the learner.
             Log::warning('Client event could not be persisted', [
                 'event_name' => $data['event_name'],
                 'sql_state' => $exception->errorInfo[0] ?? null,
             ]);
+
+            // The client outbox retries 5xx. Returning a false 202 here made a
+            // database outage silently erase the only evidence of the outage.
+            return response()->json([
+                'status' => 503,
+                'success' => false,
+                'message' => 'تعذر حفظ الحدث الآن',
+                'data' => ['accepted' => false, 'retryable' => true],
+                'accepted' => false,
+                'retryable' => true,
+            ], 503);
         }
 
         return response()->json([
             'status' => 202,
             'success' => true,
-            'message' => 'Client event accepted',
+            'message' => 'تم حفظ الحدث',
             'data' => ['accepted' => true],
             'accepted' => true,
         ], 202);

@@ -548,6 +548,7 @@
                     <form action="{{ route('admin.courses.sections.destroy', [$course, $section]) }}" method="POST" class="course-section-inline-form">
                         @csrf
                         @method('DELETE')
+                        <input type="hidden" name="authoring_version" value="{{ $course->authoring_version }}">
                         <button type="submit" class="btn-modern btn-delete" onclick="return confirm('هل أنت متأكد من حذف هذا القسم؟')">
                             <i class="fa fa-trash"></i>
                             حذف القسم

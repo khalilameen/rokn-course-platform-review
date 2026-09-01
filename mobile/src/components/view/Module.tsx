@@ -1,11 +1,12 @@
 import {useNavigation} from '@react-navigation/native';
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {
   ActivityIndicator,
   Alert,
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import Svg, {Path} from 'react-native-svg';
@@ -25,6 +26,14 @@ import {
   validateProjectFile,
 } from '../../config/projects';
 import type {RootNavigation} from '../../navigation/types';
+import {
+  cacheProjectDraftFile,
+  clearProjectSubmissionDraft,
+  loadProjectSubmissionDraft,
+  saveProjectSubmissionDraft,
+} from '../../services/projectSubmissionDraft';
+import {removeLearnerDraftFile} from '../../services/learnerDraftFiles';
+import {useAppActiveState} from '../../hooks/useAppActiveState';
 
 interface ModuleProps {
   courseId: string;
@@ -55,27 +64,84 @@ const MapProjectCard = ({
   onPassed?: (projectId: string) => void;
   locked?: boolean;
 }) => {
+  const appIsActive = useAppActiveState();
   const [file, setFile] = useState<SelectedProjectFile | null>(null);
   const [status, setStatus] = useState(project.status);
+  const [note, setNote] = useState('');
+  const [draftReady, setDraftReady] = useState(false);
+  const [draftSaveError, setDraftSaveError] = useState(false);
+  const submitFlightRef = useRef(false);
+  const draftGenerationRef = useRef(0);
+  const draftSnapshotRef = useRef({file, note});
+  draftSnapshotRef.current = {file, note};
 
   useEffect(() => setStatus(project.status), [project.status]);
-
-  const submit = async () => {
-    if (locked) return;
-    if (!file) {
-      Alert.alert('اختر ملف المشروع', 'صورة أو فيديو واضح لعملك');
+  useEffect(() => {
+    const generation = ++draftGenerationRef.current;
+    setDraftReady(false);
+    setDraftSaveError(false);
+    if (project.status === 'passed') {
+      setFile(null);
+      setNote('');
+      void clearProjectSubmissionDraft(project.id);
+      setDraftReady(true);
       return;
     }
+    void loadProjectSubmissionDraft(project.id)
+      .then(draft => {
+        if (generation !== draftGenerationRef.current || !draft) return;
+        setFile(draft.file || null);
+        setNote(draft.note);
+      })
+      .catch(() => {
+        if (generation === draftGenerationRef.current) {
+          setDraftSaveError(true);
+        }
+      })
+      .finally(() => {
+        if (generation === draftGenerationRef.current) setDraftReady(true);
+      });
+    return () => {
+      draftGenerationRef.current += 1;
+    };
+  }, [project.id, project.status]);
+  useEffect(() => {
+    if (project.status === 'passed' || !draftReady) return;
+    const timer = setTimeout(() => {
+      void saveProjectSubmissionDraft(project.id, {
+        file,
+        note,
+        updatedAt: Date.now(),
+      })
+        .then(() => setDraftSaveError(false))
+        .catch(() => setDraftSaveError(true));
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [draftReady, file, note, project.id, project.status]);
+  useEffect(() => {
+    if (appIsActive || project.status === 'passed' || !draftReady) return;
+    void saveProjectSubmissionDraft(project.id, {
+      ...draftSnapshotRef.current,
+      updatedAt: Date.now(),
+    }).catch(() => setDraftSaveError(true));
+  }, [appIsActive, draftReady, project.id, project.status]);
+
+  const submit = async () => {
+    if (locked || submitFlightRef.current) return;
+    if (!file || (project.reportEnabled && note.trim().length < 10)) {
+      Alert.alert(
+        !file ? 'اختر ملف المشروع' : 'اشرح ما نفذته',
+        !file ? 'صورة أو فيديو واضح لعملك' : 'اكتب سطرًا واضحًا عن محاولتك',
+      );
+      return;
+    }
+    submitFlightRef.current = true;
     setStatus('reviewing');
     try {
-      const startedAt = Date.now();
-      const result = await submitProjectAttempt(project.id, file);
-      const elapsed = Date.now() - startedAt;
-      if (elapsed < 1200) {
-        await new Promise<void>(resolve =>
-          setTimeout(() => resolve(), 1200 - elapsed),
-        );
-      }
+      const result = await submitProjectAttempt(project.id, file, note.trim());
+      await clearProjectSubmissionDraft(project.id, file);
+      setFile(null);
+      setNote('');
       if (result.passed && result.canContinue) {
         setStatus('passed');
         onPassed?.(project.id);
@@ -84,12 +150,18 @@ const MapProjectCard = ({
       } else {
         setStatus('needs_retry');
       }
-    } catch {
-      setStatus('needs_retry');
+    } catch (error: unknown) {
+      const copyFailed =
+        error instanceof Error && error.message === 'PROJECT_FILE_COPY_FAILED';
+      setStatus(copyFailed ? project.status : 'needs_retry');
       Alert.alert(
-        'لم يكتمل التسليم',
-        'ملفك محفوظ\nتحقق من الاتصال ثم حاول مرة أخرى',
+        copyFailed ? 'تعذّر تجهيز الملف' : 'لم يكتمل التسليم',
+        copyFailed
+          ? 'اختر الملف مرة أخرى\nوتأكد من وجود مساحة كافية على الجهاز'
+          : 'ملفك محفوظ\nتحقق من الاتصال ثم حاول مرة أخرى',
       );
+    } finally {
+      submitFlightRef.current = false;
     }
   };
 
@@ -142,7 +214,10 @@ const MapProjectCard = ({
               if (picked) {
                 try {
                   const size = await validateProjectFile(picked);
-                  setFile({...picked, size});
+                  const cached = await cacheProjectDraftFile({...picked, size});
+                  const previous = file;
+                  setFile(cached);
+                  await removeLearnerDraftFile(previous);
                 } catch (error: unknown) {
                   const code = error instanceof Error ? error.message : '';
                   Alert.alert(
@@ -162,7 +237,7 @@ const MapProjectCard = ({
               <Text style={styles.filePickerSymbol}>＋</Text>
             </View>
             <View style={styles.filePickerCopy}>
-              <Text style={styles.filePickerTitle} numberOfLines={1}>
+              <Text style={styles.filePickerTitle} numberOfLines={2}>
                 {file?.name || 'ارفع صورة أو فيديو يوضح عملك'}
               </Text>
               <Text style={styles.filePickerHint}>
@@ -172,10 +247,31 @@ const MapProjectCard = ({
               </Text>
             </View>
           </Pressable>
+          {project.reportEnabled && (
+            <TextInput
+              multiline
+              maxLength={2000}
+              value={note}
+              onChangeText={setNote}
+              placeholder="اشرح ما نفذته باختصار"
+              placeholderTextColor="rgba(255,255,255,.38)"
+              style={styles.projectNoteInput}
+            />
+          )}
+          {draftSaveError && (
+            <Text accessibilityRole="alert" style={styles.draftSaveError}>
+              تعذّر حفظ المسودة على الجهاز
+              {'\n'}اترك الصفحة مفتوحة حتى تسلّم المشروع
+            </Text>
+          )}
           <Pressable
             accessibilityRole="button"
-            disabled={!file}
-            style={[styles.submitProject, !file && styles.disabledButton]}
+            disabled={!file || (project.reportEnabled && note.trim().length < 10)}
+            style={[
+              styles.submitProject,
+              (!file || (project.reportEnabled && note.trim().length < 10)) &&
+                styles.disabledButton,
+            ]}
             onPress={submit}>
             <Text style={styles.submitProjectText}>سلّم المشروع</Text>
           </Pressable>
@@ -202,7 +298,8 @@ const Module = ({
   );
   const projectSubmissionLocked =
     module.isLocked ||
-    (module.reels.length > 0 && completed < module.reels.length);
+    (module.reels.length > 0 && completed < module.reels.length) ||
+    (module.quizzes || []).some(quiz => !quiz.passed);
 
   return (
     <View style={[styles.container, module.isLocked && styles.lockedContainer]}>
@@ -248,10 +345,6 @@ const Module = ({
             </Text>
           )}
 
-          {!module.isLocked && !!module.description && (
-            <Text style={styles.description}>{module.description}</Text>
-          )}
-
           {!module.isLocked && !!module.attachments.length && (
             <View style={styles.attachmentsSection}>
               <Text style={styles.sectionLabel}>مرفقات الوحدة</Text>
@@ -264,7 +357,7 @@ const Module = ({
                     openCourseAttachment(attachment).catch(() => undefined)
                   }>
                   <View style={styles.attachmentCopy}>
-                    <Text style={styles.attachmentTitle} numberOfLines={1}>
+                    <Text style={styles.attachmentTitle} numberOfLines={2}>
                       {attachment.title}
                     </Text>
                     <Text style={styles.attachmentMeta}>
@@ -311,7 +404,7 @@ const Module = ({
                     </Text>
                   </View>
                   <View style={styles.reelCopy}>
-                    <Text style={styles.reelTitle} numberOfLines={1}>
+                    <Text style={styles.reelTitle} numberOfLines={2}>
                       {formatArabicDisplayText(reel.title)}
                     </Text>
                     <Text style={styles.reelMeta}>
@@ -324,7 +417,7 @@ const Module = ({
                   </View>
                   {unavailable ? (
                     <View style={styles.lockedStepPill}>
-                      <Text style={styles.lockedStepText}>مقفولة</Text>
+                      <Text style={styles.lockedStepText}>مغلق</Text>
                     </View>
                   ) : (
                     <View style={styles.playButton}>
@@ -335,6 +428,62 @@ const Module = ({
               );
             })}
           </View>
+
+          {!!module.quizzes?.length && (
+            <View style={styles.assessmentsSection}>
+              <Text style={styles.sectionLabel}>اختبارات الوحدة</Text>
+              {module.quizzes.map((quiz, quizIndex) => {
+                const previousPassed = module.quizzes
+                  ?.slice(0, quizIndex)
+                  .every(item => item.passed);
+                const unavailable =
+                  module.isLocked ||
+                  completed < module.reels.length ||
+                  !previousPassed ||
+                  quiz.isLocked ||
+                  quiz.passed;
+                return (
+                  <Pressable
+                    key={quiz.id}
+                    accessibilityRole="button"
+                    accessibilityState={{disabled: unavailable}}
+                    disabled={unavailable}
+                    style={[
+                      styles.reelRow,
+                      unavailable && !quiz.passed && styles.lockedReelRow,
+                    ]}
+                    onPress={() => navigation.navigate('Reels', {courseId})}>
+                    <View
+                      style={[
+                        styles.reelNumber,
+                        quiz.passed && styles.completedReelNumber,
+                      ]}>
+                      <Text style={styles.reelNumberText}>؟</Text>
+                    </View>
+                    <View style={styles.reelCopy}>
+                      <Text style={styles.reelTitle} numberOfLines={2}>
+                        {formatArabicDisplayText(quiz.title)}
+                      </Text>
+                      <Text style={styles.reelMeta}>
+                        {quiz.passed ? 'تم الاجتياز' : 'يفتح بعد المقاطع'}
+                      </Text>
+                    </View>
+                    {quiz.passed ? (
+                      <Text style={styles.passedText}>✓</Text>
+                    ) : unavailable ? (
+                      <View style={styles.lockedStepPill}>
+                        <Text style={styles.lockedStepText}>مغلق</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.playButton}>
+                        <Text style={styles.playText}>ابدأ</Text>
+                      </View>
+                    )}
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
 
           {module.project && module.isLocked ? (
             <View style={[styles.projectCard, styles.lockedProjectPreview]}>
@@ -465,14 +614,6 @@ const styles = StyleSheet.create({
   content: {
     padding: 14,
   },
-  description: {
-    color: 'rgba(255,255,255,.6)',
-    fontFamily: Fonts.regular,
-    fontSize: 12,
-    lineHeight: 20,
-    marginBottom: 14,
-    ...textDirection,
-  },
   sectionLabel: {
     color: 'rgba(255,255,255,.48)',
     fontFamily: Fonts.medium,
@@ -519,6 +660,10 @@ const styles = StyleSheet.create({
   },
   reelsSection: {
     gap: 5,
+  },
+  assessmentsSection: {
+    gap: 5,
+    marginTop: 18,
   },
   reelRow: {
     minHeight: 60,
@@ -692,8 +837,32 @@ const styles = StyleSheet.create({
     marginTop: 2,
     ...textDirection,
   },
+  projectNoteInput: {
+    minHeight: 58,
+    maxHeight: 110,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    marginTop: 9,
+    color: '#FFFFFF',
+    fontFamily: Fonts.regular,
+    fontSize: 11,
+    lineHeight: 18,
+    backgroundColor: 'rgba(255,255,255,.045)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,.08)',
+    ...textDirection,
+  },
+  draftSaveError: {
+    color: '#F3A3A3',
+    fontFamily: Fonts.medium,
+    fontSize: 10,
+    lineHeight: 16,
+    marginTop: 8,
+    ...textDirection,
+  },
   submitProject: {
-    minHeight: 46,
+    minHeight: 48,
     borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',

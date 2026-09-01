@@ -18,6 +18,9 @@ class ExamAttempt extends Model
     protected $fillable = [
         'user_id',
         'quiz_id',
+        'quiz_title',
+        'quiz_description',
+        'quiz_image',
         'course_id',
         'section_id',
         'attempt_number',
@@ -59,7 +62,7 @@ class ExamAttempt extends Model
 
     public function course(): BelongsTo
     {
-        return $this->belongsTo(Course::class);
+        return $this->belongsTo(Course::class)->withTrashed();
     }
 
     public function section(): BelongsTo
@@ -116,7 +119,20 @@ class ExamAttempt extends Model
     {
         return $this->isInProgress()
             && $this->started_at !== null
-            && $this->started_at->copy()->addHours(24)->isFuture();
+            && $this->started_at->copy()->addHours(24)->isFuture()
+            && $this->courseContextIsAvailable();
+    }
+
+    /** Historical results survive retirement; an active attempt does not. */
+    public function courseContextIsAvailable(): bool
+    {
+        if ($this->course_id === null) {
+            return true;
+        }
+
+        $course = Course::query()->withCount('sections')->find($this->course_id);
+
+        return $course !== null && $course->isPublishedForLearning();
     }
 
     public function calculateTimeTaken(): ?int
@@ -149,5 +165,29 @@ class ExamAttempt extends Model
             ->first();
 
         return $lastAttempt ? (int) $lastAttempt->attempt_number + 1 : 1;
+    }
+
+    /** @return array{title:string,description:?string,image:?string} */
+    public function quizSnapshot(): array
+    {
+        $title = trim((string) $this->quiz_title);
+        if ($title === '' && $this->quiz) {
+            $title = trim((string) $this->quiz->title);
+        }
+
+        $description = $this->quiz_description;
+        if ($description === null && $this->quiz) {
+            $description = $this->quiz->description;
+        }
+        $image = $this->quiz_image;
+        if ($image === null && $this->quiz) {
+            $image = $this->quiz->image;
+        }
+
+        return [
+            'title' => $title !== '' ? $title : 'اختبار',
+            'description' => $description !== null ? (string) $description : null,
+            'image' => $image !== null ? (string) $image : null,
+        ];
     }
 }

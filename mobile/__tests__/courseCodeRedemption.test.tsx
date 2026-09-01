@@ -2,6 +2,9 @@ import React from 'react';
 import ReactTestRenderer from 'react-test-renderer';
 
 jest.mock('react-native-linear-gradient', () => 'LinearGradient');
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({bottom: 0, left: 0, right: 0, top: 0}),
+}));
 jest.mock('react-native/Libraries/Modal/Modal', () => ({
   __esModule: true,
   default: 'Modal',
@@ -287,7 +290,7 @@ describe('course-code redemption UI', () => {
     expect(tree).toContain('الاختيار السريع');
     expect(tree).toContain('٩٩');
     expect(tree).toContain('١٣٩');
-    expect(tree).toContain('ج.م');
+    expect(tree).toContain('جنيه');
     expect(tree).toContain('يتبقى ');
     expect(tree).toContain('٤٠٠');
     expect(tree).not.toContain('اختيار الباقة');

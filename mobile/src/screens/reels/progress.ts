@@ -30,11 +30,15 @@ export const nextLearningTitle = (
   );
   const module = course.modules[moduleIndex];
   const reelIndex = module?.reels.findIndex(item => item.id === reel.id) ?? -1;
+  const firstPendingQuiz = (module?.quizzes || []).find(quiz => !quiz.passed);
   return (
     module?.reels[reelIndex + 1]?.title ||
-    (module?.project && reelIndex === module.reels.length - 1
-      ? `مشروع العبور: ${module.project.title}`
-      : course.modules[moduleIndex + 1]?.reels[0]?.title)
+    (reelIndex === module?.reels.length - 1
+      ? firstPendingQuiz?.title ||
+        (module?.project
+          ? `مشروع العبور\n${module.project.title}`
+          : course.modules[moduleIndex + 1]?.reels[0]?.title)
+      : undefined)
   );
 };
 
@@ -48,7 +52,9 @@ export const markReelCompleted = (
   const activeModule = course.modules[moduleIndex];
   const reelIndex = activeModule?.reels.findIndex(item => item.id === reel.id);
   const unlockFollowingModule =
-    reelIndex === activeModule?.reels.length - 1 && !activeModule?.project;
+    reelIndex === activeModule?.reels.length - 1 &&
+    !activeModule?.project &&
+    !(activeModule?.quizzes || []).length;
 
   return {
     ...course,

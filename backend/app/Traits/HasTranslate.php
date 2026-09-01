@@ -2,11 +2,13 @@
 
 namespace App\Traits;
 
+use App\Support\RoknLocale;
+
 trait HasTranslate
 {
     public function getNameAttribute()
     {
-        if (app('request')->header('locale') === 'en' || app()->getLocale() === 'en') {
+        if (!RoknLocale::isArabic()) {
             return $this->name_en;
         } else {
             return $this->name_ar;
@@ -15,7 +17,7 @@ trait HasTranslate
 
     public function getDescriptionAttribute()
     {
-        if (app('request')->header('locale') === 'en' || app()->getLocale() === 'en') {
+        if (!RoknLocale::isArabic()) {
             return $this->description_en;
         } else {
             return $this->description_ar;
@@ -24,7 +26,7 @@ trait HasTranslate
 
     public function getTitleAttribute()
     {
-        if (app('request')->header('locale') === 'en' || app()->getLocale() === 'en') {
+        if (!RoknLocale::isArabic()) {
             return $this->title_en;
         } else {
             return $this->title_ar;
@@ -33,7 +35,7 @@ trait HasTranslate
 
     public function getContentAttribute()
     {
-        if (app('request')->header('locale') === 'en' || app()->getLocale() === 'en') {
+        if (!RoknLocale::isArabic()) {
             return $this->content_en;
         } else {
             return $this->content_ar;
@@ -42,7 +44,7 @@ trait HasTranslate
 
     public function getLocationAttribute()
     {
-        if (app('request')->header('locale') === 'en' || app()->getLocale() === 'en') {
+        if (!RoknLocale::isArabic()) {
             return $this->location_en;
         } else {
             return $this->location_ar;

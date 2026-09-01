@@ -15,6 +15,8 @@ class Contact extends Model
     // Workflow/audit columns are deliberately omitted. Only trusted server
     // code may assign them with forceFill(); public contact payloads cannot.
     protected $fillable = [
+        'client_request_id',
+        'request_fingerprint',
         'name',
         'email',
         'phone',

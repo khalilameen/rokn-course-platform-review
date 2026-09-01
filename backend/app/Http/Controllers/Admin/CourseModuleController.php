@@ -6,11 +6,24 @@ use App\Http\Controllers\Controller;
 use App\Models\Course;
 use App\Models\CourseModule;
 use App\Models\DesignSetting;
+use App\Services\CoursePublishingService;
+use App\Services\CourseAuthoringConcurrencyService;
+use App\Services\SafeExternalUrl;
+use App\Support\UnicodeText;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class CourseModuleController extends Controller
 {
+    public function __construct(
+        private readonly CoursePublishingService $publishingService,
+        private readonly CourseAuthoringConcurrencyService $authoring
+    )
+    {
+    }
+
     /**
      * Get design settings for the views
      */
@@ -26,6 +39,12 @@ class CourseModuleController extends Controller
      */
     public function create(Course $course)
     {
+        if (!$course->is_coming_soon) {
+            return redirect()->route('admin.courses.show', $course)->with(
+                'error',
+                'حوّل الكورس إلى مسودة قبل إضافة وحدة جديدة'
+            );
+        }
         $designSettings = $this->getDesignSettings();
         return view('admin.course-modules.create', compact('course', 'designSettings'));
     }
@@ -38,25 +57,32 @@ class CourseModuleController extends Controller
      */
     public function store(Request $request, Course $course)
     {
+        $this->assertDraftForStructuralChange($course);
+        $this->normalizeTitles($request);
         $request->validate([
             'title_ar' => 'required|string|max:255',
             'title_en' => 'nullable|string|max:255',
-            'attachments_link' => 'nullable|url|max:2000',
+            'attachments_link' => ['nullable', SafeExternalUrl::validationRule()],
             'attachment_platform' => 'required|in:computer,mobile,both',
-            'order' => 'nullable|integer|min:0'
+            'order' => 'nullable|integer|min:0',
+            'authoring_version' => 'required|integer|min:1',
         ]);
 
-        $maxOrder = $course->modules()->max('order') ?? 0;
-        $order = $request->input('order', $maxOrder + 1);
-
-        CourseModule::create([
-            'course_id' => $course->id,
-            'title_ar' => $request->title_ar,
-            'title_en' => $request->title_en,
-            'attachments_link' => $request->attachments_link,
-            'attachment_platform' => $request->attachment_platform,
-            'order' => $order
-        ]);
+        DB::transaction(function () use ($request, $course): void {
+            $lockedCourse = $this->authoring->lock($request, $course);
+            $this->assertDraftForStructuralChange($lockedCourse);
+            $maxOrder = $lockedCourse->modules()->max('order') ?? 0;
+            CourseModule::create([
+                'course_id' => $lockedCourse->id,
+                'title_ar' => $request->title_ar,
+                'title_en' => $request->title_en,
+                'attachments_link' => $request->attachments_link,
+                'attachment_platform' => $request->attachment_platform,
+                'order' => $request->input('order', $maxOrder + 1),
+            ]);
+            $this->normalizeOrder($lockedCourse);
+            $this->authoring->advance($lockedCourse);
+        }, 3);
 
         return $this->authoringRedirect($request, $course)
             ->with('success', 'تم إضافة الوحدة بنجاح');
@@ -71,6 +97,10 @@ class CourseModuleController extends Controller
     public function edit(Course $course, CourseModule $module)
     {
         $this->ensureModuleBelongsToCourse($course, $module);
+        if (!$course->is_coming_soon) {
+            return redirect()->route('admin.courses.show', $course)
+                ->with('error', 'حوّل الكورس إلى مسودة قبل تعديل وحداته');
+        }
         $designSettings = $this->getDesignSettings();
         return view('admin.course-modules.edit', compact('course', 'module', 'designSettings'));
     }
@@ -85,21 +115,33 @@ class CourseModuleController extends Controller
     public function update(Request $request, Course $course, CourseModule $module)
     {
         $this->ensureModuleBelongsToCourse($course, $module);
+        $this->assertDraftForStructuralChange($course);
+        $this->normalizeTitles($request);
         $request->validate([
             'title_ar' => 'required|string|max:255',
             'title_en' => 'nullable|string|max:255',
-            'attachments_link' => 'nullable|url|max:2000',
+            'attachments_link' => ['nullable', SafeExternalUrl::validationRule()],
             'attachment_platform' => 'required|in:computer,mobile,both',
-            'order' => 'nullable|integer|min:0'
+            'order' => 'nullable|integer|min:0',
+            'authoring_version' => 'required|integer|min:1',
         ]);
 
-        $module->update([
-            'title_ar' => $request->title_ar,
-            'title_en' => $request->title_en,
-            'attachments_link' => $request->attachments_link,
-            'order' => $request->input('order', $module->order),
-            'attachment_platform' => $request->attachment_platform,
-        ]);
+        DB::transaction(function () use ($course, $module, $request): void {
+            $lockedCourse = $this->authoring->lock($request, $course);
+            $this->assertDraftForStructuralChange($lockedCourse);
+            $lockedModule = CourseModule::query()->whereKey($module->id)
+                ->where('course_id', $course->id)->lockForUpdate()->firstOrFail();
+            $lockedModule->update([
+                'title_ar' => $request->title_ar,
+                'title_en' => $request->title_en,
+                'attachments_link' => $request->attachments_link,
+                'order' => $request->input('order', $module->order),
+                'attachment_platform' => $request->attachment_platform,
+            ]);
+            $this->normalizeOrder($lockedCourse);
+            $this->assertLiveCourseReady($course);
+            $this->authoring->advance($lockedCourse);
+        }, 3);
 
         return $this->authoringRedirect($request, $course)
             ->with('success', 'تم تحديث الوحدة بنجاح');
@@ -111,18 +153,27 @@ class CourseModuleController extends Controller
      * @param  \App\Models\CourseModule  $module
      * @return \Illuminate\Http\Response
      */
-    public function destroy(Course $course, CourseModule $module)
+    public function destroy(Request $request, Course $course, CourseModule $module)
     {
         $this->ensureModuleBelongsToCourse($course, $module);
+        $this->assertDraftForStructuralChange($course);
 
-        if ($module->sections()->count() > 0) {
-            return back()->with(
-                'error',
-                'لا يمكن حذف وحدة تحتوي على مقاطع أو مشروع\nانقل محتواها أو احذفه أولًا'
-            );
-        }
-
-        $module->delete();
+        $request->validate(['authoring_version' => 'required|integer|min:1']);
+        DB::transaction(function () use ($course, $module, $request): void {
+            $lockedCourse = $this->authoring->lock($request, $course);
+            $this->assertDraftForStructuralChange($lockedCourse);
+            $lockedModule = CourseModule::query()->whereKey($module->id)
+                ->where('course_id', $course->id)->lockForUpdate()->firstOrFail();
+            if ($lockedModule->sections()->lockForUpdate()->get(['course_sections.id'])->isNotEmpty()) {
+                throw ValidationException::withMessages([
+                    'module' => 'انقل محتوى الوحدة أو احذفه قبل حذف الوحدة',
+                ]);
+            }
+            $lockedModule->delete();
+            $this->normalizeOrder($lockedCourse);
+            $this->assertLiveCourseReady($course);
+            $this->authoring->advance($lockedCourse);
+        }, 3);
 
         return redirect()->route('admin.courses.sections.index', $course)
             ->with('success', 'تم حذف الوحدة بنجاح');
@@ -133,30 +184,85 @@ class CourseModuleController extends Controller
      */
     public function reorder(Request $request, Course $course)
     {
+        $this->assertDraftForStructuralChange($course);
         $request->validate([
             'modules' => 'required|array',
             'modules.*.id' => [
                 'required',
                 'integer',
+                'distinct',
                 Rule::exists('course_modules', 'id')->where(
                     fn ($query) => $query->where('course_id', $course->id)
                 ),
             ],
-            'modules.*.order' => 'required|integer|min:0'
+            'modules.*.order' => 'required|integer|min:0|distinct',
+            'authoring_version' => 'required|integer|min:1',
         ]);
 
-        foreach ($request->modules as $moduleData) {
-            CourseModule::where('id', $moduleData['id'])
-                ->where('course_id', $course->id)
-                ->update(['order' => $moduleData['order']]);
-        }
+        $version = DB::transaction(function () use ($request, $course): int {
+            $lockedCourse = $this->authoring->lock($request, $course);
+            $this->assertDraftForStructuralChange($lockedCourse);
+            CourseModule::query()->where('course_id', $course->id)
+                ->whereIn('id', collect($request->modules)->pluck('id'))
+                ->orderBy('id')->lockForUpdate()->get();
+            foreach ($request->modules as $moduleData) {
+                CourseModule::where('id', $moduleData['id'])
+                    ->where('course_id', $course->id)
+                    ->update(['order' => $moduleData['order']]);
+            }
+            $this->normalizeOrder($lockedCourse);
+            $this->assertLiveCourseReady($course);
+            return $this->authoring->advance($lockedCourse);
+        }, 3);
 
-        return response()->json(['success' => true]);
+        return response()->json(['success' => true, 'authoring_version' => $version]);
+    }
+
+    private function normalizeTitles(Request $request): void
+    {
+        $request->merge([
+            'title_ar' => UnicodeText::clean($request->input('title_ar'), false),
+            'title_en' => $request->filled('title_en')
+                ? UnicodeText::clean($request->input('title_en'), false)
+                : null,
+        ]);
     }
 
     private function ensureModuleBelongsToCourse(Course $course, CourseModule $module): void
     {
         abort_unless((int) $module->course_id === (int) $course->id, 404);
+    }
+
+    private function assertDraftForStructuralChange(Course $course): void
+    {
+        if (!$course->is_coming_soon) {
+            throw ValidationException::withMessages([
+                'course' => [
+                    'حوّل الكورس إلى مسودة قبل إضافة وحدة ثم أعد نشره بعد اكتمال محتواها',
+                ],
+            ]);
+        }
+    }
+
+    private function normalizeOrder(Course $course): void
+    {
+        $course->modules()->orderBy('order')->orderBy('id')->get()
+            ->each(function (CourseModule $module, int $index): void {
+                $order = $index + 1;
+                if ((int) $module->order !== $order) {
+                    $module->updateQuietly(['order' => $order]);
+                }
+            });
+    }
+
+    private function assertLiveCourseReady(Course $course): void
+    {
+        if ($course->is_coming_soon) return;
+
+        $audit = $this->publishingService->audit($course->fresh());
+        if (!$audit['ready']) {
+            throw ValidationException::withMessages(['course' => $audit['issues']]);
+        }
     }
 
     private function authoringRedirect(Request $request, Course $course)

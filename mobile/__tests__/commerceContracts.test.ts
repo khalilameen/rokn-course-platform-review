@@ -1,6 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 
+jest.mock('expo-crypto', () => ({
+  CryptoDigestAlgorithm: {SHA256: 'SHA-256'},
+  digestStringAsync: jest.fn(async () => 'a'.repeat(64)),
+  randomUUID: jest.fn(() => '11111111-1111-4111-8111-111111111111'),
+}));
+
 jest.mock('../src/constants/api', () => ({
   publicRequest: {get: jest.fn(), post: jest.fn()},
 }));
@@ -80,6 +86,7 @@ describe('commerce API contracts', () => {
           id: 64,
           title: 'Course',
           price: 100,
+          access_type: 'scholarship',
           access_plans: [
             {
               code: 'mentor',
@@ -87,7 +94,7 @@ describe('commerce API contracts', () => {
               price_coins: 900,
               chat_enabled: true,
               chat_message_limit: 40,
-              project_feedback_level: 'detailed',
+              project_feedback_level: 'enhanced',
               project_report_enabled: true,
               project_output_enabled: true,
               certificate_enabled: true,
@@ -105,7 +112,7 @@ describe('commerce API contracts', () => {
               price_coins: 600,
               chat_enabled: true,
               chat_message_limit: 10,
-              project_feedback_level: 'summary',
+              project_feedback_level: 'report',
               project_report_enabled: true,
               certificate_enabled: true,
             },
@@ -116,7 +123,10 @@ describe('commerce API contracts', () => {
 
     const details = await getCourseDetails('64');
 
-    expect(mockGet).toHaveBeenCalledWith('courses/64/details');
+    expect(mockGet).toHaveBeenCalledWith('courses/64/details', {
+      signal: undefined,
+    });
+    expect(details.owned).toBe(true);
     expect(details.accessPlans.map(plan => plan.code)).toEqual([
       'basic',
       'guided',
@@ -129,12 +139,13 @@ describe('commerce API contracts', () => {
           priceCoins: 600,
           chatEnabled: true,
           chatMessageLimit: 10,
-          projectFeedbackLevel: 'summary',
+          projectFeedbackLevel: 'report',
           projectReportEnabled: true,
         }),
         expect.objectContaining({
           code: 'mentor',
           priceCoins: 900,
+          projectFeedbackLevel: 'enhanced',
           projectOutputEnabled: true,
         }),
       ]),
@@ -149,6 +160,8 @@ describe('commerce API contracts', () => {
           spendable_balance: 450,
           purchased_balance: 300,
           reward_balance: 200,
+          original_price: 600,
+          discount_amount: 0,
         },
       },
     });
@@ -159,11 +172,20 @@ describe('commerce API contracts', () => {
       spendableBalance: 450,
       paidBalance: 300,
       rewardBalance: 200,
+      originalPrice: 600,
+      discountAmount: 0,
     });
-    expect(mockPost).toHaveBeenNthCalledWith(1, 'courses/authorize', {
-      course_id: 64,
-      access_plan_code: 'guided',
-    });
+    expect(mockPost).toHaveBeenNthCalledWith(
+      1,
+      'courses/authorize',
+      expect.objectContaining({
+        course_id: 64,
+        access_plan_code: 'guided',
+        idempotency_key: expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+        ),
+      }),
+    );
 
     mockPost.mockRejectedValueOnce({
       response: {

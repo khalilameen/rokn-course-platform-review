@@ -1,5 +1,6 @@
 
 <div class="question_div">
+    <input type="hidden" name="q_question_id[]" value="{{ isset($question) ? $question->id : '' }}">
     <div class="question-header">
         <div class="question-number-badge">
             <span class="question_number">@if(isset($question_index)){{$question_index + 1}}@endif</span>

@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Traits\InvalidatesCourseCatalogue;
 use Illuminate\Database\Eloquent\Model;
 
 final class CourseAccessPlan extends Model
 {
+    use InvalidatesCourseCatalogue;
+
     public const BASIC = 'basic';
     public const GUIDED = 'guided';
     public const MENTOR = 'mentor';
@@ -28,6 +31,8 @@ final class CourseAccessPlan extends Model
         'ai_budget_usd', 'request_reserve_usd', 'max_output_tokens',
         'project_feedback_token_budget', 'project_feedback_budget_usd',
         'project_feedback_reserve_usd',
+        'project_followup_message_limit', 'project_followup_token_budget',
+        'project_followup_budget_usd', 'project_followup_reserve_usd',
         'model_override', 'project_feedback_level', 'project_output_enabled',
         'certificate_enabled', 'is_active', 'sort_order',
     ];
@@ -43,6 +48,10 @@ final class CourseAccessPlan extends Model
         'project_feedback_token_budget' => 'integer',
         'project_feedback_budget_usd' => 'decimal:6',
         'project_feedback_reserve_usd' => 'decimal:6',
+        'project_followup_message_limit' => 'integer',
+        'project_followup_token_budget' => 'integer',
+        'project_followup_budget_usd' => 'decimal:6',
+        'project_followup_reserve_usd' => 'decimal:6',
         'max_output_tokens' => 'integer',
         'project_output_enabled' => 'boolean',
         'certificate_enabled' => 'boolean',

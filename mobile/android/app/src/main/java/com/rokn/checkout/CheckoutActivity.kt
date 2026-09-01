@@ -26,8 +26,6 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.rokn.BuildConfig
-import java.text.NumberFormat
-import java.util.Locale
 
 class CheckoutActivity : AppCompatActivity() {
   private lateinit var webView: WebView
@@ -58,9 +56,7 @@ class CheckoutActivity : AppCompatActivity() {
     )
 
     val url = intent.getStringExtra(EXTRA_URL).orEmpty()
-    if (url.startsWith(DEMO_SCHEME)) {
-      loadDemoCheckout(url.toUri())
-    } else if (isTrustedCheckoutEntry(url)) {
+    if (isTrustedCheckoutEntry(url)) {
       webView.loadUrl(url)
     } else {
       showError("تعذر فتح صفحة الدفع الآمنة")
@@ -160,13 +156,14 @@ class CheckoutActivity : AppCompatActivity() {
           error: WebResourceError?,
         ) {
           if (request?.isForMainFrame == true) {
-            showError("الاتصال بصفحة الدفع غير متاح الآن. حاول مرة أخرى.")
+            showError("الاتصال بصفحة الدفع غير متاح الآن\nحاول مرة أخرى")
           }
         }
       }
     }
     progress = ProgressBar(this).apply {
       isIndeterminate = true
+      contentDescription = "جارٍ تحميل صفحة الدفع"
     }
     errorMessage = TextView(this).apply {
       visibility = View.GONE
@@ -174,6 +171,10 @@ class CheckoutActivity : AppCompatActivity() {
       textSize = 16f
       setTextColor(Color.WHITE)
       setPadding(dp(28), dp(28), dp(28), dp(28))
+      ViewCompat.setAccessibilityLiveRegion(
+        this,
+        ViewCompat.ACCESSIBILITY_LIVE_REGION_ASSERTIVE,
+      )
     }
     content.addView(
       webView,
@@ -206,9 +207,7 @@ class CheckoutActivity : AppCompatActivity() {
 
   private fun handleNavigation(uri: Uri?): Boolean {
     if (uri == null) return false
-    if (uri.scheme.equals("rokn", ignoreCase = true) &&
-      (uri.host == "payment-result" || uri.host == "checkout")
-    ) {
+    if (uri.scheme.equals("rokn", ignoreCase = true) && uri.host == "payment-result") {
       setResult(
         Activity.RESULT_OK,
         Intent().putExtra(RESULT_URL, uri.toString()),
@@ -217,27 +216,6 @@ class CheckoutActivity : AppCompatActivity() {
       return true
     }
     return !isAllowedWebNavigation(uri)
-  }
-
-  private fun loadDemoCheckout(uri: Uri) {
-    val coins = uri.getQueryParameter("coins")?.toIntOrNull()?.coerceAtLeast(0) ?: 0
-    val price = uri.getQueryParameter("price")?.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0
-    val orderRef = uri.getQueryParameter("order_ref") ?: "DEMO-${System.currentTimeMillis()}"
-    val arabicNumber = NumberFormat.getNumberInstance(Locale("ar", "EG"))
-    val coinsLabel = arabicNumber.format(coins)
-    val priceLabel = arabicNumber.apply {
-      minimumFractionDigits = 0
-      maximumFractionDigits = 2
-    }.format(price)
-    val html = """
-      <!doctype html><html lang="ar" dir="rtl"><head>
-      <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
-      <style>
-      *{box-sizing:border-box}body{margin:0;background:#080b12;color:#f7f8fb;font-family:Arial,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px}
-      .card{width:min(100%,460px);background:#111722;border:1px solid #242c39;border-radius:24px;padding:28px;box-shadow:0 24px 70px #0009}.secure{color:#9ca8ba;font-size:13px}.coin{display:flex;align-items:center;justify-content:center;gap:10px;color:#e4b64d;font-size:44px;font-weight:800;margin:18px 0 3px}.mark{display:inline-grid;place-items:center;width:38px;height:38px;border-radius:50%;border:2px solid #f1cb70;background:linear-gradient(145deg,#f6d77e,#a66d16);color:#19130a;font-size:21px;font-weight:900;box-shadow:inset 0 2px 3px #fff7,0 5px 18px #d8a63c33}.price{font-size:18px;color:#d8dde7;margin-bottom:28px}.line{height:1px;background:#252c38;margin:22px 0}.label{font-size:14px;color:#9ca8ba;margin-bottom:8px}.fake{height:52px;border-radius:14px;border:1px solid #323b4b;background:#0b0f17;margin-bottom:12px}.button{display:block;width:100%;border:0;border-radius:16px;padding:17px;background:#2457f5;color:white;font-size:17px;font-weight:700;text-decoration:none;text-align:center}.note{font-size:12px;line-height:1.8;color:#7e899b;margin-top:16px;text-align:center}
-      </style></head><body><main class="card"><div class="secure">شحن رصيد ركن</div><div class="coin"><span class="mark">R</span><span>${coinsLabel}</span></div><div class="price">${priceLabel} جنيه</div><div class="line"></div><div class="label">بيانات الدفع</div><div class="fake"></div><div class="fake"></div><a class="button" href="rokn://payment-result?status=success&amp;order_ref=${orderRef}&amp;coins=${coins}">تأكيد الشحن</a><div class="note">لن يُخصم أي مبلغ في هذه النسخة التجريبية</div></main></body></html>
-    """.trimIndent()
-    webView.loadDataWithBaseURL("https://checkout.rokn.app", html, "text/html", "UTF-8", null)
   }
 
   private fun isTrustedCheckoutEntry(url: String): Boolean {
@@ -267,6 +245,7 @@ class CheckoutActivity : AppCompatActivity() {
     webView.visibility = View.GONE
     errorMessage.text = message
     errorMessage.visibility = View.VISIBLE
+    errorMessage.announceForAccessibility(message)
   }
 
   override fun onDestroy() {
@@ -295,7 +274,6 @@ class CheckoutActivity : AppCompatActivity() {
   companion object {
     const val EXTRA_URL = "checkout_url"
     const val RESULT_URL = "result_url"
-    private const val DEMO_SCHEME = "rokn-demo://checkout"
     private val BACKGROUND = Color.rgb(8, 11, 18)
   }
 }

@@ -18,7 +18,7 @@ final class ProductFeatureFlagTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_defaults_preserve_learning_but_client_safe_defaults_close_mutations(): void
+    public function test_defaults_preserve_learning_without_exposing_control_plane_metadata(): void
     {
         $service = app(ProductFeatureFlagService::class);
 
@@ -26,9 +26,8 @@ final class ProductFeatureFlagTest extends TestCase
         self::assertTrue($service->enabled('checkout', 1));
         $snapshot = $service->clientSnapshot(45);
         self::assertTrue($snapshot['flags']['playback']);
-        self::assertFalse($snapshot['safe_defaults']['checkout']);
-        self::assertFalse($snapshot['safe_defaults']['project_uploads']);
-        self::assertFalse($snapshot['safe_defaults']['ai_chat']);
+        self::assertArrayNotHasKey('safe_defaults', $snapshot);
+        self::assertArrayNotHasKey('capabilities', $snapshot);
     }
 
     public function test_disabled_and_expired_flags_fail_closed(): void
@@ -84,6 +83,8 @@ final class ProductFeatureFlagTest extends TestCase
             ->assertHeader('Cache-Control')
             ->assertJsonPath('data.flags.checkout', false)
             ->assertJsonPath('data.flags.playback', true)
+            ->assertJsonMissingPath('data.safe_defaults')
+            ->assertJsonMissingPath('data.capabilities')
             ->assertJsonMissingPath('data.checkout.owner')
             ->assertJsonMissingPath('data.checkout.reason');
     }

@@ -13,9 +13,10 @@ developer workstation.
 - A disposable database name beginning `rokn_restore_verify_` on the isolated
   restore server; it must not equal `DB_DATABASE`.
 - MySQL client available on the worker (`MYSQL_BINARY` may override its path).
-- The production-compatible `APP_KEY` only if a follow-up application-level
-  integrity check requires decrypting data. The default command does not read
-  or export application records.
+- The production-compatible `APP_KEY`, `RECOVERY_ENCRYPTION_KEY_ID` and the
+  separate `RECOVERY_EVIDENCE_SIGNING_KEY`. The command decrypts only the
+  random recovery probe and exports counts/fingerprints, never row contents.
+- A signed record produced first by `ops:verify-backup` for this exact artifact.
 
 ## Drill command
 
@@ -27,13 +28,15 @@ php artisan ops:verify-restore \
   --evidence=/secure/restore-evidence/rokn-20260812.json
 ```
 
-The command refuses primary-looking names, requires the exact confirmation,
-restores only to the disposable database, verifies a nonempty schema and
-migration history, then emits JSON evidence with the backup SHA-256, byte
-count, table count, migration count, and schema fingerprint. It does **not**
-write row contents. By default it drops the disposable database after evidence
-is written; use `--keep` only while investigating a failed drill and remove it
-afterward.
+The command refuses the configured primary database, requires the exact
+confirmation and restores only the disposable database. It verifies that the
+artifact hash matches signed backup evidence, decrypts the restored random
+probe, applies current migrations with the default connection temporarily
+bound to the disposable database, checks financial and foreign-reference
+invariants, and samples durable files and Bunny media. The signed JSON contains
+only checksums, counts, provider identity and measured RPO/RTO. By default it
+drops the disposable database after evidence is written; use `--keep` only
+while investigating a failed drill and remove it afterward.
 
 ## First reconciled-baseline cutover
 
@@ -41,7 +44,9 @@ The first reconciled-baseline cutover is blocked until a restore drill of the
 latest production backup succeeds. Run the command above on the isolated
 restore server before approving
 `database/migration-baseline-manifest.json`. The evidence must contain a
-`dumpSha256`, `schemaFingerprint`, table count, and migration count. A second
+`artifact_sha256`, `schema_fingerprint`, table count, migration count, zero
+pending migrations, zero financial/orphan findings and zero missing sampled
+objects. A second
 operator must review it and record the protected evidence location, backup
 retention identifier, evidence SHA-256, disposable-database cleanup result,
 and review time in the deployment change ticket. Do not commit production

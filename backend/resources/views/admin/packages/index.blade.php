@@ -33,6 +33,8 @@
                     <td>{{ $package->price }}</td>
                     <td>{{ $package->coins }}</td>
                     <td>
+                        <span class="badge badge-{{ $package->is_active ? 'success' : 'secondary' }}">{{ $package->is_active ? 'ظاهرة' : 'متوقفة' }}</span>
+                        <span class="badge badge-{{ $package->direct_enabled ? 'success' : 'secondary' }}">كاشير</span>
                         <span class="badge badge-{{ $package->google_enabled ? 'success' : 'secondary' }}">Play</span>
                         <span class="badge badge-{{ $package->apple_enabled ? 'success' : 'secondary' }}">App Store</span>
                     </td>

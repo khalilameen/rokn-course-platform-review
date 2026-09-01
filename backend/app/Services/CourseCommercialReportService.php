@@ -30,7 +30,7 @@ final class CourseCommercialReportService
 
         $orders = Order::query()
             ->where('course_id', $course->id)
-            ->where('status', Order::STATUS_APPROVED)
+            ->financiallyEffective()
             ->with(['user', 'courseCode', 'accessPlan'])
             ->orderBy('approved_at')
             ->orderBy('id')
@@ -83,6 +83,8 @@ final class CourseCommercialReportService
                 (int) $enrollment->user_id,
                 [
                     'ai_requests' => 0, 'ai_failed_requests' => 0, 'ai_tokens' => 0,
+                    'ai_estimated_requests' => 0, 'ai_cost_complete' => true,
+                    'ai_measurement_available' => true,
                     'ai_cost_usd' => 0.0, 'ai_cost_egp' => 0.0,
                     'playback_minutes' => 0.0, 'playback_gb_estimated' => 0.0,
                     'allocated_operating_cost_egp' => 0.0,
@@ -105,6 +107,12 @@ final class CourseCommercialReportService
                 'contract_price_coins' => isset($snapshot['price_coins'])
                     ? (int) $snapshot['price_coins']
                     : null,
+                'discount_coins' => (int) $learnerOrders->sum('discount_amount'),
+                'coupon_codes' => $learnerOrders->pluck('coupon_code')
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all(),
                 'total_coins' => (int) $learnerOrders->sum('total_coins'),
                 'paid_coins' => (int) $learnerOrders->sum('paid_coins'),
                 'reward_coins' => (int) $learnerOrders->sum('reward_coins'),
@@ -141,6 +149,15 @@ final class CourseCommercialReportService
         $knownNet = round((float) $rows->sum('cash_net_known_egp'), 2);
         $pendingGross = round((float) $rows->sum('cash_pending_settlement_egp'), 2);
         $cashNetComplete = $rows->every(fn (array $row): bool => (bool) $row['cash_net_complete']);
+        $foreignCurrencyExposure = $rows
+            ->flatMap(fn (array $row): array => collect($row['cash_foreign_currency_amounts'])
+                ->map(fn (float $amount, string $currency): array => [
+                    'currency' => $currency,
+                    'amount' => $amount,
+                ])->values()->all())
+            ->groupBy('currency')
+            ->map(fn (Collection $items): float => round((float) $items->sum('amount'), 2))
+            ->all();
         $serviceCostComplete = $rows->every(
             fn (array $row): bool => (bool) $row['service_cost_complete']
         );
@@ -163,14 +180,18 @@ final class CourseCommercialReportService
             'code_students' => $rows->filter(fn (array $row): bool => str_contains($row['source'], 'code'))->count(),
             'paid_students' => $rows->where('paid_coins', '>', 0)->count(),
             'total_coins' => (int) $orders->sum('total_coins'),
+            'discount_coins' => (int) $orders->sum('discount_amount'),
             'paid_coins' => (int) $orders->sum('paid_coins'),
             'reward_coins' => (int) $orders->sum('reward_coins'),
             'cash_gross_egp' => $gross,
             'cash_net_known_egp' => $knownNet,
             'cash_pending_settlement_egp' => $pendingGross,
             'cash_net_complete' => $cashNetComplete,
+            'cash_foreign_currency_exposure' => $foreignCurrencyExposure,
             'cash_net_egp' => $cashNetComplete ? $knownNet : null,
             'ai_cost_usd' => $costReport['ai_cost_usd'],
+            'ai_estimated_requests' => (int) $rows->sum('ai_estimated_requests'),
+            'ai_cost_complete' => $rows->every(fn (array $row): bool => (bool) $row['ai_cost_complete']),
             'playback_minutes' => $costReport['playback_minutes'],
             'playback_gb_estimated' => $costReport['playback_gb_estimated'],
             'service_cost_complete' => $serviceCostComplete,
@@ -208,21 +229,31 @@ final class CourseCommercialReportService
         $margin = $net !== null && $cost !== null ? round($net - $cost, 2) : null;
         $aiRequests = (int) $rows->sum('ai_requests');
         $aiFailedRequests = (int) $rows->sum('ai_failed_requests');
+        $aiEstimatedRequests = (int) $rows->sum('ai_estimated_requests');
+        $aiMeasurementAvailable = $rows->every(
+            fn (array $row): bool => (bool) ($row['ai_measurement_available'] ?? true)
+        );
         $aiAttempts = $aiRequests + $aiFailedRequests;
 
         return [
             'students' => $students,
             'enrollments' => $enrollments,
             'coins' => (int) $rows->sum('total_coins'),
+            'discount_coins' => (int) $rows->sum('discount_coins'),
             'gross_egp' => round((float) $rows->sum('cash_gross_egp'), 2),
             'net_egp' => $net,
             'ai_requests' => $aiRequests,
             'ai_failed_requests' => $aiFailedRequests,
+            'ai_estimated_requests' => $aiEstimatedRequests,
+            'ai_cost_complete' => $aiMeasurementAvailable && $aiEstimatedRequests === 0,
             'ai_failure_rate_percentage' => $aiAttempts > 0
                 ? round(($aiFailedRequests / $aiAttempts) * 100, 2)
                 : null,
             'ai_tokens' => (int) $rows->sum('ai_tokens'),
-            'ai_cost_usd' => round((float) $rows->sum('ai_cost_usd'), 6),
+            'ai_measurement_available' => $aiMeasurementAvailable,
+            'ai_cost_usd' => $aiMeasurementAvailable
+                ? round((float) $rows->sum('ai_cost_usd'), 6)
+                : null,
             'playback_minutes' => round((float) $rows->sum('playback_minutes'), 2),
             'playback_gb_estimated' => round((float) $rows->sum('playback_gb_estimated'), 4),
             'service_cost_egp' => $cost,
@@ -291,6 +322,7 @@ final class CourseCommercialReportService
         $pendingGross = 0.0;
         $allocatedCoins = 0;
         $reconciliationMissing = false;
+        $foreignCurrencyAmounts = [];
 
         foreach ($orders as $order) {
             $orderAllocatedCoins = 0;
@@ -312,6 +344,13 @@ final class CourseCommercialReportService
                 $ratio = min(1, $coins / $lotCoins);
                 $sourceGross = (float) ($source->gateway_gross_amount ?? $source->final_amount ?? 0);
                 $attributedGross = $sourceGross * $ratio;
+                $sourceCurrency = strtoupper((string) ($source->gateway_currency ?: 'EGP'));
+                if ($sourceCurrency !== 'EGP') {
+                    $foreignCurrencyAmounts[$sourceCurrency] =
+                        ($foreignCurrencyAmounts[$sourceCurrency] ?? 0.0) + $attributedGross;
+                    $reconciliationMissing = true;
+                    continue;
+                }
                 $gross += $attributedGross;
 
                 if ($source->gateway_net_amount !== null) {
@@ -335,6 +374,9 @@ final class CourseCommercialReportService
             'cash_pending_settlement_egp' => round($pendingGross, 2),
             'cash_net_complete' => $pendingGross < 0.005 && !$reconciliationMissing,
             'allocated_paid_coins' => $allocatedCoins,
+            'cash_foreign_currency_amounts' => collect($foreignCurrencyAmounts)
+                ->map(fn (float $amount): float => round($amount, 2))
+                ->all(),
         ];
     }
 }

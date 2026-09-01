@@ -19,7 +19,7 @@
     </div>
 
     <!-- System Warnings -->
-    @if(!$hasGrades || !$hasGroups || !$hasCourses)
+    @if(!$hasGrades || !$hasCourses)
     <div class="system-warnings-card fade-in-up-urgent urgent-delay-005">
         <div class="system-warnings-header">
             <i class="fa fa-exclamation-circle"></i>
@@ -38,21 +38,6 @@
             </div>
             <a href="{{ route('admin.grades.create') }}" class="warning-action-btn">
                 <i class="fa fa-plus"></i> إضافة مرحلة دراسية
-            </a>
-        </div>
-        @endif
-
-        @if(!$hasGroups)
-        <div class="warning-item">
-            <div class="warning-content">
-                <strong>
-                    <i class="fa fa-users"></i>
-                    لا توجد مجموعات
-                </strong>
-                <p>يجب إضافة مجموعة واحدة على الأقل لإدارة الطلاب والدروس</p>
-            </div>
-            <a href="{{ route('admin.groups.create') }}" class="warning-action-btn">
-                <i class="fa fa-plus"></i> إضافة مجموعة
             </a>
         </div>
         @endif
@@ -176,7 +161,7 @@
                                         @else
                                             <strong class="d-block">غير محدد</strong>
                                         @endif
-                                        <small class="text-muted">{{ $order->created_at->diffForHumans() }}</small>
+                                        <small class="text-muted">{{ \App\Support\BusinessClock::relative($order->created_at) }}</small>
                                     </td>
                                     <td>
                                         <span class="status-badge amount">{{ number_format($order->amount, 2) }}</span>
@@ -324,7 +309,7 @@
                                     </td>
                                     <td>
                                         <small class="text-muted">{{ $course->created_at->format('Y-m-d') }}</small><br>
-                                        <small class="text-muted">{{ $course->created_at->diffForHumans() }}</small>
+                                        <small class="text-muted">{{ \App\Support\BusinessClock::relative($course->created_at) }}</small>
                                     </td>
                                     <td>
                                         <a href="{{ route('admin.courses.sections.create', ['course' => $course->id, 'type' => 'quiz']) }}"

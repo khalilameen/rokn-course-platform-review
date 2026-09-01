@@ -10,7 +10,12 @@ class PortfolioMedia extends Model
 
     protected $fillable = [
         'portfolio_item_id',
+        'client_request_id',
         'file_path',
+        'content_sha256',
+        'mime_type',
+        'size_bytes',
+        'original_name',
         'file_type',
         'caption',
         'thumbnail_path',
@@ -18,6 +23,10 @@ class PortfolioMedia extends Model
         'height',
         'duration_seconds',
         'sort_order',
+    ];
+
+    protected $casts = [
+        'size_bytes' => 'integer',
     ];
 
     public function portfolioItem()

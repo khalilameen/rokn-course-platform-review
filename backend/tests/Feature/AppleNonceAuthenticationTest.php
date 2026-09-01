@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Exceptions\SocialProviderUnavailableException;
 use App\Services\GoogleService;
 use Exception;
 use Mockery\MockInterface;
@@ -35,5 +36,20 @@ final class AppleNonceAuthenticationTest extends TestCase
         ])->assertUnprocessable()
             ->assertJsonPath('code', 'social_identity_verification_failed')
             ->assertJsonMissingValidationErrors(['nonce']);
+    }
+
+    public function test_provider_outage_is_retryable_and_not_reported_as_a_bad_account(): void
+    {
+        $this->mock(GoogleService::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('verify')
+                ->once()
+                ->andThrow(new SocialProviderUnavailableException('provider timeout'));
+        });
+
+        $this->postJson('/api/v1/social-login', [
+            'provider' => 'google',
+            'token' => 'google-id-token',
+        ])->assertServiceUnavailable()
+            ->assertJsonPath('code', 'social_provider_unavailable');
     }
 }

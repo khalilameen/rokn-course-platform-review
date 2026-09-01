@@ -115,7 +115,11 @@ final class AcquisitionRewardTombstoneService
     {
         return (bool) $method->is_repeatable
             ? null
-            : $this->methodRewardKey((string) $method->action_key, (int) $method->id);
+            : $this->methodRewardKey(
+                (string) $method->action_key,
+                (int) $method->id,
+                (string) ($method->campaign_key ?? '')
+            );
     }
 
     private function consumedRewardKeysForDeletedUser(int $userId): array
@@ -129,13 +133,21 @@ final class AcquisitionRewardTombstoneService
         }
 
         if (Schema::hasTable('user_coin_earnings') && Schema::hasTable('coin_earning_methods')) {
+            $columns = ['methods.id as method_id', 'methods.action_key'];
+            if (Schema::hasColumn('coin_earning_methods', 'campaign_key')) {
+                $columns[] = 'methods.campaign_key';
+            }
             $methods = DB::table('user_coin_earnings as earnings')
                 ->join('coin_earning_methods as methods', 'methods.id', '=', 'earnings.coin_earning_method_id')
                 ->where('earnings.user_id', $userId)
                 ->where('methods.is_repeatable', false)
-                ->get(['methods.id as method_id', 'methods.action_key']);
+                ->get($columns);
             foreach ($methods as $method) {
-                $key = $this->methodRewardKey((string) $method->action_key, (int) $method->method_id);
+                $key = $this->methodRewardKey(
+                    (string) $method->action_key,
+                    (int) $method->method_id,
+                    (string) ($method->campaign_key ?? '')
+                );
                 if ($key !== null) {
                     $keys[] = $key;
                 }
@@ -143,14 +155,22 @@ final class AcquisitionRewardTombstoneService
         }
 
         if (Schema::hasTable('user_coin_task_attempts') && Schema::hasTable('coin_earning_methods')) {
+            $columns = ['methods.id as method_id', 'methods.action_key'];
+            if (Schema::hasColumn('coin_earning_methods', 'campaign_key')) {
+                $columns[] = 'methods.campaign_key';
+            }
             $claimedMethods = DB::table('user_coin_task_attempts as attempts')
                 ->join('coin_earning_methods as methods', 'methods.id', '=', 'attempts.coin_earning_method_id')
                 ->where('attempts.user_id', $userId)
                 ->where('attempts.status', 'claimed')
                 ->where('methods.is_repeatable', false)
-                ->get(['methods.id as method_id', 'methods.action_key']);
+                ->get($columns);
             foreach ($claimedMethods as $method) {
-                $key = $this->methodRewardKey((string) $method->action_key, (int) $method->method_id);
+                $key = $this->methodRewardKey(
+                    (string) $method->action_key,
+                    (int) $method->method_id,
+                    (string) ($method->campaign_key ?? '')
+                );
                 if ($key !== null) {
                     $keys[] = $key;
                 }
@@ -160,12 +180,19 @@ final class AcquisitionRewardTombstoneService
         return array_values(array_unique($keys));
     }
 
-    private function methodRewardKey(string $actionKey, int $methodId): ?string
+    private function methodRewardKey(
+        string $actionKey,
+        int $methodId,
+        string $campaignKey = ''
+    ): ?string
     {
         $actionKey = strtolower(trim($actionKey));
+        $campaignKey = strtolower(trim($campaignKey));
+        if ($actionKey === 'register') return self::WELCOME_REWARD;
+        if ($campaignKey !== '') return 'campaign:' . $campaignKey;
         if ($actionKey === '') return $methodId > 0 ? 'method:' . $methodId : null;
 
-        return $actionKey === 'register' ? self::WELCOME_REWARD : 'task:' . $actionKey;
+        return 'task:' . $actionKey;
     }
 
     private function identityHmac(string $provider, string $providerUserId): string

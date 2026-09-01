@@ -2,6 +2,7 @@ import React, {ErrorInfo, ReactNode} from 'react';
 import {
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -51,15 +52,23 @@ export default class AppErrorBoundary extends React.Component<Props, State> {
 
     return (
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.frame}>
-          <View style={styles.mark}>
-            <Text style={styles.markText}>ر</Text>
+        <ScrollView
+          bounces={false}
+          contentContainerStyle={styles.frame}
+          contentInsetAdjustmentBehavior="automatic"
+          showsVerticalScrollIndicator={false}>
+          <View accessibilityLiveRegion="assertive" style={styles.copy}>
+            <View style={styles.mark}>
+              <Text style={styles.markText}>ر</Text>
+            </View>
+            <Text accessibilityRole="header" style={styles.title}>
+              حدث توقف غير متوقع
+            </Text>
+            <Text style={styles.message}>
+              حاول المتابعة
+              {'\n'}أو أعد تشغيل ركن
+            </Text>
           </View>
-          <Text style={styles.title}>حدث توقف غير متوقع</Text>
-          <Text style={styles.message}>
-            مكانك محفوظ
-            {'\n'}حاول المتابعة أو أعد تشغيل ركن
-          </Text>
           <Pressable
             accessibilityRole="button"
             onPress={this.retry}
@@ -69,10 +78,13 @@ export default class AppErrorBoundary extends React.Component<Props, State> {
           <Pressable
             accessibilityRole="button"
             onPress={() => RNRestart.Restart()}
-            style={({pressed}) => [styles.secondary, pressed && styles.pressed]}>
+            style={({pressed}) => [
+              styles.secondary,
+              pressed && styles.pressed,
+            ]}>
             <Text style={styles.secondaryText}>إعادة تشغيل التطبيق</Text>
           </Pressable>
-        </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -81,14 +93,16 @@ export default class AppErrorBoundary extends React.Component<Props, State> {
 const styles = StyleSheet.create({
   safeArea: {flex: 1, backgroundColor: Palette.canvas},
   frame: {
-    flex: 1,
+    flexGrow: 1,
     width: '100%',
     maxWidth: 560,
     alignSelf: 'center',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.xl,
   },
+  copy: {width: '100%', alignItems: 'center'},
   mark: {
     width: 58,
     height: 58,

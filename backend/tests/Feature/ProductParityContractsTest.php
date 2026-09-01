@@ -90,15 +90,34 @@ final class ProductParityContractsTest extends TestCase
     public function test_feedback_is_private_server_owned_and_accepts_anonymous_reports(): void
     {
         Storage::fake('feedback');
+        $clientRequestId = (string) \Illuminate\Support\Str::uuid();
+        DB::table('app_versions')->insert([
+            'platform' => 'android',
+            'distribution_channel' => 'direct',
+            'version_name' => '1.0.22',
+            'version_code' => 22,
+            'is_force_update' => false,
+            'is_active' => true,
+            'download_url' => 'https://rokn.app/downloads/rokn-1.0.22.apk',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
-        $response = $this->postJson('/api/v1/feedback', [
+        $headers = [
+            'X-Rokn-Platform' => 'android',
+            'X-Rokn-App-Version' => '1.0.22',
+            'X-Rokn-App-Build' => '22',
+        ];
+        $response = $this->withHeaders($headers)->postJson('/api/v1/feedback', [
+            'client_request_id' => $clientRequestId,
             'category' => 'suggestion',
             'message' => 'Please add a clearer explanation to this screen.',
             'screen_key' => 'settings.feedback',
             'platform' => 'android',
-            'app_version' => '1.0.22',
+            'app_version' => 'forged-value',
+            'build_number' => 99999,
         ])->assertCreated()
-            ->assertJsonPath('data.status', 'new');
+            ->assertJsonPath('data.status', 'received');
 
         $publicId = $response->json('data.public_id');
         $this->assertMatchesRegularExpression('/^[0-9A-HJKMNP-TV-Z]{26}$/', $publicId);
@@ -107,9 +126,23 @@ final class ProductParityContractsTest extends TestCase
             'user_id' => null,
             'category' => 'suggestion',
             'app_version' => '1.0.22',
+            'build_number' => 22,
         ]);
         $response->assertJsonMissingPath('data.user_id')
             ->assertJsonMissingPath('data.ip_hash');
+
+        $this->withHeaders($headers)->postJson('/api/v1/feedback', [
+            'client_request_id' => $clientRequestId,
+            'category' => 'suggestion',
+            'message' => 'Please add a clearer explanation to this screen.',
+            'screen_key' => 'settings.feedback',
+            'platform' => 'android',
+            'app_version' => 'forged-value',
+            'build_number' => 99999,
+        ])->assertOk()
+            ->assertJsonPath('data.public_id', $publicId)
+            ->assertJsonPath('data.replayed', true);
+        $this->assertDatabaseCount('feedback_reports', 1);
     }
 
     public function test_course_details_exposes_the_verified_total_duration_in_minutes(): void
@@ -135,8 +168,9 @@ final class ProductParityContractsTest extends TestCase
         $providerLesson = Lesson::create([
             'list_id' => $course->id,
             'title' => 'Provider duration',
-            'duration_minutes' => null,
-            'is_opened' => false,
+            // The authored estimate must not override verified Bunny timing.
+            'duration_minutes' => 1,
+            'is_opened' => true,
         ]);
         LessonMediaState::create([
             'lesson_id' => $providerLesson->id,
@@ -162,7 +196,8 @@ final class ProductParityContractsTest extends TestCase
 
         $this->getJson("/api/v1/courses/{$course->id}/details")
             ->assertOk()
-            ->assertJsonPath('data.metadata.duration_minutes', 15);
+            ->assertJsonPath('data.metadata.duration_minutes', 15)
+            ->assertJsonPath('data.sections.1.content.duration_seconds', 125);
 
         $this->getJson('/api/v1/courses?per_page=50')
             ->assertOk()
@@ -238,16 +273,18 @@ final class ProductParityContractsTest extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ]);
-        CourseRating::create([
+        (new CourseRating())->forceFill([
             'user_id' => $activeLearners[0]->id,
             'course_id' => $course->id,
             'rating' => 5,
-        ]);
-        CourseRating::create([
+            'version' => 1,
+        ])->save();
+        (new CourseRating())->forceFill([
             'user_id' => $activeLearners[1]->id,
             'course_id' => $course->id,
             'rating' => 4,
-        ]);
+            'version' => 1,
+        ])->save();
 
         $this->getJson("/api/v1/courses/{$course->id}/details")
             ->assertOk()
@@ -283,6 +320,23 @@ final class ProductParityContractsTest extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+        $nextLesson = Lesson::create([
+            'list_id' => $course->id,
+            'title' => 'الدرس التالي',
+            'title_ar' => 'الدرس التالي',
+            'is_opened' => false,
+        ]);
+        $nextSectionId = DB::table('course_sections')->insertGetId([
+            'course_id' => $course->id,
+            'title' => 'الدرس التالي',
+            'title_ar' => 'الدرس التالي',
+            'section_type' => 'lesson',
+            'sectionable_type' => Lesson::class,
+            'sectionable_id' => $nextLesson->id,
+            'order' => 3,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
         DB::table('course_enrollments')->insert([
             'tenant_id' => 1,
             'user_id' => $user->id,
@@ -305,6 +359,13 @@ final class ProductParityContractsTest extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+        DB::table('student_section_progress')->insert([
+            'user_id' => $user->id,
+            'course_section_id' => $sectionId,
+            'is_completed' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
         $this->actingAs($user, 'api')->getJson('/api/v1/learning/courses')
             ->assertOk()
@@ -312,6 +373,9 @@ final class ProductParityContractsTest extends TestCase
             ->assertJsonPath('data.items.0.resume.lesson_id', $lesson->id)
             ->assertJsonPath('data.items.0.resume.position_seconds', 42)
             ->assertJsonPath('data.items.0.resume.progress_percentage', 35)
+            ->assertJsonPath('data.items.0.next_section.course_section_id', $nextSectionId)
+            ->assertJsonPath('data.items.0.next_section.id', $nextLesson->id)
+            ->assertJsonPath('data.items.0.next_section.type', 'lesson')
             ->assertJsonMissingPath('data.items.0.resume.video_url');
     }
 
@@ -333,9 +397,35 @@ final class ProductParityContractsTest extends TestCase
 
     private function course(array $attributes): Course
     {
+        $teacher = $this->user(['role' => 'teacher']);
         $course = new Course();
-        $course->forceFill(array_merge(['tenant_id' => 1], $attributes));
+        $course->forceFill(array_merge([
+            'tenant_id' => 1,
+            'teacher_id' => $teacher->id,
+            'description_ar' => 'محتوى تعليمي واضح',
+            'description_en' => 'Clear learning content',
+            'image' => 'courses/parity-cover.jpg',
+            'is_catalog_visible' => true,
+        ], $attributes));
         $course->save();
+
+        DB::table('course_teacher')->insert([
+            'course_id' => $course->id,
+            'teacher_id' => $teacher->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $classificationId = DB::table('classifications')->insertGetId([
+            'name_ar' => 'التعلّم',
+            'name_en' => 'Learning',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('classification_course')->insert([
+            'classification_id' => $classificationId,
+            'course_id' => $course->id,
+        ]);
+        app(\App\Services\CourseAccessPlanService::class)->createDefaults($course);
 
         return $course;
     }

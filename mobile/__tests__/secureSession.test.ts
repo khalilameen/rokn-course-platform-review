@@ -131,6 +131,11 @@ describe('secure mobile session persistence', () => {
       name: 'Rokn learner',
     });
     expect(secureSet).toHaveBeenCalledWith(
+      'rokn.auth.api-token.v2',
+      'legacy-api-token',
+      expect.any(Object),
+    );
+    expect(secureSet).toHaveBeenCalledWith(
       'rokn.auth.api-token.v1',
       'legacy-api-token',
       expect.any(Object),
@@ -178,6 +183,7 @@ describe('secure mobile session persistence', () => {
     await saveSecureSession(session);
 
     expect(secureValues.get('rokn.auth.api-token.v1')).toBe('api-secret');
+    expect(secureValues.get('rokn.auth.api-token.v2')).toBe('api-secret');
     expect(await AsyncStorage.getItem('USER_DATA')).toBe(
       JSON.stringify({user: {id: 7, name: 'Student', token_balance: 120}}),
     );
@@ -204,6 +210,9 @@ describe('secure mobile session persistence', () => {
       api_token: 'secure-api-token',
       user: {id: 8, name: 'Learner'},
     });
+    expect(secureValues.get('rokn.auth.api-token.v2')).toBe(
+      'secure-api-token',
+    );
     expect(await AsyncStorage.getItem('USER_DATA')).toBe(
       JSON.stringify({user: {id: 8, name: 'Learner'}}),
     );
@@ -217,6 +226,7 @@ describe('secure mobile session persistence', () => {
     await expect(deleteSecureSession()).resolves.toBe(true);
 
     expect(secureValues.has('rokn.auth.api-token.v1')).toBe(false);
+    expect(secureValues.has('rokn.auth.api-token.v2')).toBe(false);
     expect(await AsyncStorage.getItem('USER_DATA')).toBeNull();
     expect(await AsyncStorage.getItem('persist:auth')).toBeNull();
   });

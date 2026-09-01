@@ -38,8 +38,21 @@ export const buildAccessibleFeed = (
     }
     if (reachedLockedReel) break;
 
+    const lastReel = module.reels[module.reels.length - 1];
+    const quizzes = module.quizzes || [];
+    if (quizzes.length && lastReel && !lastReel.isCompleted) break;
+    for (const quiz of quizzes) {
+      if (quiz.isLocked) return items;
+      items.push({
+        key: `quiz-${quiz.id}`,
+        type: 'quiz',
+        moduleId: module.id,
+        quiz,
+      });
+      if (!quiz.passed) return items;
+    }
+
     if (module.project) {
-      const lastReel = module.reels[module.reels.length - 1];
       if (lastReel && !lastReel.isCompleted) break;
 
       items.push({
@@ -86,6 +99,19 @@ export const updateProjectStatusOnly = (
       module.project?.id === projectId
         ? {...module.project, status}
         : module.project,
+  })),
+});
+
+export const markQuizPassed = (
+  course: CourseLearningData,
+  quizId: string,
+): CourseLearningData => ({
+  ...course,
+  modules: course.modules.map(module => ({
+    ...module,
+    quizzes: (module.quizzes || []).map(quiz =>
+      quiz.id === quizId ? {...quiz, passed: true} : quiz,
+    ),
   })),
 });
 

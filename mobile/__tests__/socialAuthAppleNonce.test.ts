@@ -30,6 +30,18 @@ jest.mock('../src/constants/api', () => ({
     post: (url: string, payload: unknown) => mockPost(url, payload),
   },
 }));
+jest.mock('../src/services/installationIdentity', () => ({
+  getInstallationId: jest.fn(async () => null),
+}));
+jest.mock('../src/services/pendingWelcomeBonus', () => ({
+  savePendingWelcomeBonus: jest.fn(async () => undefined),
+}));
+jest.mock('../src/services/secureSession', () => ({
+  saveSecureSession: jest.fn(async () => undefined),
+  savePendingSocialAuthAttempt: jest.fn(async () => undefined),
+  loadPendingSocialAuthAttempt: jest.fn(async () => null),
+  deletePendingSocialAuthAttempt: jest.fn(async () => undefined),
+}));
 
 import {signInWithSocialProvider} from '../src/services/socialAuth';
 
@@ -49,6 +61,7 @@ describe('Apple sign-in nonce binding', () => {
         data: {
           api_token: 'rokn-session-token',
           user: {
+            id: 7,
             name: 'Rokn Learner',
             email: 'learner@example.com',
             social_provider: 'apple',

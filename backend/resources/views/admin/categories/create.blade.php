@@ -9,11 +9,15 @@
                 <div class="card-header"><i class="fa fa-th-large"></i><strong class="card-title pr-2">أضافه قسم</strong>
                 </div>
                 <div class="card-body card-block">
-                    {!! Form::open(['method' => 'POST','files' => true, 'route' => ['admin.categories.store']]) !!}
+                    {!! Form::open(['method' => 'POST','files' => true, 'route' => ['admin.categories.store'], 'id' => 'categoryForm']) !!}
                         @include('admin.categories._form')
                     {!! Form::close() !!}
                 </div>
             </div>
         </div>
   </div>
+@endsection
+
+@section('scripts')
+    @include('admin.partials.course-authoring-draft', ['formId' => 'categoryForm'])
 @endsection

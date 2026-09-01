@@ -1,7 +1,9 @@
 @php
     $headerUser = auth()->user();
     $headerIsAdministrator = strtolower(trim((string) $headerUser?->role)) === 'admin';
-    $headerNotifications = $headerIsAdministrator ? $headerUser->unreadNotifications : collect();
+    $headerNotificationState = app(\App\Services\AdminHeaderNotificationService::class)->for($headerUser);
+    $headerNotifications = $headerNotificationState['items'];
+    $headerUnreadCount = $headerNotificationState['unread_count'];
     $headerProfileImage = $headerUser?->getRawOriginal('profile_image');
     if ($headerProfileImage && !filter_var($headerProfileImage, FILTER_VALIDATE_URL)) {
         $headerProfileImage = asset('storage/' . ltrim($headerProfileImage, '/'));
@@ -40,20 +42,20 @@
                     aria-expanded="false"
                 >
                     <i class="fa fa-bell" aria-hidden="true"></i>
-                    @if($headerNotifications->isNotEmpty())
-                        <span class="notification-badge">{{ $headerNotifications->count() }}</span>
+                    @if($headerUnreadCount > 0)
+                        <span class="notification-badge">{{ $headerUnreadCount > 99 ? '99+' : $headerUnreadCount }}</span>
                     @endif
                 </button>
 
                 <div class="notification-dropdown" id="notificationMenu" aria-hidden="true">
                     <div class="notification-header">
-                        <h6>لديك {{ $headerNotifications->count() }} إشعارات جديدة</h6>
+                        <h6>{{ $headerUnreadCount ? $headerUnreadCount . ' إشعارات جديدة' : 'لا توجد إشعارات جديدة' }}</h6>
                     </div>
                     <div class="notification-list">
                         @forelse($headerNotifications as $notification)
-                            <a class="notification-item" href="{{ route('admin.users.show', [$notification->data['data'], 'n_id' => $notification->id]) }}">
+                            <a class="notification-item" href="{{ $notification['url'] }}">
                                 <div class="notification-content">
-                                    <p>طلب جديد من {{ \App\Models\User::find($notification->data['data'])?->name }} </p>
+                                    <p>{{ $notification['label'] }}</p>
                                 </div>
                                 <div class="notification-icon">
                                     <i class="fa fa-user-plus"></i>

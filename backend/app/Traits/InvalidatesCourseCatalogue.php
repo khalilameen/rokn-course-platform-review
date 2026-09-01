@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Traits;
 
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 trait InvalidatesCourseCatalogue
 {
@@ -18,8 +19,31 @@ trait InvalidatesCourseCatalogue
                 return;
             }
 
-            $key = 'courses:catalog-revision';
-            Cache::forever($key, max(1, (int) Cache::get($key, 1)) + 1);
+            $incrementRevision = static function (): void {
+                try {
+                    $key = 'courses:catalog-revision';
+                    // add() is atomic on the production cache stores. Incrementing
+                    // afterwards means concurrent edits cannot overwrite each
+                    // other's revision and strand a stale catalogue page.
+                    Cache::add($key, 1, now()->addYears(10));
+                    Cache::increment($key);
+                } catch (\Throwable) {
+                    // Cache invalidation improves freshness but must never make
+                    // an editor's database commit depend on Redis availability.
+                }
+            };
+
+            // Publishing and authoring mutate several related models inside a
+            // transaction. Exposing the new revision before commit lets a
+            // concurrent request cache the old database snapshot under that
+            // new revision for five minutes. Publish the revision only after
+            // the database state is visible to every connection.
+            if (DB::transactionLevel() > 0) {
+                DB::afterCommit($incrementRevision);
+                return;
+            }
+
+            $incrementRevision();
         };
 
         static::saved($touchCatalogue);

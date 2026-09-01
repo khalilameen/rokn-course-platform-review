@@ -4,21 +4,63 @@ import {
   AsyncKeys,
   extractApiToken,
   getItem,
+  normalizeText,
 } from '../../constants/helpers';
 import {publicRequest} from '../../constants/api';
 import type {DemoCourse} from '../../data/demoContent';
 import {normalizeCourseDurationMinutes} from '../../utils/courseDetailsPresentation';
+import {isServerTimestampFresh, serverNowMs} from '../../utils/serverClock';
+import {truncateGraphemes} from '../../utils/unicodeText';
 import {
   ApiRecord,
+  firstBoolean,
   isApiRecord,
   payload,
   resourceList,
   valueAsBoolean,
 } from './common';
 
-const CATALOGUE_CACHE_KEY = '@rokn/catalogue-page/v1';
-const CATALOGUE_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const numericRouteId = (value: string, field: string) => {
+  const normalized = String(value).trim();
+  if (!/^\d+$/.test(normalized) || Number(normalized) <= 0) {
+    throw new Error(`INVALID_${field}_ID`);
+  }
+  return normalized;
+};
+
+const CATALOGUE_CACHE_KEY = '@rokn/catalogue-page/v4';
+const CATALOGUE_CACHE_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 const CATALOGUE_CACHE_PAGE_LIMIT = 4;
+const COURSE_DETAILS_CACHE_KEY = '@rokn/course-details/v3';
+const COURSE_DETAILS_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const COURSE_DETAILS_CACHE_LIMIT = 8;
+let courseDetailsCacheTail: Promise<void> = Promise.resolve();
+const unavailableCourseListeners = new Set<(courseId: string) => void>();
+
+export const subscribeToUnavailableCourses = (
+  listener: (courseId: string) => void,
+) => {
+  unavailableCourseListeners.add(listener);
+  return () => {
+    unavailableCourseListeners.delete(listener);
+  };
+};
+
+const publishUnavailableCourse = (courseId: string) => {
+  unavailableCourseListeners.forEach(listener => listener(courseId));
+};
+
+const nonNegativeNumberOr = (value: unknown, fallback: number): number => {
+  if (value === null || value === undefined || value === '') return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : fallback;
+};
+
+const courseUserRating = (value: unknown): number | null => {
+  const raw = isApiRecord(value) ? value.rating : value;
+  const rating = Number(raw);
+  return rating >= 1 && rating <= 5 ? rating : null;
+};
 
 type CourseTagDto = {
   id?: unknown;
@@ -28,7 +70,7 @@ type CourseTagDto = {
   home_order?: unknown;
 };
 
-type CourseLessonDto = {id?: unknown; title?: unknown};
+type CourseLessonDto = {id?: unknown; title?: unknown; type?: unknown};
 type CourseResumeDto = {
   available?: unknown;
   lesson_id?: unknown;
@@ -64,6 +106,7 @@ type CourseTeacherDto = {
 };
 
 type CourseDto = ApiRecord & {
+  access_type?: unknown;
   tags?: CourseTagDto[];
   enrollment?: CourseEnrollmentDto;
   progress?: unknown;
@@ -78,14 +121,18 @@ type CourseDto = ApiRecord & {
   access_plans?: CourseAccessPlanDto[];
   metadata?: ApiRecord;
   catalog_badge?: ApiRecord;
+  rating_eligibility?: ApiRecord;
+  user_rating?: ApiRecord;
 };
 
 type CatalogueCacheRecord = {
+  version: 4;
   savedAt: number;
   courses: DemoCourse[];
   page: number;
   hasMore: boolean;
   total: number;
+  revision: number;
 };
 
 export type PublishedCoursesPage = {
@@ -94,6 +141,8 @@ export type PublishedCoursesPage = {
   hasMore: boolean;
   total: number;
   fromCache: boolean;
+  revision: number;
+  reset?: boolean;
 };
 
 export type CourseModulePreview = {
@@ -105,7 +154,7 @@ export type CourseModulePreview = {
   items: Array<{
     id: string;
     title: string;
-    type: 'reel' | 'project' | 'other';
+    type: 'reel' | 'project' | 'quiz' | 'other';
     isPreview: boolean;
     reelNumber?: number;
     reelId?: string;
@@ -121,6 +170,9 @@ export type CourseAccessPlan = {
   chatMessageLimit: number;
   projectFeedbackLevel: 'pass_only' | 'report' | 'enhanced' | string;
   projectReportEnabled: boolean;
+  projectFollowupEnabled?: boolean;
+  projectFollowupMessageLimit?: number;
+  projectFollowupTokenBudget?: number;
   projectOutputEnabled: boolean;
   certificateEnabled: boolean;
 };
@@ -141,9 +193,20 @@ export type CourseDetails = {
   previewReelCount: number;
   ratingAverage: number | null;
   ratingsCount: number;
+  userRating: number | null;
+  ratingVersion?: number;
+  ratingEligible?: boolean;
+  ratingEligibilityReason?: string;
   studentsCount: number;
   durationMinutes: number | null;
   accessPlans: CourseAccessPlan[];
+  fromCache?: boolean;
+};
+
+type CourseDetailsCacheRecord = {
+  version: 3;
+  savedAt: number;
+  course: CourseDetails;
 };
 
 const courseCategory = (course: CourseDto): DemoCourse['category'] => {
@@ -201,13 +264,25 @@ export type CourseProgress = {
   lastLessonTitle?: string;
   nextLessonId?: string;
   nextLessonTitle?: string;
+  nextSectionType?: string;
   lastWatchedAt?: string;
 };
 
 export const getLearningCourses = async (): Promise<CourseProgress[]> => {
-  const data = payload(await publicRequest.get('learning/courses'));
+  const rawData = payload<unknown>(
+    await publicRequest.get('learning/courses'),
+  );
+  if (!isApiRecord(rawData) || !Array.isArray(rawData.items)) {
+    throw new Error('LEARNING_COURSES_CONTRACT_INVALID');
+  }
+  const data = rawData;
   return resourceList<CourseDto>(data.items)
-    .filter(item => item?.course_id !== null && item?.course_id !== undefined)
+    .filter(
+      item =>
+        isApiRecord(item) &&
+        item.course_id !== null &&
+        item.course_id !== undefined,
+    )
     .map(item => {
       const resume = item.resume || item.learning_resume || {};
       const lastLesson =
@@ -224,18 +299,18 @@ export const getLearningCourses = async (): Promise<CourseProgress[]> => {
         id: String(item.course_id),
         title: String(item.title || 'كورس ركن'),
         imageUrl: item.image ? String(item.image) : undefined,
-        progress: Math.max(
-          0,
-          Math.min(100, Number(item.progress_percentage || 0)),
+        progress: Math.min(
+          100,
+          nonNegativeNumberOr(item.progress_percentage, 0),
         ),
-        completedSections: Math.max(0, Number(item.completed_sections || 0)),
-        totalSections: Math.max(0, Number(item.total_sections || 0)),
+        completedSections: nonNegativeNumberOr(item.completed_sections, 0),
+        totalSections: nonNegativeNumberOr(item.total_sections, 0),
         category: courseCategory(item),
         accessType: item.access_type ? String(item.access_type) : undefined,
         chatAvailable: valueAsBoolean(item.chat_available),
         certificateAvailable:
           item.certificate_available === undefined
-            ? true
+            ? false
             : valueAsBoolean(item.certificate_available),
         lastLessonId:
           (lastLesson?.id ?? item.last_lesson_id ?? item.current_lesson_id) ===
@@ -273,6 +348,10 @@ export const getLearningCourses = async (): Promise<CourseProgress[]> => {
                   item.next_section_title,
               )
             : undefined,
+        nextSectionType:
+          nextLesson?.type || item.next_section?.type
+            ? String(nextLesson?.type || item.next_section?.type).toLowerCase()
+            : undefined,
         lastWatchedAt:
           String(
             resume.last_watched_at ||
@@ -289,78 +368,93 @@ export const getLearningCourses = async (): Promise<CourseProgress[]> => {
 
 const courseModules = (course: CourseDto): CourseModulePreview[] => {
   let reelNumber = 0;
-  return (Array.isArray(course?.modules) ? course.modules : []).map(module => {
-    const sections = Array.isArray(module?.sections) ? module.sections : [];
-    const sectionType = (section: CourseSectionDto) =>
-      String(
-        section?.type ||
-          section?.section_type ||
-          section?.content?.type ||
-          'lesson',
-      ).toLowerCase();
-    const lessons = sections.filter(section =>
-      ['lesson', 'video', 'reel'].includes(sectionType(section)),
-    );
-    const isPreviewSection = (section: CourseSectionDto) => {
-      const content =
-        section?.content || section?.sectionable || section?.lesson || {};
-      return valueAsBoolean(
-        section?.is_preview,
-        section?.preview,
-        section?.is_free_preview,
-        section?.is_free,
-        content?.is_preview,
-        content?.preview,
-        content?.is_free_preview,
-        content?.is_free,
-        content?.is_opened,
+  return (Array.isArray(course?.modules) ? course.modules : []).flatMap(
+    module => {
+      const moduleId = String(module?.id ?? '').trim();
+      if (!moduleId) return [];
+      const sections = Array.isArray(module?.sections) ? module.sections : [];
+      const sectionType = (section: CourseSectionDto) =>
+        String(
+          section?.type ||
+            section?.section_type ||
+            section?.content?.type ||
+            'lesson',
+        ).toLowerCase();
+      const lessons = sections.filter(section =>
+        ['lesson', 'video', 'reel'].includes(sectionType(section)),
       );
-    };
-    const items = sections.map(section => {
-      const rawType = sectionType(section);
-      const content =
-        section?.content || section?.sectionable || section?.lesson || {};
-      const type =
-        rawType === 'project'
-          ? 'project'
-          : ['lesson', 'video', 'reel'].includes(rawType)
-          ? 'reel'
-          : 'other';
-      const currentReelNumber = type === 'reel' ? ++reelNumber : undefined;
-      return {
-        id: String(
-          section?.id ?? `${module?.id}-${currentReelNumber ?? rawType}`,
-        ),
-        title: String(
-          section?.title ||
-            section?.content?.title ||
-            (type === 'project' ? 'مشروع العبور' : 'مقطع تعليمي'),
-        ),
-        type,
-        isPreview: type === 'reel' && isPreviewSection(section),
-        reelNumber: currentReelNumber,
-        reelId:
-          type === 'reel'
-            ? String(content?.id || section?.lesson_id || section?.id)
-            : undefined,
-      } as CourseModulePreview['items'][number];
-    });
-    return {
-      id: String(module.id),
-      title: String(module.title || 'وحدة تعليمية'),
-      reelCount: lessons.length,
-      projectCount: sections.filter(section => section.type === 'project')
-        .length,
-      previewReelCount: lessons.filter(isPreviewSection).length,
-      items,
-    };
-  });
+      const isPreviewSection = (section: CourseSectionDto) => {
+        const content =
+          section?.content || section?.sectionable || section?.lesson || {};
+        return valueAsBoolean(
+          section?.is_preview,
+          section?.preview,
+          section?.is_free_preview,
+          section?.is_free,
+          content?.is_preview,
+          content?.preview,
+          content?.is_free_preview,
+          content?.is_free,
+          content?.is_opened,
+        );
+      };
+      const items = sections.flatMap(section => {
+        const rawType = sectionType(section);
+        const content =
+          section?.content || section?.sectionable || section?.lesson || {};
+        const type =
+          rawType === 'project'
+            ? 'project'
+            : rawType === 'quiz'
+            ? 'quiz'
+            : ['lesson', 'video', 'reel'].includes(rawType)
+            ? 'reel'
+            : 'other';
+        if (type === 'other') return [];
+        const sectionId = String(section?.id ?? '').trim();
+        if (!sectionId) return [];
+        const currentReelNumber = type === 'reel' ? ++reelNumber : undefined;
+        return [
+          {
+            id: sectionId,
+            title: String(
+              section?.title ||
+                section?.content?.title ||
+                (type === 'project'
+                  ? 'مشروع العبور'
+                  : type === 'quiz'
+                  ? 'اختبار الوحدة'
+                  : 'مقطع تعليمي'),
+            ),
+            type,
+            isPreview: type === 'reel' && isPreviewSection(section),
+            reelNumber: currentReelNumber,
+            reelId:
+              type === 'reel'
+                ? String(content?.id || section?.lesson_id || sectionId)
+                : undefined,
+          } as CourseModulePreview['items'][number],
+        ];
+      });
+      return [
+        {
+          id: moduleId,
+          title: String(module.title || 'وحدة تعليمية'),
+          reelCount: lessons.length,
+          projectCount: sections.filter(
+            section => sectionType(section) === 'project',
+          ).length,
+          previewReelCount: lessons.filter(isPreviewSection).length,
+          items,
+        },
+      ];
+    },
+  );
 };
 
 const mapCourseDetails = (course: CourseDto): CourseDetails => {
   const modules = courseModules(course);
   const teacher = Array.isArray(course?.teachers) ? course.teachers[0] : null;
-  const rawPrice = Number(course?.price);
   const durationMinutes = normalizeCourseDurationMinutes(course);
   const planOrder: Record<string, number> = {basic: 0, guided: 1, mentor: 2};
   const seenPlanCodes = new Set<string>();
@@ -397,13 +491,28 @@ const mapCourseDetails = (course: CourseDto): CourseDetails => {
         chatEnabled: valueAsBoolean(plan.chat_enabled),
         chatMessageLimit: Math.max(0, Number(plan.chat_message_limit) || 0),
         projectFeedbackLevel: String(
-          plan.project_feedback_level || 'pass_only',
-        ),
+          ['pass_only', 'report', 'enhanced'].includes(
+            String(plan.project_feedback_level),
+          )
+            ? plan.project_feedback_level
+            : 'pass_only',
+        ) as CourseAccessPlan['projectFeedbackLevel'],
         projectReportEnabled: valueAsBoolean(plan.project_report_enabled),
+        projectFollowupEnabled: valueAsBoolean(
+          plan.project_thread_reply_enabled,
+        ),
+        projectFollowupMessageLimit: Math.max(
+          0,
+          Number(plan.project_message_limit) || 0,
+        ),
+        projectFollowupTokenBudget: Math.max(
+          0,
+          Number(plan.project_token_budget) || 0,
+        ),
         projectOutputEnabled: valueAsBoolean(plan.project_output_enabled),
         certificateEnabled:
           plan.certificate_enabled === undefined
-            ? true
+            ? false
             : valueAsBoolean(plan.certificate_enabled),
       };
     })
@@ -418,20 +527,20 @@ const mapCourseDetails = (course: CourseDto): CourseDetails => {
         left.priceCoins - right.priceCoins,
     );
   return {
-    id: String(course.id),
+    id: String(course.id ?? '').trim(),
     title: String(course.title || 'كورس ركن'),
     description: String(course.description || ''),
     imageUrl: course.image ? String(course.image) : undefined,
     price:
-      course.price === null || course.price === undefined
-        ? null
-        : Number.isFinite(rawPrice)
-        ? Math.max(0, rawPrice)
+      accessPlans.length > 0
+        ? Math.min(...accessPlans.map(plan => plan.priceCoins))
         : null,
     instructor: String(teacher?.name || 'فريق ركن'),
     instructorBio: String(teacher?.bio || teacher?.job_title || ''),
     instructorImage: teacher?.image ? String(teacher.image) : undefined,
-    owned: Boolean(course?.enrollment?.is_active),
+    owned:
+      String(course?.access_type || 'none').toLowerCase() !== 'none' ||
+      valueAsBoolean(course?.enrollment?.is_active),
     modules,
     reelCount: modules.reduce((sum, module) => sum + module.reelCount, 0),
     projectCount: modules.reduce((sum, module) => sum + module.projectCount, 0),
@@ -450,6 +559,17 @@ const mapCourseDetails = (course: CourseDto): CourseDetails => {
         ? Number(course?.average_rating ?? course?.ratings_avg_rating)
         : null,
     ratingsCount: Math.max(0, Number(course?.ratings_count ?? 0) || 0),
+    userRating: courseUserRating(course?.user_rating),
+    ratingVersion: Math.max(
+      0,
+      Number(
+        course?.rating_eligibility?.version ?? course?.user_rating?.version,
+      ) || 0,
+    ),
+    ratingEligible: valueAsBoolean(course?.rating_eligibility?.can_rate),
+    ratingEligibilityReason: String(
+      course?.rating_eligibility?.reason || 'course_access_required',
+    ),
     studentsCount: Math.max(
       0,
       Number(course?.metadata?.students_count ?? course?.students_count ?? 0) ||
@@ -460,33 +580,40 @@ const mapCourseDetails = (course: CourseDto): CourseDetails => {
   };
 };
 
-let learningCatalogueSnapshot: {
+type LearningCatalogueSnapshot = {
   expiresAt: number;
   items: CourseProgress[];
-} | null = null;
-let learningCatalogueFlight: Promise<CourseProgress[]> | null = null;
+};
+const learningCatalogueSnapshots = new Map<string, LearningCatalogueSnapshot>();
+const learningCatalogueFlights = new Map<string, Promise<CourseProgress[]>>();
 
-const getLearningCatalogueSnapshot = async () => {
-  if (
-    learningCatalogueSnapshot &&
-    learningCatalogueSnapshot.expiresAt > Date.now()
-  ) {
-    return learningCatalogueSnapshot.items;
+const getLearningCatalogueSnapshot = async (): Promise<CourseProgress[]> => {
+  const scope = await accountScopedStorageKey('@rokn/learning-catalogue');
+  const snapshot = learningCatalogueSnapshots.get(scope);
+  if (snapshot && snapshot.expiresAt > serverNowMs()) {
+    return snapshot.items;
   }
-  if (!learningCatalogueFlight) {
-    learningCatalogueFlight = getLearningCourses()
-      .then(items => {
-        learningCatalogueSnapshot = {
-          expiresAt: Date.now() + 30_000,
-          items,
-        };
-        return items;
-      })
-      .finally(() => {
-        learningCatalogueFlight = null;
+  const currentFlight = learningCatalogueFlights.get(scope);
+  if (currentFlight) return currentFlight;
+
+  const flight = getLearningCourses()
+    .then(items => {
+      learningCatalogueSnapshots.set(scope, {
+        expiresAt: serverNowMs() + 30_000,
+        items,
       });
-  }
-  return learningCatalogueFlight;
+      while (learningCatalogueSnapshots.size > 4) {
+        const oldestScope = learningCatalogueSnapshots.keys().next().value;
+        if (typeof oldestScope !== 'string') break;
+        learningCatalogueSnapshots.delete(oldestScope);
+      }
+      return items;
+    })
+    .finally(() => {
+      learningCatalogueFlights.delete(scope);
+    });
+  learningCatalogueFlights.set(scope, flight);
+  return flight;
 };
 
 const mapPublishedCourses = (
@@ -494,16 +621,22 @@ const mapPublishedCourses = (
   learningResult: CourseProgress[],
 ): DemoCourse[] => {
   const learningByCourse = new Map(learningResult.map(item => [item.id, item]));
+  const seenCourseIds = new Set<string>();
   return items
-    .filter(
-      item =>
-        (item?.id ?? item?.course_id) !== null &&
-        (item?.id ?? item?.course_id) !== undefined &&
-        (item.is_coming_soon ||
-          item._compact_search ||
-          (item.price !== null && item.price !== undefined)) &&
-        String(item.title || '').trim().length > 0,
-    )
+    .filter(item => {
+      const rawId = item?.id ?? item?.course_id;
+      if (
+        rawId === null ||
+        rawId === undefined ||
+        String(item.title || '').trim().length === 0
+      ) {
+        return false;
+      }
+      const id = String(rawId);
+      if (seenCourseIds.has(id)) return false;
+      seenCourseIds.add(id);
+      return true;
+    })
     .map(item => {
       const courseId = item.id ?? item.course_id;
       const learning = learningByCourse.get(String(courseId));
@@ -518,7 +651,7 @@ const mapPublishedCourses = (
         .map(tag => ({
           id: String(tag.id),
           title: String(tag.name_ar || tag.name_en || '').trim(),
-          order: Math.max(0, Number(tag.home_order ?? 100) || 100),
+          order: nonNegativeNumberOr(tag.home_order, 100),
         }))
         .filter(row => row.title.length > 0);
       return {
@@ -530,12 +663,12 @@ const mapPublishedCourses = (
         ),
         image: item.image
           ? {uri: String(item.image)}
-          : require('../../assets/images/authLogo.png'),
+          : require('../../assets/images/courseSlider.jpg'),
         label:
           badgeLabel ||
-          (item.is_coming_soon
+          (valueAsBoolean(item.is_coming_soon)
             ? 'قريبًا'
-            : item.is_main_course
+            : valueAsBoolean(item.is_main_course)
             ? 'مختار لك'
             : undefined),
         labelTone: badgeLabel
@@ -546,38 +679,73 @@ const mapPublishedCourses = (
             : badgeTone === 'neutral'
             ? 'neutral'
             : 'primary'
-          : item.is_coming_soon
+          : valueAsBoolean(item.is_coming_soon)
           ? 'neutral'
           : 'primary',
         isMainCourse: valueAsBoolean(item.is_main_course),
-        homeSortOrder: Math.max(0, Number(item.home_sort_order ?? 100) || 100),
+        homeSortOrder: nonNegativeNumberOr(item.home_sort_order, 100),
         homeRows,
-        coinPrice:
-          item.price === null || item.price === undefined
-            ? undefined
-            : Number(item.price),
+        coinPrice: (() => {
+          if (item.price === null || item.price === undefined) return undefined;
+          const price = Number(item.price);
+          return Number.isSafeInteger(price) && price >= 0 ? price : undefined;
+        })(),
+        durationMinutes: (() => {
+          const value = normalizeCourseDurationMinutes(item);
+          return value === null ? undefined : value;
+        })(),
+        ratingAverage:
+          Number(item?.average_rating ?? item?.ratings_avg_rating) > 0
+            ? Number(item?.average_rating ?? item?.ratings_avg_rating)
+            : undefined,
+        ratingsCount: Math.max(0, Number(item?.ratings_count ?? 0) || 0),
+        studentsCount: Math.max(
+          0,
+          Number(item?.metadata?.students_count ?? item?.students_count ?? 0) ||
+            0,
+        ),
         progress: learning?.progress ?? courseProgress(item),
         category: courseCategory(item),
-        owned: Boolean(learning || item.enrollment?.is_active),
-        published: !item.is_coming_soon,
+        owned:
+          Boolean(learning) ||
+          (firstBoolean(item.enrollment?.is_active) ?? false),
+        published: !(firstBoolean(item.is_coming_soon) ?? false),
       };
     });
 };
 
-const catalogueCacheKey = async (page: number) =>
-  `${await accountScopedStorageKey(CATALOGUE_CACHE_KEY)}:${page}`;
+const catalogueCacheKey = async (page: number, scopedBaseKey?: string) =>
+  `${
+    scopedBaseKey || (await accountScopedStorageKey(CATALOGUE_CACHE_KEY))
+  }:${page}`;
 
 const readCatalogueCache = async (
   page: number,
+  scopedBaseKey?: string,
+  expectedRevision?: number,
 ): Promise<PublishedCoursesPage | null> => {
   if (page > CATALOGUE_CACHE_PAGE_LIMIT) return null;
   try {
-    const raw = await AsyncStorage.getItem(await catalogueCacheKey(page));
+    const raw = await AsyncStorage.getItem(
+      await catalogueCacheKey(page, scopedBaseKey),
+    );
     if (!raw) return null;
     const cached = JSON.parse(raw) as CatalogueCacheRecord;
     if (
+      cached.version !== 4 ||
       !Array.isArray(cached.courses) ||
-      Date.now() - Number(cached.savedAt || 0) > CATALOGUE_CACHE_MAX_AGE_MS
+      cached.courses.some(
+        course =>
+          !course ||
+          typeof course.id !== 'string' ||
+          typeof course.title !== 'string',
+      ) ||
+      cached.page !== page ||
+      !Number.isSafeInteger(cached.revision) ||
+      cached.revision < 1 ||
+      (expectedRevision !== undefined &&
+        cached.revision !== expectedRevision) ||
+      !isServerTimestampFresh(cached.savedAt, CATALOGUE_CACHE_MAX_AGE_MS)
     ) {
       return null;
     }
@@ -587,6 +755,7 @@ const readCatalogueCache = async (
       hasMore: cached.hasMore,
       total: cached.total,
       fromCache: true,
+      revision: cached.revision,
     };
   } catch {
     return null;
@@ -595,18 +764,37 @@ const readCatalogueCache = async (
 
 const writeCatalogueCache = async (
   result: Omit<PublishedCoursesPage, 'fromCache'>,
+  scopedBaseKey?: string,
 ) => {
   if (result.page > CATALOGUE_CACHE_PAGE_LIMIT) return;
   const record: CatalogueCacheRecord = {
-    savedAt: Date.now(),
+    version: 4,
+    savedAt: serverNowMs(),
     courses: result.courses,
     page: result.page,
     hasMore: result.hasMore,
     total: result.total,
+    revision: result.revision,
   };
   await AsyncStorage.setItem(
-    await catalogueCacheKey(result.page),
+    await catalogueCacheKey(result.page, scopedBaseKey),
     JSON.stringify(record),
+  );
+};
+
+const removeCatalogueCachePages = async (
+  firstPage: number,
+  scopedBaseKey?: string,
+) => {
+  const pages = Array.from(
+    {length: Math.max(0, CATALOGUE_CACHE_PAGE_LIMIT - firstPage + 1)},
+    (_, index) => firstPage + index,
+  );
+  if (pages.length === 0) return;
+  await AsyncStorage.multiRemove(
+    await Promise.all(
+      pages.map(page => catalogueCacheKey(page, scopedBaseKey)),
+    ),
   );
 };
 
@@ -614,32 +802,63 @@ export const getPublishedCoursesPage = async ({
   page = 1,
   perPage = 30,
   search = '',
+  revision,
+  signal,
 }: {
   page?: number;
   perPage?: number;
   search?: string;
+  revision?: number;
+  signal?: AbortSignal;
 } = {}): Promise<PublishedCoursesPage> => {
   const safePage = Math.max(1, Math.floor(page));
-  const normalizedSearch = search.trim().slice(0, 120);
+  const normalizedSearch = truncateGraphemes(normalizeText(search), 120);
+  const expectedRevision =
+    Number.isSafeInteger(revision) && Number(revision) > 0
+      ? Number(revision)
+      : undefined;
   const safePerPage = Math.max(
     1,
     Math.min(normalizedSearch ? 20 : 50, Math.floor(perPage)),
   );
+  // The network response belongs to the account that started the request.
+  // Never resolve its cache destination after a logout/account switch.
+  const scopedCatalogueCacheKey = await accountScopedStorageKey(
+    CATALOGUE_CACHE_KEY,
+  );
   try {
     const sessionAvailable = await hasSession();
-    const [catalogueResponse, learningResult] = await Promise.all([
+    const [catalogueResponse, learningSnapshot] = await Promise.all([
       publicRequest.get(normalizedSearch ? 'search/courses' : 'courses/list', {
+        signal,
         params: {
           page: safePage,
           per_page: safePerPage,
           ...(normalizedSearch ? {q: normalizedSearch} : {}),
+          ...(safePage > 1 && expectedRevision
+            ? {catalogue_revision: expectedRevision}
+            : {}),
         },
       }),
       sessionAvailable
-        ? getLearningCatalogueSnapshot().catch(() => [])
-        : Promise.resolve([]),
+        ? getLearningCatalogueSnapshot()
+            .then(courses => ({available: true, courses}))
+            .catch(() => ({available: false, courses: [] as CourseProgress[]}))
+        : Promise.resolve({available: true, courses: [] as CourseProgress[]}),
     ]);
     const data = payload(catalogueResponse);
+    const responseRevision = Math.max(1, Number(data?.catalogue_revision) || 1);
+    if (
+      safePage > 1 &&
+      expectedRevision !== undefined &&
+      responseRevision !== expectedRevision
+    ) {
+      const changed = new Error('CATALOGUE_CHANGED') as Error & {
+        code?: string;
+      };
+      changed.code = 'catalogue_changed';
+      throw changed;
+    }
     const items = normalizedSearch
       ? resourceList(data.items).map(item => ({...item, _compact_search: true}))
       : Array.isArray(data)
@@ -658,20 +877,79 @@ export const getPublishedCoursesPage = async ({
       currentPage,
       Number(pagination.last_page ?? currentPage) || currentPage,
     );
+    let mappedCourses = mapPublishedCourses(items, learningSnapshot.courses);
+    if (sessionAvailable && !learningSnapshot.available) {
+      // Catalogue availability and entitlement availability are independent.
+      // A temporary learning-dashboard outage must not relock cards that were
+      // already confirmed for this account or persist false ownership over a
+      // good cache snapshot. Course details remains the final authority.
+      const previous = normalizedSearch
+        ? null
+        : await readCatalogueCache(
+            safePage,
+            scopedCatalogueCacheKey,
+            expectedRevision,
+          );
+      const previousById = new Map(
+        (previous?.courses || []).map(course => [course.id, course]),
+      );
+      mappedCourses = mappedCourses.map(course => {
+        const known = previousById.get(course.id);
+        return {
+          ...course,
+          owned: known?.owned,
+          progress: known?.progress,
+        };
+      });
+    }
     const result = {
-      courses: mapPublishedCourses(items, learningResult),
+      courses: mappedCourses,
       page: currentPage,
       hasMore: currentPage < lastPage,
       total: Math.max(0, Number(pagination.total ?? items.length) || 0),
+      revision: responseRevision,
     };
     // Keep the device cache bounded to catalogue pages.
     if (!normalizedSearch) {
-      await writeCatalogueCache(result).catch(() => undefined);
+      if (result.page === 1) {
+        await removeCatalogueCachePages(2, scopedCatalogueCacheKey).catch(
+          () => undefined,
+        );
+      } else if (!result.hasMore) {
+        await removeCatalogueCachePages(
+          result.page + 1,
+          scopedCatalogueCacheKey,
+        ).catch(() => undefined);
+      }
+      await writeCatalogueCache(result, scopedCatalogueCacheKey).catch(
+        () => undefined,
+      );
     }
     return {...result, fromCache: false};
   } catch (error) {
+    const candidate = error as {
+      code?: unknown;
+      response?: {status?: unknown; data?: {code?: unknown}};
+    };
+    const catalogueChanged =
+      candidate?.code === 'catalogue_changed' ||
+      (Number(candidate?.response?.status) === 409 &&
+        candidate?.response?.data?.code === 'catalogue_changed');
+    if (catalogueChanged && safePage > 1) {
+      const replacement = await getPublishedCoursesPage({
+        page: 1,
+        perPage: safePerPage,
+        search: normalizedSearch,
+        signal,
+      });
+      return {...replacement, reset: true};
+    }
     if (!normalizedSearch) {
-      const cached = await readCatalogueCache(safePage);
+      const cached = await readCatalogueCache(
+        safePage,
+        scopedCatalogueCacheKey,
+        expectedRevision,
+      );
       if (cached) return cached;
     }
     throw error;
@@ -686,11 +964,291 @@ export const getPublishedCourses = async (): Promise<DemoCourse[]> =>
 export const getCachedPublishedCourses = async (): Promise<DemoCourse[]> =>
   (await readCatalogueCache(1))?.courses ?? [];
 
+const courseDetailsCacheKey = async (
+  courseId: string,
+  scopedBaseKey?: string,
+) =>
+  `${
+    scopedBaseKey || (await accountScopedStorageKey(COURSE_DETAILS_CACHE_KEY))
+  }:${courseId}`;
+
+const courseDetailsCacheIndexKey = (scopedBaseKey: string) =>
+  `${scopedBaseKey}:index`;
+
+const withCourseDetailsCacheLock = <T>(operation: () => Promise<T>) => {
+  const result = courseDetailsCacheTail.then(operation, operation);
+  courseDetailsCacheTail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+};
+
+const readCourseDetailsCacheIndex = async (
+  scopedBaseKey: string,
+): Promise<string[]> => {
+  try {
+    const raw = await AsyncStorage.getItem(
+      courseDetailsCacheIndexKey(scopedBaseKey),
+    );
+    if (raw === null) {
+      // Older releases cached every opened course without an index. Discover
+      // that legacy set once, then the first write below persists a bounded
+      // index so normal reads never scan all of AsyncStorage again.
+      const prefix = `${scopedBaseKey}:`;
+      const keys = (await AsyncStorage.getAllKeys()).filter(key => {
+        const suffix = key.startsWith(prefix) ? key.slice(prefix.length) : '';
+        return /^\d+$/.test(suffix);
+      });
+      const records = keys.length ? await AsyncStorage.multiGet(keys) : [];
+      return records
+        .map(([key, value]) => {
+          let savedAt = '';
+          try {
+            savedAt = String(
+              (JSON.parse(value || '{}') as {savedAt?: unknown}).savedAt || '',
+            );
+          } catch {
+            // Corrupt entries sort last and are evicted first.
+          }
+          return {id: key.slice(prefix.length), savedAt};
+        })
+        .sort((left, right) => right.savedAt.localeCompare(left.savedAt))
+        .map(item => item.id);
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? Array.from(
+          new Set(
+            parsed
+              .map(value => String(value))
+              .filter(value => /^\d+$/.test(value)),
+          ),
+        )
+      : [];
+  } catch {
+    return [];
+  }
+};
+
+const persistCourseDetailsCache = async (
+  courseId: string,
+  record: CourseDetailsCacheRecord,
+  scopedBaseKey: string,
+) =>
+  withCourseDetailsCacheLock(async () => {
+    const current = await readCourseDetailsCacheIndex(scopedBaseKey);
+    const ordered = [courseId, ...current.filter(id => id !== courseId)];
+    const retained = ordered.slice(0, COURSE_DETAILS_CACHE_LIMIT);
+    const evicted = ordered.slice(COURSE_DETAILS_CACHE_LIMIT);
+    await AsyncStorage.setItem(
+      courseDetailsCacheIndexKey(scopedBaseKey),
+      JSON.stringify(retained),
+    );
+    if (evicted.length) {
+      await AsyncStorage.multiRemove(
+        await Promise.all(
+          evicted.map(id => courseDetailsCacheKey(id, scopedBaseKey)),
+        ),
+      );
+    }
+    await AsyncStorage.setItem(
+      await courseDetailsCacheKey(courseId, scopedBaseKey),
+      JSON.stringify(record),
+    );
+  });
+
+const touchCourseDetailsCache = async (
+  courseId: string,
+  scopedBaseKey: string,
+) =>
+  withCourseDetailsCacheLock(async () => {
+    const current = await readCourseDetailsCacheIndex(scopedBaseKey);
+    const retained = [courseId, ...current.filter(id => id !== courseId)].slice(
+      0,
+      COURSE_DETAILS_CACHE_LIMIT,
+    );
+    await AsyncStorage.setItem(
+      courseDetailsCacheIndexKey(scopedBaseKey),
+      JSON.stringify(retained),
+    );
+  });
+
+const readCourseDetailsCache = async (
+  courseId: string,
+  scopedBaseKey?: string,
+): Promise<CourseDetails | null> => {
+  try {
+    const raw = await AsyncStorage.getItem(
+      await courseDetailsCacheKey(courseId, scopedBaseKey),
+    );
+    if (!raw) return null;
+    const cached = JSON.parse(raw) as CourseDetailsCacheRecord;
+    if (
+      cached.version !== 3 ||
+      !isServerTimestampFresh(
+        cached.savedAt,
+        COURSE_DETAILS_CACHE_MAX_AGE_MS,
+      ) ||
+      !cached.course ||
+      cached.course.id !== courseId ||
+      typeof cached.course.title !== 'string' ||
+      !Array.isArray(cached.course.accessPlans)
+    ) {
+      return null;
+    }
+    return {...cached.course, fromCache: true};
+  } catch {
+    return null;
+  }
+};
+
+const removeCourseDetailsCache = async (
+  courseId: string,
+  scopedBaseKey?: string,
+) => {
+  const resolvedBaseKey =
+    scopedBaseKey || (await accountScopedStorageKey(COURSE_DETAILS_CACHE_KEY));
+  await withCourseDetailsCacheLock(async () => {
+    const current = await readCourseDetailsCacheIndex(resolvedBaseKey);
+    await Promise.all([
+      AsyncStorage.removeItem(
+        await courseDetailsCacheKey(courseId, resolvedBaseKey),
+      ),
+      AsyncStorage.setItem(
+        courseDetailsCacheIndexKey(resolvedBaseKey),
+        JSON.stringify(current.filter(id => id !== courseId)),
+      ),
+    ]);
+  });
+};
+
+const errorStatus = (error: unknown): number => {
+  const candidate = error as {
+    status?: unknown;
+    response?: {status?: unknown};
+  };
+  return Number(candidate?.status ?? candidate?.response?.status ?? 0) || 0;
+};
+
+export const isCourseUnavailableError = (error: unknown): boolean =>
+  [403, 404, 410].includes(errorStatus(error));
+
 export const getCourseDetails = async (
   courseId: string,
+  options: {signal?: AbortSignal} = {},
 ): Promise<CourseDetails> => {
-  const data = payload(await publicRequest.get(`courses/${courseId}/details`));
-  return mapCourseDetails(data);
+  const normalizedCourseId = numericRouteId(courseId, 'COURSE');
+  const scopedDetailsCacheKey = await accountScopedStorageKey(
+    COURSE_DETAILS_CACHE_KEY,
+  );
+  try {
+    const data = payload(
+      await publicRequest.get(`courses/${normalizedCourseId}/details`, {
+        signal: options.signal,
+      }),
+    );
+    const course = {...mapCourseDetails(data), fromCache: false};
+    if (!course.id || course.id !== normalizedCourseId) {
+      throw new Error('API_CONTRACT_INVALID_COURSE_DETAILS_ID');
+    }
+    const record: CourseDetailsCacheRecord = {
+      version: 3,
+      savedAt: serverNowMs(),
+      course,
+    };
+    await persistCourseDetailsCache(
+      normalizedCourseId,
+      record,
+      scopedDetailsCacheKey,
+    ).catch(() => undefined);
+    return course;
+  } catch (error) {
+    if (isCourseUnavailableError(error)) {
+      await removeCourseDetailsCache(
+        normalizedCourseId,
+        scopedDetailsCacheKey,
+      ).catch(() => undefined);
+      if ([404, 410].includes(errorStatus(error))) {
+        const scopedCatalogueBaseKey = await accountScopedStorageKey(
+          CATALOGUE_CACHE_KEY,
+        );
+        await removeCatalogueCachePages(1, scopedCatalogueBaseKey).catch(
+          () => undefined,
+        );
+        publishUnavailableCourse(normalizedCourseId);
+      }
+      throw error;
+    }
+    const cached = await readCourseDetailsCache(
+      normalizedCourseId,
+      scopedDetailsCacheKey,
+    );
+    if (cached) {
+      await touchCourseDetailsCache(
+        normalizedCourseId,
+        scopedDetailsCacheKey,
+      ).catch(() => undefined);
+      return cached;
+    }
+    throw error;
+  }
+};
+
+export type CourseRatingResult = {
+  rating: number | null;
+  version: number;
+  averageRating: number | null;
+  ratingsCount: number;
+};
+
+export const rateCourse = async (
+  courseId: string,
+  rating: number,
+  version: number,
+): Promise<CourseRatingResult> => {
+  const normalizedCourseId = numericRouteId(courseId, 'COURSE');
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+    throw new Error('INVALID_COURSE_RATING');
+  }
+  if (!Number.isSafeInteger(version) || version < 0) {
+    throw new Error('INVALID_COURSE_RATING_VERSION');
+  }
+  const data = payload(
+    await publicRequest.post(`courses/${normalizedCourseId}/rate`, {
+      rating,
+      version: Math.max(0, Math.floor(version)),
+    }),
+  );
+  const average = Number(data.average_rating);
+  return {
+    rating: Math.min(5, Math.max(1, Number(data.rating) || rating)),
+    version: Math.max(0, Number(data.version) || 0),
+    averageRating: average > 0 ? average : null,
+    ratingsCount: Math.max(0, Number(data.ratings_count) || 0),
+  };
+};
+
+export const deleteCourseRating = async (
+  courseId: string,
+  version: number,
+): Promise<CourseRatingResult> => {
+  const normalizedCourseId = numericRouteId(courseId, 'COURSE');
+  if (!Number.isSafeInteger(version) || version < 1) {
+    throw new Error('INVALID_COURSE_RATING_VERSION');
+  }
+  const data = payload(
+    await publicRequest.delete(`courses/${normalizedCourseId}/rate`, {
+      data: {version: Math.max(1, Math.floor(version))},
+    }),
+  );
+  const average = Number(data.average_rating);
+  return {
+    rating: null,
+    version: Math.max(0, Number(data.version) || 0),
+    averageRating: average > 0 ? average : null,
+    ratingsCount: Math.max(0, Number(data.ratings_count) || 0),
+  };
 };
 
 /** Demo sessions have no bearer token and cannot call authenticated APIs. */

@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 
 final class PruneOperationalData extends Command
 {
@@ -64,13 +65,31 @@ final class PruneOperationalData extends Command
             ),
             $limit
         );
-        $counts['student_notifications'] = $this->deleteByIds(
-            'student_notifications',
-            fn (Builder $query): Builder => $query->where(
-                'created_at',
-                '<=',
-                now()->subDays(max(1, (int) config('retention.student_notifications_days', 180)))
-            ),
+        $counts['student_notifications'] = $this->pruneStudentNotifications($limit);
+        $counts['support_cases'] = $this->pruneSupportCases($limit);
+        $counts['notification_campaigns'] = $this->deleteByIds(
+            'notification_campaigns',
+            fn (Builder $query): Builder => $query
+                ->whereIn('status', ['completed', 'failed'])
+                ->where(
+                    'created_at',
+                    '<=',
+                    now()->subDays(max(1, (int) config('retention.student_notifications_days', 180)))
+                ),
+            $limit
+        );
+        $counts['notification_assets'] = $this->pruneNotificationAssets($limit);
+        $counts['social_oauth_attempts'] = $this->deleteByIds(
+            'social_oauth_attempts',
+            fn (Builder $query): Builder => $query->where(function (Builder $expired): void {
+                $expired->where('state_expires_at', '<=', now()->subDay())
+                    ->orWhere('completion_expires_at', '<=', now()->subDay());
+            }),
+            $limit
+        );
+        $counts['course_chat_turns'] = $this->deleteByIds(
+            'course_chat_turns',
+            fn (Builder $query): Builder => $query->where('expires_at', '<=', now()),
             $limit
         );
         $counts['admin_audit_logs'] = $this->deleteByIds(
@@ -136,5 +155,110 @@ final class PruneOperationalData extends Command
                     'user_agent' => null,
                 ]);
             });
+    }
+
+    private function pruneStudentNotifications(int $limit): int
+    {
+        if (!Schema::hasTable('student_notifications')) {
+            return 0;
+        }
+
+        $query = DB::table('student_notifications')
+            ->where(
+                'created_at',
+                '<=',
+                now()->subDays(max(1, (int) config('retention.student_notifications_days', 180)))
+            )
+            ->orderBy('id')
+            ->limit($limit);
+        $columns = Schema::hasColumn('student_notifications', 'image_url')
+            ? ['id', 'image_url']
+            : ['id'];
+        $rows = $query->get($columns);
+        if ($rows->isEmpty()) {
+            return 0;
+        }
+
+        $deleted = DB::table('student_notifications')
+            ->whereIn('id', $rows->pluck('id'))
+            ->delete();
+
+        if ($columns === ['id']) {
+            return $deleted;
+        }
+
+        $rows->pluck('image_url')
+            ->filter()
+            ->unique()
+            ->each(function (string $url): void {
+                if (DB::table('student_notifications')->where('image_url', $url)->exists()) {
+                    return;
+                }
+                if (
+                    Schema::hasTable('notification_campaigns')
+                    && DB::table('notification_campaigns')->where('image_url', $url)->exists()
+                ) {
+                    return;
+                }
+
+                $path = parse_url($url, PHP_URL_PATH);
+                if (is_string($path) && str_starts_with($path, '/storage/student-notifications/')) {
+                    Storage::disk('public')->delete(ltrim(substr($path, strlen('/storage/')), '/'));
+                }
+            });
+
+        return $deleted;
+    }
+
+    private function pruneNotificationAssets(int $limit): int
+    {
+        if (
+            !Schema::hasTable('student_notifications')
+            || !Schema::hasColumn('student_notifications', 'image_url')
+        ) {
+            return 0;
+        }
+
+        $disk = Storage::disk('public');
+        $deleted = 0;
+        foreach (array_slice($disk->files('student-notifications'), 0, $limit) as $path) {
+            if (
+                DB::table('student_notifications')->where('image_url', 'like', '%' . $path)->exists()
+                || (
+                    Schema::hasTable('notification_campaigns')
+                    && DB::table('notification_campaigns')->where('image_url', 'like', '%' . $path)->exists()
+                )
+                || $disk->lastModified($path) > now()->subDay()->timestamp
+            ) {
+                continue;
+            }
+
+            if ($disk->delete($path)) {
+                $deleted++;
+            }
+        }
+
+        return $deleted;
+    }
+
+    private function pruneSupportCases(int $limit): int
+    {
+        if (!Schema::hasTable('feedback_reports') || !Schema::hasColumn('feedback_reports', 'retention_until')) {
+            return 0;
+        }
+        $ids = DB::table('feedback_reports')
+            ->whereIn('status', ['resolved', 'closed', 'dismissed'])
+            ->whereNotNull('retention_until')
+            ->where('retention_until', '<=', now())
+            ->orderBy('id')->limit($limit)->pluck('id');
+        if ($ids->isEmpty()) return 0;
+
+        $attachments = Schema::hasTable('feedback_attachments')
+            ? DB::table('feedback_attachments')->whereIn('feedback_report_id', $ids)->get(['disk', 'path'])
+            : collect();
+        $deleted = DB::transaction(fn (): int => DB::table('feedback_reports')->whereIn('id', $ids)->delete());
+        $attachments->each(fn (object $attachment) => app(\App\Services\StoredFileDeletionService::class)
+            ->deleteOrQueue((string) $attachment->disk, (string) $attachment->path));
+        return $deleted;
     }
 }

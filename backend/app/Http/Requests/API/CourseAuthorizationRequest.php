@@ -33,6 +33,8 @@ class CourseAuthorizationRequest extends FormRequest
         return [
             'course_id' => 'required|exists:courses,id',
             'access_plan_code' => 'nullable|string|in:basic,guided,mentor',
+            'coupon_code' => 'nullable|string|min:3|max:50',
+            'expected_price' => 'nullable|integer|min:0|max:100000000',
             'idempotency_key' => [
                 'nullable',
                 'string',

@@ -10,6 +10,7 @@
         'ready' => 'جاهز',
         'processing' => 'قيد المعالجة',
         'failed' => 'فشل',
+        'misconfigured' => 'إعداد ناقص',
         'active' => 'نشطة',
         'ended' => 'منتهية',
         'unknown' => 'غير معروف',

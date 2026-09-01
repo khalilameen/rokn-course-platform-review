@@ -4,46 +4,129 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Support\RoknPublicUrl;
+
 use App\Http\Resources\CertificateResource;
 use App\Http\Resources\PortfolioItemResource;
 use App\Models\Certificate;
+use App\Models\PortfolioItem;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 final class PublicPortfolioService
 {
+    public function __construct(
+        private readonly PortfolioShareIdentityService $shareIdentity
+    ) {
+    }
+
     public function find(string $slug, ?string $highlightCertificate = null): ?array
     {
-        $user = User::query()->where('portfolio_slug', $slug)->first();
-        if (!$user && preg_match('/^student-([1-9][0-9]*)$/', $slug, $matches) === 1) {
-            // Certificates issued to accounts created before portfolio slugs
-            // existed use this deterministic fallback. Resolve only rows that
-            // still have no explicit slug so a learner-chosen URL can never be
-            // shadowed by the fallback form.
-            $user = User::query()
-                ->whereKey((int) $matches[1])
-                ->whereNull('portfolio_slug')
-                ->first();
-        }
+        $user = $this->userForSlug($slug);
         if (!$user) {
             return null;
         }
 
-        // Portfolios are unlisted share pages: they are never placed in a
-        // directory or discovery feed, but the learner's link and certificate
-        // QR work immediately without a redundant publication consent step.
-        if ($highlightCertificate) {
-            $revoked = $this->revokedVerification(
-                (int) $user->id,
-                (string) $highlightCertificate
-            );
-            if ($revoked) {
-                // A revoked QR is a status-verification endpoint, not a
-                // shortcut into the learner's share page.
-                return $this->limitedVerificationPayload($user, $slug, $revoked);
+        $highlighted = null;
+        if ($highlightCertificate !== null && $highlightCertificate !== '') {
+            $highlighted = $this->certificateForUser((int) $user->id, $highlightCertificate);
+            if (!$highlighted) {
+                return null;
+            }
+            if ($this->isRevoked($highlighted)) {
+                return $this->limitedVerificationPayload($highlighted);
+            }
+            if (!$this->isActive($highlighted)) {
+                return null;
             }
         }
 
+        return $this->fullPortfolio($user, $slug, $highlighted);
+    }
+
+    /** Resolve a credential without relying on a mutable profile slug. */
+    public function findCredential(string $publicId): ?array
+    {
+        if (!Str::isUuid($publicId)) {
+            return null;
+        }
+
+        $certificate = Certificate::query()
+            ->where('public_id', $publicId)
+            ->with(['course', 'user'])
+            ->first();
+        if (!$certificate) {
+            return null;
+        }
+        if ($this->isRevoked($certificate)) {
+            return $certificate->user
+                ? $this->limitedVerificationPayload($certificate)
+                : null;
+        }
+        if (
+            !$this->isActive($certificate)
+            || !$certificate->hasStoredArtifact()
+            || !$certificate->user
+        ) {
+            return null;
+        }
+
+        $candidateSlug = trim((string) $certificate->user->portfolio_slug);
+        $slug = $candidateSlug !== ''
+            && !$this->shareIdentity->isPredictableLegacySlug(
+                $candidateSlug,
+                (int) $certificate->user->id
+            )
+            ? $candidateSlug
+            : null;
+
+        return $this->fullPortfolio($certificate->user, $slug, $certificate);
+    }
+
+    private function userForSlug(string $slug): ?User
+    {
+        $slug = trim($slug);
+        if (
+            $slug === ''
+            || strlen($slug) > 100
+            || !preg_match('/^[a-z0-9-]+$/', $slug)
+        ) {
+            return null;
+        }
+
+        $user = User::query()->where('portfolio_slug', $slug)->first();
+        if (
+            !$user
+            || $this->shareIdentity->isPredictableLegacySlug($slug, (int) $user->id)
+        ) {
+            return null;
+        }
+
+        return $user;
+    }
+
+    private function certificateForUser(int $userId, string $publicId): ?Certificate
+    {
+        if (!Str::isUuid($publicId)) {
+            return null;
+        }
+
+        $certificate = Certificate::query()
+            ->where('user_id', $userId)
+            ->where('public_id', $publicId)
+            ->with(['course', 'user'])
+            ->first();
+
+        if ($certificate && !$this->isRevoked($certificate) && !$certificate->hasStoredArtifact()) {
+            return null;
+        }
+
+        return $certificate;
+    }
+
+    private function fullPortfolio(User $user, ?string $slug, ?Certificate $highlighted): ?array
+    {
         $items = $user->portfolioItems()
             ->with(['mediaFiles', 'course'])
             ->orderByDesc('is_featured')
@@ -52,39 +135,36 @@ final class PublicPortfolioService
             ->get();
         $certificates = Certificate::query()
             ->where('user_id', $user->id)
-            ->where('status', 'active')
+            ->where(function ($query): void {
+                $query->whereNull('status')->orWhere('status', 'active');
+            })
             ->whereNull('revoked_at')
             ->where('image_path', '!=', 'pending')
             ->with(['course', 'user'])
             ->latest('generated_at')
-            ->get();
-        $highlighted = $highlightCertificate
-            ? $certificates->first(fn ($certificate) =>
-                $certificate->public_id !== null
-                && hash_equals((string) $certificate->public_id, $highlightCertificate)
-            )
-            : null;
-        if (!$highlighted && $highlightCertificate) {
+            ->get()
+            ->filter(fn (Certificate $certificate): bool => $certificate->hasStoredArtifact())
+            ->values();
+
+        if ($highlighted && !$certificates->contains('id', $highlighted->id)) {
             return null;
         }
 
-        // A badge is public only when the originating course explicitly opts in
-        // and belongs to the professional/freelance tracks.
         $badges = DB::table('user_level')
-                ->join('levels', 'levels.id', '=', 'user_level.level_id')
-                ->join('courses', 'courses.id', '=', 'user_level.course_id')
-                ->where('user_level.user_id', $user->id)
-                ->where('courses.awards_badge', true)
-                ->whereIn('courses.badge_track', ['professional', 'freelance'])
-                ->orderByDesc('user_level.earned_at')
-                ->get([
-                    'user_level.id as award_id', 'levels.id as level_id',
-                    'levels.name_ar', 'levels.name_en', 'levels.badge_image', 'levels.order',
-                    'courses.id as course_id', 'courses.name_ar as course_name_ar',
-                    'courses.name_en as course_name_en', 'courses.badge_track',
-                    'user_level.earned_at',
-                ])
-                ->map(function ($badge) {
+            ->join('levels', 'levels.id', '=', 'user_level.level_id')
+            ->join('courses', 'courses.id', '=', 'user_level.course_id')
+            ->where('user_level.user_id', $user->id)
+            ->where('courses.awards_badge', true)
+            ->whereIn('courses.badge_track', ['professional', 'freelance'])
+            ->orderByDesc('user_level.earned_at')
+            ->get([
+                'user_level.id as award_id', 'levels.id as level_id',
+                'levels.name_ar', 'levels.name_en', 'levels.badge_image', 'levels.order',
+                'courses.id as course_id', 'courses.name_ar as course_name_ar',
+                'courses.name_en as course_name_en', 'courses.badge_track',
+                'user_level.earned_at',
+            ])
+            ->map(function ($badge) {
                 $path = (string) ($badge->badge_image ?? '');
                 if ($path !== '' && filter_var($path, FILTER_VALIDATE_URL)) {
                     $badge->badge_image = $path;
@@ -99,9 +179,9 @@ final class PublicPortfolioService
                     $badge->badge_image = asset('assets/img/badges/' . $fallback);
                 }
 
-                unset($badge->order);
+                unset($badge->award_id, $badge->level_id, $badge->course_id, $badge->order);
                 return $badge;
-                });
+            });
 
         return [
             'profile' => [
@@ -111,113 +191,141 @@ final class PublicPortfolioService
                 'location' => $user->portfolio_location,
                 'image_url' => $user->profile_image_url,
                 'skills' => $user->portfolio_skills ?? [],
-                // Sanitize again at the public read boundary so legacy rows
-                // written before HTTPS-only validation can never reach href.
                 'links' => collect($user->portfolio_links ?? [])
-                        ->map(function ($link): ?array {
-                            if (!is_array($link)) {
-                                return null;
-                            }
+                    ->map(function ($link): ?array {
+                        if (!is_array($link)) {
+                            return null;
+                        }
+                        $safeUrl = SafeExternalUrl::sanitize($link['url'] ?? null);
+                        if (!$safeUrl) {
+                            return null;
+                        }
 
-                            $safeUrl = SafeExternalUrl::sanitize($link['url'] ?? null);
-                            if (!$safeUrl) {
-                                return null;
-                            }
-
-                            return [
-                                'label' => (string) ($link['label'] ?? ''),
-                                'url' => $safeUrl,
-                            ];
-                        })
-                        ->filter()
-                        ->values()
-                        ->all(),
+                        return [
+                            'label' => (string) ($link['label'] ?? ''),
+                            'url' => $safeUrl,
+                        ];
+                    })
+                    ->filter()
+                    ->values()
+                    ->all(),
                 'slug' => $slug,
-                'public_url' => route('portfolio.public', ['slug' => $slug]),
-                'share_mode' => 'unlisted',
-                // Kept for older app builds; "true" means the share link is
-                // usable, not that Rokn lists this profile publicly.
+                'public_url' => $slug
+                    ? RoknPublicUrl::portfolio($slug)
+                    : RoknPublicUrl::certificate((string) $highlighted?->public_id),
+                'share_mode' => $slug ? 'unlisted' : 'verification_link',
                 'is_public' => true,
             ],
-            'projects' => PortfolioItemResource::collection($items)->resolve(),
-            'certificates' => CertificateResource::collection($certificates)->resolve(),
+            'projects' => $items
+                ->map(fn (PortfolioItem $item): array => $this->publicProjectPayload($item))
+                ->values()
+                ->all(),
+            'certificates' => $certificates
+                ->map(fn (Certificate $certificate): array => $this->publicCertificatePayload($certificate))
+                ->values()
+                ->all(),
             'highlighted_certificate' => $highlighted
-                ? (new CertificateResource($highlighted))->resolve()
+                ? $this->publicCertificatePayload($highlighted)
                 : null,
             'badges' => $badges,
             'is_limited_certificate_view' => false,
         ];
     }
 
-    /**
-     * A revoked certificate QR remains useful only as a minimal status check.
-     * It deliberately exposes no artifact URL, projects, profile fields,
-     * unrelated certificates or badges.
-     */
-    private function revokedVerification(int $userId, string $publicId): ?array
+    private function isActive(Certificate $certificate): bool
     {
-        if ($publicId === '') {
-            return null;
-        }
-
-        $certificate = Certificate::query()
-            ->where('user_id', $userId)
-            ->where('public_id', $publicId)
-            ->where('status', 'revoked')
-            ->whereNotNull('revoked_at')
-            ->where('image_path', '!=', 'pending')
-            ->with('course:id,name_ar,name_en')
-            ->first(['id', 'public_id', 'user_id', 'course_id', 'status', 'verification_level', 'generated_at', 'revoked_at']);
-        if (!$certificate) {
-            return null;
-        }
-
-        return [
-            'id' => null,
-            'certificate_id' => null,
-            'public_id' => (string) $certificate->public_id,
-            'certificate_url' => '',
-            'portfolio_url' => '',
-            'status' => 'revoked',
-            'verification_level' => $certificate->verification_level ?? 'completion',
-            'verification_label' => 'Certificate revoked',
-            'generated_at' => $certificate->generated_at?->format('c'),
-            'revoked_at' => $certificate->revoked_at?->format('c'),
-            'course' => [
-                'id' => $certificate->course?->id,
-                'name' => $certificate->course?->name_ar ?: $certificate->course?->name_en,
-                'image' => null,
-            ],
-        ];
+        return ($certificate->status ?? 'active') === 'active'
+            && $certificate->revoked_at === null;
     }
 
-    /** @param array<string,mixed> $verification */
-    private function limitedVerificationPayload(
-        User $user,
-        string $slug,
-        array $verification
-    ): array {
+    private function isRevoked(Certificate $certificate): bool
+    {
+        return $certificate->status === 'revoked'
+            && $certificate->revoked_at !== null;
+    }
+
+    /** Public share payloads use public slugs/UUIDs, never database keys. */
+    private function publicProjectPayload(PortfolioItem $item): array
+    {
+        $payload = (new PortfolioItemResource($item))->resolve();
+        unset(
+            $payload['id'],
+            $payload['source_project_id'],
+            $payload['created_at'],
+            $payload['updated_at']
+        );
+        if (is_array($payload['course'] ?? null)) {
+            unset($payload['course']['id']);
+        }
+        if (is_array($payload['media'] ?? null)) {
+            $payload['media'] = array_map(static function ($media): mixed {
+                if (is_array($media)) unset($media['id']);
+                return $media;
+            }, $payload['media']);
+        }
+
+        return $payload;
+    }
+
+    private function publicCertificatePayload(Certificate $certificate): array
+    {
+        $payload = (new CertificateResource($certificate))->resolve();
+        unset($payload['id'], $payload['certificate_id']);
+        if (is_array($payload['course'] ?? null)) {
+            unset($payload['course']['id']);
+        }
+
+        return $payload;
+    }
+
+    /** A revoked credential proves status only and exposes no live profile. */
+    private function limitedVerificationPayload(Certificate $certificate): array
+    {
+        $holderName = trim((string) $certificate->holder_name) ?: 'طالب ركن';
+        $courseName = trim((string) $certificate->course_name)
+            ?: trim((string) ($certificate->course?->name_ar ?: $certificate->course?->name_en))
+            ?: 'كورس ركن';
+        $verificationUrl = RoknPublicUrl::certificate((string) $certificate->public_id);
+
         return [
             'profile' => [
-                // The certificate holder name is part of verification. No
-                // biography, avatar, links, location or skills are exposed.
-                'name' => $user->name,
+                'name' => $holderName,
                 'headline' => null,
                 'bio' => null,
                 'location' => null,
                 'image_url' => null,
                 'skills' => [],
                 'links' => [],
-                'slug' => $slug,
-                'public_url' => route('portfolio.public', ['slug' => $slug]),
+                'slug' => null,
+                'public_url' => $verificationUrl,
                 'share_mode' => 'verification_only',
                 'is_public' => false,
             ],
             'projects' => [],
             'certificates' => [],
-            'highlighted_certificate' => $verification,
+            'highlighted_certificate' => [
+                'id' => null,
+                'certificate_id' => null,
+                'public_id' => (string) $certificate->public_id,
+                'holder_name' => $holderName,
+                'course_name' => $courseName,
+                'certificate_url' => '',
+                'portfolio_url' => $verificationUrl,
+                'verification_url' => $verificationUrl,
+                'status' => 'revoked',
+                'verification_level' => $certificate->verification_level ?? 'completion',
+                'verification_label' => 'شهادة ملغاة',
+                'generated_at' => $certificate->generated_at?->format('c'),
+                'revoked_at' => $certificate->revoked_at?->format('c'),
+                'course' => [
+                    'id' => null,
+                    'name' => $courseName,
+                    'image' => null,
+                ],
+            ],
             'badges' => [],
             'is_limited_certificate_view' => true,
         ];
     }
+
 }

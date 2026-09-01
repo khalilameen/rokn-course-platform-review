@@ -9,6 +9,7 @@ use App\Models\ProductEvent;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use App\Support\BusinessClock;
 
 final class ProductEventService
 {
@@ -19,6 +20,15 @@ final class ProductEventService
     public function record(array $data, ?User $user = null): ProductEvent
     {
         return DB::transaction(function () use ($data, $user) {
+            $receivedAt = BusinessClock::utcNow()->setMicrosecond(0);
+            $clientOccurredAt = CarbonImmutable::parse((string) $data['occurred_at'])
+                ->utc()
+                ->setMicrosecond(0);
+            $occurredAt = $clientOccurredAt->between(
+                $receivedAt->subDays(7),
+                $receivedAt->addMinutes(5),
+                true
+            ) ? $clientOccurredAt : $receivedAt;
             $sessionKey = $this->keyedIdentity('session:'.(string) $data['session_key']);
             $attributes = [
                 'user_id' => $user?->id,
@@ -40,10 +50,8 @@ final class ProductEventService
                 // production schema. Normalize before the idempotency compare
                 // so a normal JavaScript ISO timestamp with milliseconds does
                 // not look like a conflicting retry.
-                'occurred_at' => CarbonImmutable::parse((string) $data['occurred_at'])
-                    ->utc()
-                    ->setMicrosecond(0),
-                'received_at' => now(),
+                'occurred_at' => $occurredAt,
+                'received_at' => $receivedAt,
             ];
 
             $event = ProductEvent::query()->firstOrCreate(
@@ -53,6 +61,16 @@ final class ProductEventService
 
             if (!$event->wasRecentlyCreated && !$this->sameEvent($event, $attributes)) {
                 throw new ProductEventConflictException('event_id payload mismatch');
+            }
+
+            // A durable guest event may be replayed after sign-in. Promote the
+            // same immutable event to its known account instead of permanently
+            // splitting that learner between anonymous and authenticated actors.
+            if (!$event->wasRecentlyCreated && $user && $event->user_id === null) {
+                $event->forceFill([
+                    'user_id' => $user->id,
+                    'actor_key' => $attributes['actor_key'],
+                ])->save();
             }
 
             if ($event->wasRecentlyCreated) {
@@ -117,11 +135,10 @@ final class ProductEventService
             }
         }
 
-        // SQL timestamp columns do not retain a timezone. Comparing Carbon
-        // instances would reinterpret the stored UTC wall time in APP_TIMEZONE
-        // and reject an otherwise identical retry. Compare the canonical value
-        // that was actually persisted instead.
-        return (string) $event->getRawOriginal('occurred_at')
-            === $attributes['occurred_at']->format($event->getDateFormat());
+        // occurred_at is deliberately server-clamped when a device clock is
+        // implausible. A later retry must remain idempotent even though its
+        // receipt instant differs; the remaining immutable payload is enough
+        // to detect event-id reuse for another action.
+        return true;
     }
 }

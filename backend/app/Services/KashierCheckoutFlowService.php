@@ -39,13 +39,13 @@ final readonly class KashierCheckoutFlowService
         ) {
             return $this->responses->make(
                 false,
-                'Idempotency-Key header and request body must match exactly.',
+                "تغيّر طلب الدفع أثناء التنفيذ\nأعد المحاولة",
                 [],
                 422,
                 'checkout_idempotency_mismatch',
                 [
                     'idempotency_key' => [
-                        'Idempotency-Key header and request body must match exactly.',
+                        'أعد محاولة الدفع',
                     ],
                 ]
             );
@@ -58,6 +58,8 @@ final readonly class KashierCheckoutFlowService
         try {
             $validated = $request->validate([
                 'package_id' => 'required|integer|exists:packages,id',
+                'expected_amount' => 'nullable|numeric|min:0.01|max:100000000',
+                'expected_coins' => 'nullable|integer|min:1|max:1000000000',
                 'idempotency_key' => [
                     'nullable',
                     'string',
@@ -69,7 +71,7 @@ final readonly class KashierCheckoutFlowService
         } catch (ValidationException $exception) {
             return $this->responses->make(
                 false,
-                'The supplied payment details are invalid.',
+                'راجع بيانات الدفع',
                 [],
                 422,
                 'validation_error',
@@ -80,15 +82,6 @@ final readonly class KashierCheckoutFlowService
         /** @var User $user */
         $user = auth('api')->user();
         $package = Package::findOrFail($request->package_id);
-        if ((float) $package->price <= 0 || (int) $package->coins <= 0) {
-            return $this->responses->make(
-                false,
-                'This package is not available for checkout.',
-                [],
-                409,
-                'package_not_available'
-            );
-        }
 
         try {
             $this->payments->configuration();
@@ -99,7 +92,7 @@ final readonly class KashierCheckoutFlowService
 
             return $this->responses->make(
                 false,
-                'Payment is temporarily unavailable. Please try again later.',
+                "الدفع غير متاح الآن\nحاول لاحقًا",
                 [],
                 503,
                 'payment_configuration_unavailable'
@@ -115,7 +108,13 @@ final readonly class KashierCheckoutFlowService
         $clientRequestKey = (string) ($validated['idempotency_key'] ?? '');
         $orderRef = null;
         try {
-            $checkout = $this->payments->beginCheckout($user, $package, $clientRequestKey);
+            $checkout = $this->payments->beginCheckout(
+                $user,
+                $package,
+                $clientRequestKey,
+                isset($validated['expected_amount']) ? (float) $validated['expected_amount'] : null,
+                isset($validated['expected_coins']) ? (int) $validated['expected_coins'] : null
+            );
 
             /** @var Order $order */
             $order = $checkout['order'];
@@ -127,8 +126,8 @@ final readonly class KashierCheckoutFlowService
                 return $this->responses->make(
                     false,
                     $expired
-                        ? 'This checkout attempt has expired. Start a new checkout attempt.'
-                        : 'This checkout attempt is already closed. Start a new checkout attempt.',
+                        ? "انتهت محاولة الدفع\nابدأ محاولة جديدة"
+                        : "أغلقت محاولة الدفع\nابدأ محاولة جديدة",
                     [
                         'order_ref' => $orderRef,
                         'status' => $order->status,
@@ -148,12 +147,55 @@ final readonly class KashierCheckoutFlowService
                 'idempotent_replay' => $checkout['reused'],
             ]);
         } catch (\UnexpectedValueException $exception) {
+            $pendingCheckout = $exception->getMessage() === 'A previous payment is still pending confirmation.';
+            $packageUnavailable = $exception->getMessage()
+                === 'This package is not available for checkout.';
+            $packageTermsChanged = in_array($exception->getMessage(), [
+                'Package terms changed before checkout.',
+                'Checkout idempotency key was replayed with different package terms.',
+            ], true);
+            $pendingOrder = $pendingCheckout
+                ? Order::query()
+                    ->where('user_id', $user->id)
+                    ->where('payment_method', Order::PAYMENT_METHOD_KASHIER)
+                    ->where('status', Order::STATUS_PENDING)
+                    ->where(function ($query): void {
+                        $query->where('checkout_expires_at', '>', now())
+                            ->orWhere(function ($legacy): void {
+                                $legacy->whereNull('checkout_expires_at')
+                                    ->where('created_at', '>', now()->subMinutes(10));
+                            });
+                    })
+                    ->with('package')
+                    ->latest('id')
+                    ->first()
+                : null;
             return $this->responses->make(
                 false,
-                $exception->getMessage(),
-                [],
+                $pendingCheckout
+                    ? 'لديك عملية دفع قيد التأكيد'
+                    : ($packageUnavailable
+                        ? 'الباقة غير متاحة الآن'
+                        : ($packageTermsChanged
+                            ? "تغيّرت تفاصيل الباقة\nراجعها قبل الدفع"
+                            : "تغيّر طلب الدفع أثناء التنفيذ\nأعد المحاولة")),
+                $pendingOrder ? [
+                    'order_ref' => (string) $pendingOrder->order_ref,
+                    'status' => (string) $pendingOrder->status,
+                    'checkout_expires_at' => $pendingOrder->checkout_expires_at?->toIso8601String(),
+                    'package' => [
+                        'id' => (int) $pendingOrder->package_id,
+                        'coins' => $this->payments->coinAmount($pendingOrder),
+                    ],
+                ] : [],
                 409,
-                'checkout_idempotency_conflict'
+                $pendingCheckout
+                    ? 'pending_checkout_exists'
+                    : ($packageUnavailable
+                        ? 'package_not_available'
+                        : ($packageTermsChanged
+                            ? 'package_terms_changed'
+                            : 'checkout_idempotency_conflict'))
             );
         } catch (\Throwable $exception) {
             Log::error('Kashier order creation failed', [
@@ -164,7 +206,7 @@ final readonly class KashierCheckoutFlowService
                 'error_fingerprint' => hash('sha256', $exception->getMessage()),
             ]);
 
-            return $this->responses->make(false, 'Failed to create payment order.', [], 500);
+            return $this->responses->make(false, 'تعذّر بدء الدفع', [], 500);
         }
 
         try {
@@ -179,7 +221,7 @@ final readonly class KashierCheckoutFlowService
 
             return $this->responses->make(
                 false,
-                'Payment is temporarily unavailable. Retry this checkout in a moment.',
+                "الدفع غير متاح الآن\nحاول بعد لحظات",
                 [],
                 503,
                 'checkout_temporarily_unavailable'
@@ -191,7 +233,7 @@ final readonly class KashierCheckoutFlowService
             'user_id' => $user->id,
         ]);
 
-        return $this->responses->make(true, 'Payment checkout created.', [
+        return $this->responses->make(true, 'تم تجهيز صفحة الدفع', [
             'payment_url' => $hppUrl,
             'order_ref' => $orderRef,
             'idempotency_key' => $order->checkout_request_key,
@@ -206,7 +248,11 @@ final readonly class KashierCheckoutFlowService
         ]);
     }
 
-    public function status(Request $request, string $orderRef): JsonResponse
+    public function status(
+        Request $request,
+        string $orderRef,
+        bool $reconcile = false
+    ): JsonResponse
     {
         /** @var User $user */
         $user = auth('api')->user();
@@ -223,14 +269,14 @@ final readonly class KashierCheckoutFlowService
 
             return $this->responses->make(
                 false,
-                'Order not found.',
+                'عملية الدفع غير متاحة',
                 [],
                 404,
                 'order_not_found'
             );
         }
 
-        if ($order->status === Order::STATUS_PENDING) {
+        if ($reconcile && $order->status === Order::STATUS_PENDING) {
             $checkoutExpired = $order->isCheckoutExpired();
             $apiResponse = $this->payments->verifyOrderViaApi((string) $order->order_ref);
             if ($this->payments->isOrderCaptured($apiResponse)) {
@@ -270,11 +316,14 @@ final readonly class KashierCheckoutFlowService
             'order_id' => $order->id,
             'user_id' => $user->id,
             'status' => $order->status,
+            'reconciliation_requested' => $reconcile,
         ]);
 
-        return $this->responses->make(true, 'Payment status retrieved.', [
+        return $this->responses->make(true, 'تم تحميل حالة الدفع', [
             'order_ref' => $order->order_ref,
             'status' => $order->status,
+            'financial_status' => $order->financial_status,
+            'reversed_at' => $order->reversed_at?->toIso8601String(),
             'transaction_id' => $order->transaction_id,
             'amount' => $order->final_amount,
             'package' => $order->package ? [

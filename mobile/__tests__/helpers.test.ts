@@ -28,7 +28,7 @@ describe('session envelope compatibility', () => {
 
   it('extracts the profile from the social-auth response shape', () => {
     const user = {id: 17, name: 'Rokn learner'};
-    expect(extractUserProfile({data: {user}})).toBe(user);
+    expect(extractUserProfile({data: {user}})).toEqual(user);
   });
 });
 

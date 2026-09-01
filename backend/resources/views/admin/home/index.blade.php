@@ -12,7 +12,7 @@
     <!-- Welcome Header -->
     <div class="welcome-header fade-in-up">
         <h2>مرحباً بك {{ auth()->user()->name }}</h2>
-        <p>إليك نظرة عامة على منصة التعل</p>
+        <p>حالة ركن الآن</p>
 
         <!-- Student Platform Link -->
          <!--
@@ -36,7 +36,7 @@
                         <i class="fa fa-graduation-cap"></i>
                     </div>
                     <div class="stats-info">
-                        <h3 class="count">{{ \App\Models\Course::whereNull('parent_id')->count() }}</h3>
+                        <h3 class="count">{{ $platformStats['courses'] }}</h3>
                         <p>الكورسات</p>
                     </div>
                 </div>
@@ -64,7 +64,7 @@
                         <i class="fa fa-book"></i>
                     </div>
                     <div class="stats-info">
-                        <h3 class="count">{{ \App\Models\Lesson::count() }}</h3>
+                        <h3 class="count">{{ $platformStats['lessons'] }}</h3>
                         <p>الدروس</p>
                     </div>
                 </div>
@@ -79,7 +79,7 @@
                     </div>
                     <div class="stats-info">
                         <h3 class="count">
-                            {{ \App\Models\User::where('role', 'client')->count() }}
+                            {{ $platformStats['students'] }}
                         </h3>
                         <p>الطلاب</p>
                     </div>
@@ -171,7 +171,11 @@
                     <div class="stats-info">
                         <h3 class="revenue-count">{{ number_format($revenueStats['confirmed_net_revenue'], 0) }}</h3>
                         <p>الصافي المؤكد من كشوف المزودين</p>
-                        <small class="text-muted">بعد الرسوم والاستقطاعات</small>
+                        @if($revenueStats['provider_settlement_pending_count'] > 0)
+                            <small class="text-warning">جزئي · {{ number_format($revenueStats['provider_settlement_pending_count']) }} عملية بانتظار كشف التسوية</small>
+                        @else
+                            <small class="text-muted">بعد الرسوم والاستقطاعات</small>
+                        @endif
                     </div>
                 </div>
             </div>
@@ -217,26 +221,8 @@
 
     </div>
 
-    <!-- Payment Method & Additional Stats -->
+    <!-- Additional Stats -->
     <div class="row mb-4">
-        <!-- Payment Method Distribution -->
-       <!-- <div class="col-lg-6 mb-4">
-            <div class="chart-card fade-in-left dashboard-delay-1">
-                <div class="chart-card-header">
-                    <h5 class="chart-card-title">
-                        <i class="fa fa-credit-card"></i>
-                        طرق الدفع
-                    </h5>
-                    <p class="chart-card-subtitle">توزيع الإيرادات حسب طريقة الدفع</p>
-                </div>
-                <div class="chart-card-body">
-                    <div class="chart-container dashboard-chart--medium">
-                        <canvas id="paymentMethodChart"></canvas>
-                    </div>
-                </div>
-            </div>
-        </div> -->
-
         <!-- Revenue Summary Cards -->
         <div class="col-lg-6">
             <div class="row">
@@ -247,7 +233,7 @@
                             <div class="summary-card-info">
                                 <h3>{{ number_format($revenueStats['current_month_revenue'], 0) }}</h3>
                                 <p>المحصل عبر كل قنوات الدفع هذا الشهر</p>
-                                <small class="text-muted">{{ now()->locale('ar')->format('F Y') }}</small>
+                                <small class="text-muted">{{ \App\Support\BusinessClock::now()->locale('ar')->format('F Y') }}</small>
                             </div>
                             <div class="summary-card-icon">
                                 <i class="fa fa-calendar"></i>
@@ -264,7 +250,7 @@
                             <div class="summary-card-info">
                                 <h3>{{ number_format($revenueStats['previous_month_revenue'], 0) }}</h3>
                                 <p>المحصل عبر كل قنوات الدفع الشهر السابق</p>
-                                <small class="text-muted">{{ now()->subMonth()->locale('ar')->format('F Y') }}</small>
+                                <small class="text-muted">{{ \App\Support\BusinessClock::now()->subMonth()->locale('ar')->format('F Y') }}</small>
                             </div>
                             <div class="summary-card-icon">
                                 <i class="fa fa-history"></i>
@@ -371,39 +357,28 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
 
     <script type="text/javascript">
-        jQuery(document).ready(function($) {
-            // DataTables initialization
-            if ($.fn.DataTable) {
-                $('#bootstrap-data-table-export').DataTable();
-                $('#bootstrap-data-table-1').DataTable();
-                $('#bootstrap-data-table-2').DataTable();
-            }
-
-            // Datetime picker initialization
-            if ($.fn.datetimepicker) {
-                $('#date_box').datetimepicker({
-                    format: 'YYYY-MM-DD hh:mm'
-                });
-            }
-        });
-
-        // Wait for DOM to be ready
         document.addEventListener('DOMContentLoaded', function() {
             // Counter Animation
             function animateCounters() {
-                const counters = document.querySelectorAll('.count');
+                const counters = document.querySelectorAll('.count, .revenue-count');
                 counters.forEach(counter => {
-                    const target = parseInt(counter.textContent);
+                    const isRevenue = counter.classList.contains('revenue-count');
+                    const target = parseFloat(counter.textContent.replace(/,/g, ''));
                     const increment = target / 50;
                     let current = 0;
 
                     const updateCounter = () => {
                         if (current < target) {
                             current += increment;
-                            counter.textContent = Math.ceil(current);
+                            const value = isRevenue ? Math.round(current) : Math.ceil(current);
+                            counter.textContent = isRevenue
+                                ? value.toLocaleString('en-US')
+                                : value;
                             setTimeout(updateCounter, 20);
                         } else {
-                            counter.textContent = target;
+                            counter.textContent = isRevenue
+                                ? Math.round(target).toLocaleString('en-US')
+                                : target;
                         }
                     };
 
@@ -417,251 +392,8 @@
             // The dashboard remains usable if the optional chart CDN is unavailable.
             if (typeof window.Chart !== 'function') {
                 return;
-            }
+            }
 
-            // Modern Visitor Statistics Chart
-            const visitorCtx = document.getElementById('visitorChart');
-            if (visitorCtx) {
-                const gradient = visitorCtx.getContext('2d').createLinearGradient(0, 0, 0, 400);
-                gradient.addColorStop(0, 'rgba(102, 126, 234, 0.8)');
-                gradient.addColorStop(1, 'rgba(118, 75, 162, 0.1)');
-
-                const visitorChart = new Chart(visitorCtx.getContext('2d'), {
-                    type: 'line',
-                    data: {
-                        labels: {!! json_encode(array_column($dailyVisitors, 'date')) !!},
-                        datasets: [{
-                            label: 'عدد الزوار',
-                            data: {!! json_encode(array_column($dailyVisitors, 'count')) !!},
-                            borderColor: '#2563eb',
-                            backgroundColor: gradient,
-                            borderWidth: 3,
-                            fill: true,
-                            tension: 0.4,
-                            pointBackgroundColor: '#2563eb',
-                            pointBorderColor: '#fff',
-                            pointBorderWidth: 3,
-                            pointRadius: 6,
-                            pointHoverRadius: 10,
-                            pointHoverBackgroundColor: '#172554',
-                            pointHoverBorderColor: '#fff',
-                            pointHoverBorderWidth: 3
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                display: false
-                            },
-                            tooltip: {
-                                mode: 'index',
-                                intersect: false,
-                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                                titleColor: '#2c3e50',
-                                bodyColor: '#2c3e50',
-                                borderColor: '#2563eb',
-                                borderWidth: 2,
-                                cornerRadius: 10,
-                                displayColors: false,
-                                titleFont: {
-                                    size: 14,
-                                    weight: 'bold'
-                                },
-                                bodyFont: {
-                                    size: 13
-                                },
-                                padding: 15,
-                                callbacks: {
-                                    title: function(context) {
-                                        return 'التاريخ: ' + context[0].label;
-                                    },
-                                    label: function(context) {
-                                        return 'عدد الزوار: ' + context.parsed.y;
-                                    }
-                                }
-                            }
-                        },
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                grid: {
-                                    color: 'rgba(102, 126, 234, 0.1)',
-                                    drawBorder: false
-                                },
-                                ticks: {
-                                    color: '#8e9bae',
-                                    font: {
-                                        size: 12
-                                    },
-                                    padding: 10
-                                },
-                                border: {
-                                    display: false
-                                }
-                            },
-                            x: {
-                                grid: {
-                                    display: false
-                                },
-                                ticks: {
-                                    color: '#8e9bae',
-                                    maxRotation: 0,
-                                    font: {
-                                        size: 11
-                                    },
-                                    padding: 10
-                                },
-                                border: {
-                                    display: false
-                                }
-                            }
-                        },
-                        interaction: {
-                            mode: 'nearest',
-                            axis: 'x',
-                            intersect: false
-                        },
-                        elements: {
-                            point: {
-                                hoverRadius: 10
-                            }
-                        }
-                    }
-                });
-            }
-
-            // Modern Browser Statistics Chart
-            const browserCtx = document.getElementById('browserChart');
-            if (browserCtx) {
-                const browserChart = new Chart(browserCtx.getContext('2d'), {
-                    type: 'doughnut',
-                    data: {
-                        labels: {!! json_encode($browserStats->pluck('browser')) !!},
-                        datasets: [{
-                            data: {!! json_encode($browserStats->pluck('count')) !!},
-                            backgroundColor: [
-                                '#2563eb',
-                                '#172554',
-                                '#4facfe',
-                                '#00f2fe',
-                                '#fa709a',
-                                '#fee140'
-                            ],
-                            borderWidth: 0,
-                            hoverBorderWidth: 3,
-                            hoverBorderColor: '#fff',
-                            hoverOffset: 8
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        cutout: '60%',
-                        plugins: {
-                            legend: {
-                                position: 'bottom',
-                                labels: {
-                                    color: '#6c757d',
-                                    padding: 20,
-                                    usePointStyle: true,
-                                    pointStyle: 'circle',
-                                    font: {
-                                        size: 12,
-                                        family: 'Arial'
-                                    }
-                                }
-                            },
-                            tooltip: {
-                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                                titleColor: '#2c3e50',
-                                bodyColor: '#2c3e50',
-                                borderColor: '#e9ecef',
-                                borderWidth: 1,
-                                cornerRadius: 8,
-                                displayColors: true,
-                                padding: 12,
-                                titleFont: {
-                                    size: 13,
-                                    weight: 'bold'
-                                },
-                                bodyFont: {
-                                    size: 12
-                                }
-                            }
-                        },
-                        animation: {
-                            animateScale: true,
-                            animateRotate: true
-                        }
-                    }
-                });
-            }
-
-            // Modern Device Statistics Chart
-            const deviceCtx = document.getElementById('deviceChart');
-            if (deviceCtx) {
-                const deviceChart = new Chart(deviceCtx.getContext('2d'), {
-                    type: 'doughnut',
-                    data: {
-                        labels: {!! json_encode($deviceStats->pluck('device_type')) !!},
-                        datasets: [{
-                            data: {!! json_encode($deviceStats->pluck('count')) !!},
-                            backgroundColor: [
-                                '#a8edea',
-                                '#fed6e3',
-                                '#ff9a9e'
-                            ],
-                            borderWidth: 0,
-                            hoverBorderWidth: 3,
-                            hoverBorderColor: '#fff',
-                            hoverOffset: 10
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        cutout: '50%',
-                        plugins: {
-                            legend: {
-                                position: 'bottom',
-                                labels: {
-                                    color: '#6c757d',
-                                    padding: 20,
-                                    usePointStyle: true,
-                                    pointStyle: 'rect',
-                                    font: {
-                                        size: 12,
-                                        family: 'Arial'
-                                    }
-                                }
-                            },
-                            tooltip: {
-                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                                titleColor: '#2c3e50',
-                                bodyColor: '#2c3e50',
-                                borderColor: '#e9ecef',
-                                borderWidth: 1,
-                                cornerRadius: 8,
-                                displayColors: true,
-                                padding: 12,
-                                titleFont: {
-                                    size: 13,
-                                    weight: 'bold'
-                                },
-                                bodyFont: {
-                                    size: 12
-                                }
-                            }
-                        },
-                        animation: {
-                            animateScale: true,
-                            animateRotate: true
-                        }
-                    }
-                });
-            }
 
             // ============================================
             // REVENUE CHARTS
@@ -749,124 +481,8 @@
                         }
                     }
                 });
-            }
+            }
 
-            // Revenue by Source Chart (Doughnut)
-            const revenueSourceCtx = document.getElementById('revenueSourceChart');
-            if (revenueSourceCtx) {
-                const revenueSourceChart = new Chart(revenueSourceCtx.getContext('2d'), {
-                    type: 'doughnut',
-                    data: {
-                        labels: ['شحن الرصيد النقدي بكل القنوات'],
-                        datasets: [{
-                            data: [
-                                {{ $revenueStats['course_revenue'] }}
-                            ],
-                            backgroundColor: [
-                                '#2563eb'
-                            ],
-                            borderWidth: 0,
-                            hoverBorderWidth: 3,
-                            hoverBorderColor: '#fff',
-                            hoverOffset: 10
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        cutout: '65%',
-                        plugins: {
-                            legend: {
-                                position: 'bottom',
-                                labels: {
-                                    color: '#6c757d',
-                                    padding: 20,
-                                    usePointStyle: true,
-                                    pointStyle: 'circle',
-                                    font: {
-                                        size: 12
-                                    }
-                                }
-                            },
-                            tooltip: {
-                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                                titleColor: '#2c3e50',
-                                bodyColor: '#2c3e50',
-                                borderColor: '#e9ecef',
-                                borderWidth: 1,
-                                cornerRadius: 8,
-                                padding: 12,
-                                callbacks: {
-                                    label: function(context) {
-                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                        const percentage = ((context.parsed / total) * 100).toFixed(1);
-                                        return context.label + ': ' + context.parsed.toFixed(2) + ' (' + percentage + '%)';
-                                    }
-                                }
-                            }
-                        }
-                    }
-                });
-            }
-
-            // Payment Method Distribution Chart
-            const paymentMethodCtx = document.getElementById('paymentMethodChart');
-            if (paymentMethodCtx && {!! json_encode($paymentMethods->count()) !!} > 0) {
-                const paymentMethodChart = new Chart(paymentMethodCtx.getContext('2d'), {
-                    type: 'pie',
-                    data: {
-                        labels: {!! json_encode($paymentMethods->pluck('method')) !!},
-                        datasets: [{
-                            data: {!! json_encode($paymentMethods->pluck('total')) !!},
-                            backgroundColor: [
-                                '#2563eb',
-                                '#48bb78',
-                                '#f6ad55',
-                                '#fc8181',
-                                '#4facfe'
-                            ],
-                            borderWidth: 0,
-                            hoverBorderWidth: 3,
-                            hoverBorderColor: '#fff',
-                            hoverOffset: 8
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                position: 'bottom',
-                                labels: {
-                                    color: '#6c757d',
-                                    padding: 20,
-                                    usePointStyle: true,
-                                    pointStyle: 'circle',
-                                    font: {
-                                        size: 12
-                                    }
-                                }
-                            },
-                            tooltip: {
-                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                                titleColor: '#2c3e50',
-                                bodyColor: '#2c3e50',
-                                borderColor: '#e9ecef',
-                                borderWidth: 1,
-                                cornerRadius: 8,
-                                padding: 12,
-                                callbacks: {
-                                    label: function(context) {
-                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                        const percentage = ((context.parsed / total) * 100).toFixed(1);
-                                        return context.label + ': ' + context.parsed.toFixed(2) + ' (' + percentage + '%)';
-                                    }
-                                }
-                            }
-                        }
-                    }
-                });
-            }
 
             // ============================================
             // COURSE STATISTICS CHART
@@ -966,31 +582,6 @@
                     }
                 });
             }
-
-            // Counter Animation for Revenue
-            function animateRevenueCounters() {
-                const counters = document.querySelectorAll('.revenue-count');
-                counters.forEach(counter => {
-                    const target = parseFloat(counter.textContent.replace(/,/g, ''));
-                    const increment = target / 50;
-                    let current = 0;
-
-                    const updateCounter = () => {
-                        if (current < target) {
-                            current += increment;
-                            counter.textContent = Math.round(current).toLocaleString('en-US');
-                            setTimeout(updateCounter, 20);
-                        } else {
-                            counter.textContent = Math.round(target).toLocaleString('en-US');
-                        }
-                    };
-
-                    setTimeout(updateCounter, 500);
-                });
-            }
-
-            // Start revenue counter animation
-            setTimeout(animateRevenueCounters, 600);
 
             // Add hover effects to cards
             const cards = document.querySelectorAll('.stats-card, .summary-card, .chart-card');

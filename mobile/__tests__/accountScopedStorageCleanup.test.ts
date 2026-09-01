@@ -1,4 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+jest.mock('expo-crypto', () => ({
+  randomUUID: jest.fn(() => '11111111-1111-4111-8111-111111111111'),
+  digestStringAsync: jest.fn(async () => 'a'.repeat(64)),
+  CryptoDigestAlgorithm: {SHA256: 'SHA-256'},
+}));
+
 import {clearAccountScopedStorage} from '../src/constants/helpers';
 
 describe('account-scoped storage cleanup', () => {

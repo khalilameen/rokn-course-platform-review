@@ -131,7 +131,10 @@ class LoginController extends Controller
 
     private function loginRateLimitKey(string $email, string $ip): string
     {
-        return 'admin-login:' . hash('sha256', Str::lower(trim($email)) . '|' . $ip);
+        // This short lock is scoped to one credential source. The route-level
+        // email limits still cap distributed attempts without allowing one
+        // remote address to keep a known administrator locked out indefinitely.
+        return 'admin-login:' . hash('sha256', Str::lower(trim($email)).'|'.trim($ip));
     }
 
     /**

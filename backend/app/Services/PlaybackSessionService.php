@@ -42,6 +42,11 @@ final class PlaybackSessionService
                 return ['accepted' => false, 'reason' => 'stale_sequence', 'session' => $session];
             }
 
+            $previousSample = [
+                'position_seconds' => (int) $session->last_position_seconds,
+                'recorded_at' => $session->last_heartbeat_at,
+            ];
+
             $position = max(0, (int) ($sample['position_seconds'] ?? 0));
             $eventType = (string) ($sample['event_type'] ?? 'heartbeat');
             $isCompleted = !empty($sample['is_completed']) || $eventType === 'complete';
@@ -92,7 +97,12 @@ final class PlaybackSessionService
 
             $session->forceFill($attributes)->save();
 
-            return ['accepted' => true, 'reason' => 'accepted', 'session' => $session];
+            return [
+                'accepted' => true,
+                'reason' => 'accepted',
+                'session' => $session,
+                'previous_sample' => $previousSample,
+            ];
         });
     }
 

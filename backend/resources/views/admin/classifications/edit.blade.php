@@ -8,9 +8,10 @@
         <strong>تعديل التصنيف: {{ $classification->name_ar }}</strong>
     </div>
     <div class="card-body card-block">
-        <form action="{{ route('admin.classifications.update', $classification->id) }}" method="post" class="form-horizontal">
+        <form action="{{ route('admin.classifications.update', $classification->id) }}" method="post" class="form-horizontal" id="classificationForm">
             @csrf
             @method('PUT')
+            <input type="hidden" name="editor_version" value="{{ $editorVersion }}">
             <div class="row form-group">
                 <div class="col col-md-3"><label for="name_ar" class=" form-control-label">الاسم (AR)</label></div>
                 <div class="col-12 col-md-9">
@@ -48,4 +49,8 @@
         </form>
     </div>
 </div>
+@endsection
+
+@section('scripts')
+    @include('admin.partials.course-authoring-draft', ['formId' => 'classificationForm'])
 @endsection

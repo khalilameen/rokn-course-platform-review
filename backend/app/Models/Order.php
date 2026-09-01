@@ -28,6 +28,7 @@ class Order extends Model
         'payment_screenshot',
         'order_ref',
         'checkout_request_key',
+        'wallet_transaction_id',
         'checkout_expires_at',
         'transaction_id',
         'payment_gateway_response',
@@ -79,6 +80,7 @@ class Order extends Model
         'access_plan_snapshot' => 'array',
         'parent_order_id' => 'integer',
         'is_premium_user' => 'boolean',
+        'wallet_transaction_id' => 'integer',
     ];
 
 
@@ -113,7 +115,7 @@ class Order extends Model
      */
     public function user()
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class)->withTrashed();
     }
 
     /**
@@ -121,7 +123,8 @@ class Order extends Model
      */
     public function course()
     {
-        return $this->belongsTo(Course::class);
+        // Financial history must remain readable after a course is retired.
+        return $this->belongsTo(Course::class)->withTrashed();
     }
 
     /**
@@ -145,7 +148,7 @@ class Order extends Model
      */
     public function coupon()
     {
-        return $this->belongsTo(Coupon::class);
+        return $this->belongsTo(Coupon::class)->withTrashed();
     }
 
     /**
@@ -175,6 +178,11 @@ class Order extends Model
     public function storePurchase()
     {
         return $this->hasOne(StorePurchase::class);
+    }
+
+    public function walletTransaction()
+    {
+        return $this->belongsTo(WalletTransaction::class, 'wallet_transaction_id');
     }
 
     public function accessPlan()
@@ -299,6 +307,19 @@ class Order extends Model
     }
 
     /**
+     * Orders that still represent delivered, paid value. Operational approval
+     * alone is insufficient because refunds and chargebacks intentionally keep
+     * the original approval audit trail.
+     */
+    public function scopeFinanciallyEffective($query)
+    {
+        return $query
+            ->where('status', self::STATUS_APPROVED)
+            ->where('financial_status', self::FINANCIAL_SETTLED)
+            ->whereNull('reversed_at');
+    }
+
+    /**
      * Check if order is pending.
      */
     public function isPending()
@@ -312,6 +333,13 @@ class Order extends Model
     public function isApproved()
     {
         return $this->status === self::STATUS_APPROVED;
+    }
+
+    public function isFinanciallyEffective(): bool
+    {
+        return $this->status === self::STATUS_APPROVED
+            && $this->financial_status === self::FINANCIAL_SETTLED
+            && $this->reversed_at === null;
     }
 
     public function isCheckoutExpired(): bool

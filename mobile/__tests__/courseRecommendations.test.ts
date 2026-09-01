@@ -57,4 +57,18 @@ describe('recommendCourses', () => {
     expect(second.map(item => item.id)).toEqual(first.map(item => item.id));
     expect(new Set(first.slice(0, 3).map(item => item.category)).size).toBe(3);
   });
+
+  it('keeps zero as the highest configured home priority', () => {
+    const result = recommendCourses(
+      [
+        course('priority-zero', 'skills', {homeSortOrder: 0}),
+        course('priority-one', 'skills', {homeSortOrder: 1}),
+        course('priority-two', 'skills', {homeSortOrder: 2}),
+        course('priority-three', 'skills', {homeSortOrder: 3}),
+      ],
+      {minimumResults: 4, limit: 4},
+    );
+
+    expect(result[0].id).toBe('priority-zero');
+  });
 });

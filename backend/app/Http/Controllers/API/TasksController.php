@@ -6,38 +6,66 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\API\ContactRequest;
-use App\Http\Resources\SettingResource;
 use App\Models\Contact;
-use App\Models\Setting;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
-/**
- * Legacy public utility endpoints.
- *
- * Google Drive and Sheets experiments previously lived in this controller
- * with a refresh token and credential filename committed to source control.
- * They had no registered route or production consumer, so retaining them
- * would create credential exposure without providing a product capability.
- * Social sign-in remains implemented by the dedicated, server-side services.
- */
+/** Durable public contact submission. */
 class TasksController extends Controller
 {
     public function contact(ContactRequest $request): JsonResponse
     {
         $payload = $request->validated();
         $payload['phone'] = trim((string) ($payload['phone'] ?? ''));
-        Contact::create($payload);
+        $payload['name'] = trim((string) $payload['name']);
+        $payload['email'] = Str::lower(trim((string) $payload['email']));
+        $payload['message'] = trim((string) $payload['message']);
+        $fingerprint = hash('sha256', json_encode([
+            'name' => $payload['name'],
+            'email' => $payload['email'],
+            'phone' => $payload['phone'],
+            'message' => $payload['message'],
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
-        return response()->json([
-            'status' => 201,
-            'success' => true,
-            'message' => 'تم إرسال رسالتك بنجاح',
-            'data' => null,
-        ], 201);
+        $existing = Contact::query()
+            ->where('client_request_id', $payload['client_request_id'])
+            ->first();
+        if ($existing) {
+            abort_unless(hash_equals((string) $existing->request_fingerprint, $fingerprint), 409);
+            return $this->contactReceipt($payload['client_request_id'], true);
+        }
+
+        $payload['request_fingerprint'] = $fingerprint;
+        try {
+            DB::transaction(static function () use ($payload): void {
+                Contact::query()->create($payload);
+            });
+        } catch (QueryException $exception) {
+            $existing = Contact::query()
+                ->where('client_request_id', $payload['client_request_id'])
+                ->first();
+            if (!$existing) {
+                throw $exception;
+            }
+            abort_unless(hash_equals((string) $existing->request_fingerprint, $fingerprint), 409);
+            return $this->contactReceipt($payload['client_request_id'], true);
+        }
+
+        return $this->contactReceipt($payload['client_request_id'], false);
     }
 
-    public function settings(): SettingResource
+    private function contactReceipt(string $requestId, bool $replayed): JsonResponse
     {
-        return new SettingResource(Setting::query()->firstOrNew());
+        return response()->json([
+            'status' => $replayed ? 200 : 201,
+            'success' => true,
+            'message' => 'تم إرسال رسالتك بنجاح',
+            'data' => [
+                'request_id' => $requestId,
+                'replayed' => $replayed,
+            ],
+        ], $replayed ? 200 : 201);
     }
 }

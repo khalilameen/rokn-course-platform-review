@@ -5,13 +5,16 @@ declare(strict_types=1);
 namespace App\Jobs;
 
 use App\Models\User;
+use App\Models\AdminNotification;
+use App\Models\NotificationCampaign;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class SendStudentNotification implements ShouldQueue, ShouldBeUnique
@@ -35,6 +38,9 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
     protected string $messageAr;
     protected string $messageEn;
     protected ?string $link;
+    protected ?string $imageUrl = null;
+    protected ?string $actionLabelAr = null;
+    protected ?string $actionLabelEn = null;
 
     /** @var array<int> User IDs to exclude */
     protected array $excludeUserIds;
@@ -45,7 +51,7 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
 
     public int $tries = 3;
     public int $timeout = 120;
-    public int $uniqueFor = 3600;
+    public int $uniqueFor = 900;
     public array $backoff = [15, 60, 180];
 
     /**
@@ -73,7 +79,10 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
         array $excludeUserIds = [],
         ?string $deliveryKey = null,
         ?int $courseId = null,
-        string $audience = self::AUDIENCE_ALL
+        string $audience = self::AUDIENCE_ALL,
+        ?string $imageUrl = null,
+        ?string $actionLabelAr = null,
+        ?string $actionLabelEn = null
     ) {
         if (count($userIds) > self::MAX_EXPLICIT_USER_IDS) {
             throw new \InvalidArgumentException('Explicit notification audience exceeds the safe broadcast limit.');
@@ -96,6 +105,9 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
         $this->deliveryKey      = $this->normalizeDeliveryKey($deliveryKey ?: (string) Str::uuid());
         $this->courseId         = $courseId;
         $this->audience         = $audience;
+        $this->imageUrl         = $imageUrl;
+        $this->actionLabelAr    = $actionLabelAr;
+        $this->actionLabelEn    = $actionLabelEn;
         $this->validateAudienceSelector();
         $this->onQueue((string) config('queue.channels.notifications', 'notifications'));
     }
@@ -114,12 +126,35 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
         $this->uniqueId(); // Backfills jobs serialized by the previous release.
 
         try {
-            $query = User::where('role', 'client');
+            if (Schema::hasTable('notification_campaigns')) {
+                NotificationCampaign::query()
+                    ->where('delivery_key', $this->deliveryKey)
+                    ->update([
+                        'status' => NotificationCampaign::STATUS_DELIVERING,
+                        'failed_at' => null,
+                        'failure_code' => null,
+                    ]);
+            }
+            $query = User::where('role', 'client')->where('active', true);
 
             // Promotions are opt-in both in the inbox and over push. Learning,
             // payment and account notifications remain unaffected.
             if (in_array($this->notificationType, ['course_promotion', 'admin_broadcast'], true)) {
                 $query->where('marketing_notifications_enabled', true);
+            }
+
+            $cooldownHours = $this->cooldownHours();
+            if ($cooldownHours > 0) {
+                $family = $this->cooldownFamily();
+                $query->where(function ($eligible) use ($cooldownHours, $family): void {
+                    $eligible->whereDoesntHave('studentNotifications', function ($notifications) use ($cooldownHours, $family): void {
+                        $notifications
+                            ->whereIn('notification_type', $family)
+                            ->where('created_at', '>=', now()->subHours($cooldownHours));
+                    })->orWhereHas('studentNotifications', function ($notifications): void {
+                        $notifications->where('delivery_key', $this->deliveryKey);
+                    });
+                });
             }
 
             if (!empty($this->userIds)) {
@@ -134,13 +169,19 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
                 $query->whereHas('enrollments', function ($enrollments): void {
                     $enrollments
                         ->where('course_id', $this->courseId)
-                        ->where('is_active', true);
+                        ->where('is_active', true)
+                        ->where(function ($expiry): void {
+                            $expiry->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                        });
                 });
             } elseif ($this->courseId !== null && $this->audience === self::AUDIENCE_NOT_ENROLLED) {
                 $query->whereDoesntHave('enrollments', function ($enrollments): void {
                     $enrollments
                         ->where('course_id', $this->courseId)
-                        ->where('is_active', true);
+                        ->where('is_active', true)
+                        ->where(function ($expiry): void {
+                            $expiry->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                        });
                 });
             }
 
@@ -160,9 +201,37 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
                     $this->titleEn,
                     $this->messageAr,
                     $this->messageEn,
-                    $this->link
+                    $this->link,
+                    $this->imageUrl,
+                    $this->actionLabelAr,
+                    $this->actionLabelEn
                 )->onQueue((string) config('queue.channels.notifications', 'notifications'));
             }, 'id');
+
+            $updated = 0;
+            if (Schema::hasTable('notification_campaigns')) {
+                $updated = NotificationCampaign::query()
+                    ->where('delivery_key', $this->deliveryKey)
+                    ->update([
+                    'status' => $queuedRecipientsCount > 0
+                        ? NotificationCampaign::STATUS_DELIVERING
+                        : NotificationCampaign::STATUS_COMPLETED,
+                    'recipients_count' => $queuedRecipientsCount,
+                    'coordinator_finished_at' => now(),
+                    'completed_at' => $queuedRecipientsCount > 0 ? null : now(),
+                    'failed_at' => null,
+                    'failure_code' => null,
+                    ]);
+            }
+            if ($updated && $queuedRecipientsCount > 0) {
+                NotificationCampaign::query()
+                    ->where('delivery_key', $this->deliveryKey)
+                    ->whereColumn('inbox_count', '>=', 'recipients_count')
+                    ->update([
+                        'status' => NotificationCampaign::STATUS_COMPLETED,
+                        'completed_at' => now(),
+                    ]);
+            }
 
             Log::info('Student notification chunks queued', [
                 'notification_type' => $this->notificationType,
@@ -194,6 +263,15 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
 
     public function failed(\Throwable $exception): void
     {
+        if (Schema::hasTable('notification_campaigns')) {
+            NotificationCampaign::query()
+                ->where('delivery_key', $this->deliveryKey)
+                ->update([
+                    'status' => NotificationCampaign::STATUS_FAILED,
+                    'failed_at' => now(),
+                    'failure_code' => 'coordinator_' . substr(hash('sha256', $exception::class), 0, 12),
+                ]);
+        }
         Log::error('SendStudentNotification job failed', [
             'notification_type' => $this->notificationType,
             'explicit_user_ids_count' => count($this->userIds),
@@ -251,5 +329,36 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
         if (count($this->excludeUserIds) > self::MAX_EXPLICIT_USER_IDS) {
             throw new \InvalidArgumentException('Explicit notification exclusions exceed the safe broadcast limit.');
         }
+    }
+
+    private function cooldownHours(): int
+    {
+        if (
+            !Schema::hasTable('admin_notifications')
+            || !Schema::hasColumn('admin_notifications', 'system_key')
+        ) {
+            return 0;
+        }
+
+        return max(0, (int) AdminNotification::query()
+            ->where('system_key', $this->notificationType)
+            ->value('cooldown_hours'));
+    }
+
+    /** @return array<int,string> */
+    private function cooldownFamily(): array
+    {
+        return match ($this->notificationType) {
+            'new_course_lesson', 'new_quiz', 'course_update' => [
+                'new_course_lesson',
+                'new_quiz',
+                'course_update',
+            ],
+            'learning_nudge', 'continue_course' => [
+                'learning_nudge',
+                'continue_course',
+            ],
+            default => [$this->notificationType],
+        };
     }
 }

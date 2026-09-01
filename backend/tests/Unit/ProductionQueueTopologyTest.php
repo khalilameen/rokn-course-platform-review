@@ -26,7 +26,7 @@ final class ProductionQueueTopologyTest extends TestCase
         self::assertStringContainsString('when `webhooks` exceeds two minutes', $runbook);
         self::assertIsString($environment);
         self::assertStringContainsString('WEBHOOK_QUEUE=webhooks', $environment);
-        self::assertStringContainsString('REDIS_QUEUE_RETRY_AFTER=120', $environment);
+        self::assertStringContainsString('REDIS_QUEUE_RETRY_AFTER=360', $environment);
     }
 
     public function test_production_template_selects_private_shared_course_pdf_storage(): void

@@ -21,7 +21,7 @@ class ListResource extends JsonResource
             'is_opened' => (bool) $this->is_opened ?? true,
             'description_ar' =>$this->description_ar ? (string)$this->description_ar: null,
             'description_en' =>$this->description_en ? (string)$this->description_en: null,
-            'image' => $this->image ? $this->image : url('/images/service.jpg'),
+            'image' => $this->image ?: null,
             'date' => $this->created_at ?$this->created_at->format('h:i A'):null,
             'products'=>ProductResource::collection($this->products),
         ];

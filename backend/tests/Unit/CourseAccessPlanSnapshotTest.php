@@ -43,6 +43,7 @@ final class CourseAccessPlanSnapshotTest extends TestCase
             'code' => 'guided',
             'name_ar' => 'التعلّم بإرشاد',
             'price_coins' => 2500,
+            'minimum_paid_coins' => 500,
             'sort_order' => 20,
             'chat_enabled' => true,
             'chat_message_limit' => 25,

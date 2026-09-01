@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {serverNowMs} from '../utils/serverClock';
 
 export type DurableOutboxItem<T> = {
   id: string;
@@ -22,6 +23,7 @@ type EnqueueOptions<T> = {
 type FlushOptions<T> = {
   storageKey: string;
   deliver: (payload: T) => Promise<DeliveryResult>;
+  deliverBatch?: (payloads: T[]) => Promise<DeliveryResult>;
   maxBatch?: number;
   maxItems?: number;
   baseRetryMs?: number;
@@ -66,17 +68,24 @@ const validItem = <T>(value: unknown): value is DurableOutboxItem<T> => {
   );
 };
 
-const read = async <T>(storageKey: string, now = Date.now()) => {
+const read = async <T>(storageKey: string, now = serverNowMs()) => {
+  const raw = await AsyncStorage.getItem(storageKey);
+  if (!raw) return [];
+  let parsed: unknown;
   try {
-    const raw = await AsyncStorage.getItem(storageKey);
-    const parsed = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter(validItem<T>)
-      .filter(item => Date.parse(item.expiresAt) > now);
+    parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) throw new Error('INVALID_OUTBOX_SHAPE');
   } catch {
+    // Do not let one damaged record poison all future enqueue attempts. Keep
+    // the exact bytes first; if the device is full and the backup cannot be
+    // written, throw and leave the original untouched rather than erasing it.
+    await AsyncStorage.setItem(`${storageKey}:corrupt`, raw);
+    await AsyncStorage.removeItem(storageKey);
     return [];
   }
+  return parsed
+    .filter(validItem<T>)
+    .filter(item => Date.parse(item.expiresAt) > now);
 };
 
 const write = async <T>(
@@ -97,7 +106,7 @@ export const enqueueDurableOutbox = async <T>({
   maxItems = DEFAULT_MAX_ITEMS,
   ttlMs = DEFAULT_TTL_MS,
 }: EnqueueOptions<T>): Promise<void> => {
-  const now = Date.now();
+  const now = serverNowMs();
   const timestamp = new Date(now).toISOString();
   await withLock(storageKey, async () => {
     const current = await read<T>(storageKey, now);
@@ -117,11 +126,12 @@ export const enqueueDurableOutbox = async <T>({
 export const flushDurableOutbox = async <T>({
   storageKey,
   deliver,
+  deliverBatch,
   maxBatch = 12,
   maxItems = DEFAULT_MAX_ITEMS,
   baseRetryMs = 2_000,
   maxRetryMs = 60 * 60 * 1000,
-  now = Date.now,
+  now = serverNowMs,
 }: FlushOptions<T>): Promise<void> => {
   const existing = flushes.get(storageKey);
   if (existing) return existing;
@@ -133,6 +143,37 @@ export const flushDurableOutbox = async <T>({
     const eligible = snapshot
       .filter(item => Date.parse(item.nextAttemptAt) <= now())
       .slice(0, Math.max(1, maxBatch));
+
+    if (deliverBatch && eligible.length > 0) {
+      let result: DeliveryResult = 'retry';
+      try {
+        result = await deliverBatch(eligible.map(item => item.payload));
+      } catch {
+        result = 'retry';
+      }
+      await withLock(storageKey, async () => {
+        const current = await read<T>(storageKey, now());
+        const eligibleIds = new Set(eligible.map(item => item.id));
+        const next = current.flatMap(item => {
+          if (!eligibleIds.has(item.id)) return [item];
+          if (result === 'ack' || result === 'drop') return [];
+          const attempts = item.attempts + 1;
+          const retryMs = Math.min(
+            Math.max(baseRetryMs, 1) * 2 ** Math.min(attempts - 1, 12),
+            Math.max(baseRetryMs, maxRetryMs),
+          );
+          return [
+            {
+              ...item,
+              attempts,
+              nextAttemptAt: new Date(now() + retryMs).toISOString(),
+            },
+          ];
+        });
+        await write(storageKey, next, maxItems);
+      });
+      return;
+    }
 
     for (const candidate of eligible) {
       let result: DeliveryResult = 'retry';
@@ -174,8 +215,15 @@ export const flushDurableOutbox = async <T>({
   }
 };
 
-export const readDurableOutbox = <T>(storageKey: string) =>
-  withLock(storageKey, () => read<T>(storageKey));
+export const readDurableOutbox = async <T>(storageKey: string) => {
+  try {
+    return await withLock(storageKey, () => read<T>(storageKey));
+  } catch {
+    // Diagnostics may render an empty snapshot while storage is unavailable,
+    // but enqueue/flush stay strict so they never overwrite unread events.
+    return [];
+  }
+};
 
 export const resetDurableOutboxForTests = () => {
   locks.clear();

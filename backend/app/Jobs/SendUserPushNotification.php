@@ -14,6 +14,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
 
 final class SendUserPushNotification implements ShouldQueue, ShouldBeUnique
 {
@@ -21,7 +22,7 @@ final class SendUserPushNotification implements ShouldQueue, ShouldBeUnique
 
     public int $tries = 3;
     public int $timeout = 45;
-    public int $uniqueFor = 3600;
+    public int $uniqueFor = 900;
     public array $backoff = [10, 60, 180];
 
     private ?int $notificationId = null;
@@ -72,7 +73,9 @@ final class SendUserPushNotification implements ShouldQueue, ShouldBeUnique
     public function handle(StudentNotificationPresentationService $presentations): void
     {
         if ($this->notificationId === null) {
-            $user = $this->userId ? User::query()->find($this->userId) : null;
+            $user = $this->userId
+                ? User::query()->active()->find($this->userId)
+                : null;
             if ($user) {
                 FcmNotificationService::sendToUser(
                     $user,
@@ -91,17 +94,46 @@ final class SendUserPushNotification implements ShouldQueue, ShouldBeUnique
         // FCM accepts the request. The in-app inbox remains authoritative.
         $claimed = StudentNotification::query()
             ->whereKey($this->notificationId)
+            ->whereHas('user', fn ($user) => $user->where('active', true))
             ->whereNull('push_attempted_at')
-            ->update(['push_attempted_at' => now()]);
+            ->whereNull('push_failed_at')
+            ->update([
+                'push_attempted_at' => now(),
+                'push_attempts' => DB::raw('push_attempts + 1'),
+            ]);
 
         if ($claimed !== 1) {
+            $pendingUserId = StudentNotification::query()
+                ->whereKey($this->notificationId)
+                ->whereNull('push_attempted_at')
+                ->whereNull('push_failed_at')
+                ->value('user_id');
+            if ($pendingUserId && !User::query()->active()->whereKey($pendingUserId)->exists()) {
+                StudentNotification::query()
+                    ->whereKey($this->notificationId)
+                    ->whereNull('push_attempted_at')
+                    ->whereNull('push_failed_at')
+                    ->update([
+                        'push_failed_at' => now(),
+                        'push_failure_code' => 'account_inactive',
+                        'updated_at' => now(),
+                    ]);
+            }
             return;
         }
 
         $notification = StudentNotification::query()
             ->with(['user.deviceTokens', 'notifiable'])
             ->find($this->notificationId);
-        if (!$notification || !$notification->user) {
+        if (!$notification || !$notification->user || !(bool) $notification->user->active) {
+            StudentNotification::query()
+                ->whereKey($this->notificationId)
+                ->whereNull('push_sent_at')
+                ->update([
+                    'push_failed_at' => now(),
+                    'push_failure_code' => 'account_inactive',
+                    'updated_at' => now(),
+                ]);
             return;
         }
 
@@ -120,17 +152,48 @@ final class SendUserPushNotification implements ShouldQueue, ShouldBeUnique
                 'action_label_ar' => $presentation['action_label_ar'],
                 'action_label_en' => $presentation['action_label_en'],
                 'notification_id' => (string) $notification->id,
+                'campaign_id' => (string) $notification->delivery_key,
             ]
         );
 
         if ($result['delivered']) {
-            $notification->forceFill(['push_sent_at' => now()])->save();
+            $notification->forceFill([
+                'push_sent_at' => now(),
+                'push_failed_at' => null,
+                'push_failure_code' => null,
+            ])->save();
             return;
         }
 
         if ($result['retryable']) {
-            $notification->forceFill(['push_attempted_at' => null])->save();
+            if ($this->attempts() >= $this->tries) {
+                $notification->forceFill([
+                    'push_failed_at' => now(),
+                    'push_failure_code' => 'provider_retry_exhausted',
+                ])->save();
+            } else {
+                $notification->forceFill(['push_attempted_at' => null])->save();
+            }
             throw new \RuntimeException('FCM delivery failed temporarily.');
         }
+
+        $notification->forceFill([
+            'push_failed_at' => now(),
+            'push_failure_code' => 'not_push_eligible',
+        ])->save();
+    }
+
+    public function failed(\Throwable $exception): void
+    {
+        if ($this->notificationId === null) return;
+        StudentNotification::query()
+            ->whereKey($this->notificationId)
+            ->whereNull('push_sent_at')
+            ->whereNull('push_failed_at')
+            ->update([
+                'push_failed_at' => now(),
+                'push_failure_code' => 'worker_failed',
+                'updated_at' => now(),
+            ]);
     }
 }

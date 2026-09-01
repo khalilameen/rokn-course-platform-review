@@ -18,9 +18,13 @@ final class SendFinancialAnomalyAlert implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
+    public int $timeout = 30;
+    public bool $failOnTimeout = true;
+    public array $backoff = [15, 60, 180];
 
     public function __construct(public int $anomalyId)
     {
+        $this->onQueue('default');
     }
 
     public function handle(): void
@@ -41,7 +45,7 @@ final class SendFinancialAnomalyAlert implements ShouldQueue
             ->unique();
         foreach ($recipients as $email) {
             Mail::raw(
-                "تم إيقاف AI لهذا الاشتراك فقط لحين المراجعة\n"
+                "تم إيقاف AI لهذه الفئة على حساب الطالب فقط لحين المراجعة\n"
                 . 'الطالب: ' . ($anomaly->user?->email ?: '#' . $anomaly->user_id) . "\n"
                 . 'الكورس: ' . ($anomaly->course?->name_ar ?: $anomaly->course?->name_en) . "\n"
                 . 'المفروض مدفوع: ' . $anomaly->expected_paid_coins . " عملة\n"
@@ -49,7 +53,7 @@ final class SendFinancialAnomalyAlert implements ShouldQueue
                 . 'رقم التنبيه: ' . $anomaly->public_id,
                 static fn ($message) => $message
                     ->to((string) $email)
-                    ->subject('تنبيه مالي من ركن: اشتراك أقل من الحد المدفوع')
+                    ->subject('تنبيه مالي من ركن: شراء أقل من الحد المدفوع')
             );
         }
     }

@@ -202,6 +202,11 @@ final class PaymentReconciliationDashboardTest extends TestCase
             self::assertSame($admin->id, $audit->actor_id);
             self::assertSame('PATCH', $audit->http_method);
             self::assertContains('note', $audit->request_fields);
+            self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', (string) $audit->ip_address);
+            if ($audit->user_agent !== null) {
+                self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $audit->user_agent);
+            }
+            self::assertNotSame('127.0.0.1', $audit->ip_address);
         }
     }
 

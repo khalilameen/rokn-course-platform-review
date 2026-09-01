@@ -27,14 +27,9 @@
                     </div>
                 </div>
                 <div class="card-body-modern">
-                    {!! Form::model($quiz,['method' => 'POST', 'files' => true, 'url' => route('admin.quizzes.store'), 'id' => 'exam_form', 'data-question-numbers'=>0 ]) !!}
+                    {!! Form::model($quiz,['method' => 'PATCH', 'files' => true, 'url' => route('admin.quizzes.update', $quiz), 'id' => 'exam_form', 'data-question-numbers'=>0 ]) !!}
+                        <input type="hidden" name="editor_version" value="{{ hash('sha256', $quiz->id.'|'.optional($quiz->updated_at)->format('Y-m-d H:i:s.u')) }}">
                         @include('admin.quizzes._form')
-
-                        <input id="exam_id" name="exam_id" type="hidden" value='{{$quiz->id}}'>
-                        @if(request('course_id'))
-                            <input name="course_id" type="hidden" value="{{ request('course_id') }}">
-                        @endif
-
                         <div>
                             @if($quiz->questions)
                                 <div class="questions-section-header">
@@ -52,6 +47,7 @@
                             @endif
                         </div>
                     {!! Form::close() !!}
+                    @include('admin.partials.course-authoring-draft', ['formId' => 'exam_form'])
 
                     <div class="text-center">
                         <a href="#" class="add_question add-question-btn">

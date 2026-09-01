@@ -71,6 +71,21 @@ for (const absolute of files) {
       `${relative}: do not disable font scaling; use responsive layout instead.`,
     );
   }
+  if (/adjustsFontSizeToFit/.test(content)) {
+    failures.push(
+      `${relative}: do not shrink learner-facing text to fit; let layout respond to the OS font scale.`,
+    );
+  }
+  if (/<Modal\b/.test(content)) {
+    if (!/onRequestClose=/.test(content)) {
+      failures.push(`${relative}: modals must handle the native back action.`);
+    }
+    if (!/accessibilityViewIsModal/.test(content)) {
+      failures.push(
+        `${relative}: modal content must isolate TalkBack and VoiceOver focus.`,
+      );
+    }
+  }
 
   const source = ts.createSourceFile(
     relative,
@@ -119,7 +134,8 @@ for (const absolute of files) {
     };
     node.children.forEach(inspectChild);
     if (containsIcon && !containsText && !hasAccessibilityName(opening)) {
-      const line = source.getLineAndCharacterOfPosition(opening.getStart(source)).line + 1;
+      const line =
+        source.getLineAndCharacterOfPosition(opening.getStart(source)).line + 1;
       failures.push(
         `${relative}:${line}: icon-only controls need an accessibility label.`,
       );

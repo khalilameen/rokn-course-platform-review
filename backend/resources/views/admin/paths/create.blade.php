@@ -19,7 +19,7 @@
         <div class="col-12">
             <div class="card">
                 <div class="card-body">
-                    <form action="{{ route('admin.paths.store') }}" method="POST">
+                    <form action="{{ route('admin.paths.store') }}" method="POST" id="pathForm">
                         @csrf
                         @include('admin.paths._form')
                         <div class="form-actions mt-4">
@@ -32,4 +32,8 @@
         </div>
     </div>
 </div>
+@endsection
+
+@section('scripts')
+    @include('admin.partials.course-authoring-draft', ['formId' => 'pathForm'])
 @endsection

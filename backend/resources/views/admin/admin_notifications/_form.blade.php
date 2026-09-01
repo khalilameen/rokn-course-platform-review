@@ -1,7 +1,8 @@
 @php($current = $admin_notification ?? null)
 <div class="alert alert-info">
     اكتب كأنك تكلم طالبًا واحدًا. المتغيرات المتاحة: <code>{coins}</code> لعدد العملات،
-    <code>{course}</code> للكورس، و<code>{task}</code> للمهمة.
+    <code>{course}</code> للكورس، <code>{task}</code> للمهمة،
+    <code>{lesson}</code> للمقطع، و<code>{quiz}</code> للاختبار.
 </div>
 <div class="row">
     <div class="col-md-6 form-group">
@@ -14,17 +15,17 @@
     </div>
     <div class="col-md-6 form-group">
         <label for="system_key">مفتاح الحدث</label>
-        <input class="form-control" dir="ltr" id="system_key" name="system_key" type="text" value="{{ old('system_key', $current?->system_key) }}" placeholder="مثال: new_course">
-        <small class="form-text text-muted">اتركه فارغًا للإعلانات اليدوية. لا تغيّره للقوالب الحالية حتى يظل الربط شغالًا.</small>
+        <input class="form-control" dir="ltr" id="system_key" name="system_key" type="text" value="{{ old('system_key', $current?->system_key) }}" placeholder="مثال: new_course" {{ $current?->isSystemTemplate() ? 'readonly' : '' }}>
+        <small class="form-text text-muted">اتركه فارغًا للإعلانات اليدوية</small>
     </div>
 </div>
 <div class="row">
-    <div class="col-md-6 form-group"><label for="title_ar">العنوان العربي</label><input class="form-control" id="title_ar" maxlength="255" name="title_ar" required type="text" value="{{ old('title_ar', $current?->title_ar) }}"></div>
-    <div class="col-md-6 form-group"><label for="title_en">English title</label><input class="form-control" dir="ltr" id="title_en" maxlength="255" name="title_en" required type="text" value="{{ old('title_en', $current?->title_en) }}"></div>
+    <div class="col-md-6 form-group"><label for="title_ar">العنوان العربي</label><input class="form-control" id="title_ar" maxlength="80" name="title_ar" required type="text" value="{{ old('title_ar', $current?->title_ar) }}"></div>
+    <div class="col-md-6 form-group"><label for="title_en">English title <small class="text-muted">اختياري</small></label><input class="form-control" dir="ltr" id="title_en" maxlength="80" name="title_en" type="text" value="{{ old('title_en', $current?->title_en) }}"></div>
 </div>
 <div class="row">
-    <div class="col-md-6 form-group"><label for="description_ar">النص العربي</label><textarea class="form-control" id="description_ar" maxlength="255" name="description_ar" required rows="4">{{ old('description_ar', $current?->description_ar) }}</textarea></div>
-    <div class="col-md-6 form-group"><label for="description_en">English copy</label><textarea class="form-control" dir="ltr" id="description_en" maxlength="255" name="description_en" required rows="4">{{ old('description_en', $current?->description_en) }}</textarea></div>
+    <div class="col-md-6 form-group"><label for="description_ar">النص العربي</label><textarea class="form-control" id="description_ar" maxlength="240" name="description_ar" required rows="4">{{ old('description_ar', $current?->description_ar) }}</textarea></div>
+    <div class="col-md-6 form-group"><label for="description_en">English copy <small class="text-muted">اختياري</small></label><textarea class="form-control" dir="ltr" id="description_en" maxlength="240" name="description_en" rows="4">{{ old('description_en', $current?->description_en) }}</textarea></div>
 </div>
 <div class="row">
     <div class="col-md-6 form-group"><label for="action_label_ar">نص الزر الأساسي</label><input class="form-control" id="action_label_ar" maxlength="80" name="action_label_ar" type="text" value="{{ old('action_label_ar', $current?->action_label_ar) }}"></div>
@@ -38,11 +39,11 @@
 <div class="row">
     <div class="col-md-4 form-group"><label for="priority">الأولوية</label><input class="form-control" id="priority" min="0" max="1000" name="priority" required type="number" value="{{ old('priority', $current?->priority ?? 100) }}"><small class="text-muted">الرقم الأقل يظهر أولًا.</small></div>
     <div class="col-md-4 form-group"><label for="cooldown_hours">مدة التهدئة بالساعات</label><input class="form-control" id="cooldown_hours" min="0" max="8760" name="cooldown_hours" required type="number" value="{{ old('cooldown_hours', $current?->cooldown_hours ?? 72) }}"></div>
-    <div class="col-md-4 form-group"><label for="image">الصورة (اختيارية)</label><input accept="image/*" class="form-control-file" id="image" name="image" type="file">@if($current?->image)<img alt="معاينة الصورة الحالية" class="notification-template-preview" src="{{ $current->image }}">@endif</div>
+    <div class="col-md-4 form-group"><label for="image">الصورة (اختيارية)</label><input accept="image/*" class="form-control-file" id="image" name="image" type="file">@if($current?->image)<img alt="معاينة الصورة الحالية" class="notification-template-preview" src="{{ $current->image }}"><label class="d-block mt-2"><input name="remove_image" type="checkbox" value="1"> حذف الصورة الحالية</label>@endif</div>
 </div>
 <div class="row">
-    <div class="col-md-6 form-group"><label for="starts_at">يبدأ في (اختياري)</label><input class="form-control" id="starts_at" name="starts_at" type="datetime-local" value="{{ old('starts_at', $current?->starts_at?->format('Y-m-d\\TH:i')) }}"></div>
-    <div class="col-md-6 form-group"><label for="ends_at">ينتهي في (اختياري)</label><input class="form-control" id="ends_at" name="ends_at" type="datetime-local" value="{{ old('ends_at', $current?->ends_at?->format('Y-m-d\\TH:i')) }}"></div>
+    <div class="col-md-6 form-group"><label for="starts_at">يبدأ في (اختياري)</label><input class="form-control" id="starts_at" name="starts_at" type="datetime-local" value="{{ old('starts_at', \App\Support\BusinessClock::forDateTimeInput($current?->starts_at)) }}"></div>
+    <div class="col-md-6 form-group"><label for="ends_at">ينتهي في (اختياري)</label><input class="form-control" id="ends_at" name="ends_at" type="datetime-local" value="{{ old('ends_at', \App\Support\BusinessClock::forDateTimeInput($current?->ends_at)) }}"></div>
 </div>
 <div class="d-flex flex-wrap align-items-center mb-4 admin-gap">
     <label class="mb-0"><input name="is_active" type="hidden" value="0"><input name="is_active" type="checkbox" value="1" {{ old('is_active', $current?->is_active ?? true) ? 'checked' : '' }}> مفعّل</label>

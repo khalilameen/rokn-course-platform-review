@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Support\DownloadFilename;
+use App\Support\UnicodeText;
 use Illuminate\Http\Response;
 use Mpdf\Config\ConfigVariables;
 use Mpdf\Config\FontVariables;
 use Mpdf\Mpdf;
 use Mpdf\Output\Destination;
-use Symfony\Component\HttpFoundation\HeaderUtils;
 
 final class ArabicPdfService
 {
@@ -61,18 +62,15 @@ final class ArabicPdfService
 
         $pdf->SetDirectionality('rtl');
         $pdf->SetDisplayMode((string) config('pdf.display_mode', 'fullpage'));
-        $pdf->SetAuthor((string) ($metadata['author'] ?? config('pdf.author', '')));
-        $pdf->SetCreator((string) ($metadata['creator'] ?? config('pdf.creator', 'Rokn')));
-        $pdf->SetSubject((string) ($metadata['subject'] ?? config('pdf.subject', '')));
-        $pdf->SetKeywords((string) ($metadata['keywords'] ?? config('pdf.keywords', '')));
+        $pdf->SetAuthor(UnicodeText::clean($metadata['author'] ?? config('pdf.author', ''), false));
+        $pdf->SetCreator(UnicodeText::clean($metadata['creator'] ?? config('pdf.creator', 'Rokn'), false));
+        $pdf->SetSubject(UnicodeText::clean($metadata['subject'] ?? config('pdf.subject', ''), false));
+        $pdf->SetKeywords(UnicodeText::clean($metadata['keywords'] ?? config('pdf.keywords', ''), false));
         $pdf->WriteHTML(view($view, $data)->render());
 
         $contents = $pdf->Output('', Destination::STRING_RETURN);
-        $disposition = HeaderUtils::makeDisposition(
-            HeaderUtils::DISPOSITION_ATTACHMENT,
-            $filename,
-            'rokn-export.pdf'
-        );
+        $safeFilename = DownloadFilename::safe($filename, 'rokn-export', 'pdf');
+        $disposition = DownloadFilename::disposition($safeFilename);
 
         return response($contents, 200, [
             'Content-Type' => 'application/pdf',

@@ -137,10 +137,10 @@
                                             <span class="badge badge-modern badge-primary-modern">دورة</span>
                                             @break
                                         @case('lesson')
-                                            <span class="badge badge-modern badge-success-modern">درس</span>
+                                            <span class="badge badge-modern badge-danger-modern">نوع قديم متوقف</span>
                                             @break
                                         @case('multiple_lessons')
-                                            <span class="badge badge-modern badge-warning-modern">دروس متعددة</span>
+                                            <span class="badge badge-modern badge-danger-modern">نوع قديم متوقف</span>
                                             @break
                                     @endswitch
                                     @if($code->isInstitutionalGrant())
@@ -178,14 +178,14 @@
                                 </td>
                                 <td>
                                     @if($code->start_date)
-                                        <small>{{ $code->start_date->format('Y-m-d') }}</small>
+                                        <small>{{ \App\Support\BusinessClock::format($code->start_date, 'Y-m-d') }}</small>
                                     @else
                                         <span class="text-muted">غير محدد</span>
                                     @endif
                                 </td>
                                 <td>
                                     @if($code->expiry_date)
-                                        <small>{{ $code->expiry_date->format('Y-m-d') }}</small>
+                                        <small>{{ \App\Support\BusinessClock::format($code->expiry_date, 'Y-m-d') }}</small>
                                     @else
                                         <span class="text-muted">غير محدد</span>
                                     @endif
@@ -211,7 +211,9 @@
                                         4. Active (green badge)
                                         5. Inactive (gray badge - manual disable)
                                     --}}
-                                    @if($code->is_expired)
+                                    @if($code->type !== 'course')
+                                        <span class="badge badge-modern badge-danger-modern">متوقف نهائيًا</span>
+                                    @elseif($code->is_expired)
                                         <span class="badge badge-modern badge-danger-modern">منتهي الصلاحية</span>
                                     @elseif($code->is_not_yet_active)
                                         <span class="badge badge-modern badge-warning-modern">لم يبدأ بعد</span>
@@ -228,9 +230,11 @@
                                         <a href="{{ route('admin.course-codes.show', $code) }}" class="btn btn-sm btn-primary" title="عرض">
                                             <i class="fa fa-eye"></i>
                                         </a>
-                                        <a href="{{ route('admin.course-codes.edit', $code) }}" class="btn btn-sm btn-secondary" title="تعديل">
-                                            <i class="fa fa-edit"></i>
-                                        </a>
+                                        @if($code->type === 'course')
+                                            <a href="{{ route('admin.course-codes.edit', $code) }}" class="btn btn-sm btn-secondary" title="تعديل">
+                                                <i class="fa fa-edit"></i>
+                                            </a>
+                                        @endif
                                     </div>
                                 </td>
                             </tr>
@@ -303,15 +307,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Global copy function
 function copyToClipboard(text, button) {
-    console.log('Copy function called with text:', text);
 
     // Method 1: Modern Clipboard API
     if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(function() {
-            console.log('Copied successfully');
             showCopySuccess(button);
         }).catch(function(err) {
-            console.log('Clipboard API failed, using fallback');
             fallbackCopy(text, button);
         });
     } else {
@@ -366,7 +367,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const codeCheckboxes = document.querySelectorAll('.code-checkbox');
     const selectedCountSpan = document.getElementById('selected-count');
 
-    console.log('Total checkboxes:', codeCheckboxes.length);
 
     // Update selected count and select-all state
     function updateSelectedCount() {
@@ -402,7 +402,6 @@ document.addEventListener('DOMContentLoaded', function() {
     if (selectAllCheckbox) {
         selectAllCheckbox.addEventListener('change', function() {
             const isChecked = this.checked;
-            console.log('Select all clicked, setting all to:', isChecked);
 
             codeCheckboxes.forEach(function(checkbox) {
                 checkbox.checked = isChecked;

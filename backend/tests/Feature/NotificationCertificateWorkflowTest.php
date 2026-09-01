@@ -15,6 +15,7 @@ use App\Models\Course;
 use App\Models\StudentNotification;
 use App\Models\User;
 use App\Services\CertificateService;
+use App\Services\CoursePublishingService;
 use App\Services\NotificationService;
 use App\Services\PublicPortfolioService;
 use Illuminate\Database\Schema\Blueprint;
@@ -33,10 +34,11 @@ final class NotificationCertificateWorkflowTest extends TestCase
 {
     /** @var list<string> */
     private array $tables = [
+        'classification_course', 'course_teacher',
         'photos',
         'user_device_tokens', 'student_notifications', 'user_project_evaluations',
         'portfolio_media', 'portfolio_items', 'user_level', 'levels',
-        'projects', 'student_section_progress', 'course_sections', 'certificates', 'course_enrollments',
+        'project_submissions', 'projects', 'student_section_progress', 'course_sections', 'certificates', 'course_enrollments',
         'courses', 'users',
     ];
 
@@ -108,6 +110,7 @@ final class NotificationCertificateWorkflowTest extends TestCase
 
     public function test_course_notification_service_queues_a_selector_instead_of_enrollment_ids(): void
     {
+        $this->allowPublishedCourseNotification();
         $course = $this->course();
         $student = $this->user('service-selector@example.com');
         DB::table('course_enrollments')->insert([
@@ -130,6 +133,7 @@ final class NotificationCertificateWorkflowTest extends TestCase
 
     public function test_admin_course_broadcast_queues_audience_selector_without_materializing_ids(): void
     {
+        $this->allowPublishedCourseNotification();
         $course = $this->course();
         $student = $this->user('admin-selector@example.com');
         DB::table('course_enrollments')->insert([
@@ -306,6 +310,40 @@ final class NotificationCertificateWorkflowTest extends TestCase
         self::assertTrue($firstAttempt->equalTo($notification->fresh()->push_attempted_at));
     }
 
+    public function test_stalled_push_claim_is_quarantined_without_duplicate_delivery(): void
+    {
+        Queue::fake([SendUserPushNotification::class]);
+        Carbon::setTestNow('2026-08-31 12:00:00');
+        $user = $this->user('stalled-push@example.com');
+        $user->forceFill(['notifications_status' => true, 'active' => true])->save();
+        DB::table('user_device_tokens')->insert([
+            'user_id' => $user->id,
+            'device_token' => 'stalled-push-token',
+            'device_type' => 'android',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $notification = StudentNotification::query()->create([
+            'user_id' => $user->id,
+            'delivery_key' => 'push:stalled',
+            'notification_type' => 'service_notice',
+            'title_ar' => 'عنوان',
+            'title_en' => 'Title',
+            'message_ar' => 'رسالة',
+            'message_en' => 'Message',
+            'is_read' => false,
+            'push_attempted_at' => now()->subMinutes(20),
+        ]);
+
+        $this->artisan('notifications:retry-stalled')->assertExitCode(0);
+
+        $notification->refresh();
+        self::assertNotNull($notification->push_attempted_at);
+        self::assertNotNull($notification->push_failed_at);
+        self::assertSame('delivery_unknown_after_worker_loss', $notification->push_failure_code);
+        Queue::assertNotPushed(SendUserPushNotification::class);
+    }
+
     public function test_certificate_listener_rethrows_null_generation_for_queue_retry(): void
     {
         $user = $this->user('graduate@example.com');
@@ -324,13 +362,19 @@ final class NotificationCertificateWorkflowTest extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ]);
-        DB::table('student_section_progress')->insert([
-            'user_id' => $user->id,
-            'course_section_id' => $sectionId,
-            'is_completed' => true,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        DB::table('student_section_progress')->insert(
+            DB::table('course_sections')
+                ->where('course_id', $course->id)
+                ->pluck('id')
+                ->map(fn ($courseSectionId): array => [
+                    'user_id' => $user->id,
+                    'course_section_id' => (int) $courseSectionId,
+                    'is_completed' => true,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ])
+                ->all()
+        );
 
         $service = Mockery::mock(CertificateService::class);
         $service->shouldReceive('generate')->once()->andReturnNull();
@@ -386,7 +430,7 @@ final class NotificationCertificateWorkflowTest extends TestCase
         self::assertNotSame('pending', $certificate->image_path);
         Storage::disk('certificate-test')->assertExists($certificate->image_path);
         self::assertStringContainsString(
-            'certificate='.$certificate->public_id,
+            '/c/'.$certificate->public_id,
             $certificate->portfolio_url
         );
 
@@ -429,6 +473,14 @@ final class NotificationCertificateWorkflowTest extends TestCase
             'updated_at' => now(),
         ]);
 
+        DB::table('course_sections')->insert([
+            'course_id' => $id,
+            'section_type' => 'lesson',
+            'order' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
         return Course::query()->findOrFail($id);
     }
 
@@ -438,6 +490,13 @@ final class NotificationCertificateWorkflowTest extends TestCase
         $property->setAccessible(true);
 
         return $property->getValue($job);
+    }
+
+    private function allowPublishedCourseNotification(): void
+    {
+        $publishing = Mockery::mock(CoursePublishingService::class);
+        $publishing->shouldReceive('audit')->andReturn(['ready' => true, 'issues' => []]);
+        $this->app->instance(CoursePublishingService::class, $publishing);
     }
 
     private function createSchema(): void
@@ -462,9 +521,21 @@ final class NotificationCertificateWorkflowTest extends TestCase
             $table->string('name_ar')->nullable();
             $table->string('name_en')->nullable();
             $table->boolean('awards_badge')->default(false);
+            $table->boolean('is_coming_soon')->default(false);
+            $table->boolean('is_catalog_visible')->default(true);
+            $table->unsignedBigInteger('parent_id')->nullable();
             $table->string('badge_track')->nullable();
             $table->timestamps();
             $table->softDeletes();
+        });
+        Schema::create('course_teacher', function (Blueprint $table): void {
+            $table->unsignedBigInteger('course_id');
+            $table->unsignedBigInteger('teacher_id');
+            $table->timestamps();
+        });
+        Schema::create('classification_course', function (Blueprint $table): void {
+            $table->unsignedBigInteger('course_id');
+            $table->unsignedBigInteger('classification_id');
         });
         Schema::create('photos', function (Blueprint $table): void {
             $table->id();
@@ -559,6 +630,30 @@ final class NotificationCertificateWorkflowTest extends TestCase
             $table->boolean('is_graduation_project')->default(false);
             $table->timestamps();
         });
+        Schema::create('project_submissions', function (Blueprint $table): void {
+            $table->id();
+            $table->uuid('public_id')->unique();
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('project_id');
+            $table->string('idempotency_key', 100);
+            $table->text('submission_text')->nullable();
+            $table->string('submission_file')->nullable();
+            $table->string('original_file_name')->nullable();
+            $table->string('mime_type', 120)->nullable();
+            $table->unsignedBigInteger('file_size')->nullable();
+            $table->json('submission_metadata')->nullable();
+            $table->string('effort_status', 30)->default('unknown');
+            $table->string('review_status', 30)->default('pending');
+            $table->string('review_source', 40)->nullable();
+            $table->unsignedTinyInteger('score')->nullable();
+            $table->text('feedback')->nullable();
+            $table->timestamp('submitted_at');
+            $table->timestamp('auto_pass_at')->nullable();
+            $table->timestamp('reviewed_at')->nullable();
+            $table->unsignedBigInteger('reviewed_by')->nullable();
+            $table->timestamps();
+            $table->unique(['user_id', 'project_id', 'idempotency_key']);
+        });
         Schema::create('user_project_evaluations', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('user_id');
@@ -578,10 +673,16 @@ final class NotificationCertificateWorkflowTest extends TestCase
             $table->text('message_ar');
             $table->text('message_en');
             $table->string('link')->nullable();
+            $table->string('image_url')->nullable();
+            $table->string('action_label_ar')->nullable();
+            $table->string('action_label_en')->nullable();
             $table->boolean('is_read')->default(false);
             $table->timestamp('read_at')->nullable();
             $table->timestamp('push_attempted_at')->nullable();
+            $table->unsignedSmallInteger('push_attempts')->default(0);
             $table->timestamp('push_sent_at')->nullable();
+            $table->timestamp('push_failed_at')->nullable();
+            $table->string('push_failure_code', 64)->nullable();
             $table->timestamps();
             $table->unique(['user_id', 'delivery_key']);
         });

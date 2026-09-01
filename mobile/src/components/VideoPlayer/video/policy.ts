@@ -4,7 +4,10 @@ import {isUnsupportedVideoPageUri} from '../videoSourcePolicy';
 
 export type PlaybackFailure =
   | 'offline'
+  | 'expired'
+  | 'missing'
   | 'reachable'
+  | 'server'
   | 'source'
   | 'timeout'
   | 'unsupported';
@@ -172,12 +175,25 @@ export const selectVideoTimeline = ({
   duration: number;
   previewTime: number | null;
 }): VideoTimelinePresentation => {
-  const displayedTime = previewTime ?? currentTime;
-  const progress = duration ? Math.min(1, displayedTime / duration) : 0;
-  const bufferedProgress = duration
-    ? Math.min(1, Math.max(progress, bufferedTime / duration))
+  const safeDuration =
+    Number.isFinite(duration) && duration > 0 ? duration : 0;
+  const requestedTime = previewTime ?? currentTime;
+  const safeTime = Number.isFinite(requestedTime)
+    ? Math.max(0, requestedTime)
     : 0;
-  const accessibilityDuration = Math.max(1, Math.round(duration));
+  const displayedTime = safeDuration
+    ? Math.min(safeDuration, safeTime)
+    : safeTime;
+  const safeBufferedTime = Number.isFinite(bufferedTime)
+    ? Math.max(0, bufferedTime)
+    : 0;
+  const progress = safeDuration
+    ? Math.min(1, displayedTime / safeDuration)
+    : 0;
+  const bufferedProgress = safeDuration
+    ? Math.min(1, Math.max(progress, safeBufferedTime / safeDuration))
+    : 0;
+  const accessibilityDuration = Math.max(1, Math.round(safeDuration));
 
   return {
     accessibilityDuration,
@@ -187,9 +203,9 @@ export const selectVideoTimeline = ({
     ),
     bufferedProgress,
     displayedTime,
-    duration,
+    duration: safeDuration,
     progress,
-    remaining: Math.max(0, duration - displayedTime),
+    remaining: Math.max(0, safeDuration - displayedTime),
   };
 };
 
@@ -222,8 +238,26 @@ export const selectPlaybackErrorCopy = (
       message: 'حاول مرة أخرى أو اختر جودة أقل',
     };
   }
+  if (failureKind === 'expired') {
+    return {
+      title: 'انتهى رابط التشغيل',
+      message: 'اضغط للمحاولة من مكانك',
+    };
+  }
+  if (failureKind === 'missing') {
+    return {
+      title: 'الفيديو غير متاح',
+      message: 'أبلغ الدعم من داخل التطبيق',
+    };
+  }
+  if (failureKind === 'server') {
+    return {
+      title: 'تعذّر الوصول إلى الفيديو',
+      message: 'حاول مرة أخرى بعد قليل',
+    };
+  }
   return {
     title: 'الفيديو غير متاح الآن',
-    message: 'حاول مرة أخرى بعد لحظة',
+    message: 'حاول مرة أخرى بعد قليل',
   };
 };

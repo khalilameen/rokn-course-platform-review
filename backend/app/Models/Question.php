@@ -9,9 +9,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Question extends Model
 {
     use HasPhoto;
+    protected $touches = ['itemList'];
     //	id	title	question	choice1	choice2	choice3	choice4	choice5	choice6	right_answer	created_at	updated_at	list_id
     protected $photoModel = 'App\Models\Photo';
-    protected $fillable = ['title',	'question','question_image',	'description', 'priority' ,'choice1',	'choice2',	'choice3',	'choice4',	'choice5',	'choice6',	'right_answer',	'created_at',	'updated_at',	'list_id'];
+    protected $fillable = ['title',	'question','question_image',	'description', 'priority' ,'choice1',	'choice2',	'choice3',	'choice4',	'choice5',	'choice6',	'right_answer',	'created_at',	'updated_at',	'list_id', 'authoring_request_id'];
 
     public function course(){
          return $this->belongsTo('App\Models\Course','list_id','id');

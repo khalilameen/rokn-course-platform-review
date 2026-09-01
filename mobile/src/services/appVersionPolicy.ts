@@ -1,7 +1,13 @@
 import type {DistributionChannel} from '../constants/distribution';
+import {learnerFacingText} from '../utils/errorPayload';
 
 export type AppUpdateNotice = {
+  contractVersion: number;
   latestVersion: string | null;
+  latestVersionCode: number | null;
+  latestBuildNumber: number | null;
+  minimumSupportedVersionCode: number | null;
+  minimumSupportedBuildNumber: number | null;
   message: string;
   releaseNotes: string | null;
   downloadUrl: string | null;
@@ -9,17 +15,35 @@ export type AppUpdateNotice = {
   hasUnsafeDownloadUrl: boolean;
 };
 
+export const MOBILE_API_CAPABILITIES = [
+  'account_scoped_storage_v1',
+  'secure_session_v2',
+  'social_oauth_pkce_v1',
+  'product_feature_flags_v1',
+  'playback_manifest_v2',
+  'app_update_policy_v2',
+];
+
+const positiveInteger = (value: unknown) => {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
 export type VersionCheckPayload =
   | {
       platform: 'android';
       version: number;
       distribution_channel: 'play' | 'direct';
+      api_contract_version: 1;
+      capabilities: string[];
     }
   | {
       platform: 'ios';
       version: string;
       build_number: number;
       distribution_channel: 'appstore';
+      api_contract_version: 1;
+      capabilities: string[];
     };
 
 type ParsedUrl = URL & {
@@ -33,6 +57,17 @@ const cleanText = (value: unknown, maxLength: number) =>
   typeof value === 'string' && value.trim()
     ? value.trim().replace(/\s+/g, ' ').slice(0, maxLength)
     : null;
+
+const cleanMultilineText = (value: unknown, maxLength: number) => {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  return value
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map(line => line.trim().replace(/[ \t]+/g, ' '))
+    .filter(Boolean)
+    .join('\n')
+    .slice(0, maxLength);
+};
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -52,6 +87,10 @@ export const createVersionCheckPayload = ({
   iosBuildNumber: unknown;
   distributionChannel: DistributionChannel;
 }): VersionCheckPayload | null => {
+  const compatibility = {
+    api_contract_version: 1 as const,
+    capabilities: MOBILE_API_CAPABILITIES,
+  };
   if (platform === 'android') {
     const versionCode = Number(androidVersionCode);
     return Number.isInteger(versionCode) &&
@@ -61,6 +100,7 @@ export const createVersionCheckPayload = ({
           platform,
           version: versionCode,
           distribution_channel: distributionChannel,
+          ...compatibility,
         }
       : null;
   }
@@ -76,6 +116,7 @@ export const createVersionCheckPayload = ({
           version: versionName,
           build_number: buildNumber,
           distribution_channel: distributionChannel,
+          ...compatibility,
         }
       : null;
   }
@@ -93,14 +134,19 @@ export const trustedUpdateUrl = (
       return null;
     }
 
-    const allowedHosts: Record<DistributionChannel, readonly string[]> = {
-      play: ['play.google.com'],
-      appstore: ['apps.apple.com'],
-      direct: ['rokn.app', 'www.rokn.app', 'rokn.com', 'www.rokn.com'],
-    };
-    return allowedHosts[channel].includes(url.hostname.toLowerCase())
-      ? url.toString()
-      : null;
+    const host = url.hostname.toLowerCase();
+    const path = url.pathname;
+    const valid =
+      channel === 'play'
+        ? host === 'play.google.com' &&
+          path.replace(/\/+$/, '') === '/store/apps/details' &&
+          url.searchParams.get('id') === 'com.rokn'
+        : channel === 'appstore'
+        ? host === 'apps.apple.com' &&
+          /^\/(?:[a-z]{2}\/)?app\/(?:[^/]+\/)?id\d+\/?$/i.test(path)
+        : (host === 'rokn.app' || host === 'www.rokn.app') &&
+          path.toLowerCase().endsWith('.apk');
+    return valid && !url.hash ? url.toString() : null;
   } catch {
     return null;
   }
@@ -121,10 +167,22 @@ export const parseAppVersionResponse = (
   const requestedForceUpdate = data.is_force_update === true;
 
   return {
+    contractVersion: positiveInteger(data.contract_version) ?? 1,
     latestVersion: cleanText(data.latest_version, 40),
-    message:
-      cleanText(data.update_message, 240) || 'في نسخة أحدث من ركن جاهزة ليك',
-    releaseNotes: cleanText(data.release_notes, 600),
+    latestVersionCode: positiveInteger(data.latest_version_code),
+    latestBuildNumber: positiveInteger(data.latest_build_number),
+    minimumSupportedVersionCode: positiveInteger(
+      data.minimum_supported_version_code,
+    ),
+    minimumSupportedBuildNumber: positiveInteger(
+      data.minimum_supported_build_number,
+    ),
+    message: learnerFacingText(
+      cleanMultilineText(data.update_message, 240),
+      'نسخة أحدث من ركن جاهزة',
+    ),
+    releaseNotes:
+      learnerFacingText(cleanMultilineText(data.release_notes, 600)) || null,
     downloadUrl,
     // Invalid download URLs cannot activate a blocking screen. The policy
     // remains visible as a recoverable configuration warning.

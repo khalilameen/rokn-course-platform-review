@@ -55,9 +55,9 @@
 
                     <div class="form-group">
                         <label class="form-label" for="module_id">
-                            الوحدة
+                            الوحدة *
                         </label>
-                        <select name="module_id" id="module_id" class="form-select">
+                        <select name="module_id" id="module_id" class="form-select" required>
                             <option value="">-- اختر وحدة --</option>
                             @foreach($modules as $module)
                                 <option value="{{ $module->id }}" {{ old('module_id', $section->module_id) == $module->id ? 'selected' : '' }}>
@@ -65,6 +65,12 @@
                                 </option>
                             @endforeach
                         </select>
-                        <small class="text-muted">مكان المقطع داخل خريطة الكورس. مشروع العبور لا يمكن نقله خارج وحدة.</small>
+                        <small class="text-muted">مكان هذا المحتوى داخل خريطة الكورس</small>
+                        @error('module_id')
+                            <div class="error-message">
+                                <i class="fa fa-exclamation-circle"></i>
+                                {{ $message }}
+                            </div>
+                        @enderror
                     </div>
                 </div>

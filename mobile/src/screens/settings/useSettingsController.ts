@@ -20,6 +20,7 @@ export const useSettingsController = () => {
 
   const sectionsProps: SettingsSectionsProps = {
     authenticated,
+    canRateApp: account.storeRatingAvailable,
     deletingAccount: account.deletingAccount,
     marketingNotifications: preferences.marketingNotifications,
     notifications: preferences.notifications,
@@ -35,7 +36,6 @@ export const useSettingsController = () => {
       navigation.navigate('Feedback', {sourceScreen: 'settings'}),
     onLogin: () => navigation.navigate('Login', {returnTo: {name: 'Settings'}}),
     onLogout: account.logout,
-    onOpenAccountDeletion: account.openAccountDeletionPage,
     onOpenQuality: preferences.openQualityChoice,
     onOpenReminderTime: preferences.openReminderChoice,
     onPortfolio: () => navigation.navigate('Profile'),

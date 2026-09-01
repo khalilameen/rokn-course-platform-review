@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
+use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
 class Handler extends ExceptionHandler
@@ -30,6 +31,24 @@ class Handler extends ExceptionHandler
     protected $dontFlash = [
         'password',
         'password_confirmation',
+        'current_password',
+        'new_password',
+        'token',
+        'access_token',
+        'refresh_token',
+        'id_token',
+        'api_token',
+        'device_token',
+        'purchase_token',
+        'client_secret',
+        'secret',
+        'secret_key',
+        'api_key',
+        'signature',
+        'card_number',
+        'cardholder_name',
+        'cvv',
+        'cvc',
     ];
 
     /**
@@ -60,73 +79,89 @@ class Handler extends ExceptionHandler
             $responses = app(ApiResponseService::class);
 
             if ($exception instanceof AuthenticationException) {
-                return $responses->error(
-                    'Unauthenticated',
+                return $this->withRequestIdentity($request, $responses->error(
+                    'سجّل الدخول أولًا',
                     401,
                     null,
                     ['code' => 'unauthenticated']
-                );
+                ));
             }
 
             if ($exception instanceof ValidationException) {
-                return $responses->error(
-                    'The given data was invalid.',
+                return $this->withRequestIdentity($request, $responses->error(
+                    'راجع البيانات ثم حاول مرة أخرى',
                     422,
                     null,
                     [
                         'code' => 'validation_failed',
                         'errors' => $exception->errors(),
                     ]
-                );
+                ));
             }
 
             if ($exception instanceof AuthorizationException) {
-                return $responses->error(
-                    'This action is not allowed.',
+                return $this->withRequestIdentity($request, $responses->error(
+                    'هذا الإجراء غير متاح لحسابك',
                     403,
                     null,
                     ['code' => 'forbidden']
-                );
+                ));
             }
 
             if ($exception instanceof ModelNotFoundException) {
-                return $responses->error(
-                    'The requested resource was not found.',
+                return $this->withRequestIdentity($request, $responses->error(
+                    'المحتوى المطلوب غير متاح',
                     404,
                     null,
                     ['code' => 'not_found']
-                );
+                ));
             }
 
             if ($exception instanceof HttpExceptionInterface) {
                 $status = $exception->getStatusCode();
                 [$message, $code] = match ($status) {
-                    403 => ['This action is not allowed.', 'forbidden'],
-                    404 => ['The requested resource was not found.', 'not_found'],
-                    405 => ['This request method is not allowed.', 'method_not_allowed'],
-                    429 => ['Too many requests. Please try again shortly.', 'rate_limited'],
+                    401 => ['سجّل الدخول أولًا', 'unauthenticated'],
+                    403 => ['هذا الإجراء غير متاح لحسابك', 'forbidden'],
+                    404, 410 => ['المحتوى المطلوب غير متاح', 'not_found'],
+                    405 => ['تعذّر إكمال الطلب', 'method_not_allowed'],
+                    408 => ['انتهت مهلة الطلب', 'request_timeout'],
+                    409 => ['تغيّرت البيانات أعد تحميلها ثم حاول مرة أخرى', 'conflict'],
+                    413 => ['حجم الملف أكبر من المسموح', 'payload_too_large'],
+                    422 => ['راجع البيانات ثم حاول مرة أخرى', 'validation_failed'],
+                    429 => ['انتظر قليلًا ثم حاول مرة أخرى', 'rate_limited'],
+                    503 => ['الخدمة غير متاحة للحظات', 'service_unavailable'],
                     default => $status >= 500
-                        ? ['The service could not complete the request.', 'server_error']
-                        : ['The request could not be completed.', 'request_failed'],
+                        ? ['تعذّر إكمال الطلب الآن', 'server_error']
+                        : ['تعذّر إكمال الطلب', 'request_failed'],
                 };
 
-                return $responses->error(
+                return $this->withRequestIdentity($request, $responses->error(
                     $message,
                     $status,
                     null,
                     ['code' => $code],
                     $exception->getHeaders()
-                );
+                ));
             }
 
-            return $responses->error(
-                'The service could not complete the request.',
+            return $this->withRequestIdentity($request, $responses->error(
+                'تعذّر إكمال الطلب الآن',
                 500,
                 null,
                 ['code' => 'server_error']
-            );
+            ));
         }
 
         return parent::render($request, $exception);
+    }
+
+    private function withRequestIdentity($request, Response $response): Response
+    {
+        $requestId = trim((string) $request->attributes->get('request_id', ''));
+        if ($requestId !== '') {
+            $response->headers->set('X-Request-ID', $requestId);
+        }
+
+        return $response;
     }
 }

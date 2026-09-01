@@ -15,13 +15,18 @@ const App = () => {
   useEffect(() => {
     const languageCode =
       typeof language === 'string' ? language || 'ar' : language?.code ?? 'ar';
-    i18n.changeLanguage(languageCode);
+    const supportedLanguage = languageCode === 'en' ? 'en' : 'ar';
+    void Promise.resolve(i18n.changeLanguage(supportedLanguage)).catch(
+      () => undefined,
+    );
   }, [language]);
   useEffect(() => {
-    void trackProductEvent({event_name: 'app_opened', screen_key: 'app'});
-    void flushProductEvents();
-    void bootstrapOperationalDiagnostics();
-    void bootstrapProductFeatures();
+    void trackProductEvent({event_name: 'app_opened', screen_key: 'app'}).catch(
+      () => undefined,
+    );
+    void flushProductEvents().catch(() => undefined);
+    void bootstrapOperationalDiagnostics().catch(() => undefined);
+    void bootstrapProductFeatures().catch(() => undefined);
   }, []);
   return <AppInitializer />;
 };

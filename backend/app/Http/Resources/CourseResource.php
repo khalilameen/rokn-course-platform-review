@@ -4,23 +4,53 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Resources\Json\JsonResource;
 use App\Models\StudentSectionProgress;
-use App\Models\CourseEnrollment;
-use App\Models\Setting;
-use App\Models\Project;
 use App\Models\UserProjectEvaluation;
 use App\Models\CourseModule;
 use App\Services\BunnyService;
 use App\Models\CourseRating;
+use App\Models\ExamAttempt;
 use Illuminate\Support\Collection;
 use App\Services\CourseModuleAccessService;
+use App\Services\CoursePresentationService;
+use App\Services\CourseChatAccessService;
+use App\Services\CourseAccessPlanService;
+use App\Services\CourseRatingEligibilityService;
+use App\Models\CourseEnrollment;
 
 class CourseResource extends BaseCourseResource
 {
     private ?BunnyService $bunnyService = null;
     private array $fullSectionContentCache = [];
     private array $sectionLockCache = [];
-    private array $previousSectionsById = [];
+    private Collection $sectionAccessStates;
+    private Collection $orderedSections;
     private Collection $projectEvaluations;
+    private Collection $passedQuizAttempts;
+    private string $projectFeedbackLevel = 'pass_only';
+    private array $projectFeedbackContract = [
+        'project_report_enabled' => false,
+        'project_thread_reply_enabled' => false,
+        'project_message_limit' => 0,
+        'project_token_budget' => 0,
+    ];
+    private bool $learningContextProvided = false;
+    private Collection $resolvedCompletedSectionIds;
+    private ?array $resolvedEntitlement = null;
+    private ?CourseEnrollment $resolvedEnrollment = null;
+
+    /** Reuse the access/progress work already performed by the details query. */
+    public function withLearningContext(
+        Collection $completedSectionIds,
+        ?array $entitlement,
+        ?CourseEnrollment $enrollment
+    ): static {
+        $this->learningContextProvided = true;
+        $this->resolvedCompletedSectionIds = $completedSectionIds;
+        $this->resolvedEntitlement = $entitlement;
+        $this->resolvedEnrollment = $enrollment;
+
+        return $this;
+    }
 
     /**
      * Transform the resource into an array.
@@ -36,7 +66,9 @@ class CourseResource extends BaseCourseResource
         // Get current user
         $user = auth('api')->user();
         $sections = $this->relationLoaded('sections') ? $this->sections : collect();
-        $completedSectionIds = $this->getCompletedSectionIds($user, $sections);
+        $completedSectionIds = $this->learningContextProvided
+            ? $this->resolvedCompletedSectionIds
+            : $this->getCompletedSectionIds($user, $sections);
         $projectIds = $sections
             ->filter(fn ($section) => $section->getSectionType() === 'project')
             ->pluck('sectionable_id')
@@ -50,40 +82,73 @@ class CourseResource extends BaseCourseResource
                 ->get()
                 ->keyBy('project_id')
             : collect();
-        $passedProjectIds = $this->projectEvaluations
-            ->where('passed', true)
-            ->keys()
-            ->map(fn ($id) => (int) $id)
-            ->all();
-        $enforceSectionOrder = (bool) (Setting::query()->value('enforce_course_section_order') ?? true);
-
-        $previousSection = null;
-        foreach ($sections->sortBy('order') as $section) {
-            $this->previousSectionsById[(int) $section->id] = $previousSection;
-            $previousSection = $section;
-        }
+        $quizIds = $sections
+            ->filter(fn ($section) => $section->getSectionType() === 'quiz')
+            ->pluck('sectionable_id')
+            ->filter()
+            ->unique()
+            ->values();
+        $this->passedQuizAttempts = ($user && $quizIds->isNotEmpty())
+            ? ExamAttempt::query()
+                ->where('user_id', $user->id)
+                ->where('course_id', $this->id)
+                ->whereIn('quiz_id', $quizIds)
+                ->where('status', ExamAttempt::STATUS_COMPLETED)
+                ->where('is_passed', true)
+                ->get(['id', 'quiz_id', 'section_id', 'score_percentage'])
+            : collect();
+        $this->sectionAccessStates = app(CoursePresentationService::class)
+            ->sectionLockStatus($sections, $completedSectionIds, $user ? (int) $user->id : null)
+            ->keyBy('section_id');
+        $sectionsById = $sections->keyBy('id');
+        $this->orderedSections = $this->sectionAccessStates->keys()
+            ->map(fn ($sectionId) => $sectionsById->get($sectionId))
+            ->filter()
+            ->values();
 
         // Check if user is enrolled in this course
-        $enrollment = null;
+        $enrollment = $this->learningContextProvided
+            ? $this->resolvedEnrollment
+            : null;
         if ($user) {
-            $candidate = CourseEnrollment::where('user_id', $user->id)
-                ->where('course_id', $this->id)
-                ->where('is_active', true)
-                ->first();
-            $enrollment = $candidate && $candidate->isActive() ? $candidate : null;
+            if (!$this->learningContextProvided) {
+                $enrollment = app(CourseChatAccessService::class)
+                    ->activeEnrollmentFor((int) $user->id, (int) $this->id);
+            }
+            $this->projectFeedbackLevel = (string) (
+                ($this->resolvedEntitlement
+                    ?? app(CourseChatAccessService::class)
+                        ->entitlementFor((int) $user->id, (int) $this->id))['project_feedback_level']
+                ?? 'pass_only'
+            );
+            if ($enrollment) {
+                $plans = app(CourseAccessPlanService::class);
+                $terms = $plans->termsForEnrollment($enrollment);
+                if ($terms) {
+                    $this->projectFeedbackContract = $plans->publicPayloadFromTerms($terms);
+                    $this->projectFeedbackLevel = (string) (
+                        $this->projectFeedbackContract['project_feedback_level']
+                        ?? 'pass_only'
+                    );
+                }
+            }
         }
 
         $moduleAccess = app(CourseModuleAccessService::class);
-        $hasCourseAccess = $user ? $moduleAccess->hasCourseAccess($user, $this->resource) : false;
+        $hasCourseAccess = $user
+            ? ($this->learningContextProvided
+                ? (bool) ($this->resolvedEntitlement['has_learning_access'] ?? false)
+                : $moduleAccess->hasCourseAccess($user, $this->resource))
+            : false;
 
         $baseData['attachment_prompt'] = [
             'enabled' => $hasCourseAccess && (bool) $this->attachment_prompt_enabled,
             'at_seconds' => max(0, (int) ($this->attachment_prompt_at_seconds ?? 20)),
             'title' => trim((string) $this->attachment_prompt_title) ?: 'مرفقات تساعدك في التطبيق',
             'body' => trim((string) $this->attachment_prompt_body)
-                ?: 'الوحدة دي فيها ملفات جاهزة للتحميل. افتحها الآن أو ارجع لها من زر الملفات أثناء المشاهدة.',
+                ?: 'هذه الوحدة تتضمن ملفات تساعدك على التطبيق',
             'button_text' => trim((string) $this->attachment_prompt_button_text) ?: 'عرض المرفقات',
-            'frequency' => 'once_per_module',
+            'frequency' => 'once_per_course',
         ];
 
         // Add enrollment information
@@ -95,30 +160,36 @@ class CourseResource extends BaseCourseResource
             'access_granted_at' => $enrollment->access_granted_at
         ] : null;
 
-        // Add user rating if exists
+        // One logical rating survives soft deletion so restoring it cannot
+        // create a duplicate. Its version also protects edits from two devices.
         $userRating = null;
+        $ratingEligibility = ['can_rate' => false, 'reason' => 'course_access_required'];
         if ($user) {
-            $userRating = CourseRating::where('user_id', $user->id)
+            $userRating = CourseRating::withTrashed()->where('user_id', $user->id)
                 ->where('course_id', $this->id)
                 ->first();
+            $ratingEligibility = app(CourseRatingEligibilityService::class)
+                ->for($user, $this->resource, $hasCourseAccess);
         }
 
-        $baseData['user_rating'] = $userRating ? [
+        $baseData['user_rating'] = $userRating && !$userRating->trashed() ? [
             'id' => $userRating->id,
             'rating' => (int)$userRating->rating,
             'comment' => $userRating->comment,
+            'version' => (int) $userRating->version,
             'created_at' => $userRating->created_at,
+            'updated_at' => $userRating->updated_at,
         ] : null;
+        $baseData['rating_eligibility'] = [
+            'can_rate' => (bool) $ratingEligibility['can_rate'],
+            'reason' => (string) $ratingEligibility['reason'],
+            'version' => (int) ($userRating?->version ?? 0),
+        ];
 
         // Override sections with full content and lock status
-        $baseData['sections'] = $this->whenLoaded('sections', function() use ($completedSectionIds, $passedProjectIds, $enforceSectionOrder) {
-            return $this->sections->map(function($section) use ($completedSectionIds, $passedProjectIds, $enforceSectionOrder) {
-                $isLocked = $this->isSectionLockedOptimized(
-                    $section,
-                    $completedSectionIds,
-                    $passedProjectIds,
-                    $enforceSectionOrder
-                );
+        $baseData['sections'] = $this->whenLoaded('sections', function() {
+            return $this->orderedSections->map(function($section) {
+                $isLocked = $this->isSectionLockedFromState($section);
                 $isPreview = $section->getSectionType() === 'lesson'
                     && (bool) ($section->sectionable?->is_opened ?? false);
                 $sectionData = [
@@ -143,19 +214,18 @@ class CourseResource extends BaseCourseResource
         });
 
         // Override modules with full content and lock status for sections
-        $baseData['modules'] = $this->whenLoaded('modules', function() use ($completedSectionIds, $passedProjectIds, $enforceSectionOrder, $hasCourseAccess, $moduleAccess, $user) {
-            return $this->modules->map(function($module) use ($completedSectionIds, $passedProjectIds, $enforceSectionOrder, $hasCourseAccess, $moduleAccess, $user) {
+        $baseData['modules'] = $this->whenLoaded('modules', function() use ($hasCourseAccess, $moduleAccess, $user) {
+            $coursePdfs = $this->relationLoaded('activePdfs') ? $this->activePdfs : collect();
+            return $this->modules->sortBy([
+                ['order', 'asc'],
+                ['id', 'asc'],
+            ])->values()->map(function($module) use ($hasCourseAccess, $moduleAccess, $user, $coursePdfs) {
                 $moduleSections = $module->sections
                     ? $module->sections->sortBy('order')->values()
                     : collect();
                 $firstSection = $moduleSections->first();
                 $moduleIsLocked = !$firstSection || (
-                    $this->isSectionLockedOptimized(
-                        $firstSection,
-                        $completedSectionIds,
-                        $passedProjectIds,
-                        $enforceSectionOrder
-                    )
+                    $this->isSectionLockedFromState($firstSection)
                     && !(
                         $firstSection->getSectionType() === 'lesson'
                         && (bool) ($firstSection->sectionable?->is_opened ?? false)
@@ -168,14 +238,11 @@ class CourseResource extends BaseCourseResource
                     'attachment_platform' => $module->attachment_platform,
                     'order' => $module->order,
                     'is_locked' => $moduleIsLocked,
-                    'attachments_count' => $module->attachments->count(),
-                    'sections' => $moduleSections->map(function($section) use ($completedSectionIds, $passedProjectIds, $enforceSectionOrder) {
-                        $isLocked = $this->isSectionLockedOptimized(
-                            $section,
-                            $completedSectionIds,
-                            $passedProjectIds,
-                            $enforceSectionOrder
-                        );
+                    'attachments_count' => $module->attachments->count()
+                        + $moduleSections->sum(fn ($section) => $section->attachments->count())
+                        + $coursePdfs->count(),
+                    'sections' => $moduleSections->map(function($section) use ($hasCourseAccess, $moduleAccess, $user, $module) {
+                        $isLocked = $this->isSectionLockedFromState($section);
                         $isPreview = $section->getSectionType() === 'lesson'
                             && (bool) ($section->sectionable?->is_opened ?? false);
                         $sectionData = [
@@ -190,6 +257,16 @@ class CourseResource extends BaseCourseResource
                         if (!$isLocked || $isPreview) {
                             $sectionData['content'] = $this->getFullSectionContent($section);
                         }
+                        if ($hasCourseAccess && !$isLocked && $user) {
+                            $sectionData['attachments'] = $section->attachments
+                                ->map(fn ($attachment) => $this->attachmentPayload(
+                                    $attachment,
+                                    $moduleAccess,
+                                    $user,
+                                    $module
+                                ))
+                                ->values();
+                        }
 
                         return $sectionData;
                     }),
@@ -197,18 +274,38 @@ class CourseResource extends BaseCourseResource
 
                 if ($hasCourseAccess && !$moduleIsLocked && $user) {
                     $moduleData['attachments_link'] = $module->attachments_link;
-                    $moduleData['attachments'] = $module->attachments->map(function($attachment) use ($moduleAccess, $user, $module) {
+                    $moduleAttachments = $module->attachments->map(
+                        fn ($attachment) => $this->attachmentPayload(
+                            $attachment,
+                            $moduleAccess,
+                            $user,
+                            $module
+                        )
+                    );
+                    $pdfAttachments = $coursePdfs->map(function($pdf) use ($moduleAccess, $user) {
+                        $expiresInSeconds = max(300, min(3600, (int) config('course_attachments.signed_url_minutes', 30) * 60));
                         return [
-                            'id' => $attachment->id,
-                            'title' => $attachment->title,
-                            'download_url' => $moduleAccess->temporaryDownloadUrl($user, $this->resource, $module, $attachment),
-                            'expires_in_seconds' => max(60, min(1800, (int) config('course_attachments.signed_url_minutes', 30) * 60)),
+                            'id' => 'pdf-' . $pdf->id,
+                            'title' => (string) $pdf->title,
+                            'download_url' => $moduleAccess->temporaryPdfDownloadUrl($user, $this->resource, $pdf),
+                            'expires_in_seconds' => $expiresInSeconds,
+                            'download_url_expires_at' => now()->addSeconds($expiresInSeconds)->toIso8601String(),
                             'download_url_is_temporary' => true,
-                            'download_url_hint' => 'الرابط صالح لمدة ٣٠ دقيقة ويمكنك إنشاء رابط جديد من صفحة الكورس.',
-                            'file_type' => $attachment->file_type,
-                            'file_size' => $attachment->file_size_human,
+                            'file_type' => 'pdf',
+                            'mime_type' => 'application/pdf',
+                            'file_size_bytes' => (int) $pdf->file_size,
+                            'file_size' => $pdf->formatted_file_size,
+                            'download_version' => sha1(implode('|', [
+                                $pdf->id,
+                                $pdf->updated_at,
+                                $pdf->file_path,
+                                $pdf->file_size,
+                            ])),
                         ];
                     });
+                    $moduleData['attachments'] = $moduleAttachments
+                        ->concat($pdfAttachments)
+                        ->values();
                 }
 
                 return $moduleData;
@@ -216,6 +313,39 @@ class CourseResource extends BaseCourseResource
         });
 
         return $baseData;
+    }
+
+    /** Build one entitled, replace-aware download contract for module/section files. */
+    private function attachmentPayload($attachment, $moduleAccess, $user, $module): array
+    {
+        $expiresInSeconds = max(
+            300,
+            min(3600, (int) config('course_attachments.signed_url_minutes', 30) * 60)
+        );
+
+        return [
+            'id' => $attachment->id,
+            'title' => $attachment->title,
+            'download_url' => $moduleAccess->temporaryDownloadUrl(
+                $user,
+                $this->resource,
+                $module,
+                $attachment
+            ),
+            'expires_in_seconds' => $expiresInSeconds,
+            'download_url_expires_at' => now()->addSeconds($expiresInSeconds)->toIso8601String(),
+            'download_url_is_temporary' => true,
+            'file_type' => $attachment->file_type,
+            'mime_type' => $attachment->mime_type ?: 'application/octet-stream',
+            'file_size_bytes' => (int) $attachment->file_size,
+            'file_size' => $attachment->file_size_human,
+            'download_version' => sha1(implode('|', [
+                $attachment->id,
+                $attachment->updated_at,
+                $attachment->file_path,
+                $attachment->file_size,
+            ])),
+        ];
     }
 
     /**
@@ -245,132 +375,16 @@ class CourseResource extends BaseCourseResource
             ->pluck('course_section_id');
     }
 
-    /**
-     * Optimized section locking check using pre-loaded completed sections and passed projects
-     * A section is locked if the previous section is not completed (only if enforce_course_section_order is enabled)
-     * OR if it's in a new module and the previous module's project was not passed
-     *
-     * @param \App\Models\CourseSection $section
-     * @param \Illuminate\Support\Collection $completedSectionIds
-     * @param array $passedProjectIds
-     * @return bool
-     */
-    protected function isSectionLockedOptimized(
-        $section,
-        $completedSectionIds,
-        $passedProjectIds = [],
-        bool $enforceSectionOrder = true
-    )
+    protected function isSectionLockedFromState($section): bool
     {
         $sectionId = (int) $section->id;
         if (array_key_exists($sectionId, $this->sectionLockCache)) {
             return $this->sectionLockCache[$sectionId];
         }
 
-        // If section order is not enforced, no sections are locked
-        if (!$enforceSectionOrder) {
-            return $this->sectionLockCache[$sectionId] = false;
-        }
-
-        // First section is never locked
-        if ($section->order == 1) {
-            return $this->sectionLockCache[$sectionId] = false;
-        }
-
-        // Get the previous section (highest order less than current section)
-        $previousSection = $this->previousSectionsById[$sectionId] ?? null;
-
-        if (!$previousSection) {
-            return $this->sectionLockCache[$sectionId] = false;
-        }
-
-        // Check if previous section is completed using pre-loaded data
-        if (!$completedSectionIds->contains($previousSection->id)) {
-            return $this->sectionLockCache[$sectionId] = true;
-        }
-
-        // Check module-gated progression
-        if ($section->module_id && $previousSection->module_id !== $section->module_id) {
-            // New module - check previous module's project
-
-            // Get previous module
-            $previousModuleId = $previousSection->module_id;
-
-            // If previous section had a module, check if that module has a project
-            if ($previousModuleId) {
-                // Find project section in previous module (from this->sections loaded)
-                $previousModuleProjectSection = $this->sections->first(function($s) use ($previousModuleId) {
-                    return $s->module_id == $previousModuleId && $s->getSectionType() === 'project';
-                });
-
-                if ($previousModuleProjectSection) {
-                    // Check if project is passed
-                    // Since we can't easily access project ID from section here without loading project relation on all sections,
-                    // we assume we loaded it or find it.
-                    // Actually, sectionable_type='Project' is not true, project is via section_type='project'.
-                    // Section has one Project model.
-                    // To avoid N+1, we rely on the fact we fetched passedProjectIds.
-                    // We need the project ID.
-                    $projectId = $previousModuleProjectSection->sectionable_type === Project::class
-                        ? (int) $previousModuleProjectSection->sectionable_id
-                        : null;
-
-                    if ($projectId && !in_array($projectId, $passedProjectIds, true)) {
-                        return $this->sectionLockCache[$sectionId] = true;
-                    }
-                }
-            }
-        }
-
-        return $this->sectionLockCache[$sectionId] = false;
-    }
-
-    /**
-     * Legacy method - kept for backward compatibility
-     * Check if a section is locked for the user
-     * A section is locked if the previous section is not completed (only if enforce_course_section_order is enabled)
-     *
-     * @param \App\Models\CourseSection $section
-     * @param \App\Models\User|null $user
-     * @return bool
-     */
-    protected function isSectionLocked($section, $user)
-    {
-        if (!$user) {
-            return true; // Not logged in = all sections locked
-        }
-
-        // Get settings to check if section order enforcement is enabled
-        $settings = Setting::first();
-        $enforceSectionOrder = $settings ? $settings->enforce_course_section_order : true;
-
-        // If section order is not enforced, no sections are locked
-        if (!$enforceSectionOrder) {
-            return false;
-        }
-
-        // First section is never locked
-        if ($section->order == 1) {
-            return false;
-        }
-
-        // Get the previous section
-        $previousSection = $this->sections
-            ->where('order', '<', $section->order)
-            ->sortByDesc('order')
-            ->first();
-
-        if (!$previousSection) {
-            return false; // No previous section = not locked
-        }
-
-        // Check if previous section is completed
-        $isCompleted = StudentSectionProgress::where('user_id', $user->id)
-            ->where('course_section_id', $previousSection->id)
-            ->where('is_completed', true)
-            ->exists();
-
-        return !$isCompleted; // Locked if previous section is not completed
+        return $this->sectionLockCache[$sectionId] = (bool) (
+            $this->sectionAccessStates->get($sectionId)['is_locked'] ?? true
+        );
     }
 
     /**
@@ -399,17 +413,32 @@ class CourseResource extends BaseCourseResource
         // Add type-specific full data (including sensitive data)
         switch ($section->getSectionType()) {
             case 'lesson':
-                // Get video data with signed URL for Bunny videos
                 $bunnyService = $this->bunnyService ??= app(BunnyService::class);
-                $videoData = $bunnyService->getVideoDataForLesson($section->sectionable);
+                $isPreview = (bool) $section->sectionable->is_opened;
+                // Paid media is issued only by the per-user playback manifest
+                // endpoint. Keeping it out of the broad course payload limits
+                // link reuse and makes session telemetry authoritative.
+                $videoData = $isPreview
+                    ? $bunnyService->getVideoDataForLesson($section->sectionable)
+                    : [
+                        'video_source_type' => 'bunny',
+                        'video_link' => null,
+                        'bunny_video_url' => null,
+                        'bunny_video_expires_at' => null,
+                    ];
+                $fallbackVideo = $isPreview && $section->sectionable->bunny_video_id
+                    ? $bunnyService->getFallbackVideo((string) $section->sectionable->bunny_video_id)
+                    : null;
 
                 $content['video_source_type'] = $videoData['video_source_type'];
                 $content['video_link'] = $videoData['video_link'];
                 $content['bunny_video_url'] = $videoData['bunny_video_url'];
                 $content['bunny_video_expires_at'] = $videoData['bunny_video_expires_at'];
+                $content['fallback_video_url'] = $fallbackVideo['url'] ?? null;
                 $content['priority'] = $section->sectionable->priority ?? null;
                 $content['is_opened'] = $section->sectionable->is_opened ?? true;
                 $content['duration_minutes'] = (int)($section->sectionable->duration_minutes ?? 0);
+                $content['duration_seconds'] = $this->lessonDurationSeconds($section->sectionable) ?: null;
                 $content['thumbnail_url'] = $section->sectionable->thumbnail_path
                     ? $bunnyService->generateBunnySignedUrl($section->sectionable->thumbnail_path)
                     : null;
@@ -423,6 +452,21 @@ class CourseResource extends BaseCourseResource
                     $content['status'] = data_get($evaluation?->evaluation_data, 'status')
                         ?: ($evaluation ? ($evaluation->passed ? 'passed' : 'pending') : 'not_submitted');
                     $content['passed'] = (bool) ($evaluation?->passed ?? false);
+                    $content['project_feedback'] = [
+                        'level' => $this->projectFeedbackLevel,
+                        'report_enabled' => (bool) (
+                            $this->projectFeedbackContract['project_report_enabled'] ?? false
+                        ),
+                        'reply_enabled' => (bool) (
+                            $this->projectFeedbackContract['project_thread_reply_enabled'] ?? false
+                        ),
+                        'message_limit' => max(0, (int) (
+                            $this->projectFeedbackContract['project_message_limit'] ?? 0
+                        )),
+                        'token_budget' => max(0, (int) (
+                            $this->projectFeedbackContract['project_token_budget'] ?? 0
+                        )),
+                    ];
                break;
 
             case 'question':
@@ -451,6 +495,13 @@ class CourseResource extends BaseCourseResource
                 $content['priority'] = $section->sectionable->priority ?? null;
                 $content['is_opened'] = $section->sectionable->is_opened ?? true;
                 $content['time_minutes'] = $section->sectionable->time_minutes ?? null;
+                $passedAttempt = $this->passedQuizAttempts->first(
+                    fn (ExamAttempt $attempt) => (int) $attempt->section_id === (int) $section->id
+                        || ($attempt->section_id === null
+                            && (int) $attempt->quiz_id === (int) $section->sectionable->id)
+                );
+                $content['is_passed'] = $passedAttempt !== null;
+                $content['score_percentage'] = $passedAttempt?->score_percentage;
                 // Note: Quiz ID is already included in basic 'id' field
                 break;
 
@@ -460,19 +511,6 @@ class CourseResource extends BaseCourseResource
                 $content['image'] = $section->sectionable->image ?? null;
                 break;
 
-            case 'pdf':
-                if ($section->sectionable) {
-                    $content['pdf_id'] = $section->sectionable->id;
-                    $content['title'] = $section->sectionable->title ?? null;
-                    $content['title_en'] = $section->sectionable->title_en ?? null;
-                    $content['description'] = $section->sectionable->description ?? null;
-                    $content['description_en'] = $section->sectionable->description_en ?? null;
-                    $content['file_size'] = $section->sectionable->formatted_file_size ?? null;
-                    $content['order'] = $section->sectionable->order ?? null;
-                    // Secure stream URL - no direct file access
-                    $content['stream_url'] = url("/api/v1/courses/{$section->course_id}/pdfs/{$section->sectionable->id}/stream");
-                }
-                break;
         }
 
         return $this->fullSectionContentCache[$sectionId] = $content;

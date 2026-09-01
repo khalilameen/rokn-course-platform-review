@@ -27,14 +27,20 @@ function activateRouteClass($route)
 function translateCurrency($currency)
 {
     // Don't translate if the locale is English
-    if (config('app.locale') === 'en') {
-        return $currency;
+    $code = strtoupper(trim((string) $currency));
+    if (!\App\Support\RoknLocale::isArabic()) {
+        return $code;
     }
 
-    $arabic = ['جنيه', 'دولار', 'يورو', 'درهم اماراتي', 'ريال سعودي', 'جنيه استرليني', 'دينار كويتي'];
-    $english = ['EGP', 'USD', 'EU', 'AED', 'SAR', 'GBP', 'KWD'];
-
-    return str_replace($english, $arabic, $currency);
+    return [
+        'EGP' => 'جنيه',
+        'USD' => 'دولار',
+        'EUR' => 'يورو',
+        'AED' => 'درهم إماراتي',
+        'SAR' => 'ريال سعودي',
+        'GBP' => 'جنيه إسترليني',
+        'KWD' => 'دينار كويتي',
+    ][$code] ?? $code;
 }
 
 /**

@@ -9,19 +9,29 @@ use App\Models\CourseEnrollment;
 use App\Models\CourseSection;
 use App\Models\Project;
 use App\Models\ProjectSubmission;
-use App\Models\Setting;
+use App\Models\ProjectFeedbackThread;
 use App\Models\UserProjectEvaluation;
 use App\Services\ProjectSubmissionService;
+use App\Services\ProjectFeedbackThreadService;
+use App\Services\CourseCompletionService;
+use App\Services\CourseChatAccessService;
+use App\Services\CourseAccessPlanService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
+use App\Support\DownloadFilename;
 
 final class ProjectController extends Controller
 {
-    public function __construct(private ProjectSubmissionService $submissionService)
-    {
+    public function __construct(
+        private ProjectSubmissionService $submissionService,
+        private CourseCompletionService $courseCompletion,
+        private ProjectFeedbackThreadService $feedbackThreads,
+        private CourseChatAccessService $courseAccess,
+        private CourseAccessPlanService $accessPlans
+    ) {
     }
 
     public function show($projectId): JsonResponse
@@ -29,13 +39,17 @@ final class ProjectController extends Controller
         try {
             $user = auth('api')->user();
             if (!$user) {
-                return $this->error('Unauthenticated', 401);
+                return $this->error('سجّل الدخول أولًا', 401);
             }
 
             $project = Project::with(['section.course', 'section.module'])->findOrFail($projectId);
             $courseId = (int) optional($project->section)->course_id;
-            if (!$courseId || !$this->checkCourseAccess($user->id, $courseId)) {
-                return $this->error('You are not authorized to access this project', 403);
+            if (
+                !$courseId
+                || !$project->section
+                || !$this->courseCompletion->canAccessSection($user, $project->section)
+            ) {
+                return $this->error('هذا المشروع غير متاح لحسابك', 403);
             }
 
             $latestSubmission = ProjectSubmission::query()
@@ -48,17 +62,28 @@ final class ProjectController extends Controller
             }
 
             $evaluation = $project->evaluationForUser($user->id);
+            $enrollment = $this->courseAccess->activeEnrollmentFor((int) $user->id, $courseId);
+            $terms = $enrollment ? $this->accessPlans->termsForEnrollment($enrollment) : null;
+            $feedbackContract = $this->accessPlans->publicPayloadFromTerms($terms ?? []);
+            $feedbackLevel = (string) $feedbackContract['project_feedback_level'];
 
             return response()->json([
                 'status' => 200,
                 'success' => true,
-                'message' => 'Project details retrieved successfully',
+                'message' => 'تم تحميل المشروع',
                 'data' => [
                     'id' => $project->id,
                     'requirements_text' => $project->requirements_text,
                     // Prompt/model settings deliberately stay server-side.
                     'passing_score' => $project->passing_score,
                     'is_graduation_project' => $project->is_graduation_project,
+                    'project_feedback' => [
+                        'level' => $feedbackLevel,
+                        'report_enabled' => (bool) $feedbackContract['project_report_enabled'],
+                        'reply_enabled' => (bool) $feedbackContract['project_thread_reply_enabled'],
+                        'message_limit' => (int) $feedbackContract['project_message_limit'],
+                        'token_budget' => (int) $feedbackContract['project_token_budget'],
+                    ],
                     'section' => [
                         'id' => $project->section->id,
                         'title' => $project->section->title,
@@ -90,10 +115,11 @@ final class ProjectController extends Controller
                 ],
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $exception) {
-            return $this->error('Project not found', 404);
+            return $this->error('المشروع غير متاح', 404);
         } catch (\Throwable $exception) {
+            $this->rethrowExpectedRequestException($exception);
             report($exception);
-            return $this->error('Failed to retrieve project details', 500);
+            return $this->error('تعذّر تحميل المشروع', 500);
         }
     }
 
@@ -106,7 +132,7 @@ final class ProjectController extends Controller
         try {
             $user = auth('api')->user();
             if (!$user) {
-                return $this->error('Unauthenticated', 401);
+                return $this->error('سجّل الدخول أولًا', 401);
             }
 
             if (!$request->filled('client_submission_id') && $request->hasHeader('Idempotency-Key')) {
@@ -114,10 +140,11 @@ final class ProjectController extends Controller
             }
 
             $request->validate([
-                'submission_text' => 'nullable|string|max:20000|required_without:submission_file',
+                'submission_text' => 'nullable|string|max:80000|required_without:submission_file',
                 'submission_file' => [
                     'nullable',
                     'file',
+                    'min:1',
                     'required_without:submission_text',
                     'max:' . (int) config('projects.maximum_file_kilobytes', 25600),
                     'mimetypes:' . implode(',', (array) config('projects.allowed_mime_types', [])),
@@ -128,17 +155,32 @@ final class ProjectController extends Controller
 
             $project = Project::with('section')->findOrFail($projectId);
             $courseId = (int) optional($project->section)->course_id;
-            if (!$courseId || !$this->checkCourseAccess($user->id, $courseId)) {
-                return $this->error('You are not authorized to submit this project', 403);
+            if (!$courseId || !$project->section || !$this->checkCourseAccess($user->id, $courseId)) {
+                return $this->error('لا يمكنك تسليم هذا المشروع من حسابك', 403);
             }
-            if (!$this->hasCompletedProjectPrerequisites($user->id, $project)) {
+            if (!$this->courseCompletion->canAccessSection($user, $project->section)) {
                 return response()->json([
                     'status' => 409,
                     'success' => false,
                     'code' => 'project_prerequisites_incomplete',
-                    'message' => 'Complete the module reels before submitting its project',
+                    'message' => "أكمل المحتوى السابق أولًا\nثم سلّم المشروع",
                     'data' => null,
                 ], 409);
+            }
+            $enrollment = $this->courseAccess->activeEnrollmentFor((int) $user->id, $courseId);
+            $terms = $enrollment ? $this->accessPlans->termsForEnrollment($enrollment) : null;
+            $feedbackContract = $this->accessPlans->publicPayloadFromTerms($terms ?? []);
+            if (
+                (bool) $feedbackContract['project_report_enabled']
+                && mb_strlen(trim(strip_tags((string) $request->input('submission_text')))) < 10
+            ) {
+                return response()->json([
+                    'status' => 422,
+                    'success' => false,
+                    'code' => 'project_note_required',
+                    'message' => 'اكتب سطرًا واضحًا عما نفذته لنعد تقرير مشروعك',
+                    'data' => null,
+                ], 422);
             }
 
             $idempotencyKey = (string) (
@@ -160,14 +202,14 @@ final class ProjectController extends Controller
             return response()->json([
                 'status' => $httpStatus,
                 'success' => true,
-                'message' => 'استلمنا مشروعك وبدأت مراجعته.',
+                'message' => 'استلمنا مشروعك وبدأت مراجعته',
                 'data' => $this->submissionPayload($submission),
             ], $httpStatus);
         } catch (\Illuminate\Validation\ValidationException $exception) {
             return response()->json([
                 'status' => 422,
                 'success' => false,
-                'message' => 'Validation failed',
+                'message' => 'راجع بيانات المشروع',
                 'data' => null,
                 'errors' => $exception->errors(),
             ], 422);
@@ -176,14 +218,15 @@ final class ProjectController extends Controller
                 'status' => 409,
                 'success' => false,
                 'code' => 'submission_idempotency_conflict',
-                'message' => 'The submission key is already associated with different content',
+                'message' => "تغيّر محتوى المشروع أثناء الإرسال\nأعد المحاولة",
                 'data' => null,
             ], 409);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $exception) {
-            return $this->error('Project not found', 404);
+            return $this->error('المشروع غير متاح', 404);
         } catch (\Throwable $exception) {
+            $this->rethrowExpectedRequestException($exception);
             report($exception);
-            return $this->error('Failed to submit project', 500);
+            return $this->error('تعذّر إرسال المشروع', 500);
         }
     }
 
@@ -199,7 +242,7 @@ final class ProjectController extends Controller
     {
         $user = auth('api')->user();
         if (!$user || $submission->user_id !== $user->id) {
-            return $this->error('Submission not found', 404);
+            return $this->error('التسليم غير متاح', 404);
         }
 
         $submission = $this->submissionService->finalizeIfDue($submission);
@@ -207,22 +250,79 @@ final class ProjectController extends Controller
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Submission status retrieved successfully',
+            'message' => 'تم تحميل حالة التسليم',
             'data' => $this->submissionPayload($submission),
         ]);
+    }
+
+    public function feedbackThread(ProjectFeedbackThread $thread): JsonResponse
+    {
+        $user = auth('api')->user();
+        if (!$user || (int) $thread->user_id !== (int) $user->id) {
+            return $this->error('محادثة المشروع غير متاحة', 404);
+        }
+
+        return response()->json([
+            'status' => 200,
+            'success' => true,
+            'message' => 'تم تحميل مراجعة المشروع',
+            'data' => $this->feedbackThreads->payload($thread),
+        ]);
+    }
+
+    public function sendFeedbackMessage(Request $request, ProjectFeedbackThread $thread): JsonResponse
+    {
+        $user = auth('api')->user();
+        if (!$user || (int) $thread->user_id !== (int) $user->id) {
+            return $this->error('محادثة المشروع غير متاحة', 404);
+        }
+
+        if (!$request->filled('client_request_id') && $request->hasHeader('Idempotency-Key')) {
+            $request->merge(['client_request_id' => $request->header('Idempotency-Key')]);
+        }
+        $validated = $request->validate([
+            'message' => 'required|string|min:1|max:20000',
+            'client_request_id' => 'required|string|min:8|max:100',
+        ]);
+
+        try {
+            $this->feedbackThreads->queueReply(
+                $user,
+                $thread,
+                (string) $validated['message'],
+                (string) $validated['client_request_id']
+            );
+        } catch (\Illuminate\Auth\Access\AuthorizationException $exception) {
+            return $this->error('الردود غير متاحة لهذا المشروع', 403);
+        } catch (\UnexpectedValueException $exception) {
+            return response()->json([
+                'status' => 409,
+                'success' => false,
+                'code' => 'project_message_idempotency_conflict',
+                'message' => "تغيّرت الرسالة أثناء الإرسال\nأعد المحاولة",
+                'data' => null,
+            ], 409);
+        }
+
+        return response()->json([
+            'status' => 202,
+            'success' => true,
+            'message' => 'استلمنا رسالتك',
+            'data' => $this->feedbackThreads->payload($thread->fresh()),
+        ], 202);
     }
 
     public function downloadSubmissionFile(ProjectSubmission $submission): Response
     {
         $user = auth('api')->user();
         if (!$user || $submission->user_id !== $user->id || !$submission->submission_file) {
-            return $this->error('Submission file not found', 404);
+            return $this->error('ملف المشروع غير متاح', 404);
         }
 
         $path = ltrim(str_replace('\\', '/', trim((string) $submission->submission_file)), '/');
         $expectedPrefix = "project_submissions/{$submission->user_id}/{$submission->project_id}/";
         if ($path === '' || str_contains($path, '../') || !str_starts_with($path, $expectedPrefix)) {
-            return $this->error('Submission file not found', 404);
+            return $this->error('ملف المشروع غير متاح', 404);
         }
 
         $disk = null;
@@ -234,15 +334,21 @@ final class ProjectController extends Controller
             }
         }
         if (!$disk) {
-            return $this->error('Submission file not found', 404);
+            return $this->error('ملف المشروع غير متاح', 404);
         }
 
-        $downloadName = basename((string) ($submission->original_file_name ?: 'project-submission'));
+        $extension = pathinfo($path, PATHINFO_EXTENSION);
+        $downloadName = DownloadFilename::safe(
+            $submission->original_file_name,
+            'project-submission',
+            $extension
+        );
 
         return $disk->download($path, $downloadName, [
             'Content-Type' => $submission->mime_type ?: 'application/octet-stream',
             'X-Content-Type-Options' => 'nosniff',
             'Cache-Control' => 'private, no-store',
+            'Content-Disposition' => DownloadFilename::disposition($downloadName),
         ]);
     }
 
@@ -251,11 +357,11 @@ final class ProjectController extends Controller
         try {
             $user = auth('api')->user();
             if (!$user) {
-                return $this->error('Unauthenticated', 401);
+                return $this->error('سجّل الدخول أولًا', 401);
             }
 
             if (!$this->checkCourseAccess($user->id, (int) $courseId)) {
-                return $this->error('You are not authorized to access this course', 403);
+                return $this->error('هذا الكورس غير متاح لحسابك', 403);
             }
 
             $projectSections = CourseSection::where('course_id', $courseId)
@@ -319,7 +425,7 @@ final class ProjectController extends Controller
             return response()->json([
                 'status' => 200,
                 'success' => true,
-                'message' => 'Project evaluations retrieved successfully',
+                'message' => 'تم تحميل تقييمات المشروعات',
                 'data' => [
                     'course_id' => (int) $courseId,
                     'total_projects' => $projects->count(),
@@ -328,13 +434,19 @@ final class ProjectController extends Controller
                 ],
             ]);
         } catch (\Throwable $exception) {
+            $this->rethrowExpectedRequestException($exception);
             report($exception);
-            return $this->error('Failed to retrieve project evaluations', 500);
+            return $this->error('تعذّر تحميل تقييمات المشروعات', 500);
         }
     }
 
     private function checkCourseAccess(int $userId, int $courseId): bool
     {
+        $course = \App\Models\Course::query()->find($courseId);
+        if (!$course || !$course->isPublishedForLearning()) {
+            return false;
+        }
+
         $enrollment = CourseEnrollment::where('user_id', $userId)
             ->where('course_id', $courseId)
             ->where('is_active', true)
@@ -361,50 +473,13 @@ final class ProjectController extends Controller
         return (bool) ($parentEnrollment && $parentEnrollment->isActive());
     }
 
-    private function hasCompletedProjectPrerequisites(int $userId, Project $project): bool
-    {
-        $section = $project->section;
-        if (!$section) {
-            return false;
-        }
-
-        $settings = Setting::first();
-        if ($settings && !$settings->enforce_course_section_order) {
-            return true;
-        }
-
-        $query = CourseSection::query()
-            ->where('course_id', $section->course_id)
-            ->where('order', '<', $section->order);
-
-        if ($section->module_id) {
-            $query->where('module_id', $section->module_id);
-        }
-
-        $requiredSectionIds = $query->orderBy('order')
-            ->get()
-            ->reject(fn (CourseSection $candidate) => $candidate->getSectionType() === 'project')
-            ->pluck('id');
-
-        if ($requiredSectionIds->isEmpty()) {
-            return true;
-        }
-
-        $completedCount = \App\Models\StudentSectionProgress::query()
-            ->where('user_id', $userId)
-            ->whereIn('course_section_id', $requiredSectionIds)
-            ->where('is_completed', true)
-            ->distinct('course_section_id')
-            ->count('course_section_id');
-
-        return $completedCount === $requiredSectionIds->count();
-    }
-
     private function submissionPayload(ProjectSubmission $submission): array
     {
         $metadata = is_array($submission->submission_metadata)
             ? $submission->submission_metadata
             : [];
+
+        $thread = $submission->feedbackThread;
 
         return [
             'id' => $submission->public_id,
@@ -423,6 +498,7 @@ final class ProjectController extends Controller
             'submitted_at' => $submission->submitted_at?->toIso8601String(),
             'reviewed_at' => $submission->reviewed_at?->toIso8601String(),
             'poll_after_seconds' => $submission->review_status === ProjectSubmission::STATUS_PENDING ? 3 : null,
+            'feedback_thread' => $thread ? $this->feedbackThreads->payload($thread) : null,
         ];
     }
 

@@ -27,6 +27,8 @@ final class CourseSectionAtomicityTest extends TestCase
         Schema::create('courses', function (Blueprint $table): void {
             $table->id();
             $table->string('name_ar')->nullable();
+            $table->boolean('is_coming_soon')->default(true);
+            $table->unsignedBigInteger('authoring_version')->default(1);
             $table->timestamps();
         });
         Schema::create('course_modules', function (Blueprint $table): void {
@@ -91,17 +93,18 @@ final class CourseSectionAtomicityTest extends TestCase
 
     public function test_failed_section_insert_rolls_back_lesson_and_queues_staged_video(): void
     {
-        $course = Course::create(['name_ar' => 'اختبار']);
+        $course = Course::create(['name_ar' => 'اختبار', 'is_coming_soon' => true]);
+        $module = CourseModule::create(['course_id' => $course->id]);
         $bunny = Mockery::mock(BunnyService::class);
         $bunny->shouldReceive('uploadVerifiedVideo')->once()->andReturn('staged-guid');
         $bunny->shouldReceive('queueVideoCleanup')
             ->once()
-            ->with('staged-guid', null, 'section_create_rollback', 24)
+            ->with('staged-guid', null, 'section_create_rollback', 24, true)
             ->andReturnNull();
         app()->instance(BunnyService::class, $bunny);
 
         $response = app(CourseSectionController::class)->store(
-            $this->lessonRequest(null),
+            $this->lessonRequest(null, $module->id),
             $course
         );
 
@@ -112,14 +115,15 @@ final class CourseSectionAtomicityTest extends TestCase
 
     public function test_verified_video_and_section_pointer_commit_together(): void
     {
-        $course = Course::create(['name_ar' => 'اختبار']);
+        $course = Course::create(['name_ar' => 'اختبار', 'is_coming_soon' => true]);
+        $module = CourseModule::create(['course_id' => $course->id]);
         $bunny = Mockery::mock(BunnyService::class);
         $bunny->shouldReceive('uploadVerifiedVideo')->once()->andReturn('published-guid');
         $bunny->shouldNotReceive('queueVideoCleanup');
         app()->instance(BunnyService::class, $bunny);
 
         $response = app(CourseSectionController::class)->store(
-            $this->lessonRequest('Lesson'),
+            $this->lessonRequest('Lesson', $module->id),
             $course
         );
 
@@ -133,7 +137,7 @@ final class CourseSectionAtomicityTest extends TestCase
 
     public function test_reorder_keeps_the_optional_crossing_project_last_in_its_module(): void
     {
-        $course = Course::create(['name_ar' => 'اختبار']);
+        $course = Course::create(['name_ar' => 'اختبار', 'is_coming_soon' => true]);
         $module = CourseModule::create(['course_id' => $course->id]);
         $lesson = CourseSection::create([
             'title_ar' => 'مقطع',
@@ -156,6 +160,7 @@ final class CourseSectionAtomicityTest extends TestCase
             'order' => 2,
         ]);
         $request = Request::create('/dashboard/courses/1/sections/reorder', 'POST', [
+            'authoring_version' => 1,
             'sections' => [
                 ['id' => $project->id, 'order' => 1, 'module_id' => $module->id],
                 ['id' => $lesson->id, 'order' => 2, 'module_id' => $module->id],
@@ -169,12 +174,14 @@ final class CourseSectionAtomicityTest extends TestCase
         self::assertSame(2, (int) $project->fresh()->order);
     }
 
-    private function lessonRequest(?string $sectionTitleEn): Request
+    private function lessonRequest(?string $sectionTitleEn, int $moduleId): Request
     {
         $request = Request::create('/dashboard/courses/1/sections', 'POST', [
             'title_ar' => 'خطوة تجريبية',
             'title_en' => $sectionTitleEn,
             'section_type' => 'lesson',
+            'module_id' => $moduleId,
+            'authoring_version' => 1,
             'lesson_title_ar' => 'خطوة تجريبية',
             'lesson_title_en' => 'Test step',
             'lesson_duration_minutes' => 2,

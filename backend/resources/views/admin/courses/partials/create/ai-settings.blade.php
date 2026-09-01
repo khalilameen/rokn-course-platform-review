@@ -14,7 +14,7 @@
                                 <i class="fa fa-check"></i>
                             </div>
                             <div>
-                                <div class="checkbox-item__title">تفعيل Rokn AI للمشتركين المدفوعين</div>
+                                <div class="checkbox-item__title">تفعيل Rokn AI لطلاب الفئات المدفوعة</div>
                                 <div class="checkbox-item__description">الكورس المجاني والمنحة المؤسسية لا يستهلكان الذكاء الاصطناعي. إلغاء التفعيل يوقفه للجميع في هذا الكورس.</div>
                             </div>
                             {!! Form::hidden('ai_chat_enabled', 0) !!}

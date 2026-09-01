@@ -8,6 +8,7 @@ use App\Models\DesignSetting;
 use App\Models\PaymentMethod;
 use App\Services\OrderLifecycleService;
 use App\Services\PaymentChannelReportService;
+use App\Support\BusinessClock;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -29,6 +30,10 @@ class OrdersController extends Controller
      */
     public function index(Request $request, PaymentChannelReportService $paymentChannels)
     {
+        $dates = $request->validate([
+            'date_from' => ['nullable', 'date_format:Y-m-d'],
+            'date_to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:date_from'],
+        ]);
         $query = Order::with(['user', 'course', 'package', 'coupon', 'courseCode', 'approvedBy', 'paymentMethod', 'storePurchase']);
 
         // Apply status filter
@@ -59,11 +64,13 @@ class OrdersController extends Controller
         }
 
         // Apply date range filter
-        if ($request->filled('date_from')) {
-            $query->whereDate('created_at', '>=', $request->date_from);
+        if (!empty($dates['date_from'])) {
+            [$from] = BusinessClock::localDayRangeUtc($dates['date_from']);
+            $query->where('created_at', '>=', $from);
         }
-        if ($request->filled('date_to')) {
-            $query->whereDate('created_at', '<=', $request->date_to);
+        if (!empty($dates['date_to'])) {
+            [, $toExclusive] = BusinessClock::localDayRangeUtc($dates['date_to']);
+            $query->where('created_at', '<', $toExclusive);
         }
 
         // Apply amount range filter
@@ -74,22 +81,26 @@ class OrdersController extends Controller
             $query->where('final_amount', '<=', $request->amount_max);
         }
 
-        // Sort by latest
-        $query->latest();
+        // Totals must describe the same result set as the list. Previously a
+        // filtered page was shown beside platform-wide cards and channel sums.
+        $filteredScope = clone $query;
 
-        $orders = $query->paginate(10);
+        // Sort by latest
+        $query->latest()->latest('id');
+
+        $orders = $query->paginate(10)->withQueryString();
 
         // Preserve query parameters for pagination
         $orders->appends($request->all());
 
         // Get statistics
-        $paymentChannelReport = $paymentChannels->summary();
+        $paymentChannelReport = $paymentChannels->summary(null, null, clone $filteredScope);
         $stats = [
-            'total' => Order::count(),
-            'pending' => Order::where('status', Order::STATUS_PENDING)->count(),
-            'approved' => Order::where('status', Order::STATUS_APPROVED)->count(),
-            'rejected' => Order::where('status', Order::STATUS_REJECTED)->count(),
-            'cancelled' => Order::where('status', Order::STATUS_CANCELLED)->count(),
+            'total' => (clone $filteredScope)->count(),
+            'pending' => (clone $filteredScope)->where('status', Order::STATUS_PENDING)->count(),
+            'approved' => (clone $filteredScope)->where('status', Order::STATUS_APPROVED)->count(),
+            'rejected' => (clone $filteredScope)->where('status', Order::STATUS_REJECTED)->count(),
+            'cancelled' => (clone $filteredScope)->where('status', Order::STATUS_CANCELLED)->count(),
             'total_amount' => $paymentChannelReport['egp']['gross_amount'],
         ];
 
@@ -155,7 +166,7 @@ class OrdersController extends Controller
                 throw new \DomainException('Only an already-pending order can remain pending.');
             }
         } catch (\DomainException $exception) {
-            return redirect()->back()->with('error', $exception->getMessage());
+            return redirect()->back()->with('error', $this->lifecycleError($exception));
         }
 
         $statusNames = [
@@ -195,7 +206,7 @@ class OrdersController extends Controller
                 trim($validated['note'])
             );
         } catch (\DomainException|\InvalidArgumentException|\UnexpectedValueException $exception) {
-            return redirect()->back()->with('error', $exception->getMessage());
+            return redirect()->back()->with('error', $this->lifecycleError($exception));
         }
 
         return redirect()->back()->with(
@@ -204,6 +215,36 @@ class OrdersController extends Controller
                 ? 'تم توثيق السداد وإعادة الاستحقاقات المرتبطة.'
                 : 'تم توثيق الإعفاء وإغلاق المراجعة المالية.'
         );
+    }
+
+    public function compensateCourse(
+        Request $request,
+        Order $order,
+        OrderLifecycleService $lifecycle
+    ) {
+        $validated = $request->validate([
+            'amount' => ['required', 'integer', 'min:1', 'max:100000000'],
+            'note' => ['required', 'string', 'min:8', 'max:1000'],
+        ]);
+        $eventKey = sprintf(
+            'admin-course-compensation:%d:%s',
+            $order->id,
+            hash('sha256', $validated['amount'] . '|' . trim($validated['note']))
+        );
+
+        try {
+            $lifecycle->compensateCourseOrder(
+                $order,
+                (int) $validated['amount'],
+                trim($validated['note']),
+                $eventKey,
+                auth()->id()
+            );
+        } catch (\DomainException|\InvalidArgumentException $exception) {
+            return back()->withInput()->with('error', $this->lifecycleError($exception));
+        }
+
+        return back()->with('success', 'أضيف التعويض إلى نفس مكونات الرصيد الأصلية مع حفظ المرجع.');
     }
 
     public function recordSettlement(Request $request, Order $order)
@@ -231,13 +272,17 @@ class OrdersController extends Controller
             'fee_amount' => ['required', 'numeric', 'min:0', 'max:9999999999.99'],
             'net_amount' => ['required', 'numeric', 'min:0', 'max:9999999999.99'],
             'currency' => ['required', 'string', 'size:3', 'regex:/^[A-Za-z]{3}$/'],
-            'settled_at' => ['required', 'date', 'before_or_equal:now'],
+            'settled_at' => ['required', 'date'],
             'provider_reference' => ['required', 'string', 'min:3', 'max:191'],
         ]);
         $gross = round((float) $validated['gross_amount'], 2);
         $fee = round((float) $validated['fee_amount'], 2);
         $net = round((float) $validated['net_amount'], 2);
         $currency = strtoupper($validated['currency']);
+        $settledAt = BusinessClock::localInputToUtc($validated['settled_at']);
+        if ($settledAt === null || $settledAt->isAfter(BusinessClock::utcNow()->addMinute())) {
+            return back()->withInput()->with('error', 'وقت التسوية لا يمكن أن يكون في المستقبل');
+        }
 
         if (abs(($gross - $fee) - $net) > 0.02) {
             return back()->withInput()->with(
@@ -262,7 +307,7 @@ class OrdersController extends Controller
         }
 
         try {
-            DB::transaction(function () use ($order, $validated, $gross, $fee, $net, $currency): void {
+            DB::transaction(function () use ($order, $validated, $gross, $fee, $net, $currency, $settledAt): void {
                 /** @var Order $locked */
                 $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
                 if ($locked->gateway_net_amount !== null) {
@@ -284,12 +329,12 @@ class OrdersController extends Controller
                     'gateway_net_amount' => number_format($net, 2, '.', ''),
                     'gateway_currency' => $currency,
                     'gateway_settlement_status' => 'settled',
-                    'gateway_settled_at' => $validated['settled_at'],
+                    'gateway_settled_at' => $settledAt,
                     'payment_gateway_response' => $response,
                 ])->save();
             }, 3);
         } catch (\DomainException $exception) {
-            return back()->with('error', $exception->getMessage());
+            return back()->with('error', $this->lifecycleError($exception));
         }
 
         return back()->with('success', 'تم توثيق كشف التسوية وإظهار الصافي المؤكد في التقارير.');
@@ -328,7 +373,7 @@ class OrdersController extends Controller
                 }
             }, 3);
         } catch (\DomainException $exception) {
-            return redirect()->back()->with('error', $exception->getMessage());
+            return redirect()->back()->with('error', $this->lifecycleError($exception));
         }
 
         $statusNames = [
@@ -341,5 +386,50 @@ class OrdersController extends Controller
         return redirect()->back()->with('success',
             'تم تحديث حالة ' . $count . ' طلب إلى "' . $statusNames[$request->status] . '" بنجاح'
         );
+    }
+
+    private function lifecycleError(\Throwable $exception): string
+    {
+        return match ($exception->getMessage()) {
+            'A financially reversed order cannot be approved again.'
+                => 'لا يمكن اعتماد طلب عُكس ماليًا',
+            'Wallet course orders can only be created by the wallet purchase flow.'
+                => 'طلبات الكورسات بعملات ركن تُنشأ من مسار الشراء فقط',
+            'A settled order cannot be rejected. Register a refund or chargeback for finance review.',
+            'A settled order cannot be cancelled. Register a refund or chargeback for finance review.'
+                => 'الطلب المسدد لا يُلغى من هنا\nسجّل الاسترداد أو الاعتراض للمراجعة المالية',
+            'Only an already-pending order can remain pending.',
+            'Only pending orders can remain pending.'
+                => 'هذه العملية متاحة للطلبات المعلقة فقط',
+            'Invalid financial review resolution.'
+                => 'قرار المراجعة المالية غير صالح',
+            'Financial resolution event key was reused for another decision.'
+                => 'تغير القرار أثناء الحفظ\nحدّث الصفحة ثم أعد المحاولة',
+            'Only a package under financial review can be resolved.'
+                => 'يمكن إغلاق المراجعة لباقات الشحن قيد المراجعة فقط',
+            'Invalid course compensation.'
+                => 'بيانات التعويض غير صالحة',
+            'Only a settled wallet course order can be compensated.'
+                => 'التعويض متاح لكورس مسدد بعملات ركن فقط',
+            'This legacy order has no verifiable wallet debit.'
+                => 'لا يوجد خصم موثق يمكن تعويضه لهذا الطلب',
+            'Compensation exceeds the remaining order amount.'
+                => 'قيمة التعويض أكبر من المبلغ المتبقي',
+            'An order must reference exactly one course or coin package.',
+            'An order must belong to a learner.',
+            'Coin package order is incomplete and cannot be approved.',
+            'Course order is incomplete and cannot be approved.'
+                => 'بيانات الطلب غير مكتملة ولا يمكن اعتماده',
+            'تم توثيق صافي هذه العملية بالتزامن من قبل.'
+                => 'تم توثيق صافي العملية بالفعل',
+            default => $this->unexpectedLifecycleError($exception),
+        };
+    }
+
+    private function unexpectedLifecycleError(\Throwable $exception): string
+    {
+        report($exception);
+
+        return 'تعذّر تنفيذ التغيير\nحدّث الصفحة ثم أعد المحاولة';
     }
 }

@@ -8,7 +8,9 @@
         <h1>{{ __('terms.heading') }}</h1>
 
         <div class="policy-content">
-            @if(is_array(__('terms.sections')))
+            @if(!empty($managedBody))
+                {!! nl2br(e($managedBody)) !!}
+            @elseif(is_array(__('terms.sections')))
                 <div class="terms-header">
                     <p class="terms-brand">{{ __('terms.brand') }}</p>
                     <p class="terms-version">{{ __('terms.version_label') }} {{ __('terms.version') }}</p>

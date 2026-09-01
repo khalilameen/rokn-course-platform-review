@@ -13,6 +13,8 @@ use App\Models\Setting;
 use App\Models\User;
 use App\Models\UserDailyLearningActivity;
 use App\Models\WalletTransaction;
+use Carbon\CarbonImmutable;
+use App\Support\BusinessClock;
 use Illuminate\Support\Facades\DB;
 
 final class LearningRewardService
@@ -33,6 +35,7 @@ final class LearningRewardService
         $courseCompletion = RewardRule::activeFor('course_completed');
 
         return [
+            'reward_timezone' => $this->rewardTimezone(),
             'welcome_bonus_coins' => (int) ($welcome?->coins_amount ?? 0),
             'reward_balance_cap' => (int) $settings->reward_balance_cap,
             'max_reward_contribution_per_course' => (int) $settings->max_reward_contribution_per_course,
@@ -71,7 +74,7 @@ final class LearningRewardService
     {
         $dailyRule = RewardRule::activeFor('daily_checkin');
         $streakRule = RewardRule::activeFor('streak_milestone');
-        $today = now()->toDateString();
+        $today = $this->rewardNow()->toDateString();
         DB::table('user_reward_checkins')->insertOrIgnore([
             'user_id' => $user->id,
             'checkin_date' => $today,
@@ -131,7 +134,7 @@ final class LearningRewardService
         if (!$rule) {
             return $this->result($user, null);
         }
-        $today = now()->toDateString();
+        $today = $this->rewardNow()->toDateString();
         $activity = DB::transaction(function () use ($user, $today, $seconds) {
             // One atomic insert protects the daily row from concurrent player
             // heartbeats. The previous select-then-create sequence could race
@@ -164,7 +167,7 @@ final class LearningRewardService
         $creditedSlots = WalletTransaction::query()
             ->where('user_id', $user->id)
             ->where('category', 'study_reward')
-            ->whereDate('occurred_at', $today)
+            ->where('idempotency_key', 'like', "study-reward:{$user->id}:{$today}:%")
             ->count();
 
         $last = null;
@@ -277,7 +280,7 @@ final class LearningRewardService
                 ->where('user_id', $lockedUser->id)
                 ->where('category', $category)
                 ->where('direction', WalletTransaction::DIRECTION_CREDIT)
-                ->where('occurred_at', '>=', now()->subDays(30))
+                ->where('occurred_at', '>=', $this->rewardNow()->subDays(30))
                 ->sum('amount');
             $rollingRoom = max(0, $rollingCap - $rollingTotal);
             $balanceRoom = max(
@@ -299,6 +302,7 @@ final class LearningRewardService
                     'requested_amount' => $requested,
                     'reward_balance_cap' => (int) $settings->reward_balance_cap,
                     'rolling_30_day_cap' => $rollingCap,
+                    'reward_timezone' => $this->rewardTimezone(),
                 ],
                 WalletTransaction::BUCKET_REWARD
             );
@@ -307,6 +311,9 @@ final class LearningRewardService
 
     private function result(User $user, ?WalletTransaction $transaction, array $extra = []): array
     {
+        // The bearer guard may retain its model instance across idempotent
+        // retries (and long-running workers can do the same). The ledger is
+        // authoritative even when this call did not create a transaction.
         $fresh = $user->fresh();
 
         return $extra + [
@@ -326,23 +333,33 @@ final class LearningRewardService
     {
         $dates = DB::table('user_reward_checkins')
             ->where('user_id', $userId)
-            ->where('checkin_date', '>=', now()->subDays(365)->toDateString())
+            ->where('checkin_date', '>=', $this->rewardNow()->subDays(365)->toDateString())
             ->orderByDesc('checkin_date')
             ->pluck('checkin_date')
             ->map(fn ($date): string => (string) $date)
             ->all();
 
-        $expected = now()->startOfDay();
+        $expected = $this->rewardNow()->startOfDay();
         $streak = 0;
         foreach ($dates as $date) {
             if ($date !== $expected->toDateString()) {
                 break;
             }
             $streak++;
-            $expected->subDay();
+            $expected = $expected->subDay();
         }
 
         return $streak;
+    }
+
+    private function rewardTimezone(): string
+    {
+        return BusinessClock::timezoneName();
+    }
+
+    private function rewardNow(): CarbonImmutable
+    {
+        return BusinessClock::now();
     }
 
     private function usesInstitutionalGrant(User $user, Course $course): bool

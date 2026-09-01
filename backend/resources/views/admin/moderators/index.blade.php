@@ -19,7 +19,7 @@
                     <td>{{ $moderator->name }}</td>
                     <td>{{ $moderator->email }}</td>
                     <td>{{ $moderator->active ? 'نشط' : 'موقوف' }}</td>
-                    <td>{{ optional($moderator->last_dashboard_login_at)->format('Y-m-d H:i') ?: 'لم يدخل بعد' }}</td>
+                    <td>{{ $moderator->last_dashboard_login_at ? \App\Support\BusinessClock::format($moderator->last_dashboard_login_at) : 'لم يدخل بعد' }}</td>
                     <td><a class="btn btn-sm btn-outline-primary" href="{{ route('admin.moderators.edit', $moderator) }}">تعديل</a></td>
                 </tr>
             @empty

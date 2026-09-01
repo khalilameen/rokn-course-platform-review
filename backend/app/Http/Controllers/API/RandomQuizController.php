@@ -20,7 +20,7 @@ final class RandomQuizController extends Controller
     {
         return $this->responses->resource(
             RandomQuizResource::collection(RandomQuiz::all()),
-            'Random quizzes retrieved successfully'
+            'تم تحميل الاختبارات السريعة'
         );
     }
 
@@ -28,7 +28,7 @@ final class RandomQuizController extends Controller
     {
         return $this->responses->resource(
             new RandomQuizResource($randomQuiz),
-            'Random quiz retrieved successfully'
+            'تم تحميل الاختبار السريع'
         );
     }
 }

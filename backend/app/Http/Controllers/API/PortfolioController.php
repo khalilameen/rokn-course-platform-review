@@ -4,13 +4,17 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\API;
 
+use App\Support\RoknPublicUrl;
+
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PortfolioItemResource;
 use App\Http\Resources\PortfolioMediaResource;
-use App\Models\CourseEnrollment;
+use App\Models\PortfolioItem;
 use App\Models\Project;
 use App\Models\UserProjectEvaluation;
 use App\Services\BunnyService;
+use App\Services\CourseChatAccessService;
+use App\Services\PortfolioShareIdentityService;
 use App\Services\SafeExternalUrl;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,11 +25,16 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 use UnexpectedValueException;
+use App\Support\DownloadFilename;
+use App\Support\UnicodeText;
 
 final class PortfolioController extends Controller
 {
-    public function __construct(private BunnyService $bunnyService)
-    {
+    public function __construct(
+        private BunnyService $bunnyService,
+        private CourseChatAccessService $courseAccess,
+        private PortfolioShareIdentityService $portfolioShares
+    ) {
     }
 
     /**
@@ -44,7 +53,7 @@ final class PortfolioController extends Controller
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Portfolio items retrieved successfully',
+            'message' => 'تم تحميل المشروعات',
             'data' => PortfolioItemResource::collection($items),
         ]);
     }
@@ -78,7 +87,7 @@ final class PortfolioController extends Controller
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Eligible portfolio projects retrieved successfully',
+            'message' => 'تم تحميل المشروعات المتاحة',
             'data' => [
                 'items' => collect($evaluations->items())->map(function (UserProjectEvaluation $evaluation) {
                     $project = $evaluation->project;
@@ -123,7 +132,17 @@ final class PortfolioController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        $this->normalizePortfolioInput($request);
+        if (!$request->filled('client_request_id')) {
+            $candidate = trim((string) $request->header('Idempotency-Key'));
+            $request->merge([
+                'client_request_id' => Str::isUuid($candidate)
+                    ? $candidate
+                    : (string) Str::uuid(),
+            ]);
+        }
         $request->validate([
+            'client_request_id' => 'required|uuid',
             'title' => 'nullable|required_without:source_project_id|string|max:255',
             'description' => 'nullable|string',
             'course_id' => 'nullable|integer|exists:courses,id',
@@ -138,6 +157,7 @@ final class PortfolioController extends Controller
             'files' => 'nullable|array|max:12',
             'files.*' => [
                 'file',
+                'min:1',
                 'max:51200',
                 'mimetypes:image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm',
             ],
@@ -147,6 +167,50 @@ final class PortfolioController extends Controller
 
         $user = auth('api')->user();
         $courseId = $request->filled('course_id') ? $request->integer('course_id') : null;
+        $sourceProject = null;
+        $files = $request->hasFile('files') ? $request->file('files') : [];
+        $fileTypes = $request->input('file_types', []);
+        $fileFingerprints = [];
+        foreach ($files as $index => $file) {
+            $fileType = (string) ($fileTypes[$index] ?? 'image');
+            $this->assertMediaMatchesType($file, $fileType, "files.{$index}");
+            $fileFingerprints[] = $this->uploadedFileFingerprint($file, $fileType);
+        }
+        if (count($fileFingerprints) !== count(array_unique(array_map(
+            static fn (array $file): string => $file['sha256'] . ':' . $file['file_type'],
+            $fileFingerprints
+        )))) {
+            throw ValidationException::withMessages([
+                'files' => ['The same media file was selected more than once.'],
+            ]);
+        }
+
+        $requestFingerprint = hash('sha256', json_encode([
+            'title' => trim((string) $request->input('title')),
+            'description' => trim((string) $request->input('description')),
+            'course_id' => $courseId,
+            'source_project_id' => $request->filled('source_project_id')
+                ? $request->integer('source_project_id')
+                : null,
+            'role' => trim((string) $request->input('role')),
+            'tools' => array_values((array) $request->input('tools', [])),
+            'external_url' => trim((string) $request->input('external_url')),
+            'completed_at' => $request->input('completed_at'),
+            'is_featured' => $request->boolean('is_featured'),
+            'sort_order' => $request->integer('sort_order', 0),
+            'files' => $fileFingerprints,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        $existingRequest = $user->portfolioItems()
+            ->with(['mediaFiles', 'course'])
+            ->where('client_request_id', $request->string('client_request_id')->toString())
+            ->first();
+        if ($existingRequest) {
+            abort_unless(
+                hash_equals((string) $existingRequest->request_fingerprint, $requestFingerprint),
+                409
+            );
+            return $this->createdItemResponse($existingRequest, true);
+        }
 
         if ($request->filled('source_project_id')) {
             if ($user->portfolioItems()
@@ -176,48 +240,44 @@ final class PortfolioController extends Controller
                 ]);
             }
             $courseId = $projectCourseId;
-        } elseif ($courseId && !CourseEnrollment::query()
-            ->where('user_id', $user->id)
-            ->where('course_id', $courseId)
-            ->exists()) {
+        } elseif ($courseId && !$this->courseAccess->hasLearningAccess(
+            (int) $user->id,
+            $courseId
+        )) {
             throw ValidationException::withMessages([
                 'course_id' => ['Only one of your courses can be linked to this portfolio item.'],
             ]);
         }
 
-        $files = $request->hasFile('files') ? $request->file('files') : [];
-        $fileTypes = $request->input('file_types', []);
-        foreach ($files as $index => $file) {
-            $this->assertMediaMatchesType(
-                $file,
-                $fileTypes[$index] ?? 'image',
-                "files.{$index}"
-            );
+        $itemTitle = trim((string) $request->input('title'));
+        if ($itemTitle === '') {
+            $itemTitle = trim((string) ($sourceProject?->section?->title ?: 'مشروع تطبيقي'));
         }
+        $itemDescription = $request->filled('description')
+            ? (string) $request->input('description')
+            : (string) ($sourceProject?->requirements_text ?? '');
 
         // Remote uploads happen before the database write. Every uploaded
         // artifact is tracked and removed if a later upload or the atomic DB
         // write fails, so a learner can never receive a successful but empty
         // project or become trapped by source_project_id on retry.
         $uploadedMedia = [];
+        $replayedAfterUpload = false;
         try {
             foreach ($files as $index => $file) {
                 $fileType = $fileTypes[$index] ?? 'image';
                 if ($fileType === 'video') {
-                    $videoData = $this->bunnyService->createVideo(
-                        $request->input('title') ?: 'Portfolio Video'
-                    );
-                    if (!$videoData || empty($videoData['guid'])) {
-                        throw new UnexpectedValueException('Bunny video entry could not be created.');
-                    }
+                    $filePath = $this->bunnyService->uploadVerifiedVideo($itemTitle, $file);
+                    if (!$filePath) throw new UnexpectedValueException('Bunny video upload failed.');
                     $uploadedMedia[] = [
-                        'file_path' => $videoData['guid'],
+                        'file_path' => $filePath,
                         'file_type' => 'video',
                         'sort_order' => $index,
+                        'content_sha256' => $fileFingerprints[$index]['sha256'],
+                        'mime_type' => $fileFingerprints[$index]['mime'],
+                        'size_bytes' => $fileFingerprints[$index]['size'],
+                        'original_name' => $this->safeOriginalName($file->getClientOriginalName()),
                     ];
-                    if (!$this->bunnyService->uploadVideo($videoData['guid'], $file)) {
-                        throw new UnexpectedValueException('Bunny video upload failed.');
-                    }
                 } else {
                     $filePath = $this->bunnyService->uploadFileToStorage($file, 'portfolio');
                     if (!$filePath) {
@@ -227,6 +287,10 @@ final class PortfolioController extends Controller
                         'file_path' => $filePath,
                         'file_type' => 'image',
                         'sort_order' => $index,
+                        'content_sha256' => $fileFingerprints[$index]['sha256'],
+                        'mime_type' => $fileFingerprints[$index]['mime'],
+                        'size_bytes' => $fileFingerprints[$index]['size'],
+                        'original_name' => $this->safeOriginalName($file->getClientOriginalName()),
                     ];
                 }
             }
@@ -235,9 +299,26 @@ final class PortfolioController extends Controller
                 $user,
                 $request,
                 $courseId,
-                $uploadedMedia
+                $uploadedMedia,
+                $itemTitle,
+                $itemDescription,
+                $requestFingerprint,
+                &$replayedAfterUpload
             ) {
                 DB::table('users')->where('id', $user->id)->lockForUpdate()->first();
+
+                $existing = $user->portfolioItems()
+                    ->with(['mediaFiles', 'course'])
+                    ->where('client_request_id', $request->string('client_request_id')->toString())
+                    ->first();
+                if ($existing) {
+                    abort_unless(
+                        hash_equals((string) $existing->request_fingerprint, $requestFingerprint),
+                        409
+                    );
+                    $replayedAfterUpload = true;
+                    return $existing;
+                }
 
                 if ($request->filled('source_project_id') && $user->portfolioItems()
                     ->where('source_project_id', $request->integer('source_project_id'))
@@ -248,11 +329,13 @@ final class PortfolioController extends Controller
                 }
 
                 $item = $user->portfolioItems()->create([
-                    'title' => $request->input('title'),
-                    'description' => $request->input('description'),
+                    'client_request_id' => $request->string('client_request_id')->toString(),
+                    'request_fingerprint' => $requestFingerprint,
+                    'title' => $itemTitle,
+                    'description' => $itemDescription,
                     'course_id' => $courseId,
                     'source_project_id' => $request->input('source_project_id'),
-                    'slug' => Str::slug($request->input('title') ?: Str::uuid()),
+                    'slug' => $this->portfolioItemSlug($itemTitle),
                     'role' => $request->input('role'),
                     'tools' => $request->input('tools'),
                     'external_url' => $request->input('external_url'),
@@ -284,13 +367,22 @@ final class PortfolioController extends Controller
             throw $exception;
         }
 
+        if ($replayedAfterUpload) {
+            $this->cleanupUploadedMedia($uploadedMedia);
+        }
         $item->load(['mediaFiles', 'course']);
 
+        return $this->createdItemResponse($item, $replayedAfterUpload);
+    }
+
+    private function createdItemResponse(PortfolioItem $item, bool $replayed): JsonResponse
+    {
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Portfolio item created successfully',
+            'message' => 'تمت إضافة المشروع',
             'data' => new PortfolioItemResource($item),
+            'replayed' => $replayed,
         ]);
     }
 
@@ -303,13 +395,13 @@ final class PortfolioController extends Controller
         $item = $user->portfolioItems()->with(['mediaFiles', 'course'])->find($id);
 
         if (!$item) {
-            return $this->error('Item not found', 404);
+            return $this->error('المشروع غير متاح', 404);
         }
 
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Portfolio item retrieved successfully',
+            'message' => 'تم تحميل المشروع',
             'data' => new PortfolioItemResource($item),
         ]);
     }
@@ -319,11 +411,12 @@ final class PortfolioController extends Controller
      */
     public function update(Request $request, $id): JsonResponse
     {
+        $this->normalizePortfolioInput($request);
         $user = auth('api')->user();
         $item = $user->portfolioItems()->find($id);
 
         if (!$item) {
-            return $this->error('Item not found', 404);
+            return $this->error('المشروع غير متاح', 404);
         }
 
         $request->validate([
@@ -341,14 +434,16 @@ final class PortfolioController extends Controller
         $item->update($request->only([
             'title', 'description', 'role', 'tools', 'external_url', 'completed_at',
             'is_featured', 'sort_order',
-        ]) + ($request->filled('title') ? ['slug' => Str::slug($request->input('title'))] : []));
+        ]) + ($request->filled('title')
+            ? ['slug' => $this->portfolioItemSlug($request->input('title'), (string) $item->slug)]
+            : []));
 
         $item->load(['mediaFiles', 'course']);
 
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Portfolio item updated successfully',
+            'message' => 'تم تحديث المشروع',
             'data' => new PortfolioItemResource($item),
         ]);
     }
@@ -362,7 +457,7 @@ final class PortfolioController extends Controller
         $item = $user->portfolioItems()->with('mediaFiles')->find($id);
 
         if (!$item) {
-            return $this->error('Item not found', 404);
+            return $this->error('المشروع غير متاح', 404);
         }
 
         foreach ($item->mediaFiles as $media) {
@@ -375,8 +470,13 @@ final class PortfolioController extends Controller
             }
 
             if (!$deleted) {
-                return $this->error('Media cleanup is temporarily unavailable', 503);
+                return $this->error('تعذّر حذف ملفات المشروع الآن', 503);
             }
+
+            // Commit each completed remote deletion immediately. If a later
+            // artifact is unavailable, the retryable item never advertises a
+            // Bunny object that has already gone.
+            $media->delete();
         }
 
         $item->delete();
@@ -384,7 +484,7 @@ final class PortfolioController extends Controller
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Portfolio item deleted successfully',
+            'message' => 'تم حذف المشروع',
             'data' => null,
         ]);
     }
@@ -394,17 +494,32 @@ final class PortfolioController extends Controller
      */
     public function appendMedia(Request $request, $id): JsonResponse
     {
+        if ($request->has('caption')) {
+            $request->merge([
+                'caption' => UnicodeText::clean($request->input('caption'), false),
+            ]);
+        }
         $user = auth('api')->user();
         $item = $user->portfolioItems()->find($id);
 
         if (!$item) {
-            return $this->error('Item not found', 404);
+            return $this->error('المشروع غير متاح', 404);
         }
 
+        if (!$request->filled('client_request_id')) {
+            $candidate = trim((string) $request->header('Idempotency-Key'));
+            $request->merge([
+                'client_request_id' => Str::isUuid($candidate)
+                    ? $candidate
+                    : (string) Str::uuid(),
+            ]);
+        }
         $request->validate([
+            'client_request_id' => 'required|uuid',
             'file' => [
                 'required',
                 'file',
+                'min:1',
                 'max:51200',
                 'mimetypes:image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm',
             ],
@@ -415,43 +530,104 @@ final class PortfolioController extends Controller
         $file = $request->file('file');
         $fileType = $request->file_type;
         $this->assertMediaMatchesType($file, $fileType, 'file');
+        $fileFingerprint = $this->uploadedFileFingerprint($file, $fileType);
+        $requestFingerprint = hash('sha256', json_encode([
+            'file' => $fileFingerprint,
+            'caption' => trim((string) $request->input('caption')),
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        $clientRequestId = $request->string('client_request_id')->toString();
+
+        $existing = $item->mediaFiles()
+            ->where('client_request_id', $clientRequestId)
+            ->first();
+        if ($existing) {
+            abort_unless(
+                hash_equals((string) $existing->content_sha256, $fileFingerprint['sha256'])
+                && hash_equals(
+                    hash('sha256', json_encode([
+                        'file' => [
+                            'sha256' => $existing->content_sha256,
+                            'size' => (int) $existing->size_bytes,
+                            'mime' => (string) $existing->mime_type,
+                            'file_type' => (string) $existing->file_type,
+                        ],
+                        'caption' => trim((string) $existing->caption),
+                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)),
+                    $requestFingerprint
+                ),
+                409
+            );
+            return $this->mediaResponse($existing, true);
+        }
+        if ($item->mediaFiles()->where('content_sha256', $fileFingerprint['sha256'])->exists()) {
+            throw ValidationException::withMessages([
+                'file' => ['This media file is already attached to the project.'],
+            ]);
+        }
         $filePath = null;
 
         if ($fileType === 'video') {
-            // Upload video to Bunny Stream
-            $videoData = $this->bunnyService->createVideo($item->title ?? 'Portfolio Video');
-            if ($videoData) {
-                $success = $this->bunnyService->uploadVideo($videoData['guid'], $file);
-                if ($success) {
-                    $filePath = $videoData['guid'];
-                } else {
-                    $this->bunnyService->queueVideoCleanup(
-                        $videoData['guid'],
-                        null,
-                        'portfolio_upload_failed',
-                        24
-                    );
-                    return $this->error('Failed to upload video to BunnyCDN', 500);
-                }
-            } else {
-                return $this->error('Failed to create video entry in BunnyCDN', 500);
-            }
+            $filePath = $this->bunnyService->uploadVerifiedVideo(
+                $item->title ?? 'Portfolio Video',
+                $file
+            );
+            if (!$filePath) return $this->error('تعذّر رفع الفيديو', 503);
         } elseif ($fileType === 'image') {
             // Upload image to Bunny Storage
             $filePath = $this->bunnyService->uploadFileToStorage($file, 'portfolio');
             if (!$filePath) {
-                return $this->error('Failed to upload image to BunnyCDN', 500);
+                return $this->error('تعذّر رفع الصورة', 500);
             }
         }
 
+        $replayed = false;
         try {
-            $maxSortOrder = $item->mediaFiles()->max('sort_order') ?? -1;
-            $media = $item->mediaFiles()->create([
-                'file_path' => $filePath,
-                'file_type' => $fileType,
-                'sort_order' => $maxSortOrder + 1,
-                'caption' => $request->input('caption'),
-            ]);
+            $media = DB::transaction(function () use (
+                $item,
+                $clientRequestId,
+                $filePath,
+                $fileType,
+                $fileFingerprint,
+                $request,
+                $file,
+                &$replayed
+            ) {
+                $lockedItem = PortfolioItem::query()->lockForUpdate()->findOrFail($item->id);
+                $existing = $lockedItem->mediaFiles()
+                    ->where('client_request_id', $clientRequestId)
+                    ->first();
+                if ($existing) {
+                    abort_unless(
+                        hash_equals((string) $existing->content_sha256, $fileFingerprint['sha256'])
+                        && (int) $existing->size_bytes === (int) $fileFingerprint['size']
+                        && (string) $existing->mime_type === (string) $fileFingerprint['mime']
+                        && (string) $existing->file_type === (string) $fileFingerprint['file_type']
+                        && trim((string) $existing->caption) === trim((string) $request->input('caption')),
+                        409
+                    );
+                    $replayed = true;
+                    return $existing;
+                }
+                if ($lockedItem->mediaFiles()
+                    ->where('content_sha256', $fileFingerprint['sha256'])
+                    ->exists()) {
+                    throw ValidationException::withMessages([
+                        'file' => ['This media file is already attached to the project.'],
+                    ]);
+                }
+                $maxSortOrder = $lockedItem->mediaFiles()->max('sort_order') ?? -1;
+                return $lockedItem->mediaFiles()->create([
+                    'client_request_id' => $clientRequestId,
+                    'file_path' => $filePath,
+                    'file_type' => $fileType,
+                    'content_sha256' => $fileFingerprint['sha256'],
+                    'mime_type' => $fileFingerprint['mime'],
+                    'size_bytes' => $fileFingerprint['size'],
+                    'original_name' => $this->safeOriginalName($file->getClientOriginalName()),
+                    'sort_order' => $maxSortOrder + 1,
+                    'caption' => $request->input('caption'),
+                ]);
+            });
         } catch (Throwable $exception) {
             $this->cleanupUploadedMedia([[
                 'file_path' => $filePath,
@@ -461,11 +637,24 @@ final class PortfolioController extends Controller
             throw $exception;
         }
 
+        if ($replayed) {
+            $this->cleanupUploadedMedia([[
+                'file_path' => $filePath,
+                'file_type' => $fileType,
+            ]]);
+        }
+
+        return $this->mediaResponse($media, $replayed);
+    }
+
+    private function mediaResponse($media, bool $replayed): JsonResponse
+    {
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Media file added successfully',
+            'message' => 'تمت إضافة الملف',
             'data' => new PortfolioMediaResource($media),
+            'replayed' => $replayed,
         ]);
     }
 
@@ -478,13 +667,13 @@ final class PortfolioController extends Controller
         $item = $user->portfolioItems()->find($id);
 
         if (!$item) {
-            return $this->error('Item not found', 404);
+            return $this->error('المشروع غير متاح', 404);
         }
 
         $media = $item->mediaFiles()->find($mediaId);
 
         if (!$media) {
-            return $this->error('Media not found', 404);
+            return $this->error('الملف غير متاح', 404);
         }
 
         if ($media->file_type === 'video' && $media->file_path) {
@@ -496,7 +685,7 @@ final class PortfolioController extends Controller
         }
 
         if (!$deleted) {
-            return $this->error('Media cleanup is temporarily unavailable', 503);
+            return $this->error('تعذّر حذف الملف الآن', 503);
         }
 
         $media->delete();
@@ -504,7 +693,7 @@ final class PortfolioController extends Controller
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Media file deleted successfully',
+            'message' => 'تم حذف الملف',
             'data' => null,
         ]);
     }
@@ -516,7 +705,7 @@ final class PortfolioController extends Controller
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Portfolio profile retrieved successfully',
+            'message' => 'تم تحميل بيانات المعرض',
             'data' => $this->profilePayload($user),
         ]);
     }
@@ -524,9 +713,41 @@ final class PortfolioController extends Controller
     public function updateProfile(Request $request): JsonResponse
     {
         $user = auth('api')->user();
+        foreach (['portfolio_headline', 'portfolio_location'] as $field) {
+            if ($request->has($field)) {
+                $request->merge([$field => UnicodeText::clean($request->input($field), false)]);
+            }
+        }
+        if ($request->has('portfolio_slug')) {
+            $request->merge([
+                'portfolio_slug' => Str::slug(
+                    strtolower(UnicodeText::identifier($request->input('portfolio_slug')))
+                ),
+            ]);
+        }
+        if (is_array($request->input('portfolio_skills'))) {
+            $request->merge([
+                'portfolio_skills' => array_map(
+                    static fn ($skill): string => UnicodeText::clean($skill, false),
+                    $request->input('portfolio_skills')
+                ),
+            ]);
+        }
+        if (is_array($request->input('portfolio_links'))) {
+            $request->merge([
+                'portfolio_links' => array_map(static function ($link): array {
+                    if (!is_array($link)) return [];
+                    if (array_key_exists('label', $link)) {
+                        $link['label'] = UnicodeText::clean($link['label'], false);
+                    }
+                    return $link;
+                }, $request->input('portfolio_links')),
+            ]);
+        }
         $validated = $request->validate([
             'portfolio_slug' => [
                 'sometimes', 'required', 'string', 'min:3', 'max:60', 'regex:/^[a-z0-9-]+$/',
+                'not_regex:/^student-[1-9][0-9]*$/',
                 Rule::unique('users', 'portfolio_slug')->ignore($user->id),
             ],
             'portfolio_headline' => 'nullable|string|max:160',
@@ -551,14 +772,14 @@ final class PortfolioController extends Controller
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Portfolio profile updated successfully',
+            'message' => 'تم تحديث بيانات المعرض',
             'data' => $this->profilePayload($user->fresh()),
         ]);
     }
 
     private function profilePayload($user): array
     {
-        $slug = $user->portfolio_slug ?: ('student-' . $user->id);
+        $slug = $this->portfolioShares->ensure($user);
         return [
             'slug' => $slug,
             'share_mode' => 'unlisted',
@@ -583,11 +804,11 @@ final class PortfolioController extends Controller
                 ->filter()
                 ->values()
                 ->all(),
-            'public_url' => route('portfolio.public', ['slug' => $slug]),
+            'public_url' => RoknPublicUrl::portfolio($slug),
         ];
     }
 
-    /** @param array<int, array{file_path:string,file_type:string,sort_order:int}> $uploadedMedia */
+    /** @param array<int, array{file_path:string,file_type:string}> $uploadedMedia */
     private function cleanupUploadedMedia(array $uploadedMedia): void
     {
         foreach (array_reverse($uploadedMedia) as $media) {
@@ -595,6 +816,21 @@ final class PortfolioController extends Controller
                 ? $this->bunnyService->deleteVideo($media['file_path'])
                 : $this->bunnyService->deleteFileFromStorage($media['file_path']);
             if (!$deleted) {
+                if ($media['file_type'] === 'video') {
+                    $this->bunnyService->queueVideoCleanup(
+                        $media['file_path'],
+                        null,
+                        'portfolio_rollback',
+                        1,
+                        true
+                    );
+                } else {
+                    $this->bunnyService->queueStorageCleanup(
+                        $media['file_path'],
+                        'portfolio_rollback',
+                        5
+                    );
+                }
                 Log::warning('Portfolio rollback could not remove Bunny artifact', [
                     'file_type' => $media['file_type'],
                     'file_path' => $media['file_path'],
@@ -615,6 +851,76 @@ final class PortfolioController extends Controller
                 $field => ['The uploaded file does not match its selected media type.'],
             ]);
         }
+
+        if ($fileType === 'image') {
+            $dimensions = @getimagesize($file->getRealPath());
+            $width = (int) ($dimensions[0] ?? 0);
+            $height = (int) ($dimensions[1] ?? 0);
+            if ($dimensions === false
+                || $width < 2
+                || $height < 2
+                || ($height > 0 && $width > intdiv(40000000, $height))) {
+                throw ValidationException::withMessages([
+                    $field => ['The selected image is damaged or has unsafe dimensions.'],
+                ]);
+            }
+        }
+    }
+
+    /** @return array{sha256:string,size:int,mime:string,file_type:string} */
+    private function uploadedFileFingerprint($file, string $fileType): array
+    {
+        $path = (string) $file->getRealPath();
+        $sha256 = $path !== '' ? hash_file('sha256', $path) : false;
+        $size = (int) $file->getSize();
+        if (!$sha256 || $size <= 0) {
+            throw ValidationException::withMessages([
+                'file' => ['The selected media file is empty or could not be read completely.'],
+            ]);
+        }
+
+        return [
+            'sha256' => $sha256,
+            'size' => $size,
+            'mime' => strtolower((string) $file->getMimeType()),
+            'file_type' => $fileType,
+        ];
+    }
+
+    private function safeOriginalName(?string $name): string
+    {
+        return DownloadFilename::safe($name, 'portfolio-file');
+    }
+
+    private function normalizePortfolioInput(Request $request): void
+    {
+        foreach (['title', 'role'] as $field) {
+            if ($request->has($field)) {
+                $request->merge([$field => UnicodeText::clean($request->input($field), false)]);
+            }
+        }
+        if ($request->has('description')) {
+            $request->merge([
+                'description' => UnicodeText::clean($request->input('description')),
+            ]);
+        }
+        if (is_array($request->input('tools'))) {
+            $request->merge([
+                'tools' => array_map(
+                    static fn ($tool): string => UnicodeText::clean($tool, false),
+                    $request->input('tools')
+                ),
+            ]);
+        }
+    }
+
+    private function portfolioItemSlug(mixed $title, string $fallback = ''): string
+    {
+        $slug = Str::slug(UnicodeText::clean($title, false));
+        if ($slug !== '') return $slug;
+        if ($fallback !== '') return $fallback;
+
+        return 'item-' . Str::lower((string) Str::uuid());
     }
 
     private function error(string $message, int $httpStatus): JsonResponse

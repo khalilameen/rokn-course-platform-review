@@ -1,5 +1,9 @@
 import {useCallback, useRef, useState} from 'react';
-import {getItem, saveItem} from '../../constants/helpers';
+import {
+  accountScopedStorageKey,
+  getItem,
+  saveItem,
+} from '../../constants/helpers';
 import {
   enableSmartReminders,
   getSmartRemindersEnabled,
@@ -7,6 +11,7 @@ import {
   setSmartRemindersEnabled,
 } from '../../services/smartReminders';
 import {hasSession, updateNotificationStatus} from '../../services/roknApi';
+import {registerPushDeviceIfEligible} from '../../services/pushNotifications';
 
 export const useReminderNudge = ({
   courseId,
@@ -24,7 +29,7 @@ export const useReminderNudge = ({
     reminderNudgeShownRef.current = true;
     void Promise.all([
       getSmartRemindersEnabled(),
-      getItem('@rokn/reminders/nudge-seen/v1'),
+      accountScopedStorageKey('@rokn/reminders/nudge-seen/v1').then(getItem),
     ]).then(([enabled, seen]) => {
       if (enabled !== true && !seen) setReminderNudgeVisible(true);
     });
@@ -32,7 +37,9 @@ export const useReminderNudge = ({
 
   const closeReminderNudge = useCallback(() => {
     setReminderNudgeVisible(false);
-    void saveItem('@rokn/reminders/nudge-seen/v1', true);
+    void accountScopedStorageKey('@rokn/reminders/nudge-seen/v1').then(key =>
+      saveItem(key, true),
+    );
   }, []);
 
   const enableRemindersFromNudge = useCallback(async () => {
@@ -44,6 +51,9 @@ export const useReminderNudge = ({
       await setSmartRemindersEnabled(true);
       if (await hasSession()) {
         await updateNotificationStatus(true).catch(() => undefined);
+        await registerPushDeviceIfEligible({requestPermission: false}).catch(
+          () => false,
+        );
       }
       await scheduleNextLearningReminder({courseId, courseTitle});
       return true;

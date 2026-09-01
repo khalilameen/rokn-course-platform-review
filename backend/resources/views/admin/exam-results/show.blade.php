@@ -133,12 +133,12 @@
                         <div class="row mt-3">
                             <div class="col-md-6">
                                 <div class="info-group">
-                                    <strong>تاريخ البدء:</strong> {{ $examAttempt->started_at->format('Y/m/d H:i') }}
+                                    <strong>تاريخ البدء:</strong> {{ \App\Support\BusinessClock::format($examAttempt->started_at, 'Y/m/d H:i') }}
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="info-group">
-                                    <strong>تاريخ الإكمال:</strong> {{ $examAttempt->completed_at->format('Y/m/d H:i') }}
+                                    <strong>تاريخ الإكمال:</strong> {{ \App\Support\BusinessClock::format($examAttempt->completed_at, 'Y/m/d H:i') }}
                                 </div>
                             </div>
                         </div>
@@ -248,7 +248,7 @@
                                                     @if($question['answered_at'])
                                                         <small class="text-muted">
                                                             <i class="fa fa-clock mr-1"></i>
-                                                            تمت الإجابة في: {{ \Carbon\Carbon::parse($question['answered_at'])->format('H:i:s') }}
+                                                            تمت الإجابة في: {{ \App\Support\BusinessClock::format($question['answered_at'], 'H:i:s') }}
                                                         </small>
                                                     @else
                                                         <small class="text-warning">

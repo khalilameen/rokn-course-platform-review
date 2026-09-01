@@ -1,4 +1,10 @@
-import {isApiRecord, payload, resourceList} from '../src/services/api/common';
+import {
+  isApiRecord,
+  isResourceListPayload,
+  payload,
+  resourceList,
+  responseEnvelope,
+} from '../src/services/api/common';
 import {courseChatErrorCode} from '../src/components/VideoPlayer/courseChat/policy';
 import {nativeVideoErrorCode} from '../src/components/VideoPlayer/video/eventHandlers';
 import {
@@ -15,9 +21,17 @@ jest.mock('../src/services/operationalTelemetry', () => ({
 describe('API data boundaries', () => {
   it('unwraps nested payloads and resource collections without assuming shape', () => {
     expect(payload({data: {data: {id: 7}}})).toEqual({id: 7});
+    expect(payload({data: {data: [{id: 7}]}})).toEqual([{id: 7}]);
+    expect(payload({data: {data: null}})).toBeNull();
+    expect(payload({data: {data: 0}})).toBe(0);
     expect(payload({data: [{id: 7}]})).toEqual([{id: 7}]);
+    expect(responseEnvelope({data: {data: [], pagination: {total: 4}}}))
+      .toMatchObject({pagination: {total: 4}});
+    expect(responseEnvelope({data: '<html>unavailable</html>'})).toEqual({});
     expect(resourceList({data: [{id: 1}]})).toEqual([{id: 1}]);
     expect(resourceList('invalid')).toEqual([]);
+    expect(isResourceListPayload({data: []})).toBe(true);
+    expect(isResourceListPayload('<html>unavailable</html>')).toBe(false);
     expect(isApiRecord([])).toBe(false);
     expect(isApiRecord({id: 1})).toBe(true);
   });

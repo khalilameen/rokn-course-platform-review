@@ -178,6 +178,66 @@ jQuery(document).ready(function($) {
 		$('.search-trigger').parent('.header-left').removeClass('open');
 	});
 
+	/*
+	 * Native mutation forms otherwise accept two taps before the first
+	 * navigation starts. Keep the submitter enabled so its formaction/value is
+	 * still serialized, but block a second submit event and expose one honest
+	 * busy state. AJAX forms which preventDefault keep owning their lifecycle.
+	 */
+	function resetMutationForm(form) {
+		delete form.dataset.roknSubmitting;
+		form.removeAttribute('aria-busy');
+		form.querySelectorAll('[data-rokn-submit-pending]').forEach(function(button) {
+			button.removeAttribute('data-rokn-submit-pending');
+			button.removeAttribute('aria-disabled');
+			button.style.opacity = button.dataset.roknPreviousOpacity || '';
+			button.style.cursor = button.dataset.roknPreviousCursor || '';
+			button.style.pointerEvents = button.dataset.roknPreviousPointerEvents || '';
+			delete button.dataset.roknPreviousOpacity;
+			delete button.dataset.roknPreviousCursor;
+			delete button.dataset.roknPreviousPointerEvents;
+		});
+	}
+	const enqueueMutationMicrotask = window.queueMicrotask || function(callback) {
+		Promise.resolve().then(callback);
+	};
+
+	document.addEventListener('submit', function(event) {
+		const form = event.target;
+		if (!(form instanceof HTMLFormElement)) return;
+		if (form.dataset.allowRepeatSubmit === 'true') return;
+		if (form.dataset.roknSubmitting === 'true') {
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			return;
+		}
+
+		enqueueMutationMicrotask(function() {
+			if (event.defaultPrevented || !form.isConnected) return;
+			const method = String(form.method || 'get').toLowerCase();
+			const target = String(form.target || '').toLowerCase();
+			if (method === 'get' || (target && target !== '_self')) return;
+			form.dataset.roknSubmitting = 'true';
+			form.setAttribute('aria-busy', 'true');
+			form.querySelectorAll('button[type="submit"], input[type="submit"]').forEach(function(button) {
+				button.dataset.roknSubmitPending = 'true';
+				button.dataset.roknPreviousOpacity = button.style.opacity || '';
+				button.dataset.roknPreviousCursor = button.style.cursor || '';
+				button.dataset.roknPreviousPointerEvents = button.style.pointerEvents || '';
+				button.setAttribute('aria-disabled', 'true');
+				button.style.opacity = '0.68';
+				button.style.cursor = 'progress';
+				button.style.pointerEvents = 'none';
+			});
+		});
+	}, true);
+
+	// Safari/Chrome may restore a submitted page from the back-forward cache.
+	// A visual lock from the previous navigation must never strand its forms.
+	window.addEventListener('pageshow', function() {
+		document.querySelectorAll('form[data-rokn-submitting="true"]').forEach(resetMutationForm);
+	});
+
     $('#has_discount').on('change',function(){
         if($(this). prop("checked") == true){
          $('.discount_detail_div').css('display','block');   

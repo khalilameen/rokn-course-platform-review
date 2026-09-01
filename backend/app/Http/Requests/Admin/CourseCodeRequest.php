@@ -2,10 +2,24 @@
 
 namespace App\Http\Requests\Admin;
 
+use App\Support\BusinessClock;
+use App\Support\UnicodeText;
 use Illuminate\Foundation\Http\FormRequest;
 
 class CourseCodeRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        $normalized = [];
+        if ($this->input('name') !== null) {
+            $normalized['name'] = UnicodeText::clean($this->input('name'), false);
+        }
+        if ($this->input('description') !== null) {
+            $normalized['description'] = UnicodeText::clean($this->input('description'));
+        }
+        if ($normalized !== []) $this->merge($normalized);
+    }
+
     /**
      * Determine if the user is authorized to make this request.
      *
@@ -27,7 +41,11 @@ class CourseCodeRequest extends FormRequest
         
         $rules = [
             'name' => 'nullable|string|max:255',
-            'type' => 'required|in:course,lesson,multiple_lessons',
+            // Partial lesson codes previously created a whole-course
+            // enrollment. Until entitlement scopes exist, only honest
+            // course-level codes are accepted.
+            'type' => 'required|in:course',
+            'start_date' => 'nullable|date',
             'expiry_date' => 'nullable|date|after:start_date',
             'max_uses' => 'required|integer|min:1|max:10000',
             'description' => 'nullable|string|max:1000',
@@ -37,7 +55,6 @@ class CourseCodeRequest extends FormRequest
 
         // number_of_codes is only required when creating new codes
         if (!$isUpdating) {
-            $rules['start_date'] = 'nullable|date|after_or_equal:today';
             $rules['number_of_codes'] = 'required|integer|min:1|max:100';
         }
 
@@ -46,26 +63,33 @@ class CourseCodeRequest extends FormRequest
             $rules['is_active'] = 'nullable|boolean';
         }
 
-        // Conditional validation based on type
-        switch ($this->input('type')) {
-            case 'course':
-                $rules['course_id'] = 'required|exists:courses,id';
-                break;
-            case 'lesson':
-                $rules['lesson_id'] = 'required|exists:lessons,id';
-                break;
-            case 'multiple_lessons':
-                $rules['course_id'] = 'required|exists:courses,id';
-                $rules['lesson_ids'] = 'required|array|min:1';
-                $rules['lesson_ids.*'] = 'exists:lessons,id';
-                break;
-        }
+        $rules['course_id'] = 'required|exists:courses,id';
 
         if ($this->boolean('is_grant')) {
             $rules['type'] = 'required|in:course';
         }
 
         return $rules;
+    }
+
+    public function withValidator($validator): void
+    {
+        if (!$this->isMethod('post')) {
+            return;
+        }
+        $validator->after(function ($validator): void {
+            $value = trim((string) $this->input('start_date'));
+            if ($value === '' || $validator->errors()->has('start_date')) {
+                return;
+            }
+            try {
+                if (BusinessClock::localInputToUtc($value)?->lessThan(BusinessClock::utcNow()->startOfMinute())) {
+                    $validator->errors()->add('start_date', 'تاريخ البداية يجب أن يكون الآن أو بعده');
+                }
+            } catch (\Throwable) {
+                // The date rule owns malformed input.
+            }
+        });
     }
 
     /**
@@ -77,7 +101,7 @@ class CourseCodeRequest extends FormRequest
     {
         return [
             'type.required' => 'نوع الكود مطلوب',
-            'type.in' => 'نوع الكود يجب أن يكون: دورة، درس، أو دروس متعددة',
+            'type.in' => 'أكواد الإتاحة متاحة للدورة كاملة فقط',
             'course_id.required' => 'الدورة مطلوبة',
             'course_id.exists' => 'الدورة المحددة غير موجودة',
             'lesson_id.required' => 'الدرس مطلوب',

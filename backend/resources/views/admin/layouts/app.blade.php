@@ -50,6 +50,7 @@
 <script src="{{ asset('js/app.js') }}"></script>
 <script src="{{ asset('admin/assets/js/vendor/select2/select2.min.js') }}"></script>
 <script src="{{ asset('admin/assets/js/main.js') }}"></script>
+<script src="{{ asset('admin/assets/js/request.js') }}"></script>
 
 @yield('scripts')
 @stack('scripts')

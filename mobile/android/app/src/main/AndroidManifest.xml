@@ -29,8 +29,7 @@
       android:theme="@style/AppTheme"
       android:usesCleartextTraffic="${usesCleartextTraffic}"
       android:networkSecurityConfig="@xml/network_security_config"
-      android:supportsRtl="true"
-      android:enableOnBackInvokedCallback="false">
+      android:supportsRtl="true">
       <meta-data
         android:name="com.google.firebase.messaging.default_notification_icon"
         android:resource="@drawable/ic_notification" />
@@ -74,11 +73,7 @@
             <data android:path="/home" />
             <data android:path="/profile" />
             <data android:path="/wallet" />
-            <data android:path="/course" />
-            <data android:path="/courses" />
-            <data android:pathPrefix="/home/" />
-            <data android:pathPrefix="/profile/" />
-            <data android:pathPrefix="/wallet/" />
+            <data android:pathPrefix="/support/" />
             <data android:pathPrefix="/course/" />
             <data android:pathPrefix="/courses/" />
         </intent-filter>
@@ -91,62 +86,7 @@
             <data android:path="/home" />
             <data android:path="/profile" />
             <data android:path="/wallet" />
-            <data android:path="/course" />
-            <data android:path="/courses" />
-            <data android:pathPrefix="/home/" />
-            <data android:pathPrefix="/profile/" />
-            <data android:pathPrefix="/wallet/" />
-            <data android:pathPrefix="/course/" />
-            <data android:pathPrefix="/courses/" />
-        </intent-filter>
-        <intent-filter android:autoVerify="true">
-            <action android:name="android.intent.action.VIEW" />
-            <category android:name="android.intent.category.DEFAULT" />
-            <category android:name="android.intent.category.BROWSABLE" />
-            <data android:scheme="https" />
-            <data android:host="rokn-course-platform-review-production-b7gpy1.laravel.cloud" />
-            <data android:path="/home" />
-            <data android:path="/profile" />
-            <data android:path="/wallet" />
-            <data android:path="/course" />
-            <data android:path="/courses" />
-            <data android:pathPrefix="/home/" />
-            <data android:pathPrefix="/profile/" />
-            <data android:pathPrefix="/wallet/" />
-            <data android:pathPrefix="/course/" />
-            <data android:pathPrefix="/courses/" />
-        </intent-filter>
-        <intent-filter android:autoVerify="true">
-            <action android:name="android.intent.action.VIEW" />
-            <category android:name="android.intent.category.DEFAULT" />
-            <category android:name="android.intent.category.BROWSABLE" />
-            <data android:scheme="https" />
-            <data android:host="rokn.com" />
-            <data android:path="/home" />
-            <data android:path="/profile" />
-            <data android:path="/wallet" />
-            <data android:path="/course" />
-            <data android:path="/courses" />
-            <data android:pathPrefix="/home/" />
-            <data android:pathPrefix="/profile/" />
-            <data android:pathPrefix="/wallet/" />
-            <data android:pathPrefix="/course/" />
-            <data android:pathPrefix="/courses/" />
-        </intent-filter>
-        <intent-filter android:autoVerify="true">
-            <action android:name="android.intent.action.VIEW" />
-            <category android:name="android.intent.category.DEFAULT" />
-            <category android:name="android.intent.category.BROWSABLE" />
-            <data android:scheme="https" />
-            <data android:host="www.rokn.com" />
-            <data android:path="/home" />
-            <data android:path="/profile" />
-            <data android:path="/wallet" />
-            <data android:path="/course" />
-            <data android:path="/courses" />
-            <data android:pathPrefix="/home/" />
-            <data android:pathPrefix="/profile/" />
-            <data android:pathPrefix="/wallet/" />
+            <data android:pathPrefix="/support/" />
             <data android:pathPrefix="/course/" />
             <data android:pathPrefix="/courses/" />
         </intent-filter>
@@ -156,7 +96,6 @@
         android:enabled="${checkoutActivityEnabled}"
         android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
         android:exported="false"
-        android:screenOrientation="portrait"
         android:theme="@style/AppTheme"
         android:windowSoftInputMode="adjustResize" />
       <receiver

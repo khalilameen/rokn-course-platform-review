@@ -30,7 +30,7 @@ final class ProfileImageSecurityTest extends ApiTestCase
         Storage::fake('public');
 
         $this->actingAs($this->user, 'api')->postJson('/api/v1/update_profile', [
-            'profile_image' => UploadedFile::fake()->image('avatar.png', 120, 120),
+            'profile_image' => UploadedFile::fake()->image('avatar.png', 120, 120)->size(2),
         ])->assertOk();
 
         $path = (string) $this->user->fresh()->profile_image;

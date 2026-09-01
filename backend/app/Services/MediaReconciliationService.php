@@ -80,6 +80,31 @@ final class MediaReconciliationService
         ];
     }
 
+    /** Reconcile one freshly uploaded lesson without rescanning every video. */
+    public function reconcileLesson(
+        Lesson $lesson,
+        bool $persist = true,
+        bool $fetchManifest = true
+    ): array {
+        $lesson->loadMissing(['course.photo', 'course.modules.attachments', 'course.sections.attachments', 'mediaState']);
+        $course = $lesson->course;
+        if (!$course) {
+            return [
+                'lesson_id' => (int) $lesson->id,
+                'playback_status' => 'failed',
+                'integrity_status' => 'quarantined',
+                'issues' => [$this->issue('course_missing', 'quarantined', 'lesson', (int) $lesson->id)],
+            ];
+        }
+
+        return $this->inspectLesson(
+            $lesson,
+            $this->courseIssues($course),
+            $persist,
+            $fetchManifest
+        );
+    }
+
     /**
      * @param array<int, array<string, mixed>> $courseIssues
      * @return array<string, mixed>
@@ -110,7 +135,15 @@ final class MediaReconciliationService
         }
 
         $playbackStatus = (string) ($state?->status ?: 'unknown');
-        if ((string) ($state?->last_error_code ?? '') === 'provider_unreachable') {
+        $providerError = (string) ($state?->last_error_code ?? '');
+        if (in_array($providerError, [
+            'provider_media_missing',
+            'provider_guid_mismatch',
+            'provider_library_mismatch',
+            'provider_encode_failed',
+        ], true)) {
+            $issues[] = $this->issue($providerError, 'quarantined', 'lesson', (int) $lesson->id);
+        } elseif (str_starts_with($providerError, 'provider_')) {
             $issues[] = $this->issue('provider_unreachable', 'attention', 'lesson', (int) $lesson->id);
         } elseif ($playbackStatus === 'failed') {
             $issues[] = $this->issue('provider_encode_failed', 'quarantined', 'lesson', (int) $lesson->id);
@@ -144,6 +177,11 @@ final class MediaReconciliationService
         $providerThumbnail = trim((string) data_get($state?->manifest, 'thumbnail_file_name'));
         if ($thumbnail === '' && $providerThumbnail === '') {
             $issues[] = $this->issue('thumbnail_unverified', 'attention', 'lesson', (int) $lesson->id);
+        } elseif ($fetchManifest && $thumbnail !== '') {
+            $signedThumbnail = $this->bunny->generateBunnySignedUrl($thumbnail, 600);
+            if (!$signedThumbnail || !$this->imageIsReadable($signedThumbnail)) {
+                $issues[] = $this->issue('thumbnail_delivery_unavailable', 'attention', 'lesson', (int) $lesson->id);
+            }
         }
 
         $source = $this->bunny->getVideo((string) $lesson->bunny_video_id);
@@ -159,6 +197,18 @@ final class MediaReconciliationService
                     (int) $lesson->id
                 );
             }
+            $fallback = $this->bunny->getFallbackVideo((string) $lesson->bunny_video_id);
+            if ($fallback) {
+                $fallbackResult = $this->manifestIsReadable((string) ($fallback['url'] ?? ''));
+                if (!$fallbackResult['ready']) {
+                    $issues[] = $this->issue(
+                        'fallback_' . $fallbackResult['code'],
+                        'attention',
+                        'lesson',
+                        (int) $lesson->id
+                    );
+                }
+            }
         }
 
         return $this->completeLessonResult($lesson, $state, $issues, $persist);
@@ -172,11 +222,31 @@ final class MediaReconciliationService
             'provider_media_id' => $lesson->bunny_video_id,
             'protocol' => 'hls',
         ]);
-        $details = $this->bunny->getRemoteVideoDetails((string) $lesson->bunny_video_id);
+        $inspection = $this->bunny->inspectRemoteVideo((string) $lesson->bunny_video_id);
+        $inspectionState = (string) ($inspection['state'] ?? 'unavailable');
+        $details = is_array($inspection['details'] ?? null) ? $inspection['details'] : null;
+        if (in_array($inspectionState, [
+            'not_found',
+            'provider_guid_mismatch',
+            'provider_library_mismatch',
+        ], true)) {
+            $state->forceFill([
+                'status' => 'failed',
+                'last_error_code' => $inspectionState === 'not_found'
+                    ? 'provider_media_missing'
+                    : $inspectionState,
+            ]);
+            return $state;
+        }
         if (!$details) {
             $state->forceFill([
                 'status' => $state->status ?: 'unknown',
-                'last_error_code' => 'provider_unreachable',
+                'last_error_code' => match ($inspectionState) {
+                    'unauthorized' => 'provider_auth_failed',
+                    'rate_limited' => 'provider_rate_limited',
+                    'unconfigured' => 'provider_unconfigured',
+                    default => 'provider_unreachable',
+                },
             ]);
             return $state;
         }
@@ -185,10 +255,9 @@ final class MediaReconciliationService
             ->map(fn ($value) => trim((string) $value))
             ->filter()
             ->values();
-        $ready = (int) ($details['status'] ?? -1) === 4
-            || (float) ($details['encodeProgress'] ?? 0) >= 100
-            || $resolutions->isNotEmpty();
-        $failed = (int) ($details['status'] ?? -1) === 6;
+        $providerStatus = (int) ($details['status'] ?? -1);
+        $ready = BunnyService::providerVideoStatusIsPlayable($providerStatus);
+        $failed = BunnyService::providerVideoStatusIsFailure($providerStatus);
         $qualities = $resolutions
             ->map(fn ($value) => str_ends_with($value, 'p') ? $value : $value . 'p')
             ->filter(fn ($value) => in_array($value, ['1080p', '720p', '480p', '360p'], true))
@@ -206,12 +275,13 @@ final class MediaReconciliationService
             'manifest' => [
                 'status' => $details['status'] ?? null,
                 'encode_progress' => $details['encodeProgress'] ?? null,
+                'video_library_id' => $details['videoLibraryId'] ?? null,
                 'width' => $details['width'] ?? null,
                 'height' => $details['height'] ?? null,
                 'available_resolutions' => $resolutions->all(),
                 'thumbnail_file_name' => $details['thumbnailFileName'] ?? null,
             ],
-            'last_error_code' => $failed ? 'provider_failed' : null,
+            'last_error_code' => $failed ? 'provider_encode_failed' : null,
         ]);
 
         return $state;
@@ -347,6 +417,25 @@ final class MediaReconciliationService
         } catch (Throwable $exception) {
             // Never log the signed URL or its token.
             return ['ready' => false, 'code' => 'manifest_unreachable'];
+        }
+    }
+
+    private function imageIsReadable(string $signedUrl): bool
+    {
+        try {
+            $response = Http::connectTimeout(5)->timeout(10)->head($signedUrl);
+            if (in_array($response->status(), [405, 501], true)) {
+                $response = Http::connectTimeout(5)
+                    ->timeout(10)
+                    ->withHeaders(['Range' => 'bytes=0-0'])
+                    ->get($signedUrl);
+            }
+
+            return $response->successful()
+                && str_starts_with(strtolower((string) $response->header('Content-Type')), 'image/');
+        } catch (Throwable) {
+            // Signed URLs are deliberately omitted from operational logs.
+            return false;
         }
     }
 

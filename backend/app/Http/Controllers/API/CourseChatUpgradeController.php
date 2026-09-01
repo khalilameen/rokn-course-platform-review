@@ -50,7 +50,7 @@ final class CourseChatUpgradeController extends Controller
         $entitlement = $access->entitlementFor((int) $user->id, (int) $course->id);
 
         if (!$entitlement['has_learning_access']) {
-            return $this->error('course_access_required', 'Course access is required before upgrading Rokn AI.', 403);
+            return $this->error('course_access_required', 'افتح الكورس أولًا قبل الترقية', 403);
         }
         $enrollment = $access->activeEnrollmentFor((int) $user->id, (int) $course->id);
         try {
@@ -60,7 +60,7 @@ final class CourseChatUpgradeController extends Controller
         } catch (\DomainException $exception) {
             return $this->error(
                 'full_track_upgrade_not_available',
-                'Full-track upgrade is not available for this access.',
+                'الترقية غير متاحة لهذه الفئة',
                 409
             );
         }
@@ -70,7 +70,7 @@ final class CourseChatUpgradeController extends Controller
                 'status' => 200,
                 'success' => true,
                 'code' => 'full_track_already_available',
-                'message' => 'The selected course support plan is already active.',
+                'message' => 'الفئة المختارة مفعّلة بالفعل',
                 'data' => [
                     'already_upgraded' => true,
                     'chat_available' => (bool) $entitlement['chat_available'],
@@ -82,7 +82,7 @@ final class CourseChatUpgradeController extends Controller
         if (!$enrollment) {
             return $this->error(
                 'full_track_upgrade_not_available',
-                'Full-track upgrade is not available for this access.',
+                'الترقية غير متاحة لهذه الفئة',
                 409
             );
         }
@@ -91,7 +91,7 @@ final class CourseChatUpgradeController extends Controller
         if ($price === null) {
             return $this->error(
                 'full_track_upgrade_not_priced',
-                'Full-track upgrade is not priced for this course.',
+                'لم يحدد سعر الترقية لهذا الكورس',
                 409
             );
         }
@@ -99,7 +99,7 @@ final class CourseChatUpgradeController extends Controller
         return response()->json([
             'status' => 200,
             'success' => true,
-            'message' => 'Upgrade quote retrieved successfully',
+            'message' => 'تم تحميل فرق الترقية',
             'data' => $this->quotePayload($user->fresh(), $paidCourse, $price, $wallet, $targetPlan),
         ]);
     }
@@ -119,7 +119,13 @@ final class CourseChatUpgradeController extends Controller
             $request->merge(['idempotency_key' => $request->header('Idempotency-Key')]);
         }
         $validated = $request->validate([
-            'target_plan_code' => 'nullable|string|in:guided,mentor',
+            // The target is part of the commercial intent. Inferring "next"
+            // on a retry could advance twice if the first response was lost.
+            'target_plan_code' => 'required|string|in:guided,mentor',
+            // Bind the debit to the quote the learner actually reviewed. A
+            // moderator price edit between quote and tap must never result in
+            // a silent higher (or different) wallet debit.
+            'expected_price' => 'required|integer|min:0|max:100000000',
             'idempotency_key' => [
                 'nullable',
                 'string',
@@ -134,6 +140,7 @@ final class CourseChatUpgradeController extends Controller
         $clientIdempotencyKey = isset($validated['idempotency_key'])
             ? (string) $validated['idempotency_key']
             : null;
+        $expectedPrice = (int) $validated['expected_price'];
 
         try {
             $result = DB::transaction(function () use (
@@ -144,7 +151,8 @@ final class CourseChatUpgradeController extends Controller
                 $provenance,
                 $plans,
                 $requestedCode,
-                $clientIdempotencyKey
+                $clientIdempotencyKey,
+                $expectedPrice
             ): array {
                 User::query()->lockForUpdate()->findOrFail($user->id);
                 Course::query()->lockForUpdate()->findOrFail($course->id);
@@ -176,7 +184,8 @@ final class CourseChatUpgradeController extends Controller
                         if (!$this->isSameUpgradeReplay(
                             $replayedOrder,
                             (int) $paidCourse->id,
-                            $requestedCode
+                            $requestedCode,
+                            $expectedPrice
                         )) {
                             throw new \DomainException('checkout_idempotency_conflict');
                         }
@@ -223,6 +232,9 @@ final class CourseChatUpgradeController extends Controller
                 if ($price === null) {
                     throw new \DomainException('full_track_upgrade_not_priced');
                 }
+                if ($price !== $expectedPrice) {
+                    throw new \DomainException('course_price_changed');
+                }
 
                 $targetCode = (string) $targetPlan->code;
                 $checkoutKey = $clientIdempotencyKey
@@ -240,7 +252,8 @@ final class CourseChatUpgradeController extends Controller
                     if (!$this->isSameUpgradeReplay(
                         $replayedOrder,
                         (int) $paidCourse->id,
-                        $targetCode
+                        $targetCode,
+                        $expectedPrice
                     )) {
                         throw new \DomainException('checkout_idempotency_conflict');
                     }
@@ -319,6 +332,7 @@ final class CourseChatUpgradeController extends Controller
                 );
 
                 $order->forceFill([
+                    'wallet_transaction_id' => $walletTransaction->id,
                     'total_coins' => $price,
                     'paid_coins' => (int) $walletTransaction->paid_amount,
                     'reward_coins' => (int) $walletTransaction->reward_amount,
@@ -371,21 +385,23 @@ final class CourseChatUpgradeController extends Controller
                 'status' => 400,
                 'success' => false,
                 'code' => 'insufficient_coins',
-                'message' => 'Insufficient wallet balance',
+                'message' => 'رصيدك لا يكفي',
                 'data' => $this->quotePayload($user->fresh(), $paidCourse, $price, $wallet, $targetPlan),
             ], 400);
         } catch (FinancialProvenanceException $exception) {
             report($exception);
             return $this->error(
                 'financial_provenance_unavailable',
-                'Full-track purchase is temporarily unavailable. Your balance was not changed.',
+                "تعذّر إكمال الترقية الآن\nلم يتغير رصيدك",
                 409
             );
         } catch (\DomainException $exception) {
             $code = $exception->getMessage();
             return $this->error(
                 $code,
-                'Full-track upgrade is not available for this access.',
+                $code === 'course_price_changed'
+                    ? "تغيّر السعر\nراجع الإجمالي قبل الشراء"
+                    : 'الترقية غير متاحة لهذه الفئة',
                 $code === 'course_access_required' ? 403 : 409
             );
         }
@@ -423,7 +439,7 @@ final class CourseChatUpgradeController extends Controller
             'status' => 200,
             'success' => true,
             'code' => $result['already_upgraded'] ? 'full_track_already_available' : 'full_track_upgrade_complete',
-            'message' => 'The selected course support plan is now active.',
+            'message' => 'تم تفعيل الفئة المختارة',
             'data' => $payload,
         ]);
     }
@@ -494,16 +510,13 @@ final class CourseChatUpgradeController extends Controller
             return $requested;
         }
 
-        // Legacy clients without a target always map to the first chat plan.
-        $firstChatPlan = $available->first();
-        if (!$firstChatPlan) {
-            return null;
-        }
-
-        return !$currentTerms
-            || $this->planRank((string) $firstChatPlan->code, (int) $firstChatPlan->sort_order) > $currentRank
-                ? $firstChatPlan
-                : null;
+        // Legacy clients without an explicit target still advance from their
+        // current tier. Looking only at the first chat tier incorrectly made a
+        // guided learner appear fully upgraded while a mentor tier existed.
+        return $available->first(
+            fn (CourseAccessPlan $plan): bool => !$currentTerms
+                || $this->planRank((string) $plan->code, (int) $plan->sort_order) > $currentRank
+        );
     }
 
     private function upgradePrice(
@@ -513,7 +526,7 @@ final class CourseChatUpgradeController extends Controller
         CourseAccessPlanService $plans
     ): ?int
     {
-        if ($course->is_coming_soon || !$targetPlan) {
+        if (!$course->isPublishedForLearning() || !$targetPlan) {
             return null;
         }
 
@@ -580,6 +593,7 @@ final class CourseChatUpgradeController extends Controller
             'deficit' => $deficit,
             'recommended_packages' => $deficit > 0
                 ? Package::query()
+                    ->where('is_active', true)
                     ->where('coins', '>=', $deficit)
                     ->where('coins', '>', 0)
                     ->where('price', '>', 0)
@@ -601,7 +615,8 @@ final class CourseChatUpgradeController extends Controller
     private function isSameUpgradeReplay(
         Order $order,
         int $courseId,
-        ?string $targetPlanCode
+        ?string $targetPlanCode,
+        int $expectedPrice
     ): bool
     {
         if (
@@ -611,6 +626,10 @@ final class CourseChatUpgradeController extends Controller
             || $order->status !== Order::STATUS_APPROVED
             || !str_starts_with((string) $order->notes, 'Course access-plan upgrade from order #')
         ) {
+            return false;
+        }
+
+        if ((int) $order->final_amount !== $expectedPrice) {
             return false;
         }
 

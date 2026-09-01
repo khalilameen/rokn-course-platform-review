@@ -12,7 +12,7 @@
         <strong>إضافة مستوى جديد</strong>
     </div>
     <div class="card-body card-block">
-        <form action="{{ route('admin.levels.store') }}" method="post" class="form-horizontal" enctype="multipart/form-data">
+        <form action="{{ route('admin.levels.store') }}" method="post" class="form-horizontal" enctype="multipart/form-data" id="levelForm">
             @csrf
             <div class="row form-group">
                 <div class="col col-md-3"><label for="name_ar" class=" form-control-label">الاسم (AR)</label></div>
@@ -63,4 +63,8 @@
         </form>
     </div>
 </div>
+@endsection
+
+@section('scripts')
+    @include('admin.partials.course-authoring-draft', ['formId' => 'levelForm'])
 @endsection

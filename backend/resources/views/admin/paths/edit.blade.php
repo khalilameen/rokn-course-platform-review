@@ -20,9 +20,10 @@
         <div class="col-12">
             <div class="card">
                 <div class="card-body">
-                    <form action="{{ route('admin.paths.update', $path->id) }}" method="POST">
+                    <form action="{{ route('admin.paths.update', $path->id) }}" method="POST" id="pathForm">
                         @csrf
                         @method('PUT')
+                        <input type="hidden" name="editor_version" value="{{ $editorVersion }}">
                         @include('admin.paths._form')
                         <div class="form-actions mt-4">
                             <button type="submit" class="btn btn-success text-white"> <i class="fa fa-check"></i> تحديث</button>
@@ -34,4 +35,8 @@
         </div>
     </div>
 </div>
+@endsection
+
+@section('scripts')
+    @include('admin.partials.course-authoring-draft', ['formId' => 'pathForm'])
 @endsection

@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use Database\Seeders\Concerns\GuardsDevelopmentFixtures;
 use Illuminate\Database\Seeder;
 use App\Models\CourseCode;
 use App\Models\Course;
@@ -9,6 +10,8 @@ use App\Models\Lesson;
 
 class CourseCodeSeeder extends Seeder
 {
+    use GuardsDevelopmentFixtures;
+
     /**
      * Run the database seeds.
      *
@@ -16,6 +19,8 @@ class CourseCodeSeeder extends Seeder
      */
     public function run()
     {
+        $this->guardDevelopmentFixtures();
+
         // Get first course and lesson for testing
         $course = Course::first();
         $lesson = Lesson::first();

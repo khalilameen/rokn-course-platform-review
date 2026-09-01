@@ -15,5 +15,6 @@ return [
     // finite. This setting never applies to orders, bills or wallet ledgers.
     'admin_audit_days' => (int) env('RETENTION_ADMIN_AUDIT_DAYS', 730),
     'student_notifications_days' => (int) env('RETENTION_STUDENT_NOTIFICATIONS_DAYS', 180),
+    'support_cases_days' => (int) env('RETENTION_SUPPORT_CASES_DAYS', 365),
     'visitors_days' => (int) env('RETENTION_VISITORS_DAYS', 90),
 ];

@@ -17,6 +17,7 @@ jest.mock('../src/services/roknApi', () => ({
 }));
 
 jest.mock('../src/config/runtime', () => ({
+  isLocalDemoId: jest.fn(() => false),
   LOCAL_DEMO_ENABLED: false,
 }));
 
@@ -116,6 +117,47 @@ describe('course progression boundaries', () => {
       isLocked: true,
     });
     expect(course?.modules[0].project?.title).toBe('Crossing project');
+  });
+
+  it('maps course quizzes as visible progression gates', () => {
+    const course = mapCoursePayload({
+      data: {
+        course: {
+          id: 'course-with-quiz',
+          title: 'Course',
+          modules: [{
+            id: 'module-1',
+            title: 'Module',
+            sections: [
+              {
+                id: 'lesson-section',
+                type: 'lesson',
+                is_completed: true,
+                content: {id: 'lesson-1', video_url: 'https://cdn.example/1.m3u8'},
+              },
+              {
+                id: 'quiz-section',
+                type: 'quiz',
+                title: 'اختبار الوحدة',
+                content: {id: 'quiz-1', time_minutes: 5, is_passed: false},
+              },
+            ],
+          }],
+        },
+      },
+    });
+
+    expect(course?.modules[0].quizzes).toEqual([expect.objectContaining({
+      id: 'quiz-1',
+      sectionId: 'quiz-section',
+      title: 'اختبار الوحدة',
+      timeMinutes: 5,
+      passed: false,
+    })]);
+    expect(buildAccessibleFeed(course!).map(item => item.key)).toEqual([
+      'reel-lesson-1',
+      'quiz-quiz-1',
+    ]);
   });
 
   it('maps the dashboard attachment discovery contract without inventing files', () => {

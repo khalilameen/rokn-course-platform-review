@@ -1,7 +1,9 @@
 <!-- Left Panel -->
 
 @php
-    $isAdministrator = strtolower(trim((string) auth()->user()?->role)) === 'admin';
+    $sidebarData = app(\App\Services\AdminSidebarDataService::class)->forUser(auth()->user());
+    $isAdministrator = $sidebarData['is_administrator'];
+    $unreadContacts = $sidebarData['unread_contacts'];
     $dashboardHome = route('admin.dashboard');
 @endphp
 
@@ -215,18 +217,31 @@
 
                 <!-- Settings Section -->
                 <li class="menu-divider"><span>الإعدادات</span></li>
-                <!--
                 <li class="nav-item{{ isRouteActive('admin.design-settings.*') ? ' active' : '' }}">
                     <a href="{{ route('admin.design-settings.index') }}" class="nav-link">
                         <i class="menu-icon fa fa-paint-brush"></i>
-                        <span class="menu-text">إعدادات التصميم</span>
+                        <span class="menu-text">هوية التطبيق</span>
                     </a>
-                </li>-->
+                </li>
+
+                <li class="nav-item{{ isRouteActive('admin.product-analytics.*') ? ' active' : '' }}">
+                    <a href="{{ route('admin.product-analytics.index') }}" class="nav-link">
+                        <i class="menu-icon fa fa-line-chart"></i>
+                        <span class="menu-text">تحليلات المنتج</span>
+                    </a>
+                </li>
 
                 <li class="nav-item{{ isRouteActive('admin.settings') ? ' active' : '' }}">
                     <a href="{{ route('admin.settings') }}" class="nav-link">
                         <i class="menu-icon fa fa-cog"></i>
-                        <span class="menu-text">إعدادات الموقع</span>
+                        <span class="menu-text">إعدادات التطبيق</span>
+                    </a>
+                </li>
+
+                <li class="nav-item{{ isRouteActive('admin.about') || isRouteActive('admin.privacy') || isRouteActive('admin.policy') ? ' active' : '' }}">
+                    <a href="{{ route('admin.about') }}" class="nav-link">
+                        <i class="menu-icon fa fa-file-text-o"></i>
+                        <span class="menu-text">صفحات التطبيق</span>
                     </a>
                 </li>
 
@@ -260,11 +275,8 @@
                     <a href="{{ route('admin.contacts.index') }}" class="nav-link">
                         <i class="menu-icon fa fa-comments"></i>
                         <span class="menu-text">اتصل بنا</span>
-                        @php
-                            $unreadCount = \App\Models\Contact::where('read', false)->count();
-                        @endphp
-                        @if($unreadCount > 0)
-                            <span class="notification-badge">{{ $unreadCount }}</span>
+                        @if($unreadContacts > 0)
+                            <span class="notification-badge">{{ $unreadContacts }}</span>
                         @endif
                     </a>
                 </li>

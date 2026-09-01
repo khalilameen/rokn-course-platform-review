@@ -3,14 +3,18 @@
 namespace App\Http\Resources;
 
 use Illuminate\Http\Resources\Json\JsonResource;
+use App\Support\RoknLocale;
 use App\Services\BunnyService;
 use App\Services\CourseAccessPlanService;
 use App\Services\CourseDurationService;
+use App\Services\CourseSectionSequenceService;
+use App\Support\RoknPublicUrl;
 
 class BaseCourseResource extends JsonResource
 {
     private ?string $entitlementAccessType = null;
     private ?bool $entitlementChatAvailable = null;
+    private ?bool $entitlementCertificateIncluded = null;
     private ?bool $entitlementCertificateAvailable = null;
 
     /**
@@ -21,11 +25,13 @@ class BaseCourseResource extends JsonResource
     public function withEntitlement(
         string $accessType,
         bool $chatAvailable,
+        bool $certificateIncluded = false,
         bool $certificateAvailable = false
     ): static
     {
         $this->entitlementAccessType = $accessType;
         $this->entitlementChatAvailable = $chatAvailable;
+        $this->entitlementCertificateIncluded = $certificateIncluded;
         $this->entitlementCertificateAvailable = $certificateAvailable;
 
         return $this;
@@ -40,11 +46,21 @@ class BaseCourseResource extends JsonResource
      */
     public function toArray($request)
     {
-        $price = $this->price !== null ? (float) $this->price : null;
-        $priceBeforeDiscount = $this->price_before_discount !== null
-            ? (float) $this->price_before_discount
-            : null;
         $attributes = $this->resource->getAttributes();
+        $activePlans = $this->relationLoaded('accessPlans')
+            ? $this->accessPlans->where('is_active', true)
+            : collect();
+        $hasActivePlans = array_key_exists('catalog_has_active_plans', $attributes)
+            ? (bool) $attributes['catalog_has_active_plans']
+            : $activePlans->isNotEmpty();
+        $price = $hasActivePlans
+            ? (array_key_exists('catalog_min_price_coins', $attributes)
+                ? (float) $attributes['catalog_min_price_coins']
+                : (float) $activePlans->min('price_coins'))
+            : null;
+        $catalogueChatAvailable = array_key_exists('catalog_chat_available', $attributes)
+            ? (bool) $attributes['catalog_chat_available']
+            : $activePlans->contains(fn ($plan) => (bool) $plan->chat_enabled);
         $ratingsCount = array_key_exists('ratings_count', $attributes)
             ? (int) $attributes['ratings_count']
             : 0;
@@ -69,9 +85,21 @@ class BaseCourseResource extends JsonResource
         $durationMinutes = array_key_exists('duration_minutes_computed', $attributes)
             ? max(0, (int) $attributes['duration_minutes_computed'])
             : app(CourseDurationService::class)->minutes($this->resource);
+        $videoCount = $this->relationLoaded('sections')
+            ? $this->sections->where('sectionable_type', \App\Models\Lesson::class)->count()
+            : (array_key_exists('video_reels_count', $attributes)
+                ? max(0, (int) $attributes['video_reels_count'])
+                : max(0, (int) ($this->video_count ?? 0)));
+        $coursePublished = $this->resource->isPublishedForLearning();
+        $courseShareable = $coursePublished
+            && (bool) $this->is_catalog_visible
+            && !$this->resource->isNestedCourse();
 
         return [
             'id' => (int)$this->id,
+            'share_url' => $courseShareable
+                ? RoknPublicUrl::course((int) $this->id)
+                : null,
             'access_type' => $this->when(
                 $this->entitlementAccessType !== null,
                 $this->entitlementAccessType
@@ -84,35 +112,40 @@ class BaseCourseResource extends JsonResource
                 $this->entitlementCertificateAvailable !== null,
                 $this->entitlementCertificateAvailable
             ),
+            'certificate_included' => $this->when(
+                $this->entitlementCertificateIncluded !== null,
+                $this->entitlementCertificateIncluded
+            ),
             'title' => (string) $this->title,
             'description' => $this->description ,
             'image' => $this->image ? (string)$this->image : null,
             'price' => $price,
-            'price_before_discount' => $this->when(
-                $priceBeforeDiscount !== null && $priceBeforeDiscount > (float) ($price ?? 0),
-                $priceBeforeDiscount
-            ),
             // Course prices are virtual Rokn credits, never a cash or crypto amount.
             'currency' => 'rokn_coins',
             'currency_type' => 'rokn_coins',
             'currency_label' => 'عملة ركن',
-            'is_free' => $price !== null && $price <= 0,
+            'is_free' => $hasActivePlans && $price !== null && $price <= 0,
             // Plan prices belong only on course details. Keeping them out of
             // catalogue rows avoids N+1 queries and preserves the clean home.
             'access_plans' => $this->when(
-                $request->route('courseId') !== null,
-                fn () => app(CourseAccessPlanService::class)
-                    ->publicPlans($this->resource)
-                    ->map(fn ($plan) => app(CourseAccessPlanService::class)->publicPayload($plan))
-                    ->values()
+                $request->route('courseId') !== null && $coursePublished,
+                function () use ($activePlans) {
+                    $plans = app(CourseAccessPlanService::class);
+
+                    return ($this->relationLoaded('accessPlans')
+                        ? $activePlans->sortBy([['sort_order', 'asc'], ['id', 'asc']])
+                        : $plans->publicPlans($this->resource))
+                        ->map(fn ($plan) => $plans->publicPayload($plan))
+                        ->values();
+                }
             ),
             'is_main_course' => (bool)$this->is_main_course,
             'is_coming_soon' => (bool)$this->is_coming_soon,
             'home_sort_order' => (int) ($this->home_sort_order ?? 100),
             'catalog_badge' => [
-                'label' => (string) (str_starts_with((string) $request->header('Accept-Language', 'ar'), 'en')
-                    ? ($this->catalog_badge_en ?: $this->catalog_badge_ar)
-                    : ($this->catalog_badge_ar ?: $this->catalog_badge_en)),
+                'label' => (string) (RoknLocale::isArabic()
+                    ? ($this->catalog_badge_ar ?: $this->catalog_badge_en)
+                    : ($this->catalog_badge_en ?: $this->catalog_badge_ar)),
                 'tone' => in_array($this->catalog_badge_tone, ['blue', 'green', 'gold', 'neutral'], true)
                     ? $this->catalog_badge_tone
                     : 'blue',
@@ -131,21 +164,26 @@ class BaseCourseResource extends JsonResource
                     'home_order' => (int) ($classification->home_order ?? 100),
                 ];
             }),
-            'teachers' => $this->teachers->map(function($teacher) {
+            'teachers' => $this->publicTeachers()->map(function($teacher) {
                 return [
                     'id' => $teacher->id,
                     'name' => $teacher->name,
                     'job_title' => $teacher->job_title,
                     'bio' => $teacher->bio,
-                    'image' => $teacher->profile_image_url ?: null,
+                    'image' => $teacher->photo
+                        ? asset('storage/' . $teacher->photo->path)
+                        : ($teacher->profile_image_url ?: null),
                 ];
             }),
 
             // The public map never contains paid reel content. Explicit
             // previews keep their playable data for the try-before-unlock flow.
-            'sections' => $this->whenLoaded('sections', function () {
-                return $this->sections->map(function ($section) {
-                    $isPreview = $section->getSectionType() === 'lesson'
+            'sections' => $this->whenLoaded('sections', function () use ($coursePublished) {
+                return app(CourseSectionSequenceService::class)
+                    ->ordered($this->sections)
+                    ->map(function ($section) use ($coursePublished) {
+                    $isPreview = $coursePublished
+                        && $section->getSectionType() === 'lesson'
                         && $section->relationLoaded('sectionable')
                         && (bool) ($section->sectionable?->is_opened ?? false);
                     $data = [
@@ -165,8 +203,11 @@ class BaseCourseResource extends JsonResource
             }),
 
             // Modules information
-            'modules' => $this->whenLoaded('modules', function() {
-                return $this->modules->map(function($module) {
+            'modules' => $this->whenLoaded('modules', function() use ($coursePublished) {
+                return $this->modules->sortBy([
+                    ['order', 'asc'],
+                    ['id', 'asc'],
+                ])->values()->map(function($module) use ($coursePublished) {
                     return [
                         'id' => $module->id,
                         'title' => $module->title,
@@ -175,8 +216,12 @@ class BaseCourseResource extends JsonResource
                         // Buyers receive attachment links from CourseResource.
                         // Before purchase only the map and counts are public.
                         'attachments_count' => $module->attachments->count(),
-                        'sections' => $module->sections->map(function($section) {
-                        $isPreview = $section->getSectionType() === 'lesson'
+                        'sections' => $module->sections->sortBy([
+                            ['order', 'asc'],
+                            ['id', 'asc'],
+                        ])->values()->map(function($section) use ($coursePublished) {
+                        $isPreview = $coursePublished
+                            && $section->getSectionType() === 'lesson'
                             && $section->relationLoaded('sectionable')
                             && (bool) ($section->sectionable?->is_opened ?? false);
                         $data = [
@@ -198,8 +243,7 @@ class BaseCourseResource extends JsonResource
 
             // Metadata
             'metadata' => [
-                'video_count' => $this->when((int) ($this->video_count ?? 0) > 0, (int) $this->video_count),
-                'hours_count' => $this->when((int) ($this->hours_count ?? 0) > 0, (int) $this->hours_count),
+                'video_count' => $this->when($videoCount > 0, $videoCount),
                 'duration_minutes' => $this->when($durationMinutes > 0, $durationMinutes),
                 'home_work_count' => $this->when((int) ($this->home_work_count ?? 0) > 0, (int) $this->home_work_count),
                 'files_count' => $this->when((int) ($this->files_count ?? 0) > 0, (int) $this->files_count),
@@ -207,8 +251,7 @@ class BaseCourseResource extends JsonResource
                 'sections_count' => $this->when((int) ($this->sections_count ?? 0) > 0, (int) $this->sections_count),
                 'preview_reels_count' => $previewReelsCount,
                 'chat_available' => $this->entitlementChatAvailable
-                    ?? ((bool) $this->ai_chat_enabled
-                        && (!empty($this->ai_model_type) || !empty(config('openrouter.default_model')))),
+                    ?? $catalogueChatAvailable,
             ],
 
             'created_at' => (string)$this->created_at,
@@ -240,18 +283,23 @@ class BaseCourseResource extends JsonResource
                 $content['priority'] = $section->sectionable->priority ?? null;
                 $content['is_opened'] = $section->sectionable->is_opened ?? true;
                 $content['duration_minutes'] = (int)($section->sectionable->duration_minutes ?? 0);
-                $bunnyService = new BunnyService();
+                $content['duration_seconds'] = $this->lessonDurationSeconds($section->sectionable) ?: null;
+                $bunnyService = app(BunnyService::class);
                 $content['thumbnail_url'] = $section->sectionable->thumbnail_path
                     ? $bunnyService->generateBunnySignedUrl($section->sectionable->thumbnail_path)
                     : null;
                 if($section->sectionable->is_opened ){
                     // Get video data with signed URL for Bunny videos
                     $videoData = $bunnyService->getVideoDataForLesson($section->sectionable);
+                    $fallbackVideo = $section->sectionable->bunny_video_id
+                        ? $bunnyService->getFallbackVideo((string) $section->sectionable->bunny_video_id)
+                        : null;
 
                     $content['video_source_type'] = $videoData['video_source_type'];
                     $content['video_link'] = $videoData['video_link'];
                     $content['bunny_video_url'] = $videoData['bunny_video_url'];
                     $content['bunny_video_expires_at'] = $videoData['bunny_video_expires_at'];
+                    $content['fallback_video_url'] = $fallbackVideo['url'] ?? null;
                     $content['priority'] = $section->sectionable->priority ?? null;
                 }
 
@@ -286,6 +334,31 @@ class BaseCourseResource extends JsonResource
         }
 
         return $content;
+    }
+
+    protected function lessonDurationSeconds(\App\Models\Lesson $lesson): int
+    {
+        return max(0, (int) (
+            $lesson->relationLoaded('mediaState')
+                ? $lesson->mediaState?->duration_seconds
+                : $lesson->mediaState()->value('duration_seconds')
+        ));
+    }
+
+    private function publicTeachers(): \Illuminate\Support\Collection
+    {
+        $teachers = $this->relationLoaded('teachers')
+            ? $this->teachers->filter(fn ($teacher) => (bool) $teacher->active)
+            : collect();
+        if ($teachers->isNotEmpty()) {
+            return $teachers->values();
+        }
+
+        $teacher = $this->relationLoaded('teacher') ? $this->teacher : null;
+
+        return $teacher && (bool) $teacher->active
+            ? collect([$teacher])
+            : collect();
     }
 }
 

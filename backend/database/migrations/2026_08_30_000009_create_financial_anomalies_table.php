@@ -8,8 +8,14 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    public $withinTransaction = false;
+
     public function up(): void
     {
+        if (Schema::hasTable('financial_anomalies')) {
+            return;
+        }
+
         Schema::create('financial_anomalies', function (Blueprint $table): void {
             $table->id();
             $table->uuid('public_id')->unique();

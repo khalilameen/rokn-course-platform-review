@@ -1,18 +1,19 @@
-import {useNavigation, useRoute} from '@react-navigation/native';
+import {useIsFocused, useNavigation, useRoute} from '@react-navigation/native';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   FlatList,
   LayoutChangeEvent,
-  Platform,
   StatusBar,
   StyleSheet,
   View,
   ViewToken,
 } from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {goBackOrHome} from '../navigation/RootNavigationHelper';
 import CourseChatOverlay from '../components/VideoPlayer/CourseChatOverlay';
 import {
   flushPendingPlaybackPositions,
+  persistLocalPlaybackPosition,
   reportPlaybackSessionEvent,
   saveLessonToFolder,
   SavedFolderOption,
@@ -32,10 +33,10 @@ import {
   SelectedProjectFile,
 } from '../components/VideoPlayer/types';
 import {
-  DEMO_COURSE_ID,
   claimDemoCourseCompletionReward,
   claimDemoFirstProjectReward,
 } from '../services/demoExperience';
+import {isLocalDemoId} from '../config/runtime';
 import NotificationPermissionPrimer from '../components/ui/NotificationPermissionPrimer';
 import {
   ReelsConnectionNote,
@@ -49,6 +50,7 @@ import {
   resolveReelsFrameWidth,
   type ReelsRouteParams,
   updateProjectStatusOnly,
+  markQuizPassed,
 } from './reels/presentation';
 import {usePlaybackPreferences} from './reels/usePlaybackPreferences';
 import {useReminderNudge} from './reels/useReminderNudge';
@@ -65,6 +67,7 @@ import {useReelsProgress} from './reels/useReelsProgress';
 const Reels = () => {
   const route = useRoute();
   const navigation = useNavigation<ReelsNavigation>();
+  const isScreenFocused = useIsFocused();
   const params = (route.params || {}) as ReelsRouteParams;
   const previewMode = params.preview === true;
   const insets = useSafeAreaInsets();
@@ -96,6 +99,7 @@ const Reels = () => {
   } = usePlaybackPreferences(serverSession);
   const [manifestRefreshNonce, setManifestRefreshNonce] = useState(0);
   const [savedLessons, setSavedLessons] = useState<Set<string>>(new Set());
+  const [savingLessons, setSavingLessons] = useState<Set<string>>(new Set());
   const [chatVisible, setChatVisible] = useState(false);
   const [previewGateVisible, setPreviewGateVisible] = useState(false);
   const {
@@ -116,7 +120,7 @@ const Reels = () => {
     mediaTime: number;
     sampledAt: number;
   } | null>(null);
-  const manifestFlightsRef = useRef(new Set<string>());
+  const manifestFlightsRef = useRef(new Map<string, Promise<void>>());
   const manifestVersionsRef = useRef<Record<string, number>>({});
   const playbackRuntimeRef = useRef<Record<string, PlaybackRuntimeMetrics>>({});
   const playbackDurationRef = useRef<Record<string, number>>({});
@@ -124,6 +128,7 @@ const Reels = () => {
   const activeReelRef = useRef<CourseReel | undefined>(undefined);
   const loadedCourseRef = useRef<CourseLearningData | null>(null);
   const loadRequestRef = useRef(0);
+  const loadAbortRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
   const delayedActionsRef = useRef(new Set<ReturnType<typeof setTimeout>>());
   const scheduleDelayedAction = useCallback(
@@ -142,6 +147,7 @@ const Reels = () => {
       activeReel: activeReelRef,
       course: loadedCourseRef,
       delayedActions: delayedActionsRef,
+      loadAbort: loadAbortRef,
       loadRequest: loadRequestRef,
       mounted: mountedRef,
       playbackDurations: playbackDurationRef,
@@ -151,7 +157,15 @@ const Reels = () => {
     }),
     [],
   );
-  useReelsLifecycle(lifecycleRefs, getPlaybackSpeed);
+  const refreshPlaybackAfterForeground = useCallback(
+    () => setManifestRefreshNonce(value => value + 1),
+    [],
+  );
+  const appIsActive = useReelsLifecycle(
+    lifecycleRefs,
+    getPlaybackSpeed,
+    refreshPlaybackAfterForeground,
+  );
 
   const feedItems = useMemo(
     () =>
@@ -196,20 +210,38 @@ const Reels = () => {
   });
 
   useEffect(() => {
-    if (!currentReel || previewGateVisible) return;
+    if (
+      !currentReel ||
+      previewGateVisible ||
+      !isScreenFocused ||
+      !appIsActive
+    ) {
+      return;
+    }
     const sessionId = currentReel.playbackSessionId;
-    if (!sessionId || closedPlaybackSessionsRef.current.has(sessionId)) {
-      requestPlaybackManifest(currentReel, sessionId);
+    const sessionWasClosed = Boolean(
+      sessionId && closedPlaybackSessionsRef.current.has(sessionId),
+    );
+    if (!sessionId || sessionWasClosed) {
+      requestPlaybackManifest(currentReel, sessionId, !sessionWasClosed);
     }
   }, [
     currentReel,
+    appIsActive,
+    isScreenFocused,
     manifestRefreshNonce,
     previewGateVisible,
     requestPlaybackManifest,
   ]);
 
   useEffect(() => {
-    if (!currentReel?.playbackSessionId) return;
+    if (
+      !currentReel?.playbackSessionId ||
+      !isScreenFocused ||
+      !appIsActive
+    ) {
+      return;
+    }
     const delay = scheduledManifestRefreshDelayMs(
       currentReel.playbackRefreshAfter,
       currentReel.playbackExpiresAt,
@@ -221,12 +253,19 @@ const Reels = () => {
       delay,
     );
     return () => clearTimeout(timer);
-  }, [currentReel, manifestRefreshNonce, requestPlaybackManifest]);
+  }, [
+    currentReel,
+    appIsActive,
+    isScreenFocused,
+    manifestRefreshNonce,
+    requestPlaybackManifest,
+  ]);
 
   const loaderRefs = useMemo(
     () => ({
       closedPlaybackSessions: closedPlaybackSessionsRef,
       demoRewardsEnabled: demoRewardsEnabledRef,
+      loadAbort: loadAbortRef,
       loadRequest: loadRequestRef,
       loadedCourse: loadedCourseRef,
       manifestVersions: manifestVersionsRef,
@@ -266,6 +305,7 @@ const Reels = () => {
     [],
   );
   const {refreshProjectState, watchProjectUntilResolved} = useProjectReview({
+    active: isScreenFocused,
     course,
     previewMode,
     refs: projectReviewRefs,
@@ -385,46 +425,43 @@ const Reels = () => {
         return;
       }
       savePendingRef.current.add(reel.lessonId);
+      setSavingLessons(current => new Set(current).add(reel.lessonId));
       const currentlySaved = savedLessons.has(reel.lessonId);
       const shouldSave = Boolean(folder) || !currentlySaved;
-      setSavedLessons(current => {
-        const next = new Set(current);
-        if (shouldSave) {
-          next.add(reel.lessonId);
-        } else {
-          next.delete(reel.lessonId);
-        }
-        return next;
-      });
       try {
         if (folder) {
           await saveLessonToFolder(reel.lessonId, folder);
         } else {
           await toggleWatchLater(reel.lessonId, currentlySaved);
         }
-      } catch (error) {
         setSavedLessons(current => {
           const next = new Set(current);
-          if (currentlySaved) next.add(reel.lessonId);
+          if (shouldSave) next.add(reel.lessonId);
           else next.delete(reel.lessonId);
           return next;
         });
+      } catch (error) {
         setConnectionNote(
-          'لم يتم تحديث المحفوظات. تأكد من الاتصال وحاول مرة أخرى.',
+          'تعذّر تحديث المحفوظات\nتحقق من الاتصال ثم حاول مرة أخرى',
         );
         throw error;
       } finally {
         savePendingRef.current.delete(reel.lessonId);
+        setSavingLessons(current => {
+          const next = new Set(current);
+          next.delete(reel.lessonId);
+          return next;
+        });
       }
     },
     [savedLessons],
   );
 
   const submitProject = useCallback(
-    async (projectId: string, file: SelectedProjectFile) => {
-      const result = await submitProjectAttempt(projectId, file);
+    async (projectId: string, file: SelectedProjectFile, note?: string) => {
+      const result = await submitProjectAttempt(projectId, file, note);
       if (result.passed) {
-        if (course?.id.startsWith('demo')) {
+        if (course && isLocalDemoId(course.id)) {
           if (demoRewardsEnabledRef.current) {
             void claimDemoFirstProjectReward(projectId).catch(() => undefined);
           }
@@ -477,6 +514,16 @@ const Reels = () => {
     [course, refreshProjectState, watchProjectUntilResolved],
   );
 
+  const passQuiz = useCallback(
+    async (quizId: string) => {
+      setCourse(current =>
+        current ? markQuizPassed(current, quizId) : current,
+      );
+      await load();
+    },
+    [load],
+  );
+
   const onViewableItemsChanged = useRef(
     ({viewableItems}: {viewableItems: ViewToken<CourseFeedItem>[]}) => {
       const visible = viewableItems.find(item => item.isViewable);
@@ -501,12 +548,26 @@ const Reels = () => {
         (event.eventType === 'error' && event.endReason)
       ) {
         closedPlaybackSessionsRef.current.add(reel.playbackSessionId);
+        while (closedPlaybackSessionsRef.current.size > 64) {
+          const oldest = closedPlaybackSessionsRef.current
+            .values()
+            .next().value;
+          if (typeof oldest !== 'string') break;
+          closedPlaybackSessionsRef.current.delete(oldest);
+        }
       }
       if (event.durationSeconds && event.durationSeconds > 0) {
         playbackDurationRef.current[reel.id] = event.durationSeconds;
       }
       positionsRef.current[`${course?.id || ''}:${reel.id}`] =
         event.positionSeconds;
+      if (event.eventType === 'stop' && course?.id) {
+        void persistLocalPlaybackPosition(
+          course.id,
+          reel.id,
+          event.positionSeconds,
+        ).catch(() => undefined);
+      }
       playbackRuntimeRef.current[reel.id] = {
         effectiveQuality: event.effectiveQuality,
         effectiveBitrateKbps: event.effectiveBitrateKbps,
@@ -549,10 +610,21 @@ const Reels = () => {
     navigation,
     persistProgress,
     playbackSpeed,
+    playbackBlocked: !isScreenFocused || chatVisible || reminderNudgeVisible,
+    preloadNext:
+      isScreenFocused &&
+      !chatVisible &&
+      !reminderNudgeVisible &&
+      !previewGateVisible &&
+      !dataSaver,
     positions: positionsRef,
+    preview: params.preview === true,
+    previewCount: params.previewCount,
     previewGateVisible,
     requestPlaybackManifest,
+    screenFocused: isScreenFocused,
     savedLessons,
+    savingLessons,
     scheduleDelayedAction,
     scrollToIndex,
     scrollToKey,
@@ -560,6 +632,7 @@ const Reels = () => {
     serverSession,
     setChatVisible,
     submitProject,
+    passQuiz,
     toggleSaved,
     topInset: insets.top,
   });
@@ -567,6 +640,11 @@ const Reels = () => {
   const showCourseDetails = useCallback(
     (openPurchase: boolean) => {
       if (!course) return;
+      const currentFeedItem = feedItems[currentIndex];
+      const resumeReelId =
+        currentFeedItem?.type === 'reel'
+          ? String(currentFeedItem.reel.id)
+          : undefined;
       navigation.replace('CourseDetails', {
         courseId: params.courseId || course.id,
         coinPrice: params.coinPrice,
@@ -574,12 +652,13 @@ const Reels = () => {
         description: params.description,
         openPurchase,
         resumeAfterPreview: openPurchase,
-        previewCount: feedItems.length,
+        resumeReelId,
       });
     },
     [
       course,
-      feedItems.length,
+      currentIndex,
+      feedItems,
       navigation,
       params.coinPrice,
       params.courseId,
@@ -599,6 +678,19 @@ const Reels = () => {
     }
   };
 
+  // A rotation, split-screen resize or fold/unfold changes the paging unit.
+  // Re-anchor the same logical item instead of leaving the list between reels.
+  useEffect(() => {
+    if (!layout.height || !feedItems.length) return;
+    const frame = requestAnimationFrame(() => {
+      listRef.current?.scrollToOffset({
+        animated: false,
+        offset: currentIndexRef.current * layout.height,
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [feedItems.length, layout.height, layout.width]);
+
   return (
     <View style={styles.screen} onLayout={onLayout}>
       <StatusBar
@@ -612,10 +704,10 @@ const Reels = () => {
         <ReelsUnavailableState
           message={loadError}
           onPrimary={() => void load()}
-          onSecondary={() => navigation.goBack()}
+          onSecondary={() => goBackOrHome(navigation)}
           primaryLabel="إعادة المحاولة"
           secondaryLabel="العودة للكورسات"
-          title="تعذر فتح الكورس"
+          title="تعذّر فتح الكورس"
         />
       ) : !feedItems.length ? (
         <ReelsUnavailableState
@@ -623,7 +715,7 @@ const Reels = () => {
           onPrimary={() => void load()}
           onSecondary={() =>
             navigation.replace('CourseDetails', {
-              courseId: params.courseId || DEMO_COURSE_ID,
+              courseId: course.id,
             })
           }
           primaryLabel="تحديث المحتوى"
@@ -633,6 +725,7 @@ const Reels = () => {
       ) : (
         <>
           <FlatList
+            accessibilityLabel="مقاطع الكورس"
             ref={listRef}
             data={feedItems}
             keyExtractor={item => item.key}
@@ -647,7 +740,9 @@ const Reels = () => {
             initialNumToRender={2}
             maxToRenderPerBatch={2}
             windowSize={3}
-            removeClippedSubviews={Platform.OS === 'android'}
+            // Video surfaces must stay attached when a wide Android tablet
+            // row is recycled; clipping can return audio over a black frame.
+            removeClippedSubviews={false}
             getItemLayout={(_, index) => ({
               length: layout.height,
               offset: layout.height * index,

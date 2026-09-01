@@ -1,282 +1,429 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers\Admin;
 
+use App\Http\Controllers\Controller;
+use App\Models\Course;
+use App\Models\CourseSection;
 use App\Models\ItemList;
 use App\Models\Question;
-use App\Models\CourseSection;
-use App\Models\Course;
-use App\Http\Controllers\Controller;
-use App\Http\Requests\Admin\QuizzRequest;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Database\QueryException;
+use Illuminate\Validation\ValidationException;
+use Illuminate\View\View;
+use App\Support\UnicodeText;
 
-
-class QuizController extends Controller
+final class QuizController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     *
-     * @return \Illuminate\Http\Response
-     */
-    public function index()
+    public function index(): View
     {
-        $quizzes  = ItemList::quiz()->get();
+        $quizzes = ItemList::standaloneQuiz()->withCount('questions')->orderByDesc('updated_at')->get();
 
         return view('admin.quizzes.index', compact('quizzes'));
     }
 
-    /**
-     * Show the form for creating a new resource.
-     *
-     * @return \Illuminate\Http\Response
-     */
-    public function create()
+    public function create(): View
     {
-        $questions = \App\Models\Question::all();
-        return view('admin.quizzes.create',compact('questions'));
+        $questions = Question::query()
+            ->whereHas('itemList', fn ($quizzes) => $quizzes->standaloneQuiz())
+            ->orderByDesc('updated_at')->get();
+
+        return view('admin.quizzes.create', compact('questions'));
     }
 
-    public function exist(){
-        $quizzes = Quizz::with('category')->whereNotNull('user_id')->where('active',1)->get(['id','name_ar','description_ar','lat','lng']);
-        $quizzesXML = '';
-       /* $quizzesXML.= "<?xml version='1.0' ?>";*/
-        $quizzesXML.= '<markers>';
-        $ind=0;
-        foreach ($quizzes as $quizz) {
-
-            $cat_name = ($quiz->category)? $quiz->category->name_ar:'';
-              // Add to XML document node
-              $quizzesXML.= '<marker ';
-              $quizzesXML.= 'id="' .  $quiz->id . '" ';
-              $quizzesXML.= 'name="' . $this->parseToXML($quiz->name_ar) . '" ';
-              $quizzesXML.= 'address="' . $this->parseToXML($quiz->description_ar) . '" ';
-              $quizzesXML.= 'lat="' . $quiz->lat . '" ';
-              $quizzesXML.= 'lng="' . $quiz->lng. '" ';
-              $quizzesXML.= 'type="' . $cat_name . '" ';
-              $quizzesXML.= '/>';
-              $ind = $ind + 1;
-            }
-
-            // End XML file
-            $quizzesXML.= '</markers>';
-
-        return view('admin.quizzes.exist',compact('quizzes','quizzesXML'));
-    }
-function parseToXML($htmlStr)
-{
-$xmlStr=str_replace('<','&lt;',$htmlStr);
-$xmlStr=str_replace('>','&gt;',$xmlStr);
-$xmlStr=str_replace('"','&quot;',$xmlStr);
-$xmlStr=str_replace("'",'&#39;',$xmlStr);
-$xmlStr=str_replace("&",'&amp;',$xmlStr);
-return $xmlStr;
-}
-    /**
-     * Quizz a newly created resource in storage.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\Response
-     */
-    public function store(Request $request)
+    public function store(Request $request): JsonResponse|RedirectResponse
     {
-        if(empty($request->exam_id)){
-            $quiz = ItemList::quiz()->create($request->input());
-            if ($request->hasFile('image')) {
-                $file = $request->file('image');
-                $quiz->storeImage($file, 'quizzes', 'featured');
-            }
-
-            if(isset($request->q_title) && count($request->q_title)){
-                //q_priority q_description q_question  q_choice1  q_choice2 q_choice3  q_choice4  q_choice5  q_choice6 q_right_answer
-                foreach($request->q_title as $key => $value){
-                    $question = new Question();
-                    $question->title = $request->q_title[$key];
-                    $question->priority = 0;
-                   // $question->description = $request->q_description[$key];
-                    //$question->question = $request->q_question[$key];
-    //dd($request->q_choice1);
-                    $question->choice1 = $request->q_choice1[$key];
-                    $question->choice2 = $request->q_choice2[$key];
-                    $question->choice3 = $request->q_choice3[$key];
-                    $question->choice4 = $request->q_choice4[$key];
-                    $question->choice5 = $request->q_choice5[$key];
-                    $question->choice6 = $request->q_choice6[$key];
-                    $question->right_answer = isset($request->q_right_answer[$key]) ? $request->q_right_answer[$key] : 1 ;
-                    $question->list_id = $quiz->id;
-                    $question->save();
-                    if (isset($request->q_question_image[$key]) && $request->q_question_image[$key] instanceof UploadedFile) {
-                        $file = $request->q_question_image[$key];
-                        $question->replaceImage($file, 'questions', 'featured');
-                    }
-                }
-            }
-            $quiz->refresh();
-
-            if($request->has('course_id')) {
-                $courseId = $request->course_id;
-
-                // Get the course to ensure it exists
-                $course = Course::findOrFail($courseId);
-
-                // Get the highest order for this course
-                $maxOrder = $course->sections()->max('order') ?? 0;
-                $order = $maxOrder + 1;
-
-                // Create CourseSection record to associate the quiz with the course
-                CourseSection::create([
-                    'title' => $quiz->title,
-                    'course_id' => $courseId,
-                    'order' => $order,
-                    'sectionable_type' => ItemList::class,
-                    'sectionable_id' => $quiz->id
-                ]);
-            }
-            }else{
-             $quiz = ItemList::quiz()->find($request->exam_id);
-            if ($request->hasFile('image')) {
-                $file = $request->file('image');
-                $quiz->storeImage($file, 'quizzes', 'featured');
-            }
-
-            foreach($quiz->questions as $question){
-                $question->delete();
-            }
-            if(isset($request->q_title) && count($request->q_title)){
-                //q_priority q_description q_question  q_choice1  q_choice2 q_choice3  q_choice4  q_choice5  q_choice6 q_right_answer
-                foreach($request->q_title as $key => $value){
-                    $question = new Question();
-                    $question->title = $request->q_title[$key];
-                    $question->priority = 0;
-                   // $question->description = $request->q_description[$key];
-                    $question->question = $request->q_question[$key];
-                    $question->choice1 = $request->q_choice1[$key];
-                    $question->choice2 = $request->q_choice2[$key];
-                    $question->choice3 = $request->q_choice3[$key];
-                    $question->choice4 = $request->q_choice4[$key];
-                    $question->choice5 = $request->q_choice5[$key];
-                    $question->choice6 = $request->q_choice6[$key];
-                    $question->right_answer = isset($request->q_right_answer[$key]) ? $request->q_right_answer[$key] : 1 ;
-                    $question->list_id = $quiz->id;
-                    $question->save();
-                    if (isset($request->q_question_image[$key]) && $request->q_question_image[$key] instanceof UploadedFile) {
-                        $file = $request->q_question_image[$key];
-                        $question->replaceImage($file, 'questions', 'featured');
-                    }
-                }
-            }
-        }
-        if($request->ajax()){
-            $response = ['quiz' => $quiz];
-
-            // If course_id is provided, include it in the response
-            if($request->has('course_id')) {
-                $response['course_id'] = $request->course_id;
-            }
-
-            return response()->json($response);
-        }
-
-        // If course_id is provided, create CourseSection and redirect back to course sections page
-        if($request->has('course_id')) {
-            $courseId = $request->course_id;
-            return redirect()->route('admin.courses.sections.index', $courseId)->with('success', 'تم إنشاء الاختبار بنجاح');
-        }
-
-        return redirect()->route('admin.quizzes.index')->with('success', 'تم الحفظ بنجاح');
-
-    }
-
-    public function copy(Request $request, ItemList $quiz)
-    {
-        $newQuiz = $quiz->replicate();
-        $newQuiz->title = 'نسخة من ' . $newQuiz->title;
-        $newQuiz->save();
-        
-        // Clone the quiz image (photo relationship)
-        if ($quiz->photo) {
-            $originalPhoto = $quiz->photo;
-            $newQuiz->photos()->create([
-                'path' => $originalPhoto->path,
-                'type' => $originalPhoto->type
+        $validated = $this->validateQuiz($request, true);
+        $request->validate(['authoring_request_id' => 'required|uuid']);
+        if (!empty($validated['course_id'])) {
+            throw ValidationException::withMessages([
+                'course_id' => 'أضف اختبار الكورس من استوديو الكورس حتى يُحفظ مع وحدته وأسئلته كعملية واحدة',
             ]);
         }
-        
-        foreach($quiz->questions as $question){
-            $newQuestion = $question->replicate();
-            $newQuestion->list_id = $newQuiz->id;
-            $newQuestion->save();
-            
-            // Clone the question image if exists
-            if ($question->photo) {
-                $originalQuestionPhoto = $question->photo;
-                $newQuestion->photos()->create([
-                    'path' => $originalQuestionPhoto->path,
-                    'type' => $originalQuestionPhoto->type
+        if (!empty($validated['exam_id'])) {
+            throw ValidationException::withMessages([
+                'exam_id' => 'افتح صفحة تعديل الاختبار بدل إرساله كاختبار جديد',
+            ]);
+        }
+        $requestId = (string) $request->input('authoring_request_id');
+        $existing = ItemList::quiz()->where('authoring_request_id', $requestId)->first();
+        if ($existing) return $this->storedResponse($request, $existing, true);
+        $alreadySaved = false;
+
+        try {
+            $quiz = DB::transaction(function () use ($request, $validated, $requestId): ItemList {
+                $quiz = new ItemList(['authoring_request_id' => $requestId]);
+                $quiz->fill($this->quizPayload($validated))->save();
+
+                $this->syncInlineQuestions($request, $quiz);
+                if (!$request->has('q_title')) {
+                    $this->copySelectedQuestions($quiz, (array) ($validated['questions'] ?? []), false);
+                }
+
+                return $quiz;
+            }, 3);
+        } catch (QueryException $exception) {
+            $quiz = ItemList::quiz()->where('authoring_request_id', $requestId)->first();
+            if (!$quiz) throw $exception;
+            $alreadySaved = true;
+        }
+
+        if (!$alreadySaved && $request->hasFile('image')) {
+            $quiz->replaceImage($request->file('image'), 'quizzes', 'featured');
+        }
+
+        return $this->storedResponse($request, $quiz, $alreadySaved);
+    }
+
+    public function copy(Request $request, ItemList $quiz): JsonResponse|RedirectResponse
+    {
+        abort_unless($quiz->type === 'quiz', 404);
+        $this->assertStandalone($quiz);
+        $validated = $request->validate([
+            'editor_version' => 'required|string|size:64',
+            'authoring_request_id' => 'required|uuid',
+        ]);
+        $existing = ItemList::quiz()
+            ->where('authoring_request_id', $validated['authoring_request_id'])
+            ->first();
+        if ($existing) return $this->copiedResponse($request, $existing, true);
+
+        try {
+            $copy = DB::transaction(function () use ($quiz, $validated): ItemList {
+                $lockedQuiz = ItemList::quiz()->whereKey($quiz->id)->lockForUpdate()->firstOrFail();
+                $this->assertEditorVersion($lockedQuiz, (string) $validated['editor_version']);
+                $copy = $lockedQuiz->replicate();
+                $copy->authoring_request_id = $validated['authoring_request_id'];
+                $copy->title_ar = 'نسخة من ' . $lockedQuiz->title_ar;
+                $copy->title_en = $lockedQuiz->title_en ? 'Copy of ' . $lockedQuiz->title_en : null;
+                $copy->save();
+
+                foreach ($lockedQuiz->questions as $question) {
+                    $questionCopy = $question->replicate();
+                    $questionCopy->list_id = $copy->id;
+                    $questionCopy->authoring_request_id = null;
+                    $questionCopy->save();
+                    if ($question->photo) {
+                        $questionCopy->photos()->create([
+                            'path' => $question->photo->path,
+                            'type' => $question->photo->type,
+                        ]);
+                    }
+                }
+                if ($lockedQuiz->photo) {
+                    $copy->photos()->create([
+                        'path' => $lockedQuiz->photo->path,
+                        'type' => $lockedQuiz->photo->type,
+                    ]);
+                }
+
+                return $copy;
+            }, 3);
+        } catch (QueryException $exception) {
+            $copy = ItemList::quiz()
+                ->where('authoring_request_id', $validated['authoring_request_id'])
+                ->first();
+            if (!$copy) throw $exception;
+        }
+
+        return $this->copiedResponse($request, $copy, false);
+    }
+
+    public function edit(ItemList $quiz): View
+    {
+        abort_unless($quiz->type === 'quiz', 404);
+        $this->assertStandalone($quiz);
+        $questions = Question::query()
+            ->whereHas('itemList', fn ($quizzes) => $quizzes->standaloneQuiz())
+            ->orderByDesc('updated_at')->get();
+        $quizQuestions = $quiz->questions->pluck('id')->all();
+
+        return view('admin.quizzes.edit', compact('quiz', 'questions', 'quizQuestions'));
+    }
+
+    public function update(Request $request, ItemList $quiz): RedirectResponse
+    {
+        abort_unless($quiz->type === 'quiz', 404);
+        $this->assertStandalone($quiz);
+        $validated = $this->validateQuiz($request, true);
+        $request->validate(['editor_version' => 'required|string|size:64']);
+        if (!empty($validated['course_id'])) {
+            throw ValidationException::withMessages([
+                'course_id' => 'أضف اختبار الكورس من استوديو الكورس',
+            ]);
+        }
+
+        DB::transaction(function () use ($request, $quiz, $validated): void {
+            $lockedQuiz = ItemList::quiz()->whereKey($quiz->id)->lockForUpdate()->firstOrFail();
+            $this->assertEditorVersion($lockedQuiz, (string) $request->input('editor_version'));
+            $lockedQuiz->update($this->quizPayload($validated));
+            $this->syncInlineQuestions($request, $lockedQuiz);
+            if (!$request->has('q_title')) {
+                $this->copySelectedQuestions($lockedQuiz, (array) ($validated['questions'] ?? []), true);
+            }
+        }, 3);
+
+        if ($request->hasFile('image')) {
+            $quiz->replaceImage($request->file('image'), 'quizzes', 'featured');
+        }
+
+        return !empty($validated['course_id'])
+            ? redirect()->route('admin.courses.sections.index', $validated['course_id'])->with('success', 'تم تعديل الاختبار')
+            : redirect()->route('admin.quizzes.index')->with('success', 'تم تعديل الاختبار');
+    }
+
+    public function destroy(Request $request, ItemList $quiz): RedirectResponse
+    {
+        abort_unless($quiz->type === 'quiz', 404);
+        $this->assertStandalone($quiz);
+        $request->validate(['editor_version' => 'required|string|size:64']);
+        if (\App\Models\ExamAttempt::withTrashed()->where('quiz_id', $quiz->id)->exists()) {
+            return redirect()->route('admin.quizzes.index')->with(
+                'error',
+                'لا يمكن حذف اختبار له محاولات طلاب محفوظة'
+            );
+        }
+        DB::transaction(function () use ($request, $quiz): void {
+            $lockedQuiz = ItemList::quiz()->whereKey($quiz->id)->lockForUpdate()->firstOrFail();
+            $this->assertEditorVersion($lockedQuiz, (string) $request->input('editor_version'));
+            CourseSection::query()
+                ->where('sectionable_type', ItemList::class)
+                ->where('sectionable_id', $lockedQuiz->id)
+                ->delete();
+            $lockedQuiz->questions()->get()->each->delete();
+            $lockedQuiz->delete();
+        }, 3);
+
+        return redirect()->route('admin.quizzes.index')->with('success', 'تم حذف الاختبار');
+    }
+
+    /** @return array<string, mixed> */
+    private function validateQuiz(Request $request, bool $supportsInlineQuestions): array
+    {
+        $normalized = [];
+        foreach (['title_ar', 'title_en', 'description_ar', 'description_en'] as $field) {
+            if ($request->input($field) !== null) {
+                $normalized[$field] = UnicodeText::clean(
+                    $request->input($field),
+                    !str_starts_with($field, 'title')
+                );
+            }
+        }
+        foreach (['q_title', 'q_question', 'q_choice1', 'q_choice2', 'q_choice3', 'q_choice4', 'q_choice5', 'q_choice6'] as $field) {
+            $values = $request->input($field);
+            if (!is_array($values)) continue;
+            $normalized[$field] = array_map(
+                static fn ($value) => is_string($value)
+                    ? UnicodeText::clean($value, $field !== 'q_title')
+                    : $value,
+                $values
+            );
+        }
+        if ($normalized !== []) $request->merge($normalized);
+
+        $rules = [
+            'exam_id' => 'nullable|integer|exists:lists,id',
+            'course_id' => 'nullable|integer|exists:courses,id',
+            'title_ar' => 'required|string|max:255',
+            'title_en' => 'nullable|string|max:255',
+            'description_ar' => 'nullable|string|max:3000',
+            'description_en' => 'nullable|string|max:3000',
+            'priority' => 'nullable|integer|min:0|max:100000',
+            'time_minutes' => 'nullable|integer|min:1|max:300',
+            'image' => 'nullable|image|max:4096',
+            'questions' => 'nullable|array|max:200',
+            'questions.*' => 'integer|exists:questions,id',
+        ];
+        if ($supportsInlineQuestions) {
+            foreach (['q_question_id', 'q_title', 'q_question', 'q_choice1', 'q_choice2', 'q_choice3', 'q_choice4', 'q_choice5', 'q_choice6', 'q_right_answer', 'q_question_image'] as $field) {
+                $rules[$field] = 'nullable|array|max:200';
+            }
+            $rules += [
+                'q_question_id.*' => 'nullable|integer|exists:questions,id',
+                'q_title.*' => 'nullable|string|max:255',
+                'q_question.*' => 'nullable|string|max:3000',
+                'q_choice1.*' => 'nullable|string|max:1000',
+                'q_choice2.*' => 'nullable|string|max:1000',
+                'q_choice3.*' => 'nullable|string|max:1000',
+                'q_choice4.*' => 'nullable|string|max:1000',
+                'q_choice5.*' => 'nullable|string|max:1000',
+                'q_choice6.*' => 'nullable|string|max:1000',
+                'q_right_answer.*' => 'nullable|integer|min:1|max:6',
+                'q_question_image.*' => 'nullable|image|max:4096',
+            ];
+        }
+
+        return $request->validate($rules);
+    }
+
+    /** @param array<string, mixed> $validated @return array<string, mixed> */
+    private function quizPayload(array $validated): array
+    {
+        return [
+            'title_ar' => trim((string) $validated['title_ar']),
+            'title_en' => $validated['title_en'] ?? null,
+            'description_ar' => $validated['description_ar'] ?? null,
+            'description_en' => $validated['description_en'] ?? null,
+            'priority' => (int) ($validated['priority'] ?? 0),
+            'time_minutes' => $validated['time_minutes'] ?? null,
+            'type' => 'quiz',
+        ];
+    }
+
+    private function syncInlineQuestions(Request $request, ItemList $quiz): void
+    {
+        if (!$request->has('q_title')) {
+            return;
+        }
+
+        $keptIds = [];
+        foreach ((array) $request->input('q_title', []) as $key => $rawTitle) {
+            $title = trim((string) $rawTitle);
+            $questionText = trim((string) $request->input("q_question.{$key}", ''));
+            $choices = [];
+            for ($number = 1; $number <= 6; $number++) {
+                $choices[$number] = trim((string) $request->input("q_choice{$number}.{$key}", ''));
+            }
+            $rightAnswer = (int) $request->input("q_right_answer.{$key}", 0);
+            if ($title === '' && $questionText === '' && $choices[1] === '' && $choices[2] === '') {
+                continue;
+            }
+            if ($title === '' || $questionText === '' || $choices[1] === '' || $choices[2] === '' || $rightAnswer < 1 || $rightAnswer > 6 || $choices[$rightAnswer] === '') {
+                throw ValidationException::withMessages([
+                    "q_title.{$key}" => 'أكمل السؤال واختيارين على الأقل وحدد إجابة صحيحة مكتوبة',
                 ]);
+            }
+
+            $questionId = (int) $request->input("q_question_id.{$key}", 0);
+            $question = $questionId > 0
+                ? $quiz->questions()->whereKey($questionId)->firstOrFail()
+                : new Question(['list_id' => $quiz->id]);
+            $question->fill([
+                'title' => $title,
+                'question' => $questionText,
+                'priority' => (int) $key,
+                'choice1' => $choices[1],
+                'choice2' => $choices[2],
+                'choice3' => $choices[3] ?: null,
+                'choice4' => $choices[4] ?: null,
+                'choice5' => $choices[5] ?: null,
+                'choice6' => $choices[6] ?: null,
+                'right_answer' => $rightAnswer,
+            ])->save();
+            $keptIds[] = (int) $question->id;
+
+            $image = $request->file("q_question_image.{$key}");
+            if ($image instanceof UploadedFile) {
+                $question->replaceImage($image, 'questions', 'featured');
             }
         }
 
-        if($request->ajax()){
-            return response()
-            ->json($newQuiz);
-        }
-        return redirect()->route('admin.quizzes.index')->with('success', 'تم النسخ بنجاح');
-
-
-    }
-    /**
-     * Show the form for editing the specified resource.
-     *
-     * @param  \App\Quizz  $quizz
-     * @return \Illuminate\Http\Response
-     */
-    public function edit(ItemList $quiz)
-    {
-        $questions = \App\Models\Question::all();
-        $quizQuestions = $quiz->questions->pluck('id')->toArray();
-         return view('admin.quizzes.edit', compact('quiz','questions','quizQuestions'));
+        $quiz->questions()->whereNotIn('id', $keptIds ?: [0])->get()->each->delete();
     }
 
-    /**
-     * Update the specified resource in storage.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @param  \App\Quizz  $quizz
-     * @return \Illuminate\Http\Response
-     */
-    public function update(Request $request, ItemList $quiz)
+    /** @param array<int, mixed> $questionIds */
+    private function copySelectedQuestions(ItemList $quiz, array $questionIds, bool $replaceExisting): void
     {
-        $quiz->update($request->input());
-        if ($request->hasFile('image')) {
-            $file = $request->file('image');
-            $quiz->replaceImage($file, 'quizzes', 'featured');
-        }
-        foreach($request->questions as $question_id){
-            $question = Question::find($question_id);
-            $question->list_id = $quiz->id;
-            $question->save();
-        }
-
-        // If course_id is provided, redirect back to course sections page
-        if($request->has('course_id')) {
-            $courseId = $request->course_id;
-            return redirect()->route('admin.courses.sections.index', $courseId)->with('success', 'تم تعديل الاختبار بنجاح');
+        $ids = array_values(array_unique(array_map('intval', $questionIds)));
+        $sources = Question::query()
+            ->whereIn('id', $ids)
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
+        if ($sources->count() !== count($ids)) {
+            throw ValidationException::withMessages(['questions' => 'أحد الأسئلة المختارة لم يعد متاحًا']);
         }
 
-        return redirect()->route('admin.quizzes.index')->with('success', 'تم التعديل بنجاح');
+        $keptIds = [];
+        foreach ($ids as $sourceId) {
+            $source = $sources->get($sourceId);
+            if ((int) $source->list_id === (int) $quiz->id) {
+                $keptIds[] = (int) $source->id;
+                continue;
+            }
+            $copy = $source->replicate();
+            $copy->list_id = $quiz->id;
+            $copy->authoring_request_id = null;
+            $copy->save();
+            if ($source->photo) {
+                $copy->photos()->create([
+                    'path' => $source->photo->path,
+                    'type' => $source->photo->type,
+                ]);
+            }
+            $keptIds[] = (int) $copy->id;
+        }
+
+        if ($replaceExisting) {
+            $quiz->questions()->whereNotIn('id', $keptIds ?: [0])->get()->each->delete();
+        }
     }
 
-    /**
-     * Remove the specified resource from storage.
-     *
-     * @param  \App\Quizz  $quizz
-     * @return \Illuminate\Http\Response
-     */
-    public function destroy(ItemList $quiz)
+    private function ensureCourseSection(ItemList $quiz, int $courseId): void
     {
-         $quiz->delete();
+        $course = Course::findOrFail($courseId);
+        $section = CourseSection::query()
+            ->where('course_id', $courseId)
+            ->where('sectionable_type', ItemList::class)
+            ->where('sectionable_id', $quiz->id)
+            ->first();
+        if (!$section) {
+            $section = new CourseSection([
+                'course_id' => $courseId,
+                'sectionable_type' => ItemList::class,
+                'sectionable_id' => $quiz->id,
+                'order' => ((int) $course->sections()->max('order')) + 1,
+            ]);
+        }
+        $section->title_ar = (string) $quiz->title_ar;
+        $section->title_en = (string) ($quiz->title_en ?: $quiz->title_ar);
+        $section->save();
+    }
 
-        return redirect()->route('admin.quizzes.index')->with('success', 'تم الحذف بنجاح ');
+    private function assertStandalone(ItemList $quiz): void
+    {
+        if ($quiz->course_id || CourseSection::query()
+            ->where('sectionable_type', ItemList::class)
+            ->where('sectionable_id', $quiz->id)
+            ->exists()) {
+            throw ValidationException::withMessages([
+                'quiz' => 'هذا الاختبار جزء من كورس\nعدّله من استوديو الكورس حتى لا تتجاوز المسودة وفحص النشر',
+            ]);
+        }
+    }
+
+    private function assertEditorVersion(ItemList $quiz, string $submitted): void
+    {
+        $current = hash('sha256', $quiz->id . '|' . optional($quiz->updated_at)->format('Y-m-d H:i:s.u'));
+        if (!hash_equals($current, $submitted)) {
+            throw ValidationException::withMessages([
+                'editor_version' => 'تغيّر الاختبار منذ فتح الصفحة\nأعد تحميله ثم راجع التعديل',
+            ]);
+        }
+    }
+
+    private function storedResponse(Request $request, ItemList $quiz, bool $alreadySaved): JsonResponse|RedirectResponse
+    {
+        if ($request->ajax()) {
+            return response()->json(['quiz' => $quiz->fresh('questions')]);
+        }
+
+        return redirect()->route('admin.quizzes.index')
+            ->with('success', $alreadySaved ? 'تم حفظ الاختبار بالفعل' : 'تم حفظ الاختبار');
+    }
+
+    private function copiedResponse(Request $request, ItemList $copy, bool $alreadyCopied): JsonResponse|RedirectResponse
+    {
+        return $request->ajax()
+            ? response()->json($copy->load('questions'))
+            : redirect()->route('admin.quizzes.index')
+                ->with('success', $alreadyCopied ? 'تم إنشاء النسخة بالفعل' : 'تم نسخ الاختبار');
     }
 }

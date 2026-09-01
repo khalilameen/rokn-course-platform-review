@@ -23,7 +23,11 @@
                         </div>
                         <div class="col-sm-2 col-xs-4 text-right">
                             
-                           <span title="تاريخ الانتهاء"  >{{ $coupon->expiry_date->format("Y-m-d") }}</span>
+                           <span title="نسبة الخصم">{{ (int) $coupon->balance }}٪</span>
+                           <span title="مرات الاستخدام">{{ (int) $coupon->redemptions_count }} استخدام</span>
+                           <span title="النطاق">{{ $coupon->course?->name_ar ?: 'كل الكورسات' }}</span>
+                           <span title="الحد">{{ $coupon->max_redemptions ? $coupon->redemptions_count . ' / ' . $coupon->max_redemptions : 'بلا حد كلي' }}</span>
+                           <span title="تاريخ الانتهاء">{{ optional($coupon->expiry_date)->format("Y-m-d") ?: 'بلا تاريخ' }}</span>
                         </div> 
                         <div class="col-sm-2 col-xs-4 text-right">
                             

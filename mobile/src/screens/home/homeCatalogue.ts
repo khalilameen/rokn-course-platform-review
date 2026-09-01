@@ -1,4 +1,4 @@
-import {normalizeText} from '../../constants/helpers';
+import {normalizeText} from '../../utils/searchText';
 import type {DemoCourse} from '../../data/demoContent';
 import {recommendCourses} from '../../services/courseRecommendations';
 
@@ -10,7 +10,8 @@ export type HomeCourseSection = {
 
 const byHomeOrder = (first: DemoCourse, second: DemoCourse) =>
   (first.homeSortOrder ?? 100) - (second.homeSortOrder ?? 100) ||
-  first.title.localeCompare(second.title, 'ar');
+  first.title.localeCompare(second.title, 'ar') ||
+  String(first.id).localeCompare(String(second.id), 'en', {numeric: true});
 
 export const buildHomeSections = ({
   catalogue,
@@ -51,6 +52,7 @@ export const buildHomeSections = ({
   >();
 
   catalogue.forEach(course => {
+    if (course.published === false) return;
     course.homeRows?.forEach(row => {
       const current = rowMap.get(row.id) ?? {
         id: `classification-${row.id}`,
@@ -77,7 +79,7 @@ export const buildHomeSections = ({
   const fallbackPublished = unassigned
     .filter(course => course.published !== false)
     .sort(byHomeOrder);
-  const fallbackUpcoming = unassigned
+  const fallbackUpcoming = catalogue
     .filter(course => course.published === false)
     .sort(byHomeOrder);
 
@@ -151,6 +153,7 @@ export const searchHomeCatalogue = ({
   demoCatalogue,
   remoteCourses,
   searchQuery,
+  loadedSearchQuery,
   usingLocalDemo,
 }: {
   browseCatalogue: DemoCourse[];
@@ -158,19 +161,38 @@ export const searchHomeCatalogue = ({
   demoCatalogue: DemoCourse[];
   remoteCourses: DemoCourse[] | null;
   searchQuery: string;
+  loadedSearchQuery: string;
   usingLocalDemo: boolean;
 }): DemoCourse[] => {
   const query = normalizeText(searchQuery);
   if (!query) return [];
+  const resultQuery = normalizeText(loadedSearchQuery);
+  const remoteBelongsToCurrentQuery =
+    remoteCourses !== null && resultQuery === query;
+
+  // A server search may match keywords and descriptions that are deliberately
+  // absent from the compact card. Filtering that result again on the phone
+  // creates false empty states. Once the response arrives, it is authoritative.
+  if (
+    !usingLocalDemo &&
+    remoteBelongsToCurrentQuery
+  ) {
+    return Array.from(
+      new Map(catalogue.map(course => [course.id, course])).values(),
+    );
+  }
 
   const source = usingLocalDemo
     ? demoCatalogue
-    : remoteCourses === null
-    ? browseCatalogue
-    : catalogue;
+    : remoteBelongsToCurrentQuery
+    ? catalogue
+    : browseCatalogue;
 
-  return source.filter(course =>
-    [
+  const seen = new Set<string>();
+  const queryTokens = query.split(' ').filter(Boolean);
+  return source.filter(course => {
+    if (seen.has(course.id)) return false;
+    const searchable = normalizeText([
       course.title,
       course.description,
       course.instructor,
@@ -178,6 +200,11 @@ export const searchHomeCatalogue = ({
       ...(course.homeRows?.map(row => row.title) || []),
     ]
       .filter((value): value is string => Boolean(value))
-      .some(value => normalizeText(value).includes(query)),
-  );
+      .join(' '));
+    const matches =
+      searchable.includes(query) ||
+      queryTokens.every(token => searchable.includes(token));
+    if (matches) seen.add(course.id);
+    return matches;
+  });
 };

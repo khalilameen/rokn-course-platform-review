@@ -10,7 +10,7 @@ final class StorePurchaseVerificationException extends RuntimeException
 {
     public function __construct(
         public readonly string $errorCode,
-        string $message = 'تعذّر التحقق من عملية الشراء.',
+        string $message = 'تعذّر التحقق من عملية الشراء',
         public readonly int $httpStatus = 422
     ) {
         parent::__construct($message);

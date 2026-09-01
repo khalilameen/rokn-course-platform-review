@@ -8,9 +8,12 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    public $withinTransaction = false;
+
     public function up(): void
     {
-        Schema::create('payment_reconciliation_checkpoints', function (Blueprint $table): void {
+        if (! Schema::hasTable('payment_reconciliation_checkpoints')) {
+            Schema::create('payment_reconciliation_checkpoints', function (Blueprint $table): void {
             $table->id();
             $table->string('provider', 32)->unique();
             $table->unsignedBigInteger('cursor_order_id')->default(0);
@@ -22,9 +25,11 @@ return new class extends Migration
             $table->string('last_error_code', 64)->nullable();
             $table->json('metadata')->nullable();
             $table->timestamps();
-        });
+            });
+        }
 
-        Schema::create('payment_reconciliation_findings', function (Blueprint $table): void {
+        if (! Schema::hasTable('payment_reconciliation_findings')) {
+            Schema::create('payment_reconciliation_findings', function (Blueprint $table): void {
             $table->id();
             $table->string('provider', 32);
             $table->foreignId('order_id')->nullable()->constrained()->nullOnDelete();
@@ -47,7 +52,8 @@ return new class extends Migration
 
             $table->index(['provider', 'state', 'last_seen_at'], 'payment_reconcile_provider_state_seen');
             $table->index(['order_id', 'state'], 'payment_reconcile_order_state');
-        });
+            });
+        }
     }
 
     public function down(): void

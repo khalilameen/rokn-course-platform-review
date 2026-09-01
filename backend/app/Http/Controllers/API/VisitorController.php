@@ -6,7 +6,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Models\Visitor;
-use Carbon\Carbon;
+use App\Support\BusinessClock;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,16 +15,18 @@ final class VisitorController extends Controller
 {
     public function getStats(Request $request): JsonResponse
     {
-        $today = Carbon::today();
-        $thisWeek = Carbon::now()->startOfWeek();
-        $thisMonth = Carbon::now()->startOfMonth();
+        $businessNow = BusinessClock::now();
+        [$today, $tomorrow] = BusinessClock::localDayRangeUtc($businessNow->format('Y-m-d'));
+        $thisWeek = $businessNow->startOfWeek()->utc();
+        $thisMonth = $businessNow->startOfMonth()->utc();
 
         $stats = [
             'total_visitors' => Visitor::count(),
-            'today_visitors' => Visitor::whereDate('visited_at', $today)->count(),
+            'today_visitors' => Visitor::where('visited_at', '>=', $today)->where('visited_at', '<', $tomorrow)->count(),
             'this_week_visitors' => Visitor::where('visited_at', '>=', $thisWeek)->count(),
             'this_month_visitors' => Visitor::where('visited_at', '>=', $thisMonth)->count(),
-            'unique_visitors_today' => Visitor::whereDate('visited_at', $today)
+            'unique_visitors_today' => Visitor::where('visited_at', '>=', $today)
+                ->where('visited_at', '<', $tomorrow)
                 ->distinct('ip_address')
                 ->count('ip_address'),
             'browser_stats' => Visitor::select('browser', DB::raw('count(*) as count'))
@@ -63,6 +65,7 @@ final class VisitorController extends Controller
                 'visited_at',
             ])
             ->orderByDesc('visited_at')
+            ->orderByDesc('id')
             ->limit((int) ($validated['limit'] ?? 50))
             ->get();
 

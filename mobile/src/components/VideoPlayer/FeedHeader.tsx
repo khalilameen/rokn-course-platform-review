@@ -1,7 +1,15 @@
 import {useNavigation} from '@react-navigation/native';
 import type {RootNavigation} from '../../navigation/types';
 import React, {useEffect, useState} from 'react';
-import {Pressable, StyleSheet, Text, View} from 'react-native';
+import {
+  BackHandler,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import Svg, {Circle, Path} from 'react-native-svg';
 import {
   formatArabicNumber,
@@ -20,6 +28,7 @@ interface FeedHeaderProps {
   selectedQuality: VideoQuality;
   qualityOptions: VideoQuality[];
   onQualityChange: (quality: VideoQuality) => void;
+  onOpenChange?: (open: boolean) => void;
   topInset?: number;
 }
 
@@ -66,16 +75,37 @@ const FeedHeader = ({
   selectedQuality,
   qualityOptions,
   onQualityChange,
+  onOpenChange,
   topInset = 0,
 }: FeedHeaderProps) => {
   const navigation = useNavigation<RootNavigation>();
+  const {height} = useWindowDimensions();
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    onOpenChange?.(open);
+    return () => {
+      if (open) onOpenChange?.(false);
+    };
+  }, [onOpenChange, open]);
 
   useEffect(() => {
     if (!qualityOptions.includes(selectedQuality)) {
       onQualityChange('auto');
     }
   }, [onQualityChange, qualityOptions, selectedQuality]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        setOpen(false);
+        return true;
+      },
+    );
+    return () => subscription.remove();
+  }, [open]);
 
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
@@ -106,58 +136,77 @@ const FeedHeader = ({
             style={styles.backdrop}
             onPress={() => setOpen(false)}
           />
-          <View style={[styles.panel, {top: topInset + 58}]}>
-            <Text style={styles.panelTitle}>إعدادات المشاهدة</Text>
+          <View
+            accessibilityViewIsModal
+            style={[
+              styles.panel,
+              {
+                maxHeight: Math.max(180, height - topInset - 76),
+                top: topInset + 58,
+              },
+            ]}>
+            <ScrollView
+              bounces={false}
+              contentContainerStyle={styles.panelContent}
+              showsVerticalScrollIndicator={false}>
+              <Text accessibilityRole="header" style={styles.panelTitle}>
+                إعدادات المشاهدة
+              </Text>
 
-            <Text style={styles.sectionLabel}>السرعة</Text>
-            <View style={styles.speedRow}>
-              {SPEED_OPTIONS.map(speed => {
-                const selected = playbackSpeed === speed;
-                return (
-                  <Pressable
-                    key={speed}
-                    accessibilityRole="button"
-                    style={[styles.speedChip, selected && styles.selectedChip]}
-                    onPress={() => onPlaybackSpeedChange(speed)}>
-                    <Text
+              <Text style={styles.sectionLabel}>السرعة</Text>
+              <View accessibilityRole="radiogroup" style={styles.speedRow}>
+                {SPEED_OPTIONS.map(speed => {
+                  const selected = playbackSpeed === speed;
+                  return (
+                    <Pressable
+                      key={speed}
+                      accessibilityRole="radio"
+                      accessibilityState={{checked: selected}}
                       style={[
-                        styles.speedText,
-                        selected && styles.selectedText,
-                      ]}>
-                      {formatArabicNumber(speed, {maximumFractionDigits: 2})}×
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+                        styles.speedChip,
+                        selected && styles.selectedChip,
+                      ]}
+                      onPress={() => onPlaybackSpeedChange(speed)}>
+                      <Text
+                        style={[
+                          styles.speedText,
+                          selected && styles.selectedText,
+                        ]}>
+                        {formatArabicNumber(speed, {maximumFractionDigits: 2})}×
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
 
-            <View style={styles.divider} />
-            <Text style={styles.sectionLabel}>الجودة</Text>
-            <View style={styles.qualityGrid}>
-              {qualityOptions.map(quality => {
-                const selected = selectedQuality === quality;
-                return (
-                  <Pressable
-                    key={quality}
-                    accessibilityRole="button"
-                    style={[
-                      styles.qualityChip,
-                      selected && styles.selectedChip,
-                    ]}
-                    onPress={() => onQualityChange(quality)}>
-                    <Text
+              <View style={styles.divider} />
+              <Text style={styles.sectionLabel}>الجودة</Text>
+              <View accessibilityRole="radiogroup" style={styles.qualityGrid}>
+                {qualityOptions.map(quality => {
+                  const selected = selectedQuality === quality;
+                  return (
+                    <Pressable
+                      key={quality}
+                      accessibilityRole="radio"
+                      accessibilityState={{checked: selected}}
                       style={[
-                        styles.qualityText,
-                        selected && styles.selectedText,
-                      ]}>
-                      {qualityLabel(quality)}
-                    </Text>
-                    {selected && <CheckIcon />}
-                  </Pressable>
-                );
-              })}
-            </View>
-
+                        styles.qualityChip,
+                        selected && styles.selectedChip,
+                      ]}
+                      onPress={() => onQualityChange(quality)}>
+                      <Text
+                        style={[
+                          styles.qualityText,
+                          selected && styles.selectedText,
+                        ]}>
+                        {qualityLabel(quality)}
+                      </Text>
+                      {selected && <CheckIcon />}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </ScrollView>
           </View>
         </>
       )}
@@ -177,9 +226,9 @@ const styles = StyleSheet.create({
     zIndex: 70,
   },
   iconButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(5,9,14,.5)',
@@ -208,6 +257,9 @@ const styles = StyleSheet.create({
     shadowRadius: 22,
     shadowOffset: {width: 0, height: 12},
     elevation: 18,
+  },
+  panelContent: {
+    flexGrow: 1,
   },
   panelTitle: {
     ...textDirection,

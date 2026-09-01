@@ -7,6 +7,8 @@ import {
 } from '../../components/VideoPlayer/courseLearningApi';
 import type {CourseLearningData} from '../../components/VideoPlayer/types';
 import {buildAccessibleFeed} from './presentation';
+import {useAppActiveState} from '../../hooks/useAppActiveState';
+import {isLocalDemoId} from '../../config/runtime';
 
 type ProjectReviewRefs = {
   loadedCourse: MutableRefObject<CourseLearningData | null>;
@@ -16,20 +18,24 @@ type ProjectReviewRefs = {
 };
 
 export const useProjectReview = ({
+  active,
   course,
   previewMode,
   refs,
   setCourse,
 }: {
+  active: boolean;
   course: CourseLearningData | null;
   previewMode: boolean;
   refs: ProjectReviewRefs;
   setCourse: Dispatch<SetStateAction<CourseLearningData | null>>;
 }) => {
+  const appIsActive = useAppActiveState();
+  const reviewActive = active && appIsActive;
   const refreshProjectState = useCallback(
     async (projectId: string) => {
       const activeCourseId = course?.id;
-      if (!activeCourseId || activeCourseId.startsWith('demo')) return null;
+      if (!activeCourseId || isLocalDemoId(activeCourseId)) return null;
       try {
         const result = await loadCourseLearningData(activeCourseId, {
           reconcilePending: false,
@@ -64,6 +70,7 @@ export const useProjectReview = ({
 
   const watchProjectUntilResolved = useCallback(
     (projectId: string) => {
+      if (!reviewActive) return;
       if (refs.watchedProject.current === projectId) return;
       refs.watchedProject.current = projectId;
       const watcher = ++refs.reviewWatcher.current;
@@ -72,7 +79,7 @@ export const useProjectReview = ({
           await new Promise<void>(resolve =>
             setTimeout(resolve, attempt === 0 ? 2500 : 5000),
           );
-          if (refs.reviewWatcher.current !== watcher) return;
+          if (!reviewActive || refs.reviewWatcher.current !== watcher) return;
           await retryPendingProjectSubmissions().catch(() => []);
           if (refs.reviewWatcher.current !== watcher) return;
           const refreshed = await refreshProjectState(projectId);
@@ -88,16 +95,22 @@ export const useProjectReview = ({
         refs.watchedProject.current = null;
       })();
     },
-    [refreshProjectState, refs],
+    [refreshProjectState, refs, reviewActive],
   );
 
   useEffect(() => {
-    if (!course || previewMode) return;
+    if (reviewActive) return;
+    refs.reviewWatcher.current += 1;
+    refs.watchedProject.current = null;
+  }, [refs, reviewActive]);
+
+  useEffect(() => {
+    if (!course || previewMode || !reviewActive) return;
     const reviewingProject = course.modules
       .map(module => module.project)
       .find(project => project?.status === 'reviewing');
     if (reviewingProject) watchProjectUntilResolved(reviewingProject.id);
-  }, [course, previewMode, watchProjectUntilResolved]);
+  }, [course, previewMode, reviewActive, watchProjectUntilResolved]);
 
   return {refreshProjectState, watchProjectUntilResolved};
 };

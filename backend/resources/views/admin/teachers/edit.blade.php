@@ -11,9 +11,10 @@
                     <strong>تعديل بيانات المعلم: {{ $teacher->name }}</strong>
                 </div>
                 <div class="card-body card-block">
-                    <form action="{{ route('admin.teachers.update', $teacher->id) }}" method="POST" enctype="multipart/form-data" class="form-horizontal">
+                    <form action="{{ route('admin.teachers.update', $teacher->id) }}" method="POST" enctype="multipart/form-data" class="form-horizontal" id="teacherForm">
                         @csrf
                         @method('PUT')
+                        <input type="hidden" name="editor_version" value="{{ hash('sha256', json_encode([$teacher->name_ar, $teacher->name_en, $teacher->email, $teacher->phone, $teacher->job_title, $teacher->bio_ar, $teacher->bio_en, (bool) $teacher->active, $teacher->photo?->path], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) }}">
                         @include('admin.teachers._form', ['isEdit' => true])
                         
                         <div class="form-actions form-group">
@@ -26,4 +27,5 @@
         </div>
     </div>
 </div>
+@include('admin.partials.course-authoring-draft', ['formId' => 'teacherForm'])
 @endsection

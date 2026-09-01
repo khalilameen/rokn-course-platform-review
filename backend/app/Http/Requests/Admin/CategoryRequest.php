@@ -24,10 +24,12 @@ class CategoryRequest extends FormRequest
     public function rules()
     {
         return [
-            'name_ar' => 'required|string|min:3|max:50',
-            'name_en' => 'required|string|min:3|max:50',
-            'type' => 'required',
-            'image' => ($this->method() === 'POST' ? 'required|image' : '')
+            'name_ar' => 'required|string|min:2|max:100',
+            'name_en' => 'nullable|string|max:100',
+            'description_ar' => 'nullable|string|max:1000',
+            'description_en' => 'nullable|string|max:1000',
+            'type' => 'nullable|string|max:50',
+            'image' => 'nullable|image|max:4096',
         ];
     }
 

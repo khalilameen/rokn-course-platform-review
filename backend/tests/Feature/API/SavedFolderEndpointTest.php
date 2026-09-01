@@ -77,7 +77,7 @@ class SavedFolderEndpointTest extends ApiTestCase
             ->assertJsonPath('status', 200)
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.0.id', 1)
-            ->assertJsonPath('data.0.image', asset('images/default-folder.png'))
+            ->assertJsonPath('data.0.image', asset('courses/test-course.jpg'))
             ->assertJsonPath('data.0.lessons_count', 1);
     }
 
@@ -99,15 +99,25 @@ class SavedFolderEndpointTest extends ApiTestCase
         $this->assertNotEquals(404, $response->status());
     }
 
+    public function test_visually_identical_unicode_folder_names_do_not_create_duplicates(): void
+    {
+        $this->actingAs($this->user, 'api')->postJson('/api/v1/saved-folders', [
+            'name' => '  خطتي   القادمة  ',
+        ])->assertCreated();
+
+        $this->actingAs($this->user, 'api')->postJson('/api/v1/saved-folders', [
+            'name' => "خ\u{200F}طتي القادمة",
+        ])->assertOk()
+            ->assertJsonPath('message', 'المجلد موجود بالفعل');
+
+        self::assertSame(1, DB::table('saved_folders')
+            ->where('user_id', $this->user->id)
+            ->where('normalized_name', 'خطتي القادمة')
+            ->count());
+    }
+
     public function test_can_view_saved_folder_items(): void
     {
-        DB::table('saved_folder_lessons')->insert([
-            'saved_folder_id' => 1,
-            'lesson_id' => 10,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
         $this->actingAs($this->user, 'api')
             ->getJson('/api/v1/saved-folders/1')
             ->assertOk()
@@ -123,10 +133,29 @@ class SavedFolderEndpointTest extends ApiTestCase
 
     public function test_can_save_lesson_to_folder(): void
     {
-        $response = $this->actingAs($this->user, 'api')->postJson('/api/v1/saved-folders/1/lessons', [
-            'lesson_id' => 10
+        DB::table('course_enrollments')->insert([
+            'user_id' => $this->user->id,
+            'course_id' => $this->courseId,
+            'is_active' => true,
+            'enrolled_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
-        $this->assertNotEquals(404, $response->status());
+
+        $this->actingAs($this->user, 'api')
+            ->postJson('/api/v1/saved-folders/1/lessons', ['lesson_id' => 10])
+            ->assertOk()
+            ->assertJsonPath('data.is_saved', true);
+
+        $this->actingAs($this->user, 'api')
+            ->postJson('/api/v1/saved-folders/1/lessons', ['lesson_id' => 10])
+            ->assertOk()
+            ->assertJsonPath('data.already_saved', true);
+
+        self::assertSame(1, DB::table('saved_folder_lessons')
+            ->where('saved_folder_id', 1)
+            ->where('lesson_id', 10)
+            ->count());
     }
 
     public function test_can_remove_lesson_from_folder(): void

@@ -10,6 +10,7 @@
 @endsection
 
 @section('content')
+    @php($isAdministrator = strtolower(trim((string) auth()->user()?->role)) === 'admin')
     <div class="container-fluid grades-module admin-page">
         <div class="row">
             <div class="col-12">
@@ -24,6 +25,7 @@
                                 </h2>
                                 <p class="mb-0 opacity-75">إدارة وتنظيم المراحل الدراسية والكورسات المرتبطة بها</p>
                             </div>
+                            @if($isAdministrator)
                             <div class="col-md-6">
                                 <div class="text-left">
                                     <a href="{{ route('admin.grades.create') }}" class="btn btn-secondary btn-modern">
@@ -32,6 +34,7 @@
                                     </a>
                                 </div>
                             </div>
+                            @endif
                         </div>
 
                         <!-- Statistics -->
@@ -122,28 +125,32 @@
                                                         <i class="fa fa-book"></i>
                                                         الكورسات
                                                     </a>
-                                                    <a href="{{ route('admin.grades.edit', $grade->id) }}"
-                                                       class="btn btn-secondary btn-modern btn-sm"
-                                                       title="تعديل المرحلة">
-                                                        <i class="fa fa-edit"></i>
-                                                        تعديل
-                                                    </a>
-                                                    <button type="button"
-                                                            data-grade-delete
-                                                            data-grade-id="{{ $grade->id }}"
-                                                            data-grade-name="{{ $grade->name_ar }}"
-                                                            class="btn btn-danger btn-modern btn-sm"
-                                                            title="حذف المرحلة">
-                                                        <i class="fa fa-trash"></i>
-                                                        حذف
-                                                    </button>
+                                                    @if($isAdministrator)
+                                                        <a href="{{ route('admin.grades.edit', $grade->id) }}"
+                                                           class="btn btn-secondary btn-modern btn-sm"
+                                                           title="تعديل المرحلة">
+                                                            <i class="fa fa-edit"></i>
+                                                            تعديل
+                                                        </a>
+                                                        <button type="button"
+                                                                data-grade-delete
+                                                                data-grade-id="{{ $grade->id }}"
+                                                                data-grade-name="{{ $grade->name_ar }}"
+                                                                class="btn btn-danger btn-modern btn-sm"
+                                                                title="حذف المرحلة">
+                                                            <i class="fa fa-trash"></i>
+                                                            حذف
+                                                        </button>
+                                                    @endif
                                                 </div>
 
-                                                <form hidden id="deleteForm{{$grade->id}}"
-                                                      action="{{ route('admin.grades.destroy', $grade->id) }}" method="post">
-                                                    <input name="_method" type="hidden" value="DELETE">
-                                                    @csrf
-                                                </form>
+                                                @if($isAdministrator)
+                                                    <form hidden id="deleteForm{{$grade->id}}"
+                                                          action="{{ route('admin.grades.destroy', $grade->id) }}" method="post">
+                                                        <input name="_method" type="hidden" value="DELETE">
+                                                        @csrf
+                                                    </form>
+                                                @endif
                                             </td>
                                         </tr>
                                     @empty
@@ -153,10 +160,12 @@
                                                     <i class="fa fa-graduation-cap fa-3x mb-3 d-block"></i>
                                                     <h5>لا توجد مراحل دراسية</h5>
                                                     <p>ابدأ بإضافة المراحل الدراسية لتنظيم الكورسات</p>
-                                                    <a href="{{ route('admin.grades.create') }}" class="btn btn-secondary btn-modern">
-                                                        <i class="fa fa-plus ml-1"></i>
-                                                        إضافة مرحلة دراسية
-                                                    </a>
+                                                    @if($isAdministrator)
+                                                        <a href="{{ route('admin.grades.create') }}" class="btn btn-secondary btn-modern">
+                                                            <i class="fa fa-plus ml-1"></i>
+                                                            إضافة مرحلة دراسية
+                                                        </a>
+                                                    @endif
                                                 </div>
                                             </td>
                                         </tr>
@@ -302,7 +311,7 @@ function showQuickActions(row) {
         if (coursesLink) coursesLink.click();
     };
 
-    quickActions.appendChild(editBtn);
+    if (row.querySelector('a[href*="edit"]')) quickActions.appendChild(editBtn);
     quickActions.appendChild(coursesBtn);
 
     row.classList.add('has-quick-actions');
@@ -317,7 +326,7 @@ function showQuickActions(row) {
 
 // Enhanced Search with Live Results
 let searchTimeout;
-document.getElementById('gradesSearch').addEventListener('input', function() {
+document.getElementById('gradesSearch')?.addEventListener('input', function() {
     clearTimeout(searchTimeout);
     const searchTerm = this.value.toLowerCase();
 

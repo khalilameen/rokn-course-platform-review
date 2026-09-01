@@ -33,6 +33,14 @@ final class PaymentController extends Controller
         string $orderRef,
         KashierCheckoutFlowService $checkout
     ): JsonResponse {
-        return $checkout->status($request, $orderRef);
+        return $checkout->status($request, $orderRef, false);
+    }
+
+    public function reconcile(
+        Request $request,
+        string $orderRef,
+        KashierCheckoutFlowService $checkout
+    ): JsonResponse {
+        return $checkout->status($request, $orderRef, true);
     }
 }

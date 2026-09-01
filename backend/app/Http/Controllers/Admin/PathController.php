@@ -5,7 +5,11 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Path;
 use App\Models\Classification;
+use App\Models\Course;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class PathController extends Controller
 {
@@ -26,7 +30,7 @@ class PathController extends Controller
             });
         }
 
-        $paths = $paths->with('interests')->latest()->paginate(10);
+        $paths = $paths->with('interests')->latest()->latest('id')->paginate(10)->withQueryString();
 
         return view('admin.paths.index', compact('paths'));
     }
@@ -39,7 +43,7 @@ class PathController extends Controller
     public function create()
     {
         $interests = Classification::all();
-        $courses = \App\Models\Course::orderBy('name_ar')->get();
+        $courses = Course::query()->whereNull('parent_id')->orderBy('name_ar')->get();
         return view('admin.paths.create', compact('interests', 'courses'));
     }
 
@@ -51,22 +55,30 @@ class PathController extends Controller
      */
     public function store(Request $request)
     {
-        $request->validate([
+        $validated = $request->validate([
             'title_ar' => 'required|string|max:255',
             'title_en' => 'required|string|max:255',
             'interest_ids' => 'nullable|array',
-            'interest_ids.*' => 'exists:classifications,id',
+            'interest_ids.*' => 'integer|distinct|exists:classifications,id',
+            'course_ids' => 'nullable|array|max:200',
+            'course_ids.*' => [
+                'integer',
+                'distinct',
+                Rule::exists('courses', 'id')->where(fn ($courses) => $courses->whereNull('parent_id')),
+            ],
         ]);
 
-        $path = Path::create($request->only(['title_ar', 'title_en']));
-
-        if ($request->has('interest_ids')) {
-            $path->interests()->sync($request->interest_ids);
-        }
-
-        if ($request->has('course_ids')) {
-            \App\Models\Course::whereIn('id', $request->course_ids)->update(['path_id' => $path->id]);
-        }
+        DB::transaction(function () use ($validated): void {
+            $path = Path::create([
+                'title_ar' => $validated['title_ar'],
+                'title_en' => $validated['title_en'],
+            ]);
+            $path->interests()->sync($validated['interest_ids'] ?? []);
+            Course::query()
+                ->whereIn('id', $validated['course_ids'] ?? [])
+                ->get()
+                ->each(fn (Course $course) => $course->update(['path_id' => $path->id]));
+        });
 
         return redirect()->route('admin.paths.index')->with('success', 'تم إضافة المسار بنجاح');
     }
@@ -81,8 +93,9 @@ class PathController extends Controller
     {
         $path = Path::with(['interests', 'courses'])->findOrFail($id);
         $interests = Classification::all();
-        $courses = \App\Models\Course::orderBy('name_ar')->get();
-        return view('admin.paths.edit', compact('path', 'interests', 'courses'));
+        $courses = Course::query()->whereNull('parent_id')->orderBy('name_ar')->get();
+        $editorVersion = $this->editorVersion($path);
+        return view('admin.paths.edit', compact('path', 'interests', 'courses', 'editorVersion'));
     }
 
     /**
@@ -96,27 +109,65 @@ class PathController extends Controller
     {
         $path = Path::findOrFail($id);
 
-        $request->validate([
+        $validated = $request->validate([
             'title_ar' => 'required|string|max:255',
             'title_en' => 'required|string|max:255',
             'interest_ids' => 'nullable|array',
-            'interest_ids.*' => 'exists:classifications,id',
+            'interest_ids.*' => 'integer|distinct|exists:classifications,id',
+            'course_ids' => 'nullable|array|max:200',
+            'course_ids.*' => [
+                'integer',
+                'distinct',
+                Rule::exists('courses', 'id')->where(fn ($courses) => $courses->whereNull('parent_id')),
+            ],
+            'editor_version' => 'required|string|size:64',
         ]);
 
-        $path->update($request->only(['title_ar', 'title_en']));
-
-        if ($request->has('interest_ids')) {
-            $path->interests()->sync($request->interest_ids);
-        } else {
-            $path->interests()->detach();
-        }
-
-        // Dissociate courses no longer in the list
-        \App\Models\Course::where('path_id', $path->id)->whereNotIn('id', $request->course_ids ?? [])->update(['path_id' => null]);
-        // Associate newly added courses
-        if ($request->has('course_ids')) {
-            \App\Models\Course::whereIn('id', $request->course_ids)->update(['path_id' => $path->id]);
-        }
+        $editorVersion = (string) $validated['editor_version'];
+        unset($validated['editor_version']);
+        $courseIds = collect($validated['course_ids'] ?? [])
+            ->map(fn ($courseId): int => (int) $courseId)
+            ->unique()
+            ->sort()
+            ->values();
+        DB::transaction(function () use ($path, $validated, $editorVersion, $courseIds): void {
+            $locked = Path::query()->whereKey($path->id)->lockForUpdate()->firstOrFail();
+            $affectedCourseIds = Course::query()
+                ->whereNull('parent_id')
+                ->where('path_id', $locked->id)
+                ->pluck('id')
+                ->merge($courseIds)
+                ->unique()
+                ->sort()
+                ->values();
+            if ($affectedCourseIds->isNotEmpty()) {
+                Course::query()
+                    ->whereIn('id', $affectedCourseIds)
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get(['id']);
+            }
+            if (!hash_equals($this->editorVersion($locked), $editorVersion)) {
+                throw ValidationException::withMessages([
+                    'editor_version' => 'عدّل شخص آخر هذا المسار\nأعد تحميل الصفحة قبل الحفظ',
+                ]);
+            }
+            $locked->update([
+                'title_ar' => $validated['title_ar'],
+                'title_en' => $validated['title_en'],
+            ]);
+            $locked->interests()->sync($validated['interest_ids'] ?? []);
+            Course::query()
+                ->whereNull('parent_id')
+                ->where('path_id', $locked->id)
+                ->whereNotIn('id', $courseIds)
+                ->get()
+                ->each(fn (Course $course) => $course->update(['path_id' => null]));
+            Course::query()
+                ->whereIn('id', $courseIds)
+                ->get()
+                ->each(fn (Course $course) => $course->update(['path_id' => $locked->id]));
+        }, 3);
 
         return redirect()->route('admin.paths.index')->with('success', 'تم تعديل المسار بنجاح');
     }
@@ -130,8 +181,34 @@ class PathController extends Controller
     public function destroy($id)
     {
         $path = Path::findOrFail($id);
-        $path->delete();
+        $blocked = DB::transaction(function () use ($path): bool {
+            $locked = Path::query()->whereKey($path->id)->lockForUpdate()->firstOrFail();
+            if ($locked->courses()->exists()) return true;
+            $locked->interests()->detach();
+            $locked->delete();
+            return false;
+        }, 3);
+        if ($blocked) {
+            return redirect()->route('admin.paths.index')
+                ->with('error', 'انقل الكورسات إلى مسار آخر قبل حذف هذا المسار');
+        }
 
         return redirect()->route('admin.paths.index')->with('success', 'تم حذف المسار بنجاح');
+    }
+
+    private function editorVersion(Path $path): string
+    {
+        $path->loadMissing('interests:id');
+        return hash('sha256', json_encode([
+            $path->title_ar,
+            $path->title_en,
+            collect($path->interests->modelKeys())->map(fn ($id): int => (int) $id)->sort()->values()->all(),
+            Course::query()
+                ->whereNull('parent_id')
+                ->orderBy('id')
+                ->get(['id', 'path_id'])
+                ->map(fn (Course $course): array => [(int) $course->id, (int) ($course->path_id ?? 0)])
+                ->all(),
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     }
 }

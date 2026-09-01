@@ -1,15 +1,17 @@
-import {useState} from 'react';
-import {Alert, Linking, Platform} from 'react-native';
+import {useEffect, useState} from 'react';
+import {Alert, Platform} from 'react-native';
 import type {AppDispatch} from '../../store/store';
 import {deleteAccount} from '../../store/actions/auth';
 import {LogOut} from '../../store/reducers/auth';
 import {
   AsyncKeys,
   clearAccountScopedStorage,
+  clearLegacyUnscopedPersonalStorage,
   extractApiToken,
   extractUserProfile,
   getCurrentAccountStorageScope,
   removeItem,
+  rotateGuestStorageScope,
 } from '../../constants/helpers';
 import {
   cancelLearningReminders,
@@ -36,6 +38,10 @@ import type {PublicAppSettings} from '../../services/publicAppSettings';
 import {accountDeletionUrl} from './settingsData';
 import type {SettingsNavigation} from './types';
 import {configuredAppStoreUrl} from '../../services/publicLinks';
+import {clearTransientChatCache} from '../../utils/fileCache';
+import {clearPendingLoginReturnTo} from '../../navigation/authReturn';
+import {openExternalUrlOnce} from '../../services/systemActions';
+import {revokeReauthenticationSession} from '../../services/accountDeletion';
 
 export const useAccountSettingsActions = ({
   dispatch,
@@ -47,21 +53,39 @@ export const useAccountSettingsActions = ({
   userData: unknown;
 }) => {
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [storeRatingAvailable, setStoreRatingAvailable] = useState(
+    Boolean(configuredAppStoreUrl()),
+  );
+
+  useEffect(() => {
+    let active = true;
+    void getPublicAppSettings()
+      .then(settings => {
+        if (!active) return;
+        const configuredUrl =
+          Platform.OS === 'android'
+            ? safeDashboardUrl(settings.android_app_url)
+            : safeDashboardUrl(settings.ios_app_url) ||
+              safeDashboardUrl(configuredAppStoreUrl());
+        setStoreRatingAvailable(Boolean(configuredUrl));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const openWhatsAppSupport = async () => {
     try {
       await openSupportWhatsApp();
     } catch {
-      Alert.alert(
-        'تعذّر فتح واتساب',
-        'تحقق من الاتصال\nأو أرسل بلاغًا من داخل ركن',
-      );
+      navigation.navigate('Feedback', {sourceScreen: 'settings'});
     }
   };
 
   const openAccountDeletionPage = async () => {
     try {
-      await Linking.openURL(accountDeletionUrl);
+      await openExternalUrlOnce(accountDeletionUrl);
     } catch {
       Alert.alert(
         'تعذّر فتح الصفحة',
@@ -77,8 +101,9 @@ export const useAccountSettingsActions = ({
       );
       if (Platform.OS === 'android') {
         const dashboardUrl = safeDashboardUrl(settings.android_app_url);
-        await Linking.openURL(
+        await openExternalUrlOnce(
           dashboardUrl || 'market://details?id=com.rokn',
+          'https://play.google.com/store/apps/details?id=com.rokn',
         );
         return;
       }
@@ -86,16 +111,22 @@ export const useAccountSettingsActions = ({
         safeDashboardUrl(settings.ios_app_url) ||
         safeDashboardUrl(configuredAppStoreUrl());
       if (appStoreUrl) {
-        await Linking.openURL(appStoreUrl);
+        await openExternalUrlOnce(appStoreUrl);
         return;
       }
       Alert.alert('تعذّر فتح التقييم', 'حاول مرة أخرى');
     } catch {
       if (Platform.OS === 'android') {
-        await Linking.openURL(
-          'https://play.google.com/store/apps/details?id=com.rokn',
-        );
+        try {
+          await openExternalUrlOnce(
+            'https://play.google.com/store/apps/details?id=com.rokn',
+          );
+          return;
+        } catch {
+          // Fall through to the same visible recovery as iOS.
+        }
       }
+      Alert.alert('تعذّر فتح التقييم', 'حاول مرة أخرى');
     }
   };
 
@@ -108,7 +139,7 @@ export const useAccountSettingsActions = ({
         onPress: async () => {
           const accountScope = await getCurrentAccountStorageScope();
           cancelLearningReminders();
-          await setSmartRemindersEnabled(false);
+          await setSmartRemindersEnabled(false).catch(() => undefined);
           if (extractApiToken(userData)) {
             try {
               const deviceToken = await getCurrentPushDeviceToken();
@@ -121,9 +152,17 @@ export const useAccountSettingsActions = ({
           await clearCurrentAccountLearningFiles(accountScope).catch(
             () => undefined,
           );
-          await clearAccountScopedStorage(accountScope).catch(() => undefined);
+          await clearTransientChatCache({accountBoundary: true}).catch(
+            () => undefined,
+          );
+          await clearLegacyUnscopedPersonalStorage().catch(() => undefined);
+          await clearAccountScopedStorage(accountScope, {
+            preserveFinancialRecovery: true,
+          }).catch(() => undefined);
+          await clearPendingLoginReturnTo().catch(() => undefined);
           await removeItem(AsyncKeys.IS_LOGIN);
           await removeItem(AsyncKeys.USER_DATA);
+          await rotateGuestStorageScope().catch(() => undefined);
           dispatch(LogOut());
           navigation.reset({index: 0, routes: [{name: 'Home'}]});
         },
@@ -149,10 +188,16 @@ export const useAccountSettingsActions = ({
 
     setDeletingAccount(true);
     let accountDeleted = false;
+    let reauthenticationToken = '';
     try {
       const provider = socialProviderForSession(userData);
       if (!provider) throw new Error('ACCOUNT_REAUTH_PROVIDER_MISSING');
-      const reauthenticatedSession = await signInWithSocialProvider(provider);
+      const reauthenticatedSession = await signInWithSocialProvider(
+        provider,
+        undefined,
+        {purpose: 'reauth'},
+      );
+      reauthenticationToken = reauthenticatedSession.api_token?.trim() || '';
       const reauthToken = accountDeletionCredential(
         userData,
         reauthenticatedSession,
@@ -160,34 +205,53 @@ export const useAccountSettingsActions = ({
       const accountScope = await getCurrentAccountStorageScope();
       const deletion = await dispatch(deleteAccount({reauthToken})).unwrap();
       accountDeleted = true;
+      reauthenticationToken = '';
       cancelLearningReminders();
-      await setSmartRemindersEnabled(false);
+      await setSmartRemindersEnabled(false).catch(() => undefined);
+      // Once the server confirms deletion, no ancillary cache or notification
+      // failure may leave the deleted identity active on this device.
+      await clearCurrentPushDeviceRegistration().catch(() => undefined);
       await removeItem(AsyncKeys.USER_DATA);
-      await clearAccountScopedStorage(accountScope);
+      await clearCurrentAccountLearningFiles(accountScope).catch(
+        () => undefined,
+      );
+      await clearTransientChatCache({accountBoundary: true}).catch(
+        () => undefined,
+      );
+      await clearLegacyUnscopedPersonalStorage().catch(() => undefined);
+      await clearAccountScopedStorage(accountScope).catch(() => undefined);
+      await clearPendingLoginReturnTo().catch(() => undefined);
       await removeItem(AsyncKeys.IS_LOGIN);
+      await rotateGuestStorageScope().catch(() => undefined);
       dispatch(LogOut());
       navigation.reset({index: 0, routes: [{name: 'Home'}]});
       Alert.alert(
         deletion.cleanupPending ? 'تم إغلاق الحساب' : 'تم حذف الحساب',
         deletion.cleanupPending
-          ? 'أغلقنا حسابك\nسيكتمل حذف النسخ الاحتياطية لاحقًا'
+          ? 'أغلقنا حسابك\nلا تحتاج إلى إجراء آخر'
           : 'حذفنا حسابك وبيانات ملفك',
       );
     } catch (error) {
       if (error instanceof Error && error.message === 'LOGIN_CANCELLED') return;
+      if (reauthenticationToken) {
+        await revokeReauthenticationSession(reauthenticationToken).catch(
+          () => undefined,
+        );
+        reauthenticationToken = '';
+      }
       if (accountDeleted) {
         dispatch(LogOut());
         navigation.reset({index: 0, routes: [{name: 'Home'}]});
         Alert.alert(
           'تم حذف الحساب',
-          'امسح بيانات التطبيق لإزالة النسخة المحلية',
+          'يمكنك متابعة التصفح كزائر',
         );
       } else {
         const mismatch =
           error instanceof Error &&
           error.message === 'ACCOUNT_REAUTH_IDENTITY_MISMATCH';
         Alert.alert(
-          'تعذر حذف الحساب',
+          'تعذّر حذف الحساب',
           mismatch
             ? 'اختر حساب ركن نفسه\nثم حاول مرة أخرى'
             : 'أكد هويتك من جديد\nأو استخدم صفحة الحذف',
@@ -235,5 +299,6 @@ export const useAccountSettingsActions = ({
     openAccountDeletionPage,
     openStoreRating,
     openWhatsAppSupport,
+    storeRatingAvailable,
   };
 };

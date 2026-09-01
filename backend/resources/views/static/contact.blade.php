@@ -9,16 +9,11 @@
         <p class="intro-text">{{ __('contact.intro') }}</p>
 
         @php
-            $hasEmail = $setting && $setting->email;
-            $hasPhone = $setting && $setting->phone;
-            $contactSocials = collect([
-                'facebook' => $designSetting->facebook_url ?? null,
-                'instagram' => $designSetting->instagram_url ?? null,
-                'youtube' => $designSetting->youtube_url ?? null,
-                'tiktok' => $designSetting->tiktok_url ?? null,
-                'whatsapp' => $designSetting->whatsapp_url ?? null,
-                'telegram' => $designSetting->telegram_url ?? null,
-            ])->filter(fn($url) => $url && filter_var($url, FILTER_VALIDATE_URL));
+            $email = $publicSettings['support_contacts']['email'] ?? null;
+            $phone = $publicSettings['support_contacts']['phone'] ?? null;
+            $hasEmail = filled($email);
+            $hasPhone = filled($phone);
+            $contactSocials = collect($publicSettings['social_media'] ?? [])->filter();
             $hasAnyContact = $hasEmail || $hasPhone || $contactSocials->isNotEmpty();
         @endphp
 
@@ -28,7 +23,7 @@
                     <div class="contact-card">
                         <div class="contact-icon">&#9993;</div>
                         <h3>{{ __('contact.email_label') }}</h3>
-                        <p><a href="mailto:{{ $setting->email }}">{{ $setting->email }}</a></p>
+                        <p><a href="mailto:{{ $email }}">{{ $email }}</a></p>
                     </div>
                 @endif
 
@@ -36,7 +31,7 @@
                     <div class="contact-card">
                         <div class="contact-icon">&#9742;</div>
                         <h3>{{ __('contact.phone_label') }}</h3>
-                        <p><a href="tel:{{ $setting->phone }}">{{ $setting->phone }}</a></p>
+                        <p><a href="tel:{{ $phone }}">{{ $phone }}</a></p>
                     </div>
                 @endif
             </div>

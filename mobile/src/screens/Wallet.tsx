@@ -1,12 +1,12 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {useNavigation} from '@react-navigation/native';
+import {useFocusEffect, useNavigation} from '@react-navigation/native';
 import type {RootNavigation} from '../navigation/types';
-import {errorPayload} from '../utils/errorPayload';
+import {learnerErrorMessage} from '../utils/errorPayload';
+import {formatRoknRelativeDate} from '../utils/dateTime';
 import {
   ActivityIndicator,
   AppState,
   Alert,
-  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -45,6 +45,7 @@ import {
   subscribeDemoExperience,
 } from '../services/demoExperience';
 import {openCoinCheckout} from '../services/coinCheckout';
+import {openExternalUrlOnce} from '../services/systemActions';
 import {
   getCoinPackages,
   getCoinTasks,
@@ -69,10 +70,12 @@ import {
 } from '../constants/arabicFormatting';
 import {LOCAL_DEMO_ENABLED} from '../config/runtime';
 import {trustedExternalTaskUrl} from '../services/externalTaskUrlPolicy';
+import {useReducedMotion} from '../hooks/useReducedMotion';
 
 export default function Wallet() {
   const navigation = useNavigation<RootNavigation>();
   const insets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
   const {contentWidth, fontScale, gutter, width} = useResponsiveLayout();
   const packageColumns =
     fontScale > 1.18
@@ -103,9 +106,9 @@ export default function Wallet() {
   const [remoteError, setRemoteError] = useState('');
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [taskLoadingIds, setTaskLoadingIds] = useState<string[]>([]);
-  const [walletModal, setWalletModal] = useState<
-    'breakdown' | 'rules' | null
-  >(null);
+  const [walletModal, setWalletModal] = useState<'breakdown' | 'rules' | null>(
+    null,
+  );
   const checkoutFlightRef = useRef(false);
   const taskFlightsRef = useRef(new Set<string>());
   const walletRefreshRequestRef = useRef(0);
@@ -118,7 +121,7 @@ export default function Wallet() {
     } catch {
       if (requestId === walletRefreshRequestRef.current) {
         setRemoteLoading(false);
-        setRemoteError('تعذّر قراءة جلسة المحفظة بأمان. أعد فتح الشاشة.');
+        setRemoteError('تعذّر فتح المحفظة\nأعد فتح الشاشة');
       }
       return;
     }
@@ -144,11 +147,7 @@ export default function Wallet() {
     const failed = [walletResult, packagesResult, tasksResult].some(
       result => result.status === 'rejected',
     );
-    setRemoteError(
-      failed
-        ? 'تعذّر تحديث بعض بيانات المحفظة الآن. لم نخصم أو نضف أي عملات.'
-        : '',
-    );
+    setRemoteError(failed ? 'تعذّر تحديث بعض البيانات\nرصيدك لم يتغير' : '');
     setRemoteLoading(false);
   }, []);
 
@@ -156,20 +155,22 @@ export default function Wallet() {
     const unsubscribe = LOCAL_DEMO_ENABLED
       ? subscribeDemoExperience(setExperience)
       : () => undefined;
-    void refreshWallet();
-    return () => {
-      walletRefreshRequestRef.current += 1;
-      unsubscribe();
-    };
-  }, [refreshWallet]);
+    return unsubscribe;
+  }, []);
 
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', state => {
-      if (state === 'active') void refreshWallet();
-    });
+  useFocusEffect(
+    useCallback(() => {
+      void refreshWallet();
+      const subscription = AppState.addEventListener('change', state => {
+        if (state === 'active') void refreshWallet();
+      });
 
-    return () => subscription.remove();
-  }, [refreshWallet]);
+      return () => {
+        walletRefreshRequestRef.current += 1;
+        subscription.remove();
+      };
+    }, [refreshWallet]),
+  );
 
   useEffect(() => {
     if (!CAN_START_NATIVE_CHECKOUT) return undefined;
@@ -228,10 +229,9 @@ export default function Wallet() {
     ? remoteWallet?.spendableBalance ?? displayedBalance ?? 0
     : displayedPaidBalance +
       Math.min(displayedRewardBalance, displayedRewardContributionCap);
-  const displayedCoinRules =
-    usingRemoteWallet && remoteWallet?.coinRules?.length
-      ? remoteWallet.coinRules
-      : ECONOMY_RULES;
+  const displayedCoinRules = usingRemoteWallet
+    ? remoteWallet?.coinRules ?? []
+    : ECONOMY_RULES;
   const displayedPackages = (
     usingRemoteWallet
       ? remotePackages
@@ -251,9 +251,7 @@ export default function Wallet() {
         id: item.id,
         title: item.category || 'عملية محفظة',
         amount: item.amount,
-        createdAt: item.occurred_at
-          ? new Date(item.occurred_at).getTime()
-          : Date.now(),
+        createdAt: item.occurred_at ? new Date(item.occurred_at).getTime() : 0,
       }))
     : serverSession === false && LOCAL_DEMO_ENABLED
     ? experience?.transactions ?? []
@@ -266,44 +264,37 @@ export default function Wallet() {
     task.id === 'coin-guide' ||
     (isRemoteTask(task) && task.actionKey.toLowerCase().includes('coin_guide'));
 
-  const isWhatsAppTask = (
-    task: DemoCoinTask | CoinTask,
-  ): task is CoinTask =>
+  const isWhatsAppTask = (task: DemoCoinTask | CoinTask): task is CoinTask =>
     isRemoteTask(task) && task.actionKey === 'link_whatsapp';
 
   const runTaskAction = async (task: DemoCoinTask | CoinTask) => {
     if (isWhatsAppTask(task)) {
       try {
         const started = await startCoinTask(task);
-        setRemoteTasks(current =>
-          current.map(item =>
-            item.id === task.id
-              ? {
-                  ...item,
-                  status:
-                    started.status === 'claimed' ? 'claimed' : 'started',
-                }
-              : item,
-          ),
-        );
         if (started.status === 'claimed') {
+          setRemoteTasks(current =>
+            current.map(item =>
+              item.id === task.id ? {...item, status: 'claimed'} : item,
+            ),
+          );
           await refreshWallet();
           return;
         }
         const safeActionUrl = trustedExternalTaskUrl(started.url);
         if (!safeActionUrl) {
-          Alert.alert(
-            'ربط واتساب غير متاح',
-            'حاول مرة أخرى لاحقًا',
-          );
+          Alert.alert('ربط واتساب غير متاح', 'حاول مرة أخرى لاحقًا');
           return;
         }
-        await Linking.openURL(safeActionUrl);
+        await openExternalUrlOnce(safeActionUrl);
+        setRemoteTasks(current =>
+          current.map(item =>
+            item.id === task.id ? {...item, status: 'started'} : item,
+          ),
+        );
       } catch (error: unknown) {
-        const details = errorPayload(error);
         Alert.alert(
           'تعذّر فتح واتساب',
-          String(details.message || 'تحقق من الاتصال ثم حاول مرة أخرى'),
+          learnerErrorMessage(error, 'تحقق من الاتصال\nثم حاول مرة أخرى'),
         );
       }
       return;
@@ -314,18 +305,12 @@ export default function Wallet() {
         if (isRemoteTask(task)) {
           const started = await startCoinTask(task);
           actionUrl = started.url;
-          setRemoteTasks(current =>
-            current.map(item =>
-              item.id === task.id
-                ? {
-                    ...item,
-                    status:
-                      started.status === 'claimed' ? 'claimed' : 'started',
-                  }
-                : item,
-            ),
-          );
           if (started.status === 'claimed') {
+            setRemoteTasks(current =>
+              current.map(item =>
+                item.id === task.id ? {...item, status: 'claimed'} : item,
+              ),
+            );
             await refreshWallet();
             return;
           }
@@ -336,22 +321,32 @@ export default function Wallet() {
         }
         if (isCoinGuideTask(task)) {
           setWalletModal('rules');
+          if (isRemoteTask(task)) {
+            setRemoteTasks(current =>
+              current.map(item =>
+                item.id === task.id ? {...item, status: 'started'} : item,
+              ),
+            );
+          }
         } else if (actionUrl) {
           const safeActionUrl = trustedExternalTaskUrl(actionUrl);
           if (!safeActionUrl) {
-            Alert.alert(
-              'تعذّر فتح المهمة',
-              'رابط المهمة غير متاح',
-            );
+            Alert.alert('تعذّر فتح المهمة', 'رابط المهمة غير متاح');
             return;
           }
-          await Linking.openURL(safeActionUrl);
+          await openExternalUrlOnce(safeActionUrl);
+          if (isRemoteTask(task)) {
+            setRemoteTasks(current =>
+              current.map(item =>
+                item.id === task.id ? {...item, status: 'started'} : item,
+              ),
+            );
+          }
         }
       } catch (error: unknown) {
-        const payload = errorPayload(error);
         Alert.alert(
           'تعذّر بدء المهمة',
-          String(payload.message || 'تحقق من الاتصال ثم حاول مرة أخرى'),
+          learnerErrorMessage(error, 'تحقق من الاتصال\nثم حاول مرة أخرى'),
         );
       }
       return;
@@ -369,10 +364,9 @@ export default function Wallet() {
         await claimDemoTask(task.id);
       }
     } catch (error: unknown) {
-      const payload = errorPayload(error);
       Alert.alert(
         'المكافأة ليست جاهزة بعد',
-        String(payload.message || 'أكمل المهمة ثم اطلب العملات'),
+        learnerErrorMessage(error, 'أكمل المهمة\nثم اطلب العملات'),
       );
     }
   };
@@ -395,18 +389,17 @@ export default function Wallet() {
     checkoutFlightRef.current = true;
     setCheckoutLoading(item.id);
     try {
-      const result = await openCoinCheckout(item);
+      const result = await openCoinCheckout(item, {
+        returnTo: {name: 'Wallet'},
+      });
       if (result.success) {
         if (!result.demo) await refreshWallet();
         Alert.alert(
           'تم شحن الرصيد',
-          `أضفنا ${formatArabicNumber(result.coinsAdded)} إلى رصيدك`,
+          `أضفنا ${formatArabicNumber(result.coinsAdded)} عملة ركن إلى رصيدك`,
         );
       } else if (result.pending) {
-        Alert.alert(
-          'العملية قيد التأكيد',
-          'سنحدّث رصيدك فور تأكيد الدفع',
-        );
+        Alert.alert('العملية قيد التأكيد', 'سنحدّث رصيدك فور تأكيد الدفع');
       }
     } catch {
       Alert.alert('تعذّر فتح الدفع', 'رصيدك لم يتغير\nحاول مرة أخرى');
@@ -473,7 +466,7 @@ export default function Wallet() {
               <View style={styles.balanceRow}>
                 <RoknCoin size={34} style={styles.coinSpacing} />
                 <Text
-                  adjustsFontSizeToFit
+                  maxFontSizeMultiplier={2}
                   numberOfLines={1}
                   style={styles.balance}>
                   {displayedBalance === null
@@ -512,9 +505,9 @@ export default function Wallet() {
               <Package
                 buttonTitle={
                   checkoutLoading === item.id
-                    ? 'جاري الفتح…'
+                    ? 'جارٍ فتح الدفع'
                     : checkoutLoading
-                    ? 'انتظر لحظة'
+                    ? 'جارٍ فتح باقة أخرى'
                     : 'اختيار الباقة'
                 }
                 disabled={Boolean(checkoutLoading)}
@@ -532,8 +525,8 @@ export default function Wallet() {
             <PremiumCard style={styles.unavailableCard}>
               <Text style={styles.remoteNote}>
                 {remoteLoading
-                  ? 'نحدّث باقات الرصيد…'
-                  : 'تعذّر تحميل الباقات الآن.'}
+                  ? 'جارٍ تحديث باقات الرصيد'
+                  : 'تعذّر تحميل الباقات الآن'}
               </Text>
               {!remoteLoading && (
                 <Pressable
@@ -551,7 +544,7 @@ export default function Wallet() {
           {!!remoteError && <Text style={styles.apiError}>{remoteError}</Text>}
           <SectionHeading
             style={styles.sectionHeading}
-            title="اكسب رصيدًا"
+            title="اكسب عملات ركن"
             eyebrow="المكافآت المتاحة لك الآن"
           />
           <PremiumCard style={styles.tasksCard}>
@@ -559,80 +552,83 @@ export default function Wallet() {
               displayedTasks.map((task, index, allTasks) => {
                 const taskLoading = taskLoadingIds.includes(task.id);
                 return (
-                <View key={task.id}>
-                  <View
-                    style={[
-                      styles.taskRow,
-                      stackTaskActions && styles.taskRowStacked,
-                    ]}>
-                    <View style={styles.taskMain}>
-                      <View style={styles.taskIcon}>
-                        <TaskBrandIcon
-                          value={`${
-                            isRemoteTask(task) ? task.actionKey : task.id
-                          } ${task.title} ${task.url || ''}`}
-                        />
-                      </View>
-                      <View style={styles.taskCopy}>
-                        <Text style={styles.taskTitle}>
-                          {formatArabicDisplayText(task.title)}
-                        </Text>
-                        <Text style={styles.taskDescription}>
-                          {formatArabicDisplayText(task.description)}
-                        </Text>
-                        <View style={styles.taskReward}>
-                          <Text style={styles.rewardPlus}>+</Text>
-                          <CoinAmount size={15} value={task.reward} />
+                  <View key={task.id}>
+                    <View
+                      style={[
+                        styles.taskRow,
+                        stackTaskActions && styles.taskRowStacked,
+                      ]}>
+                      <View style={styles.taskMain}>
+                        <View style={styles.taskIcon}>
+                          <TaskBrandIcon
+                            value={`${
+                              isRemoteTask(task) ? task.actionKey : task.id
+                            } ${task.title} ${task.url || ''}`}
+                          />
+                        </View>
+                        <View style={styles.taskCopy}>
+                          <Text style={styles.taskTitle}>
+                            {formatArabicDisplayText(task.title)}
+                          </Text>
+                          <Text style={styles.taskDescription}>
+                            {formatArabicDisplayText(task.description)}
+                          </Text>
+                          <View style={styles.taskReward}>
+                            <Text style={styles.rewardPlus}>+</Text>
+                            <CoinAmount size={15} value={task.reward} />
+                          </View>
                         </View>
                       </View>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{
+                          busy: taskLoading,
+                          disabled: task.status === 'claimed' || taskLoading,
+                        }}
+                        disabled={task.status === 'claimed' || taskLoading}
+                        onPress={() => handleTask(task)}
+                        style={({pressed}) => [
+                          styles.taskAction,
+                          stackTaskActions && styles.taskActionStacked,
+                          task.status === 'claimed' && styles.taskActionDone,
+                          pressed && styles.pressed,
+                        ]}>
+                        {taskLoading ? (
+                          <ActivityIndicator
+                            color={Palette.text}
+                            size="small"
+                          />
+                        ) : (
+                          <Text
+                            style={[
+                              styles.taskActionLabel,
+                              task.status === 'claimed' &&
+                                styles.taskActionLabelDone,
+                            ]}>
+                            {task.status === 'available'
+                              ? isCoinGuideTask(task)
+                                ? 'اعرف أكثر'
+                                : 'اذهب'
+                              : task.status === 'started'
+                              ? 'استلام'
+                              : 'تم الاستلام'}
+                          </Text>
+                        )}
+                      </Pressable>
                     </View>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityState={{
-                        busy: taskLoading,
-                        disabled: task.status === 'claimed' || taskLoading,
-                      }}
-                      disabled={task.status === 'claimed' || taskLoading}
-                      onPress={() => handleTask(task)}
-                      style={({pressed}) => [
-                        styles.taskAction,
-                        stackTaskActions && styles.taskActionStacked,
-                        task.status === 'claimed' && styles.taskActionDone,
-                        pressed && styles.pressed,
-                      ]}>
-                      {taskLoading ? (
-                        <ActivityIndicator color={Palette.text} size="small" />
-                      ) : (
-                        <Text
-                          style={[
-                            styles.taskActionLabel,
-                            task.status === 'claimed' &&
-                              styles.taskActionLabelDone,
-                          ]}>
-                          {task.status === 'available'
-                            ? isCoinGuideTask(task)
-                              ? 'اعرف أكثر'
-                              : 'اذهب'
-                            : task.status === 'started'
-                            ? 'استلام'
-                            : 'تم الاستلام'}
-                        </Text>
-                      )}
-                    </Pressable>
+                    {index < allTasks.length - 1 && (
+                      <View style={styles.divider} />
+                    )}
                   </View>
-                  {index < allTasks.length - 1 && (
-                    <View style={styles.divider} />
-                  )}
-                </View>
                 );
               })
             ) : (
               <Text style={styles.remoteNote}>
                 {usingRemoteWallet && remoteLoading
-                  ? 'نحدّث المهام المتاحة…'
+                  ? 'جارٍ تحديث المهام المتاحة'
                   : usingRemoteWallet && remoteError
                   ? 'تعذّر تحميل المهام\nحاول التحديث لاحقًا'
-                  : 'أنهيت كل المهام المتاحة حاليًا.'}
+                  : 'أنهيت كل المهام المتاحة حاليًا'}
               </Text>
             )}
           </PremiumCard>
@@ -655,10 +651,7 @@ export default function Wallet() {
                           </Text>
                           <Text style={styles.transactionDate}>
                             {toArabicDigits(
-                              new Date(item.createdAt).toLocaleDateString(
-                                'ar-EG',
-                                {day: 'numeric', month: 'short'},
-                              ),
+                              formatRoknRelativeDate(item.createdAt),
                             )}
                           </Text>
                         </View>
@@ -683,8 +676,9 @@ export default function Wallet() {
       </Content>
       <TabBar />
       <Modal
-        animationType="fade"
+        animationType={reducedMotion ? 'none' : 'fade'}
         onRequestClose={() => setWalletModal(null)}
+        statusBarTranslucent
         transparent
         visible={walletModal !== null}>
         <Pressable
@@ -698,7 +692,11 @@ export default function Wallet() {
             onPress={event => event.stopPropagation()}
             style={[
               styles.breakdownSheet,
-              {paddingBottom: Math.max(Spacing.xl, insets.bottom + Spacing.md)},
+              {
+                paddingBottom: Math.max(Spacing.xl, insets.bottom + Spacing.md),
+                paddingLeft: Math.max(Spacing.xl, insets.left + Spacing.md),
+                paddingRight: Math.max(Spacing.xl, insets.right + Spacing.md),
+              },
             ]}>
             <View style={styles.breakdownHandle} />
             <ScrollView
@@ -710,21 +708,28 @@ export default function Wallet() {
                 <>
                   <Text style={styles.rulesTitle}>كيف يعمل الرصيد؟</Text>
                   <Text style={styles.rulesIntro}>
-                    اشحنه أو اكسبه من المهام، ثم استخدمه لفتح الكورسات.
+                    اشحن عملات ركن أو اكسبها من المهام
+                    {'\n'}ثم استخدمها لفتح الكورسات
                   </Text>
                   <View style={styles.rulesList}>
-                    {displayedCoinRules.map((rule, index) => (
-                      <View key={rule} style={styles.ruleRow}>
-                        <View style={styles.ruleNumber}>
-                          <Text style={styles.ruleNumberLabel}>
-                            {formatArabicNumber(index + 1)}
+                    {displayedCoinRules.length ? (
+                      displayedCoinRules.map((rule, index) => (
+                        <View key={rule} style={styles.ruleRow}>
+                          <View style={styles.ruleNumber}>
+                            <Text style={styles.ruleNumberLabel}>
+                              {formatArabicNumber(index + 1)}
+                            </Text>
+                          </View>
+                          <Text style={styles.ruleText}>
+                            {formatArabicDisplayText(rule)}
                           </Text>
                         </View>
-                        <Text style={styles.ruleText}>
-                          {formatArabicDisplayText(rule)}
-                        </Text>
-                      </View>
-                    ))}
+                      ))
+                    ) : (
+                      <Text style={styles.ruleText}>
+                        تعذّر تحميل قواعد الرصيد الآن
+                      </Text>
+                    )}
                   </View>
                 </>
               ) : (
@@ -772,7 +777,7 @@ export default function Wallet() {
                   <Text style={styles.bucketPolicy}>
                     عند فتح كورس نستخدم المكافآت أولًا بحد أقصى{' '}
                     {formatArabicNumber(displayedRewardContributionCap)} ثم
-                    الرصيد المدفوع.
+                    الرصيد المدفوع
                   </Text>
                 </>
               )}

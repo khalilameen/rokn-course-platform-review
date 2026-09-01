@@ -19,9 +19,11 @@
                 <div class="card-header"><i class="fa fa-th-large"></i><strong class="card-title pr-2">أضافه سؤال</strong>
                 </div>
                 <div class="card-body card-block">
-                    {!! Form::open(['method' => 'POST','files' => true, 'route' => ['admin.questions.store']]) !!}
+                    {!! Form::open(['method' => 'POST','files' => true, 'route' => ['admin.questions.store'], 'id' => 'questionForm']) !!}
+                        <input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) Str::uuid()) }}">
                         @include('admin.questions._form')
                     {!! Form::close() !!}
+                    @include('admin.partials.course-authoring-draft', ['formId' => 'questionForm'])
                 </div>
             </div>
         </div>

@@ -32,6 +32,7 @@ export const applyPlaybackManifest = (
         videoUrl: update.manifest.sourceUrl,
         fallbackVideoUrl:
           update.manifest.fallbackUrl || existing.fallbackVideoUrl,
+        thumbnailUrl: update.manifest.posterUrl || existing.thumbnailUrl,
         qualitySources: update.manifest.qualitySources,
         availableQualities: update.manifest.availableQualities,
         durationSeconds:
@@ -73,6 +74,23 @@ export const disableLessonPlayback = (
 };
 
 export const playbackFeatureErrorCode = (error: unknown): string => {
-  if (!error || typeof error !== 'object' || !('code' in error)) return '';
-  return String(error.code || '');
+  if (!error || typeof error !== 'object') return '';
+  const candidate = error as {
+    code?: unknown;
+    data?: {code?: unknown};
+    response?: {data?: {code?: unknown}};
+  };
+  return String(
+    candidate.response?.data?.code ?? candidate.data?.code ?? candidate.code ?? '',
+  );
+};
+
+export const playbackManifestHttpStatus = (error: unknown): number | null => {
+  if (!error || typeof error !== 'object') return null;
+  const candidate = error as {
+    status?: unknown;
+    response?: {status?: unknown};
+  };
+  const status = Number(candidate.status ?? candidate.response?.status);
+  return Number.isFinite(status) && status > 0 ? status : null;
 };

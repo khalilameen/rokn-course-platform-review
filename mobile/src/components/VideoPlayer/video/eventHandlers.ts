@@ -21,6 +21,7 @@ type VideoEventHandlers = Pick<
   | 'onLoadStart'
   | 'onPlaybackStateChanged'
   | 'onProgress'
+  | 'onSeek'
   | 'onVideoTracks'
 >;
 
@@ -52,6 +53,7 @@ type VideoEventContext = {
   longBufferTimer: MutableValue<ReturnType<typeof setTimeout> | null>;
   onComplete?: () => void;
   onProgressChange?: (currentTime: number, duration: number) => void;
+  pendingSeek: MutableValue<number | null>;
   publishRuntimeMetrics: (updates: Partial<PlaybackRuntimeMetrics>) => void;
   recoverOrFail: (reason: 'source' | 'timeout') => boolean;
   recoveryAttempts: MutableValue<number>;
@@ -99,7 +101,11 @@ export const createVideoEventHandlers = (
       clearTimeout(context.longBufferTimer.current);
       context.longBufferTimer.current = null;
     }
-    const loadedDuration = Number(event.duration || 0);
+    const rawLoadedDuration = Number(event.duration || 0);
+    const loadedDuration =
+      Number.isFinite(rawLoadedDuration) && rawLoadedDuration > 0
+        ? rawLoadedDuration
+        : Math.max(0, context.durationRef.current);
     context.setDuration(loadedDuration);
     context.durationRef.current = loadedDuration;
     context.setBufferedTime(0);
@@ -114,7 +120,10 @@ export const createVideoEventHandlers = (
         loadedDuration > 0 && requestedPosition >= loadedDuration - 3
           ? 0
           : Math.max(0, requestedPosition);
-      if (resumeAt > 0) context.videoRef.current?.seek(resumeAt);
+      if (resumeAt > 0) {
+        context.pendingSeek.current = resumeAt;
+        context.videoRef.current?.seek(resumeAt);
+      }
       context.setCurrentTime(resumeAt);
       context.lastPosition.current = resumeAt;
       context.hasRestored.current = true;
@@ -122,19 +131,51 @@ export const createVideoEventHandlers = (
     }
   },
   onProgress: event => {
-    const nextTime = Number(event.currentTime || 0);
-    const nextDuration =
+    const rawTime = Number(event.currentTime || 0);
+    const nextTime = Number.isFinite(rawTime) ? Math.max(0, rawTime) : 0;
+    const rawDuration =
       context.duration || Number(event.seekableDuration || 0);
+    const nextDuration = Number.isFinite(rawDuration)
+      ? Math.max(0, rawDuration)
+      : 0;
+    const rawPlayableDuration = Number(event.playableDuration || 0);
     context.setBufferedTime(
-      Math.max(nextTime, Number(event.playableDuration || 0)),
+      Math.max(
+        nextTime,
+        Number.isFinite(rawPlayableDuration) ? rawPlayableDuration : 0,
+      ),
     );
-    context.lastPosition.current = nextTime;
-    context.setCurrentTime(nextTime);
     if (nextDuration && !context.duration) {
       context.setDuration(nextDuration);
       context.durationRef.current = nextDuration;
     }
+    const pendingSeek = context.pendingSeek.current;
+    if (pendingSeek !== null && Math.abs(nextTime - pendingSeek) > 2) {
+      return;
+    }
+    context.lastPosition.current = nextTime;
+    context.setCurrentTime(nextTime);
     context.onProgressChange?.(nextTime, nextDuration);
+  },
+  onSeek: event => {
+    const pendingTarget = context.pendingSeek.current;
+    const acknowledgedTarget = Number(event.seekTime);
+    if (
+      pendingTarget !== null &&
+      Number.isFinite(acknowledgedTarget) &&
+      Math.abs(acknowledgedTarget - pendingTarget) > 2
+    ) {
+      return;
+    }
+    const nextTime = Math.max(
+      0,
+      Number(event.currentTime ?? event.seekTime ?? pendingTarget) ||
+        0,
+    );
+    context.pendingSeek.current = null;
+    context.lastPosition.current = nextTime;
+    context.setCurrentTime(nextTime);
+    context.onProgressChange?.(nextTime, context.durationRef.current);
   },
   onBandwidthUpdate: event => {
     const bitrate = Number(event.bitrate || 0);
@@ -301,8 +342,17 @@ export const createVideoEventHandlers = (
       clearTimeout(context.longBufferTimer.current);
       context.longBufferTimer.current = null;
     }
-    context.setCurrentTime(context.duration);
-    context.onProgressChange?.(context.duration, context.duration);
+    const finalDuration = Math.max(
+      0,
+      context.durationRef.current,
+      context.lastPosition.current,
+    );
+    context.pendingSeek.current = null;
+    context.durationRef.current = finalDuration;
+    context.setDuration(finalDuration);
+    context.lastPosition.current = finalDuration;
+    context.setCurrentTime(finalDuration);
+    context.onProgressChange?.(finalDuration, finalDuration);
     context.onComplete?.();
   },
 });

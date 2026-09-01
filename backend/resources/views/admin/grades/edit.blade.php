@@ -30,7 +30,7 @@
                                 @if($grade->updated_at)
                                     <div class="last-updated">
                                         <i class="fa fa-clock-o ml-1"></i>
-                                        آخر تعديل: {{ $grade->updated_at->diffForHumans() }}
+                                        آخر تعديل {{ \App\Support\BusinessClock::relative($grade->updated_at) }}
                                     </div>
                                 @endif
                             </div>
@@ -101,6 +101,7 @@
                         <form action="{{ route('admin.grades.update', $grade->id) }}" method="post" id="gradeEditForm">
                             @csrf
                             @method('PUT')
+                            <input type="hidden" name="editor_version" value="{{ $editorVersion }}">
                             @include('admin.grades._form')
                         </form>
                     </div>
@@ -111,49 +112,5 @@
 @endsection
 
 @section('scripts')
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Form enhancement
-    const form = document.getElementById('gradeEditForm');
-
-    // Track changes
-    const originalData = new FormData(form);
-    let hasChanges = false;
-
-    form.addEventListener('input', function() {
-        hasChanges = true;
-    });
-
-    // Warn before leaving if there are unsaved changes
-    window.addEventListener('beforeunload', function(e) {
-        if (hasChanges) {
-            e.preventDefault();
-            e.returnValue = 'لديك تغييرات غير محفوظة. هل تريد المغادرة؟';
-        }
-    });
-
-    // Clear changes flag on form submission
-    form.addEventListener('submit', function() {
-        hasChanges = false;
-    });
-
-    // Auto-save draft functionality
-    let autoSaveTimeout;
-    form.addEventListener('input', function() {
-        clearTimeout(autoSaveTimeout);
-        autoSaveTimeout = setTimeout(function() {
-            const formData = new FormData(form);
-            const data = {};
-            for (let [key, value] of formData.entries()) {
-                data[key] = value;
-            }
-            localStorage.setItem('grade_edit_{{ $grade->id }}', JSON.stringify(data));
-
-            setTimeout(() => {
-                indicator.remove();
-            }, 2000);
-        }, 3000);
-    });
-});
-</script>
+    @include('admin.partials.course-authoring-draft', ['formId' => 'gradeEditForm'])
 @endsection

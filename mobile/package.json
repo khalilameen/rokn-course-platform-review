@@ -12,6 +12,7 @@
     "apk:direct": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-android-release.ps1 -Channel direct -Profile production -Artifact apk",
     "apk:play": "npm run aab:play",
     "aab:play": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-android-release.ps1 -Channel play -Profile production -Artifact aab",
+    "android:install-artifact": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/install-android-artifact.ps1",
     "ios": "expo run:ios",
     "lint": "eslint .",
     "lint:release": "eslint App.tsx index.js \"src/**/*.{js,jsx,ts,tsx}\" \"__tests__/**/*.{js,jsx,ts,tsx}\" --max-warnings=0",

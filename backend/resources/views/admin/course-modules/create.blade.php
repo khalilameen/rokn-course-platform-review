@@ -18,8 +18,9 @@
         </div>
 
         <div class="form-body">
-            {!! Form::open(['route' => ['admin.courses.modules.store', $course], 'method' => 'POST']) !!}
+            {!! Form::open(['route' => ['admin.courses.modules.store', $course], 'method' => 'POST', 'id' => 'moduleForm']) !!}
             <input type="hidden" name="return_to" value="{{ request('return_to') === 'studio' ? 'studio' : '' }}">
+            <input type="hidden" name="authoring_version" value="{{ $course->authoring_version }}">
 
             <div class="row">
                 <div class="col-md-6">
@@ -70,4 +71,5 @@
         </div>
     </div>
 </div>
+@include('admin.partials.course-authoring-draft', ['formId' => 'moduleForm'])
 @endsection

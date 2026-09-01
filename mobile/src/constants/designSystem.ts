@@ -95,22 +95,41 @@ export const useResponsiveLayout = () => {
   const shortestSide = Math.min(width, height);
   const isTablet = shortestSide >= 600;
   const isLargeTablet = shortestSide >= 820;
-  const gutter = isTablet ? 28 : 18;
+  const largeText = fontScale >= 1.3;
+  const gutter = Math.min(isTablet ? 28 : 18, Math.max(12, width * 0.05));
   const maxContentWidth = isLargeTablet ? 1120 : isTablet ? 920 : width;
   const contentWidth = Math.min(width, maxContentWidth);
-  const gridColumns = isLargeTablet ? 4 : isTablet ? 3 : 2;
+  const preferredGridColumns = isLargeTablet ? 4 : isTablet ? 3 : 2;
   const gridGap = isTablet ? 18 : 12;
+  const minimumReadableCardWidth = 148 * Math.min(1.42, Math.max(1, fontScale));
+  const availableGridWidth = Math.max(0, contentWidth - gutter * 2);
+  const gridColumns = Math.max(
+    1,
+    Math.min(
+      preferredGridColumns,
+      Math.floor(
+        (availableGridWidth + gridGap) /
+          (minimumReadableCardWidth + gridGap),
+      ),
+    ),
+  );
   const gridCardWidth =
     (contentWidth - gutter * 2 - gridGap * (gridColumns - 1)) / gridColumns;
+  const minimumRailCardWidth = 156 * Math.min(1.35, Math.max(1, fontScale));
   const railCardWidth = Math.min(
-    isTablet ? 250 : 184,
-    Math.max(156, contentWidth * (isTablet ? 0.28 : 0.48)),
+    isTablet ? 290 : 220,
+    Math.max(1, availableGridWidth),
+    Math.max(
+      minimumRailCardWidth,
+      contentWidth * (isTablet ? 0.3 : 0.52),
+    ),
   );
 
   return {
     width,
     height,
     fontScale,
+    largeText,
     isTablet,
     isLargeTablet,
     gutter,

@@ -1,283 +1,206 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\DesignSetting;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\View\View;
+use App\Services\PublicAppSettingsService;
+use Illuminate\Validation\ValidationException;
 
-class DesignSettingController extends Controller
+final class DesignSettingController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
-    public function index()
+    public function index(): View
     {
-        // GET uses persisted values or unsaved branded defaults.
-        $settings = DesignSetting::getDefaultSettings();
-
-        return view('admin.design-settings.index', compact('settings'));
-    }
-
-    /**
-     * Show the form for creating a new resource.
-     */
-    public function create()
-    {
-        $settings = DesignSetting::getDefaultSettings();
-        return view('admin.design-settings.create', compact('settings'));
-    }
-
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(Request $request)
-    {
-        $request->validate([
-            'name_ar' => 'required|string|max:255',
-            'name_en' => 'required|string|max:255',
-            'slogan_1_ar' => 'nullable|string|max:255',
-            'slogan_1_en' => 'nullable|string|max:255',
-            'slogan_2_ar' => 'nullable|string|max:255',
-            'slogan_2_en' => 'nullable|string|max:255',
-            'slogan_3_ar' => 'nullable|string|max:255',
-            'slogan_3_en' => 'nullable|string|max:255',
-            'color_1' => 'required|string|max:7',
-            'color_2' => 'required|string|max:7',
-            'color_3' => 'required|string|max:7',
-            'color_4' => 'required|string|max:7',
-            'logo_file' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:1524',
-            'icon_file' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:1524',
-            'home_background_file' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
-            'facebook_url' => 'nullable|url',
-            'youtube_url' => 'nullable|url',
-            'instagram_url' => 'nullable|url',
-            'tiktok_url' => 'nullable|url',
-            'whatsapp_url' => 'nullable|url',
-            'telegram_url' => 'nullable|url',
-            'technical_contact' => 'nullable|string|max:20',
-            'policy_content_ar' => 'nullable|string',
-            'policy_content_en' => 'nullable|string',
-            'show_how_platform_works' => 'nullable|boolean',
-            'how_platform_works_title_ar' => 'nullable|string|max:255',
-            'how_platform_works_title_en' => 'nullable|string|max:255',
-            'how_platform_works_video_link' => 'nullable|url',
+        return view('admin.design-settings.index', [
+            'settings' => DesignSetting::getDefaultSettings(),
         ]);
+    }
 
-        $data = $request->all();
-
-        // Handle logo file upload
-        if ($request->hasFile('logo_file')) {
-            $logoFile = $request->file('logo_file');
-            $logoPath = $logoFile->store('design-settings/logos', 'public');
-            $data['logo_url'] = Storage::url($logoPath);
+    /**
+     * The dashboard owns one design-settings record. The same endpoint creates
+     * it on first use and updates it afterwards, so there is no second editor
+     * with a competing contract.
+     */
+    public function store(Request $request, PublicAppSettingsService $publicSettings): RedirectResponse
+    {
+        $validated = $request->validate($this->rules());
+        foreach (['facebook', 'youtube', 'instagram', 'tiktok', 'telegram'] as $channel) {
+            $field = "{$channel}_url";
+            $value = $validated[$field] ?? null;
+            if ($value === null || trim((string) $value) === '') {
+                $validated[$field] = null;
+                continue;
+            }
+            $validated[$field] = $publicSettings->socialUrl($channel, $value);
+            if ($validated[$field] === null) {
+                throw ValidationException::withMessages([
+                    $field => ['أدخل رابط الحساب الصحيح لهذه المنصة يبدأ بـ https'],
+                ]);
+            }
         }
-
-        // Handle icon file upload
-        if ($request->hasFile('icon_file')) {
-            $iconFile = $request->file('icon_file');
-            $iconPath = $iconFile->store('design-settings/icons', 'public');
-            $data['icon_url'] = Storage::url($iconPath);
+        if (!empty($validated['whatsapp_url'])) {
+            $validated['whatsapp_url'] = $publicSettings->whatsAppUrl($validated['whatsapp_url']);
+            if ($validated['whatsapp_url'] === null) {
+                throw ValidationException::withMessages([
+                    'whatsapp_url' => ['أدخل رقمًا دوليًا أو رابطًا صحيحًا يبدأ بـ https://wa.me/'],
+                ]);
+            }
         }
-
-        // Handle home background file upload
-        if ($request->hasFile('home_background_file')) {
-            $homeBackgroundFile = $request->file('home_background_file');
-            $homeBackgroundPath = $homeBackgroundFile->store('design-settings/home-backgrounds', 'public');
-            $data['home_background_url'] = Storage::url($homeBackgroundPath);
+        if (!empty($validated['how_platform_works_video_link'])) {
+            $validated['how_platform_works_video_link'] = $publicSettings->embedVideoUrl(
+                $validated['how_platform_works_video_link']
+            );
+            if ($validated['how_platform_works_video_link'] === null) {
+                throw ValidationException::withMessages([
+                    'how_platform_works_video_link' => ['استخدم رابط فيديو من YouTube أو Vimeo'],
+                ]);
+            }
         }
+        if ($request->boolean('show_how_platform_works') && empty($validated['how_platform_works_video_link'])) {
+            throw ValidationException::withMessages([
+                'how_platform_works_video_link' => ['أضف رابط الفيديو قبل إظهار هذا القسم'],
+            ]);
+        }
+        $data = collect($validated)->except([
+            'logo_file',
+            'icon_file',
+            'home_background_file',
+            'powered_by_titles',
+            'powered_by_urls',
+        ])->all();
+        $data['show_how_platform_works'] = $request->boolean('show_how_platform_works');
+        $data['powered_by'] = $this->normalisePartners(
+            $validated['powered_by_titles'] ?? [],
+            $validated['powered_by_urls'] ?? []
+        );
 
+        $settings = DesignSetting::query()->first();
+        $newFiles = [];
+        $oldFiles = [];
 
-        // Handle powered by as array
-        if ($request->has('powered_by_titles') && $request->has('powered_by_urls')) {
-            $titles = $request->powered_by_titles;
-            $urls = $request->powered_by_urls;
-            $poweredBy = [];
+        try {
+            foreach ([
+                'logo_file' => ['logo_url', 'design-settings/logos'],
+                'icon_file' => ['icon_url', 'design-settings/icons'],
+                'home_background_file' => ['home_background_url', 'design-settings/home-backgrounds'],
+            ] as $input => [$attribute, $directory]) {
+                if (!$request->hasFile($input)) {
+                    continue;
+                }
 
-            for ($i = 0; $i < count($titles); $i++) {
-                if (!empty($titles[$i]) && !empty($urls[$i])) {
-                    $poweredBy[] = [
-                        'title' => $titles[$i],
-                        'url' => $urls[$i]
-                    ];
+                $path = $request->file($input)->store($directory, 'public');
+                if (!is_string($path) || $path === '') {
+                    throw new \RuntimeException("Failed to store {$input}");
+                }
+
+                $newFiles[] = $path;
+                $data[$attribute] = Storage::disk('public')->url($path);
+                if ($settings?->{$attribute}) {
+                    $oldFiles[] = $this->publicPathFromUrl((string) $settings->{$attribute});
                 }
             }
-            $data['powered_by'] = $poweredBy;
+
+            DB::transaction(function () use (&$settings, $data): void {
+                if ($settings) {
+                    $settings->update($data);
+                    return;
+                }
+
+                $settings = DesignSetting::create($data);
+            });
+        } catch (\Throwable $exception) {
+            foreach ($newFiles as $path) {
+                Storage::disk('public')->delete($path);
+            }
+            report($exception);
+
+            return back()->withInput()->with('error', 'تعذر حفظ الإعدادات الآن');
         }
 
-        // Handle show_how_platform_works checkbox
-        $data['show_how_platform_works'] = $request->has('show_how_platform_works') ? true : false;
-
-        $existing = DesignSetting::first();
-        if ($existing) {
-            $existing->update($data);
-            $settings = $existing;
-        } else {
-            $settings = DesignSetting::create($data);
+        foreach (array_filter($oldFiles) as $path) {
+            try {
+                Storage::disk('public')->delete($path);
+            } catch (\Throwable $exception) {
+                report($exception);
+            }
         }
 
         return redirect()->route('admin.design-settings.index')
-            ->with('success', 'تم حفظ إعدادات التصميم بنجاح');
+            ->with('success', 'تم حفظ إعدادات التصميم');
+    }
+
+    /** @return array<string, string|array<int, string>> */
+    private function rules(): array
+    {
+        return [
+            'name_ar' => ['required', 'string', 'max:255'],
+            'name_en' => ['required', 'string', 'max:255'],
+            'slogan_1_ar' => ['nullable', 'string', 'max:255'],
+            'slogan_1_en' => ['nullable', 'string', 'max:255'],
+            'slogan_2_ar' => ['nullable', 'string', 'max:255'],
+            'slogan_2_en' => ['nullable', 'string', 'max:255'],
+            'slogan_3_ar' => ['nullable', 'string', 'max:255'],
+            'slogan_3_en' => ['nullable', 'string', 'max:255'],
+            'color_1' => ['required', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'color_2' => ['required', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'color_3' => ['required', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'color_4' => ['required', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'logo_file' => ['nullable', 'image', 'mimes:jpeg,png,webp', 'max:1524'],
+            'icon_file' => ['nullable', 'image', 'mimes:jpeg,png,webp', 'max:1524'],
+            'home_background_file' => ['nullable', 'image', 'mimes:jpeg,png,webp', 'max:2048'],
+            'facebook_url' => ['nullable', 'url', 'starts_with:https://', 'max:2048'],
+            'youtube_url' => ['nullable', 'url', 'starts_with:https://', 'max:2048'],
+            'instagram_url' => ['nullable', 'url', 'starts_with:https://', 'max:2048'],
+            'tiktok_url' => ['nullable', 'url', 'starts_with:https://', 'max:2048'],
+            'whatsapp_url' => ['nullable', 'string', 'max:2048'],
+            'telegram_url' => ['nullable', 'url', 'starts_with:https://', 'max:2048'],
+            'technical_contact' => ['nullable', 'string', 'max:32'],
+            'policy_content_ar' => ['nullable', 'string'],
+            'policy_content_en' => ['nullable', 'string'],
+            'powered_by_titles' => ['nullable', 'array', 'max:20'],
+            'powered_by_titles.*' => ['nullable', 'string', 'max:100'],
+            'powered_by_urls' => ['nullable', 'array', 'max:20'],
+            'powered_by_urls.*' => ['nullable', 'url', 'starts_with:https://', 'max:2048'],
+            'show_how_platform_works' => ['nullable', 'boolean'],
+            'how_platform_works_title_ar' => ['nullable', 'string', 'max:255'],
+            'how_platform_works_title_en' => ['nullable', 'string', 'max:255'],
+            'how_platform_works_video_link' => ['nullable', 'url', 'starts_with:https://', 'max:2048'],
+        ];
     }
 
     /**
-     * Display the specified resource.
+     * @param array<int, mixed> $titles
+     * @param array<int, mixed> $urls
+     * @return list<array{title: string, url: string}>
      */
-    public function show(DesignSetting $designSetting)
+    private function normalisePartners(array $titles, array $urls): array
     {
-        return view('admin.design-settings.show', compact('designSetting'));
+        $partners = [];
+        foreach ($titles as $index => $title) {
+            $title = trim((string) $title);
+            $url = trim((string) ($urls[$index] ?? ''));
+            if ($title !== '' && $url !== '') {
+                $partners[] = ['title' => $title, 'url' => $url];
+            }
+        }
+
+        return $partners;
     }
 
-    /**
-     * Show the form for editing the specified resource.
-     */
-    public function edit(DesignSetting $designSetting)
+    private function publicPathFromUrl(string $url): ?string
     {
-        return view('admin.design-settings.edit', compact('designSetting'));
-    }
-
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, DesignSetting $designSetting)
-    {
-        $request->validate([
-            'name_ar' => 'required|string|max:255',
-            'name_en' => 'required|string|max:255',
-            'slogan_1_ar' => 'nullable|string|max:255',
-            'slogan_1_en' => 'nullable|string|max:255',
-            'slogan_2_ar' => 'nullable|string|max:255',
-            'slogan_2_en' => 'nullable|string|max:255',
-            'slogan_3_ar' => 'nullable|string|max:255',
-            'slogan_3_en' => 'nullable|string|max:255',
-            'color_1' => 'required|string|max:7',
-            'color_2' => 'required|string|max:7',
-            'color_3' => 'required|string|max:7',
-            'color_4' => 'required|string|max:7',
-            'logo_file' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:1024',
-            'icon_file' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:1024',
-            'home_background_file' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
-            'facebook_url' => 'nullable|url',
-            'youtube_url' => 'nullable|url',
-            'instagram_url' => 'nullable|url',
-            'tiktok_url' => 'nullable|url',
-            'whatsapp_url' => 'nullable|url',
-            'telegram_url' => 'nullable|url',
-            'technical_contact' => 'nullable|string|max:20',
-            'policy_content_ar' => 'nullable|string',
-            'policy_content_en' => 'nullable|string',
-            'show_how_platform_works' => 'nullable|boolean',
-            'how_platform_works_title_ar' => 'nullable|string|max:255',
-            'how_platform_works_title_en' => 'nullable|string|max:255',
-            'how_platform_works_video_link' => 'nullable|url',
-        ]);
-
-        $data = $request->all();
-
-        // Handle logo file upload
-        if ($request->hasFile('logo_file')) {
-            // Delete old logo if exists
-            if ($designSetting->logo_url) {
-                $oldLogoPath = str_replace('/storage/', '', $designSetting->logo_url);
-                if (Storage::disk('public')->exists($oldLogoPath)) {
-                    Storage::disk('public')->delete($oldLogoPath);
-                }
-            }
-
-            $logoFile = $request->file('logo_file');
-            $logoPath = $logoFile->store('design-settings/logos', 'public');
-            $data['logo_url'] = Storage::url($logoPath);
+        $path = parse_url($url, PHP_URL_PATH);
+        if (!is_string($path) || !str_starts_with($path, '/storage/')) {
+            return null;
         }
 
-        // Handle icon file upload
-        if ($request->hasFile('icon_file')) {
-            // Delete old icon if exists
-            if ($designSetting->icon_url) {
-                $oldIconPath = str_replace('/storage/', '', $designSetting->icon_url);
-                if (Storage::disk('public')->exists($oldIconPath)) {
-                    Storage::disk('public')->delete($oldIconPath);
-                }
-            }
-
-            $iconFile = $request->file('icon_file');
-            $iconPath = $iconFile->store('design-settings/icons', 'public');
-            $data['icon_url'] = Storage::url($iconPath);
-        }
-
-        // Handle home background file upload
-        if ($request->hasFile('home_background_file')) {
-            // Delete old home background if exists
-            if ($designSetting->home_background_url) {
-                $oldHomeBackgroundPath = str_replace('/storage/', '', $designSetting->home_background_url);
-                if (Storage::disk('public')->exists($oldHomeBackgroundPath)) {
-                    Storage::disk('public')->delete($oldHomeBackgroundPath);
-                }
-            }
-
-            $homeBackgroundFile = $request->file('home_background_file');
-            $homeBackgroundPath = $homeBackgroundFile->store('design-settings/home-backgrounds', 'public');
-            $data['home_background_url'] = Storage::url($homeBackgroundPath);
-        }
-
-
-        // Handle powered by as array
-        if ($request->has('powered_by_titles') && $request->has('powered_by_urls')) {
-            $titles = $request->powered_by_titles;
-            $urls = $request->powered_by_urls;
-            $poweredBy = [];
-
-            for ($i = 0; $i < count($titles); $i++) {
-                if (!empty($titles[$i]) && !empty($urls[$i])) {
-                    $poweredBy[] = [
-                        'title' => $titles[$i],
-                        'url' => $urls[$i]
-                    ];
-                }
-            }
-            $data['powered_by'] = $poweredBy;
-        }
-
-        // Handle show_how_platform_works checkbox
-        $data['show_how_platform_works'] = $request->has('show_how_platform_works') ? true : false;
-
-        $designSetting->update($data);
-
-        return redirect()->route('admin.design-settings.index')
-            ->with('success', 'تم تحديث إعدادات التصميم بنجاح');
-    }
-
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(DesignSetting $designSetting)
-    {
-        // Delete logo file if exists
-        if ($designSetting->logo_url) {
-            $logoPath = str_replace('/storage/', '', $designSetting->logo_url);
-            if (Storage::disk('public')->exists($logoPath)) {
-                Storage::disk('public')->delete($logoPath);
-            }
-        }
-
-        // Delete icon file if exists
-        if ($designSetting->icon_url) {
-            $iconPath = str_replace('/storage/', '', $designSetting->icon_url);
-            if (Storage::disk('public')->exists($iconPath)) {
-                Storage::disk('public')->delete($iconPath);
-            }
-        }
-
-        // Delete home background file if exists
-        if ($designSetting->home_background_url) {
-            $homeBackgroundPath = str_replace('/storage/', '', $designSetting->home_background_url);
-            if (Storage::disk('public')->exists($homeBackgroundPath)) {
-                Storage::disk('public')->delete($homeBackgroundPath);
-            }
-        }
-
-        $designSetting->delete();
-        return redirect()->route('admin.design-settings.index')
-            ->with('success', 'تم حذف إعدادات التصميم بنجاح');
+        return ltrim(substr($path, strlen('/storage/')), '/');
     }
 }

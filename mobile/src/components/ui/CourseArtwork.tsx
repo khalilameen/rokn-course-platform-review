@@ -23,19 +23,33 @@ type CourseArtworkProps = {
   style: StyleProp<ImageStyle>;
 };
 
-export const CourseArtwork = ({fallback, source, style}: CourseArtworkProps) => {
+export const CourseArtwork = ({
+  fallback,
+  source,
+  style,
+}: CourseArtworkProps) => {
   const uri = sourceUri(source);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => setFailed(false), [uri]);
 
   if (failed || !source) {
-    return <Image source={fallback} style={style} />;
+    return (
+      <Image
+        accessibilityElementsHidden
+        importantForAccessibility="no"
+        source={fallback}
+        style={style}
+      />
+    );
   }
 
   if (isSvgCourseArtwork(source) && uri) {
     return (
-      <View style={[style, styles.svgClip]}>
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[style, styles.svgClip]}>
         <SvgUri
           fallback={<Image source={fallback} style={StyleSheet.absoluteFill} />}
           height="100%"
@@ -49,7 +63,16 @@ export const CourseArtwork = ({fallback, source, style}: CourseArtworkProps) => 
   }
 
   return (
-    <Image onError={() => setFailed(true)} source={source} style={style} />
+    <Image
+      accessibilityElementsHidden
+      fadeDuration={120}
+      importantForAccessibility="no"
+      onError={() => setFailed(true)}
+      progressiveRenderingEnabled
+      resizeMethod="resize"
+      source={source}
+      style={style}
+    />
   );
 };
 

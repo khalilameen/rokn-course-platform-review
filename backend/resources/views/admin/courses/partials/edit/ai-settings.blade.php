@@ -14,7 +14,7 @@
                                 <i class="fa fa-check{{ old('ai_chat_enabled', $course->ai_chat_enabled) ? '' : ' course-editor__check-icon--hidden' }}"></i>
                             </div>
                             <div>
-                                <div class="course-editor__option-title">تفعيل Rokn AI للمشتركين المدفوعين</div>
+                                <div class="course-editor__option-title">تفعيل Rokn AI لطلاب الفئات المدفوعة</div>
                                 <div class="course-editor__option-description">الكورس المجاني والمنحة المؤسسية لا يستهلكان الذكاء الاصطناعي. إلغاء التفعيل يوقفه للجميع في هذا الكورس.</div>
                             </div>
                             {!! Form::hidden('ai_chat_enabled', 0) !!}

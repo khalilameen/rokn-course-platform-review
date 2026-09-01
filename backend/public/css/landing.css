@@ -659,85 +659,6 @@ body.landing-page {
     background: var(--rokn-light-bg);
 }
 
-.paths-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1.5rem;
-    margin-bottom: 4rem;
-}
-
-.path-card {
-    background: var(--rokn-white);
-    border-radius: 16px;
-    padding: 2rem;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
-    transition: all 0.3s ease;
-    display: flex;
-    flex-direction: column;
-}
-
-.path-card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 12px 30px rgba(25, 118, 181, 0.12);
-}
-
-.path-category {
-    display: inline-block;
-    padding: 0.4rem 1rem;
-    background: rgba(126, 200, 227, 0.2);
-    color: var(--rokn-primary-dark);
-    font-size: 0.85rem;
-    font-weight: 700;
-    border-radius: 20px;
-    margin-bottom: 1rem;
-    align-self: flex-start;
-}
-
-.path-card h3 {
-    font-size: 1.3rem;
-    font-weight: 800;
-    color: var(--rokn-text);
-    margin-bottom: 0.75rem;
-}
-
-.path-card p {
-    font-size: 0.95rem;
-    color: var(--rokn-text-muted);
-    line-height: 1.6;
-    margin-bottom: 1.5rem;
-    flex-grow: 1;
-}
-
-.path-footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-top: 1px solid #edf2f7;
-    padding-top: 1.5rem;
-}
-
-.path-price {
-    font-size: 1.25rem;
-    font-weight: 800;
-    color: var(--rokn-primary);
-}
-
-.path-btn {
-    padding: 0.6rem 1.5rem;
-    background: var(--rokn-primary);
-    color: var(--rokn-white);
-    border-radius: 8px;
-    font-weight: 700;
-    text-decoration: none;
-    transition: background 0.2s ease;
-}
-
-.path-btn:hover {
-    background: var(--rokn-primary-dark);
-    color: var(--rokn-white);
-    text-decoration: none;
-}
-
 .paths-cta {
     text-align: center;
     background: linear-gradient(135deg, var(--rokn-primary) 0%, var(--rokn-primary-dark) 100%);
@@ -746,7 +667,7 @@ body.landing-page {
     color: var(--rokn-white);
 }
 
-.paths-cta h3 {
+.paths-cta h2 {
     font-size: 1.8rem;
     font-weight: 800;
     margin-bottom: 1rem;
@@ -759,71 +680,6 @@ body.landing-page {
     max-width: 600px;
     margin-left: auto;
     margin-right: auto;
-}
-
-/* =============================================
-   App Modal
-   ============================================= */
-.app-modal-overlay {
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.6);
-    z-index: 1000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    backdrop-filter: blur(5px);
-}
-
-.app-modal-content {
-    background: var(--rokn-white);
-    border-radius: 20px;
-    padding: 3rem 2rem;
-    max-width: 400px;
-    width: 90%;
-    position: relative;
-    text-align: center;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-    animation: modalFadeIn 0.3s ease-out forwards;
-}
-
-@keyframes modalFadeIn {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
-.app-modal-close {
-    position: absolute;
-    top: 15px;
-    right: 20px;
-    background: none;
-    border: none;
-    font-size: 2rem;
-    line-height: 1;
-    color: var(--rokn-text-muted);
-    cursor: pointer;
-    transition: color 0.2s;
-}
-
-.app-modal-close:hover {
-    color: var(--rokn-primary);
-}
-
-.modal-store-btn {
-    transition: all 0.3s ease;
-}
-
-.modal-store-btn:hover {
-    background: var(--rokn-primary) !important;
-    color: var(--rokn-white) !important;
-    border-color: var(--rokn-primary) !important;
-}
-
-.app-modal-content h3 {
-    font-size: 1.5rem;
-    font-weight: 800;
-    margin-bottom: 0.5rem;
-    color: var(--rokn-text);
 }
 
 /* =============================================
@@ -849,9 +705,6 @@ body.landing-page {
         grid-template-columns: repeat(2, 1fr);
     }
 
-    .paths-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
 }
 
 @media (max-width: 767.98px) {
@@ -859,9 +712,6 @@ body.landing-page {
         grid-template-columns: 1fr;
     }
 
-    .paths-grid {
-        grid-template-columns: 1fr;
-    }
 }
 
 @media (max-width: 767.98px) {

@@ -22,7 +22,7 @@ class ServicesResource extends JsonResource
             'name_en' => (string) $this->name_en,
             'description_ar' => (string)$this->description_ar,
             'description_en' => (string)$this->description_en,
-            'image' => $this->image ? $this->image : url('/images/service.jpg'),
+            'image' => $this->image ?: null,
             'stores' => StoreResource::collection($this->stores)
         ];
     }

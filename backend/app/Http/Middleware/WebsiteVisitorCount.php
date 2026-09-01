@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
+use App\Support\BusinessClock;
+use App\Support\PrivacyFingerprint;
 use Closure;
 use Illuminate\Http\Request;
 use App\Models\Visitor;
@@ -46,19 +48,24 @@ final class WebsiteVisitorCount
     private function recordVisitor(Request $request): void
     {
         try {
+            $businessDay = BusinessClock::now()->format('Y-m-d');
+            [$dayStart, $dayEnd] = BusinessClock::localDayRangeUtc($businessDay);
             $agent = new Agent();
             $ip = $request->ip();
             if (!$ip) {
                 return;
             }
 
-            $visitorKey = hash_hmac('sha256', $ip, (string) config('app.key'));
+            $visitorKey = PrivacyFingerprint::make($ip);
+            if (!$visitorKey) {
+                return;
+            }
             $cacheKey = sprintf(
                 'visitor:daily:%s:%s',
-                now()->format('Y-m-d'),
+                $businessDay,
                 $visitorKey
             );
-            if (!Cache::add($cacheKey, true, now()->endOfDay())) {
+            if (!Cache::add($cacheKey, true, $dayEnd)) {
                 return;
             }
 
@@ -68,8 +75,8 @@ final class WebsiteVisitorCount
 
             // Avoid duplicate for the same day
             $existingVisitor = Visitor::where('ip_address', $visitorKey)
-                ->where('visited_at', '>=', today())
-                ->where('visited_at', '<', today()->addDay())
+                ->where('visited_at', '>=', $dayStart)
+                ->where('visited_at', '<', $dayEnd)
                 ->first();
 
             if (!$existingVisitor) {

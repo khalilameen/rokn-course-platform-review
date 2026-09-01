@@ -6,9 +6,11 @@ Route::get('health/live', [\App\Http\Controllers\API\OperationalHealthController
 Route::get('health/ready', [\App\Http\Controllers\API\OperationalHealthController::class, 'ready']);
 Route::get('health/launch-ready', [\App\Http\Controllers\API\OperationalHealthController::class, 'launchReady']);
 Route::post('store-notifications/google', [\App\Http\Controllers\API\StoreServerNotificationController::class, 'google'])
-    ->middleware('throttle:120,1');
+    ->middleware(['recovery.write', 'throttle:store-notification']);
 Route::post('store-notifications/apple', [\App\Http\Controllers\API\StoreServerNotificationController::class, 'apple'])
-    ->middleware('throttle:120,1');
+    ->middleware(['recovery.write', 'throttle:store-notification']);
+Route::post('integrations/bunny/stream', \App\Http\Controllers\API\BunnyStreamWebhookController::class)
+    ->middleware('throttle:240,1');
 
 /*
 |--------------------------------------------------------------------------
@@ -23,7 +25,7 @@ Route::post('store-notifications/apple', [\App\Http\Controllers\API\StoreServerN
 
 $registerCourseApiRoutes = function () {
         Route::post('whatsapp/webhook', [\App\Http\Controllers\API\WhatsAppConnectionController::class, 'webhook'])
-            ->middleware('throttle:120,1');
+            ->middleware('throttle:whatsapp-webhook');
         Route::get('product-features', [\App\Http\Controllers\API\ProductFeatureController::class, 'index'])
             ->middleware('throttle:60,1');
         Route::post('client-events', [\App\Http\Controllers\API\ClientEventController::class, 'store'])
@@ -50,7 +52,7 @@ $registerCourseApiRoutes = function () {
             // Keep public URLs stable without shadowing Laravel's web auth route names.
             Route::post('login', [\App\Http\Controllers\API\SignController::class,'otpDisabled'])->middleware('throttle:auth-api')->name('api.login');
             Route::post('register', [\App\Http\Controllers\API\SignController::class,'otpDisabled'])->middleware('throttle:auth-api')->name('api.register');
-            Route::get('auth-methods', [\App\Http\Controllers\API\SignController::class,'authMethods']);
+            Route::get('auth-methods', [\App\Http\Controllers\API\SignController::class,'authMethods'])->name('api.auth-methods');
             Route::post('social-login', [\App\Http\Controllers\API\SignController::class,'socialLogin'])->middleware('throttle:auth-api')->name('api.social-login');
             Route::get('social-auth/{socialProvider}/start', [\App\Http\Controllers\API\SocialOAuthController::class, 'start'])
                 ->middleware('throttle:auth-api')
@@ -59,7 +61,8 @@ $registerCourseApiRoutes = function () {
                 ->middleware('throttle:auth-api')
                 ->name('api.social.callback');
             Route::post('social-auth/complete', [\App\Http\Controllers\API\SocialOAuthController::class, 'complete'])
-                ->middleware('throttle:auth-api');
+                ->middleware('throttle:auth-api')
+                ->name('api.social.complete');
             Route::post('send-verification', [\App\Http\Controllers\API\SignController::class,'otpDisabled']);
             Route::post('verify-phone', [\App\Http\Controllers\API\SignController::class,'otpDisabled']);
             Route::post('forgot-password', [\App\Http\Controllers\API\SignController::class,'otpDisabled']);
@@ -76,6 +79,8 @@ $registerCourseApiRoutes = function () {
                 Route::post('user/device-token', [\App\Http\Controllers\API\SignController::class, 'updateDeviceToken']);
                 Route::delete('user/device-token', [\App\Http\Controllers\API\SignController::class, 'deleteDeviceToken']);
                 Route::get('user/sessions', [\App\Http\Controllers\API\UserSessionController::class, 'index']);
+                Route::delete('user/sessions', [\App\Http\Controllers\API\UserSessionController::class, 'destroyOthers'])
+                    ->middleware('throttle:6,1');
                 Route::delete('user/sessions/{sessionId}', [\App\Http\Controllers\API\UserSessionController::class, 'destroy'])
                     ->whereUuid('sessionId')
                     ->middleware('throttle:10,1');
@@ -84,6 +89,8 @@ $registerCourseApiRoutes = function () {
                 Route::get('notifications/unread-count', [\App\Http\Controllers\API\StudentNotificationController::class, 'getUnreadCount']);
                 Route::get('notifications/last-ten', [\App\Http\Controllers\API\StudentNotificationController::class, 'getLastTen']);
                 Route::get('notifications', [\App\Http\Controllers\API\StudentNotificationController::class, 'getAll']);
+                Route::get('notifications/{id}', [\App\Http\Controllers\API\StudentNotificationController::class, 'show'])
+                    ->whereNumber('id');
                 Route::post('notifications/{id}/mark-read', [\App\Http\Controllers\API\StudentNotificationController::class, 'markAsRead']);
                 Route::post('notifications/mark-all-read', [\App\Http\Controllers\API\StudentNotificationController::class, 'markAllAsRead']);
 
@@ -106,6 +113,9 @@ $registerCourseApiRoutes = function () {
                 Route::post('projects/{project}/submissions', [\App\Http\Controllers\API\ProjectController::class, 'submit'])
                     ->middleware(['product.feature:project_uploads', 'throttle:8,1']);
                 Route::get('project-submissions/{submission}', [\App\Http\Controllers\API\ProjectController::class, 'submissionStatus']);
+                Route::get('project-feedback-threads/{thread}', [\App\Http\Controllers\API\ProjectController::class, 'feedbackThread']);
+                Route::post('project-feedback-threads/{thread}/messages', [\App\Http\Controllers\API\ProjectController::class, 'sendFeedbackMessage'])
+                    ->middleware('throttle:20,1');
                 Route::get('project-submissions/{submission}/file', [\App\Http\Controllers\API\ProjectController::class, 'downloadSubmissionFile'])
                     ->name('api.project-submissions.file');
                 Route::post('projects/{project}/evaluate', [\App\Http\Controllers\API\ProjectController::class, 'saveEvaluation']);
@@ -113,10 +123,12 @@ $registerCourseApiRoutes = function () {
 
                 // Certificates
                 Route::get('certificates', [\App\Http\Controllers\API\CertificateController::class, 'index']);
-                Route::get('certificates/{courseId}', [\App\Http\Controllers\API\CertificateController::class, 'show']);
+                Route::get('certificates/{courseId}', [\App\Http\Controllers\API\CertificateController::class, 'show'])
+                    ->whereNumber('courseId');
                 // Explicit write-semantic recovery route used when completion
                 // succeeded but asynchronous issuance did not leave a row.
-                Route::post('certificates/{courseId}/issue', [\App\Http\Controllers\API\CertificateController::class, 'show'])
+                Route::post('certificates/{courseId}/issue', [\App\Http\Controllers\API\CertificateController::class, 'issue'])
+                    ->whereNumber('courseId')
                     ->middleware('throttle:6,1');
 
                 // Streaks
@@ -159,22 +171,26 @@ $registerCourseApiRoutes = function () {
 
                 // Course Authorization routes
                 Route::get('courses/payment-methods', [\App\Http\Controllers\API\CourseAuthorizationController::class,'getPaymentMethods']);
+                Route::post('courses/purchase-quote', [\App\Http\Controllers\API\CoursePurchaseController::class,'quote'])
+                    ->middleware('throttle:20,1');
                 Route::post('courses/authorize', [\App\Http\Controllers\API\CoursePurchaseController::class,'authorizeCourse'])
-                    ->middleware('throttle:6,1');
+                    ->middleware(['product.feature:checkout', 'throttle:6,1']);
                 Route::get('courses/my-enrollments', [\App\Http\Controllers\API\CourseAuthorizationController::class,'myEnrollments']);
                 Route::get('courses/my-orders', [\App\Http\Controllers\API\CourseAuthorizationController::class,'myCourseOrders']);
                 Route::get('courses/my-bills', [\App\Http\Controllers\API\CourseAuthorizationController::class,'myBills']);
                 Route::post('courses/check-access', [\App\Http\Controllers\API\CourseAuthorizationController::class,'checkAccess']);
                 Route::post('course-chat/messages', [\App\Http\Controllers\API\CourseChatController::class, 'send'])
                     ->middleware(['product.feature:ai_chat', 'throttle:12,1']);
+                Route::get('course-chat/messages', [\App\Http\Controllers\API\CourseChatController::class, 'history'])
+                    ->middleware(['product.feature:ai_chat', 'throttle:30,1']);
                 Route::post('courses/{course}/chat', [\App\Http\Controllers\API\CourseChatController::class, 'sendForCourse'])
                     ->middleware(['product.feature:ai_chat', 'throttle:12,1']);
                 Route::get('courses/{course}/chat-upgrade', [\App\Http\Controllers\API\CourseChatUpgradeController::class, 'quote']);
                 Route::post('courses/{course}/chat-upgrade', [\App\Http\Controllers\API\CourseChatUpgradeController::class, 'purchase'])
-                    ->middleware('throttle:6,1');
+                    ->middleware(['product.feature:checkout', 'throttle:6,1']);
                 Route::get('courses/{course}/full-track-upgrade', [\App\Http\Controllers\API\CourseChatUpgradeController::class, 'quote']);
                 Route::post('courses/{course}/full-track-upgrade', [\App\Http\Controllers\API\CourseChatUpgradeController::class, 'purchase'])
-                    ->middleware('throttle:6,1');
+                    ->middleware(['product.feature:checkout', 'throttle:6,1']);
 
                 // Exam/Quiz routes
                 Route::get('quizzes', [\App\Http\Controllers\API\CourseController::class,'getQuizzes']);
@@ -200,16 +216,20 @@ $registerCourseApiRoutes = function () {
                 Route::get('courses/{courseId}/progress', [\App\Http\Controllers\API\CourseController::class,'getCourseProgress']);
                 Route::post('courses/{courseId}/sections/{sectionId}/complete', [\App\Http\Controllers\API\CourseController::class,'markSectionComplete']);
 
-                // Course PDFs routes (secure streaming for enrolled users)
+                // Metadata stays authenticated. Files use short-lived signed
+                // downloads and the device's system viewer.
                 Route::get('courses/{courseId}/pdfs', [\App\Http\Controllers\API\CoursePdfController::class,'index']);
                 Route::get('courses/{courseId}/pdfs/{pdfId}', [\App\Http\Controllers\API\CoursePdfController::class,'show']);
-                Route::get('courses/{courseId}/pdfs/{pdfId}/stream', [\App\Http\Controllers\API\CoursePdfController::class,'stream']);
                 // Course Rating
-                Route::post('courses/{courseId}/rate', [\App\Http\Controllers\API\CourseRatingController::class, 'store']);
+                Route::post('courses/{courseId}/rate', [\App\Http\Controllers\API\CourseRatingController::class, 'store'])
+                    ->middleware('throttle:12,1');
+                Route::delete('courses/{courseId}/rate', [\App\Http\Controllers\API\CourseRatingController::class, 'destroy'])
+                    ->middleware('throttle:12,1');
 
                 // Saved Sections (Lesson Bookmarks)
                 Route::get('saved-folders', [\App\Http\Controllers\API\SavedSectionController::class, 'getFolders']);
                 Route::get('saved-lessons', [\App\Http\Controllers\API\SavedSectionController::class, 'getSavedLessons']);
+                Route::get('saved-lessons/state', [\App\Http\Controllers\API\SavedSectionController::class, 'getSavedLessonState']);
                 Route::post('saved-folders', [\App\Http\Controllers\API\SavedSectionController::class, 'createFolder']);
                 Route::get('saved-lessons/{lessonId}/folders', [\App\Http\Controllers\API\SavedSectionController::class, 'getLessonFolders']);
                 Route::get('saved-folders/{id}/lessons', [\App\Http\Controllers\API\SavedSectionController::class, 'getFolderLessons']);
@@ -225,6 +245,8 @@ $registerCourseApiRoutes = function () {
                 Route::get('payment/status/{orderRef}', [\App\Http\Controllers\API\PaymentController::class, 'status'])
                     ->middleware('throttle:payment-read')
                     ->name('api.payment.status');
+                Route::post('payment/reconcile/{orderRef}', [\App\Http\Controllers\API\PaymentController::class, 'reconcile'])
+                    ->middleware(['recovery.write', 'throttle:payment-write']);
                 Route::get('store-billing/context', [\App\Http\Controllers\API\StorePurchaseController::class, 'context'])
                     ->middleware(['product.feature:checkout', 'throttle:payment-read']);
                 Route::post('store-purchases/verify', [\App\Http\Controllers\API\StorePurchaseController::class, 'verify'])
@@ -237,14 +259,35 @@ $registerCourseApiRoutes = function () {
             // signature binds the user and every resource key. The controller
             // still re-checks current enrollment and module access per request.
             Route::get('courses/{course}/modules/{module}/attachments/{attachment}/download', [\App\Http\Controllers\API\CourseModuleAttachmentController::class, 'download'])
+                ->whereNumber('course')
+                ->whereNumber('module')
+                ->whereNumber('attachment')
                 ->middleware(['signed', 'throttle:30,1'])
                 ->name('api.course-module-attachments.download');
+            Route::get('courses/{course}/pdfs/{pdf}/download', [\App\Http\Controllers\API\CoursePdfController::class, 'download'])
+                ->whereNumber('course')
+                ->whereNumber('pdf')
+                ->middleware(['signed', 'throttle:30,1'])
+                ->name('api.course-pdfs.download');
 
+            // Compatibility only: course discovery uses /classifications.
             Route::get('categories', [\App\Http\Controllers\API\CategoryController::class,'index']);
             Route::get('courses', [\App\Http\Controllers\API\CourseController::class,'getCourses']);
             Route::get('course/{course}', [\App\Http\Controllers\API\CourseController::class,'getCourse']);
 
-            Route::get('courses/{list}/subscribe', [\App\Http\Controllers\API\CourseController::class,'getCourses']);
+            // The old endpoint used implicit model binding before returning its
+            // retirement response. That made existing and missing course ids
+            // distinguishable (410 vs 404) and kept a GET-shaped mutation in
+            // the public contract. Retire every id identically without loading
+            // a course row.
+            Route::match(['GET', 'POST'], 'courses/{legacyCourse}/subscribe', static function () {
+                return response()->json([
+                    'status' => 410,
+                    'success' => false,
+                    'message' => 'هذا المسار لم يعد مستخدمًا',
+                    'data' => null,
+                ], 410);
+            })->whereNumber('legacyCourse');
             Route::get('lesson/{lesson}', [\App\Http\Controllers\API\CourseController::class,'getLesson']);
 
             // Visitor Statistics Routes
@@ -258,8 +301,16 @@ $registerCourseApiRoutes = function () {
                 ->only(['index', 'show']);
             Route::get('grades/{grade}/courses', [\App\Http\Controllers\API\GradeController::class,'courses']);
 
-             Route::post('feedback', [\App\Http\Controllers\API\FeedbackController::class, 'store'])
+             Route::get('feedback', [\App\Http\Controllers\API\FeedbackController::class, 'index'])
                  ->middleware('throttle:feedback');
+             Route::post('feedback', [\App\Http\Controllers\API\FeedbackController::class, 'store'])
+                 ->middleware(['recovery.write', 'throttle:feedback']);
+             Route::get('feedback/{publicId}', [\App\Http\Controllers\API\FeedbackController::class, 'show'])
+                 ->where('publicId', '[0-9A-HJKMNP-TV-Z]{26}')->middleware('throttle:feedback');
+             Route::post('feedback/{publicId}/messages', [\App\Http\Controllers\API\FeedbackController::class, 'reply'])
+                 ->where('publicId', '[0-9A-HJKMNP-TV-Z]{26}')->middleware(['recovery.write', 'throttle:feedback']);
+             Route::post('feedback/{publicId}/claim', [\App\Http\Controllers\API\FeedbackController::class, 'claim'])
+                 ->where('publicId', '[0-9A-HJKMNP-TV-Z]{26}')->middleware(['auth:api', 'recovery.write', 'throttle:feedback']);
 
              // Compact, ranked catalogue search for the app search overlay.
              Route::get('search/courses', \App\Http\Controllers\API\CourseSearchController::class)
@@ -273,7 +324,7 @@ $registerCourseApiRoutes = function () {
              Route::get('packages', [\App\Http\Controllers\API\PackageController::class, 'index']);
              Route::get('packages/{id}', [\App\Http\Controllers\API\PackageController::class, 'show']);
              Route::post('packages/{id}/purchase', [\App\Http\Controllers\API\PackageController::class, 'purchase'])
-                 ->middleware('throttle:payment-write');
+                 ->middleware(['auth:api', 'product.feature:checkout', 'throttle:payment-write']);
 
              // Classifications
              Route::get('classifications', [\App\Http\Controllers\API\ClassificationController::class, 'index']);

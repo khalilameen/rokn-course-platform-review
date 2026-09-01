@@ -13,8 +13,20 @@ use App\Models\ItemList;
 use App\Models\Project;
 use App\Models\CourseModule;
 use App\Models\DesignSetting;
+use App\Models\ExamAttempt;
+use App\Models\PlaybackSession;
+use App\Models\PortfolioItem;
+use App\Models\ProjectSubmission;
+use App\Models\StudentSectionProgress;
+use App\Models\WatchingLog;
+use App\Jobs\ProbeLessonMedia;
 use App\Services\NotificationService;
 use App\Services\BunnyService;
+use App\Services\BunnyDirectUploadService;
+use App\Services\CoursePublishingService;
+use App\Services\CourseAuthoringConcurrencyService;
+use App\Services\SafeExternalUrl;
+use App\Support\UnicodeText;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -26,10 +38,21 @@ use Throwable;
 class CourseSectionController extends Controller
 {
     private BunnyService $bunnyService;
+    private CoursePublishingService $publishingService;
+    private BunnyDirectUploadService $directUploads;
+    private CourseAuthoringConcurrencyService $authoring;
 
-    public function __construct(BunnyService $bunnyService)
+    public function __construct(
+        BunnyService $bunnyService,
+        CoursePublishingService $publishingService,
+        BunnyDirectUploadService $directUploads,
+        CourseAuthoringConcurrencyService $authoring
+    )
     {
         $this->bunnyService = $bunnyService;
+        $this->publishingService = $publishingService;
+        $this->directUploads = $directUploads;
+        $this->authoring = $authoring;
     }
 
     /**
@@ -62,232 +85,22 @@ class CourseSectionController extends Controller
      */
     public function create(Course $course)
     {
-        // Get all available content for this course
-        $lessons = Lesson::all(); // Get all lessons for now
-        $questions = Question::all(); // Get all questions for now
-        $links = Link::all(); // Get all links for now
-        $quizzes = ItemList::where('type', 'quiz')->get();
-        $subCourses = Course::where('id', '!=', $course->id)->get();
+        if (!$course->is_coming_soon) {
+            return redirect()->route('admin.courses.show', $course)->with(
+                'error',
+                'حوّل الكورس إلى مسودة قبل إضافة محتوى جديد'
+            );
+        }
         $modules = $course->modules()->orderBy('order')->get();
+        if ($modules->isEmpty()) {
+            return redirect()->route('admin.courses.modules.create', [
+                $course,
+                'return_to' => request('return_to') === 'studio' ? 'studio' : null,
+            ])->with('error', 'أنشئ الوحدة أولًا ثم أضف محتواها');
+        }
         $designSettings = $this->getDesignSettings();
 
-        return view('admin.course-sections.create', compact('course', 'lessons', 'questions', 'links', 'quizzes', 'subCourses', 'modules', 'designSettings'));
-    }
-
-    /**
-     * Auto-save quiz section and question (AJAX)
-     */
-    public function autoSaveQuiz(Request $request, Course $course)
-    {
-        $request->validate([
-            'title_ar' => 'required|string|max:255',
-            'title_en' => 'nullable|string|max:255',
-            'quiz_title_ar' => 'required|string|max:255',
-            'quiz_title_en' => 'nullable|string|max:255',
-            'time_minutes' => 'required|integer|min:1',
-            'order' => 'nullable|integer|min:0',
-            'section_id' => 'nullable|integer|exists:course_sections,id',
-            'question' => 'nullable|array',
-            'question.question_id' => 'nullable|integer|exists:questions,id',
-            'question.question_text' => 'required_with:question|string',
-            'question.choice1' => 'required_with:question|string',
-            'question.choice2' => 'required_with:question|string',
-            'question.choice3' => 'required_with:question|string',
-            'question.choice4' => 'required_with:question|string',
-            'question.choice5' => 'nullable|string',
-            'question.choice6' => 'nullable|string',
-            'question.correct_answer' => 'required_with:question|integer|min:1|max:6',
-        ]);
-
-        try {
-            $maxOrder = $course->sections()->max('order') ?? 0;
-            $order = $request->input('order', $maxOrder + 1);
-
-            // Check if section already exists (update scenario)
-            if ($request->section_id) {
-                $section = CourseSection::find($request->section_id);
-
-                if (!$section || $section->course_id != $course->id) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'القسم غير موجود'
-                    ], 404);
-                }
-
-                $quiz = $section->sectionable;
-
-                // Update section title
-                $section->update([
-                    'title_ar' => $request->title_ar,
-                    'title_en' => $request->title_en,
-                    'order' => $order
-                ]);
-
-                // Update quiz
-                $quiz->update([
-                    'title_ar' => $request->quiz_title_ar,
-                    'title_en' => $request->quiz_title_en,
-                    'description_ar' => $request->quiz_description_ar ?? '',
-                    'description_en' => $request->quiz_description_en ?? '',
-                    'time_minutes' => $request->time_minutes,
-                    'priority' => $order,
-                ]);
-            } else {
-                // Create new quiz
-                $quiz = ItemList::create([
-                    'title_ar' => $request->quiz_title_ar,
-                    'title_en' => $request->quiz_title_en,
-                    'description_ar' => $request->quiz_description_ar ?? '',
-                    'description_en' => $request->quiz_description_en ?? '',
-                    'type' => 'quiz',
-                    'priority' => $order,
-                    'course_id' => $course->id,
-                    'time_minutes' => $request->time_minutes,
-                ]);
-
-                // Create the section
-                $section = CourseSection::create([
-                    'title_ar' => $request->title_ar,
-                    'title_en' => $request->title_en,
-                    'course_id' => $course->id,
-                    'order' => $order,
-                    'sectionable_type' => ItemList::class,
-                    'sectionable_id' => $quiz->id
-                ]);
-            }
-
-            // Add or update question if provided
-            if ($request->has('question')) {
-                $questionData = $request->question;
-
-                // Check if this is an update (question_id provided)
-                if (isset($questionData['question_id'])) {
-                    $question = Question::find($questionData['question_id']);
-
-                    if (!$question || $question->list_id != $quiz->id) {
-                        return response()->json([
-                            'success' => false,
-                            'message' => 'السؤال غير موجود'
-                        ], 404);
-                    }
-
-                    // Update existing question
-                    $question->update([
-                        'title' => $questionData['question_title'] ?? null,
-                        'question' => $questionData['question_text'],
-                        'choice1' => $questionData['choice1'],
-                        'choice2' => $questionData['choice2'],
-                        'choice3' => $questionData['choice3'],
-                        'choice4' => $questionData['choice4'],
-                        'choice5' => $questionData['choice5'] ?? null,
-                        'choice6' => $questionData['choice6'] ?? null,
-                        'right_answer' => $questionData['correct_answer'],
-                    ]);
-
-                    return response()->json([
-                        'success' => true,
-                        'message' => 'تم تحديث السؤال تلقائياً',
-                        'section_id' => $section->id,
-                        'quiz_id' => $quiz->id,
-                        'question_id' => $question->id,
-                        'questions_count' => $quiz->questions()->count()
-                    ]);
-                } else {
-                    // Create new question
-                    $questionCount = $quiz->questions()->count();
-
-                    $question = Question::create([
-                        'title' => $questionData['question_title'] ?? null,
-                        'question' => $questionData['question_text'],
-                        'choice1' => $questionData['choice1'],
-                        'choice2' => $questionData['choice2'],
-                        'choice3' => $questionData['choice3'],
-                        'choice4' => $questionData['choice4'],
-                        'choice5' => $questionData['choice5'] ?? null,
-                        'choice6' => $questionData['choice6'] ?? null,
-                        'right_answer' => $questionData['correct_answer'],
-                        'priority' => $questionCount + 1,
-                        'list_id' => $quiz->id,
-                    ]);
-
-                    return response()->json([
-                        'success' => true,
-                        'message' => 'تم حفظ السؤال تلقائياً',
-                        'section_id' => $section->id,
-                        'quiz_id' => $quiz->id,
-                        'question_id' => $question->id,
-                        'questions_count' => $quiz->questions()->count()
-                    ]);
-                }
-            }
-
-            return response()->json([
-                'success' => true,
-                'message' => 'تم حفظ الاختبار تلقائياً',
-                'section_id' => $section->id,
-                'quiz_id' => $quiz->id,
-                'questions_count' => $quiz->questions()->count()
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'حدث خطأ أثناء الحفظ التلقائي: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Delete a quiz question (AJAX)
-     */
-    public function deleteQuizQuestion(Request $request, Course $course)
-    {
-        $request->validate([
-            'question_id' => 'required|integer|exists:questions,id',
-            'section_id' => 'required|integer|exists:course_sections,id'
-        ]);
-
-        try {
-            // Verify section belongs to course
-            $section = CourseSection::find($request->section_id);
-            if (!$section || $section->course_id != $course->id) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'القسم غير موجود'
-                ], 404);
-            }
-
-            // Verify question belongs to the quiz
-            $question = Question::find($request->question_id);
-            if (!$question || $question->list_id != $section->sectionable_id) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'السؤال غير موجود'
-                ], 404);
-            }
-
-            // Delete the question
-            $question->delete();
-
-            // Reorder remaining questions
-            $quiz = $section->sectionable;
-            $remainingQuestions = $quiz->questions()->orderBy('priority')->get();
-            foreach ($remainingQuestions as $index => $q) {
-                $q->update(['priority' => $index + 1]);
-            }
-
-            return response()->json([
-                'success' => true,
-                'message' => 'تم حذف السؤال بنجاح',
-                'questions_count' => $quiz->questions()->count()
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'حدث خطأ أثناء حذف السؤال: ' . $e->getMessage()
-            ], 500);
-        }
+        return view('admin.course-sections.create', compact('course', 'modules', 'designSettings'));
     }
 
     /**
@@ -296,6 +109,8 @@ class CourseSectionController extends Controller
     public function store(Request $request, Course $course)
     {
         $bunnyService = $this->bunnyService;
+        $this->assertDraftForStagedAuthoring($course);
+        $this->normalizeAuthoringText($request);
         $this->validateSectionRequest($request, $course);
         $this->configureUploadRuntime();
 
@@ -306,16 +121,30 @@ class CourseSectionController extends Controller
         }
 
         $stagedVideoGuid = null;
+        $directVideoCandidate = false;
         $stagedThumbnailPath = null;
         $transactionStarted = false;
 
         try {
             // Finish slow remote uploads before opening a short DB transaction.
             if ($request->section_type === 'lesson') {
-                $stagedVideoGuid = $bunnyService->uploadVerifiedVideo(
-                    (string) $request->lesson_title_ar,
-                    $request->file('bunny_video')
-                );
+                if ($request->filled('bunny_video_claim')) {
+                    /** @var User $admin */
+                    $admin = $request->user();
+                    $claim = $this->directUploads->verifyForAttach(
+                        $course,
+                        $admin,
+                        (string) $request->input('bunny_video_claim'),
+                        null
+                    );
+                    $stagedVideoGuid = (string) $claim['video_id'];
+                    $directVideoCandidate = true;
+                } elseif ($request->hasFile('bunny_video')) {
+                    $stagedVideoGuid = $bunnyService->uploadVerifiedVideo(
+                        (string) $request->lesson_title_ar,
+                        $request->file('bunny_video')
+                    );
+                }
                 if (!$stagedVideoGuid) {
                     throw new RuntimeException('تعذر رفع الفيديو والتحقق منه ولم يتم نشر الدرس');
                 }
@@ -333,7 +162,8 @@ class CourseSectionController extends Controller
 
             DB::beginTransaction();
             $transactionStarted = true;
-            Course::query()->whereKey($course->id)->lockForUpdate()->firstOrFail();
+            $lockedCourse = $this->authoring->lock($request, $course);
+            $this->assertDraftForStagedAuthoring($lockedCourse);
 
             // Get the highest order for this course
             $maxOrder = $course->sections()->max('order') ?? 0;
@@ -341,6 +171,9 @@ class CourseSectionController extends Controller
 
             $sectionable = null;
             $sectionableType = null;
+            if ($directVideoCandidate && $stagedVideoGuid) {
+                $this->directUploads->consume($stagedVideoGuid);
+            }
 
             // Create the appropriate content based on section type
             switch ($request->section_type) {
@@ -379,7 +212,7 @@ class CourseSectionController extends Controller
                     $request->validate([
                         'link_title_ar' => 'required|string|max:255',
                         'link_title_en' => 'string|max:255',
-                        'link_url' => 'required|url',
+                        'link_url' => ['required', 'string', 'max:2000', SafeExternalUrl::validationRule()],
                         'link_type' => 'string'
                     ]);
 
@@ -421,8 +254,8 @@ class CourseSectionController extends Controller
                         'quiz_title_ar' => 'required|string|max:255',
                         'quiz_title_en' => 'nullable|string|max:255',
                         'time_minutes' => 'required|integer|min:1',
-                        'section_id' => 'nullable|integer|exists:course_sections,id',
                         'questions' => 'required|array|min:1',
+                        'questions.*.id' => 'nullable|integer|exists:questions,id',
                         'questions.*.question_title' => 'nullable|string|max:255',
                         'questions.*.question_text' => 'required|string',
                         'questions.*.choice1' => 'required|string',
@@ -434,42 +267,6 @@ class CourseSectionController extends Controller
                         'questions.*.correct_answer' => 'required|integer|min:1|max:6',
                     ]);
 
-                    // Check if section already exists (from auto-save)
-                    if ($request->section_id) {
-                        $existingSection = CourseSection::find($request->section_id);
-                        if ($existingSection && $existingSection->course_id == $course->id) {
-                            $sectionable = $existingSection->sectionable;
-
-                            // Update quiz details
-                            $sectionable->update([
-                                'title_ar' => $request->quiz_title_ar,
-                                'title_en' => $request->quiz_title_en,
-                                'description_ar' => $request->quiz_description_ar ?? '',
-                                'description_en' => $request->quiz_description_en ?? '',
-                                'time_minutes' => $request->time_minutes,
-                                'priority' => $order,
-                            ]);
-
-                            // Questions are already saved via auto-save, so we skip creating them again
-                            $sectionableType = ItemList::class;
-
-                            // Update section title and order
-                            $existingSection->update([
-                                'title_ar' => $request->title_ar,
-                                'title_en' => $request->title_en,
-                                'order' => $order,
-                            ]);
-
-                            DB::commit();
-                            $transactionStarted = false;
-
-                            // Redirect immediately since section already exists
-                            return $this->authoringRedirect($request, $course)
-                                ->with('success', 'تم حفظ القسم بنجاح');
-                        }
-                    }
-
-                    // Create new quiz if not from auto-save
                     $sectionable = ItemList::create([
                         'title_ar' => $request->quiz_title_ar,
                         'title_en' => $request->quiz_title_en,
@@ -480,23 +277,7 @@ class CourseSectionController extends Controller
                         'course_id' => $course->id,
                         'time_minutes' => $request->time_minutes,
                     ]);
-
-                    // Create questions for the quiz
-                    foreach ($request->questions as $index => $questionData) {
-                        Question::create([
-                            'title' => $questionData['question_title'] ?? null,
-                            'question' => $questionData['question_text'],
-                            'choice1' => $questionData['choice1'],
-                            'choice2' => $questionData['choice2'],
-                            'choice3' => $questionData['choice3'],
-                            'choice4' => $questionData['choice4'],
-                            'choice5' => $questionData['choice5'] ?? null,
-                            'choice6' => $questionData['choice6'] ?? null,
-                            'right_answer' => $questionData['correct_answer'],
-                            'priority' => $index + 1,
-                            'list_id' => $sectionable->id,
-                        ]);
-                    }
+                    $this->syncQuizQuestions($sectionable, (array) $request->questions);
 
                     $sectionableType = ItemList::class;
                     break;
@@ -505,10 +286,15 @@ class CourseSectionController extends Controller
                     $request->validate([
                         'project_requirements_ar' => 'required|string',
                         'project_requirements_en' => 'nullable|string',
-                        'ai_prompt' => 'required|string',
-                        'ai_model_type' => 'nullable|string|max:255',
+                        'ai_prompt' => 'required|string|max:12000',
+                        'ai_model_type' => [
+                            'nullable',
+                            'string',
+                            'max:190',
+                            Rule::in(array_values(array_filter(config('openrouter.allowed_models', [])))),
+                        ],
                         'temperature' => 'nullable|numeric|min:0|max:2',
-                        'tokens_number' => 'nullable|integer|min:1',
+                        'tokens_number' => 'nullable|integer|min:80|max:' . max(80, (int) config('openrouter.max_tokens', 500)),
                         'passing_score' => 'required|integer|min:0|max:100',
                         'fallback_review_delay_seconds' => 'nullable|integer|min:30|max:300',
                     ]);
@@ -528,8 +314,7 @@ class CourseSectionController extends Controller
                     break;
             }
 
-            // Create the section
-            $section = new CourseSection([
+            $sectionData = [
                 'title_ar' => $request->title_ar,
                 'title_en' => $request->title_en,
                 'course_id' => $course->id,
@@ -538,24 +323,32 @@ class CourseSectionController extends Controller
                 'sectionable_id' => $sectionable->id,
                 'module_id' => $request->module_id,
                 'section_type' => $request->section_type,
-            ]);
-
-            $section->save();
+            ];
+            $section = CourseSection::create($sectionData);
             $this->normalizeModuleOrder($course, $section->module_id);
+            $this->assertLiveCourseReady($course);
+            $authoringVersion = $this->authoring->advance($lockedCourse);
 
             DB::commit();
             $transactionStarted = false;
+            if ($sectionable instanceof Lesson) {
+                $this->dispatchMediaProbe($sectionable);
+            }
             $stagedVideoGuid = null;
             $stagedThumbnailPath = null;
 
             // Send notification for new lesson
-            if ($request->section_type === 'lesson' && $sectionable) {
+            if (
+                $request->section_type === 'lesson'
+                && $sectionable
+                && $course->fresh()?->isPublishedForLearning()
+            ) {
                 try {
                     NotificationService::notifyNewCourseLesson($sectionable, $course);
                 } catch (Throwable $notificationError) {
                     Log::warning('Lesson saved but notification delivery failed', [
                         'lesson_id' => $sectionable->getKey(),
-                        'error' => $notificationError->getMessage(),
+                        'exception' => $notificationError,
                     ]);
                 }
             }
@@ -564,7 +357,8 @@ class CourseSectionController extends Controller
                 return response()->json([
                     'success' => true,
                     'message' => 'تم إضافة القسم بنجاح',
-                    'section' => $section
+                    'section' => $section,
+                    'authoring_version' => $authoringVersion,
                 ]);
             }
 
@@ -575,15 +369,19 @@ class CourseSectionController extends Controller
                 DB::rollBack();
             }
             if ($stagedVideoGuid) {
-                $bunnyService->queueVideoCleanup($stagedVideoGuid, null, 'section_create_rollback', 24);
+                $bunnyService->queueVideoCleanup($stagedVideoGuid, null, 'section_create_rollback', 24, true);
             }
             if ($stagedThumbnailPath) {
-                $bunnyService->deleteFileFromStorage($stagedThumbnailPath);
+                $bunnyService->queueStorageCleanup($stagedThumbnailPath, 'section_create_rollback');
             }
+            if ($e instanceof ValidationException) {
+                throw $e;
+            }
+            report($e);
             if ($request->expectsJson()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'حدث خطأ أثناء إضافة القسم: ' . $e->getMessage()
+                    'message' => 'تعذر إضافة القسم الآن'
                 ], 500);
             }
 
@@ -610,6 +408,10 @@ class CourseSectionController extends Controller
     public function edit(Course $course, CourseSection $section)
     {
         $this->ensureSectionBelongsToCourse($course, $section);
+        if (!$course->is_coming_soon) {
+            return redirect()->route('admin.courses.show', $course)
+                ->with('error', 'حوّل الكورس إلى مسودة قبل تعديل محتواه');
+        }
         // Load the sectionable relationship with its questions if it's a quiz
         $section->load(['sectionable' => function ($query) use ($section) {
             if ($section->getSectionType() === 'quiz') {
@@ -617,16 +419,10 @@ class CourseSectionController extends Controller
             }
         }]);
 
-        // Get all available content for this course
-        $lessons = Lesson::all(); // Get all lessons for now
-        $questions = Question::all(); // Get all questions for now
-        $links = Link::all(); // Get all links for now
-        $quizzes = ItemList::where('type', 'quiz')->get();
-        $subCourses = Course::where('id', '!=', $course->id)->get();
         $modules = $course->modules()->orderBy('order')->get();
         $designSettings = $this->getDesignSettings();
 
-        return view('admin.course-sections.edit', compact('course', 'section', 'lessons', 'questions', 'links', 'quizzes', 'subCourses', 'modules', 'designSettings'));
+        return view('admin.course-sections.edit', compact('course', 'section', 'modules', 'designSettings'));
     }
 
     /**
@@ -635,6 +431,8 @@ class CourseSectionController extends Controller
     public function update(Request $request, Course $course, CourseSection $section)
     {
         $bunnyService = $this->bunnyService;
+        $this->assertDraftForStagedAuthoring($course);
+        $this->normalizeAuthoringText($request);
         $this->ensureSectionBelongsToCourse($course, $section);
         $this->validateSectionRequest($request, $course);
         $this->configureUploadRuntime();
@@ -647,6 +445,7 @@ class CourseSectionController extends Controller
         $oldVideoGuid = $oldLesson?->bunny_video_id ? (string) $oldLesson->bunny_video_id : null;
         $oldThumbnailPath = $oldLesson?->thumbnail_path ? (string) $oldLesson->thumbnail_path : null;
         $stagedVideoGuid = null;
+        $directVideoCandidate = false;
         $stagedThumbnailPath = null;
         $transactionStarted = false;
 
@@ -657,12 +456,25 @@ class CourseSectionController extends Controller
         }
 
         try {
-            if ($request->section_type === 'lesson' && $request->hasFile('bunny_video')) {
+            if ($request->section_type === 'lesson' && $request->filled('bunny_video_claim')) {
+                /** @var User $admin */
+                $admin = $request->user();
+                $claim = $this->directUploads->verifyForAttach(
+                    $course,
+                    $admin,
+                    (string) $request->input('bunny_video_claim'),
+                    $section
+                );
+                $stagedVideoGuid = (string) $claim['video_id'];
+                $directVideoCandidate = true;
+            } elseif ($request->section_type === 'lesson' && $request->hasFile('bunny_video')) {
                 $stagedVideoGuid = $bunnyService->uploadVerifiedVideo(
                     (string) $request->lesson_title_ar,
                     $request->file('bunny_video'),
                     $oldLesson
                 );
+            }
+            if ($request->section_type === 'lesson' && ($request->filled('bunny_video_claim') || $request->hasFile('bunny_video'))) {
                 if (!$stagedVideoGuid) {
                     throw new RuntimeException('تعذر رفع الفيديو الجديد والتحقق منه والفيديو السابق لم يتغير');
                 }
@@ -680,6 +492,8 @@ class CourseSectionController extends Controller
 
             DB::beginTransaction();
             $transactionStarted = true;
+            $lockedCourse = $this->authoring->lock($request, $course);
+            $this->assertDraftForStagedAuthoring($lockedCourse);
             $section = CourseSection::query()
                 ->whereKey($section->id)
                 ->where('course_id', $course->id)
@@ -693,6 +507,7 @@ class CourseSectionController extends Controller
 
             // If section type changed, delete the old sectionable
             if ($oldSectionType !== $sectionType && $sectionable) {
+                $this->assertSectionCanChangeType($section, $sectionable);
                 // For quiz, also delete all associated questions
                 if ($oldSectionType === 'quiz' && method_exists($sectionable, 'questions')) {
                     $sectionable->questions()->delete();
@@ -700,6 +515,10 @@ class CourseSectionController extends Controller
                 // Delete the old sectionable entity
                 $sectionable->delete();
                 $sectionable = null;
+            }
+
+            if ($directVideoCandidate && $stagedVideoGuid) {
+                $this->directUploads->consume($stagedVideoGuid);
             }
 
             // Update or create the appropriate content based on section type
@@ -741,7 +560,7 @@ class CourseSectionController extends Controller
                     $request->validate([
                         'link_title_ar' => 'required|string|max:255',
                         'link_title_en' => 'string|max:255',
-                        'link_url' => 'required|url',
+                        'link_url' => ['required', 'string', 'max:2000', SafeExternalUrl::validationRule()],
                         'link_type' => 'string'
                     ]);
 
@@ -794,6 +613,7 @@ class CourseSectionController extends Controller
                         'quiz_title_en' => 'nullable|string|max:255',
                         'time_minutes' => 'required|integer|min:1',
                         'questions' => 'required|array|min:1',
+                        'questions.*.id' => 'nullable|integer|exists:questions,id',
                         'questions.*.question_title' => 'nullable|string|max:255',
                         'questions.*.question_text' => 'required|string',
                         'questions.*.choice1' => 'required|string',
@@ -818,39 +638,26 @@ class CourseSectionController extends Controller
 
                     if ($section->getSectionType() == 'quiz' && $sectionable) {
                         $sectionable->update($quizData);
-
-                        // Delete existing questions
-                        $sectionable->questions()->delete();
                     } else {
                         $sectionable = ItemList::create($quizData);
                     }
 
-                    // Create new questions
-                    foreach ($request->questions as $index => $questionData) {
-                        Question::create([
-                            'title' => $questionData['question_title'] ?? null,
-                            'question' => $questionData['question_text'],
-                            'choice1' => $questionData['choice1'],
-                            'choice2' => $questionData['choice2'],
-                            'choice3' => $questionData['choice3'],
-                            'choice4' => $questionData['choice4'],
-                            'choice5' => $questionData['choice5'] ?? null,
-                            'choice6' => $questionData['choice6'] ?? null,
-                            'right_answer' => $questionData['correct_answer'],
-                            'priority' => $index + 1,
-                            'list_id' => $sectionable->id,
-                        ]);
-                    }
+                    $this->syncQuizQuestions($sectionable, (array) $request->questions);
                     break;
 
                 case 'project':
                     $request->validate([
                         'project_requirements_ar' => 'required|string',
                         'project_requirements_en' => 'nullable|string',
-                        'ai_prompt' => 'required|string',
-                        'ai_model_type' => 'nullable|string|max:255',
+                        'ai_prompt' => 'required|string|max:12000',
+                        'ai_model_type' => [
+                            'nullable',
+                            'string',
+                            'max:190',
+                            Rule::in(array_values(array_filter(config('openrouter.allowed_models', [])))),
+                        ],
                         'temperature' => 'nullable|numeric|min:0|max:2',
-                        'tokens_number' => 'nullable|integer|min:1',
+                        'tokens_number' => 'nullable|integer|min:80|max:' . max(80, (int) config('openrouter.max_tokens', 500)),
                         'passing_score' => 'required|integer|min:0|max:100',
                         'fallback_review_delay_seconds' => 'nullable|integer|min:30|max:300',
                     ]);
@@ -889,9 +696,15 @@ class CourseSectionController extends Controller
             foreach (array_unique(array_filter([$previousModuleId, $section->module_id])) as $moduleId) {
                 $this->normalizeModuleOrder($course, (int) $moduleId);
             }
+            $this->assertLiveCourseReady($course);
+            $authoringVersion = $this->authoring->advance($lockedCourse);
 
             DB::commit();
             $transactionStarted = false;
+
+            if ($sectionable instanceof Lesson && ($stagedVideoGuid || $stagedThumbnailPath)) {
+                $this->dispatchMediaProbe($sectionable);
+            }
 
             // Remote retirement starts only after the replacement pointer (or
             // deletion/type change) is durably committed.
@@ -900,16 +713,12 @@ class CourseSectionController extends Controller
                     $oldVideoGuid,
                     $oldLesson,
                     $sectionType !== 'lesson' ? 'section_type_changed' : 'superseded_video',
-                    168
+                    168,
+                    true
                 );
             }
             if ($oldThumbnailPath && ($sectionType !== 'lesson' || $stagedThumbnailPath)) {
-                if (!$bunnyService->deleteFileFromStorage($oldThumbnailPath)) {
-                    Log::warning('Superseded lesson thumbnail could not be removed', [
-                        'path' => $oldThumbnailPath,
-                        'section_id' => $section->getKey(),
-                    ]);
-                }
+                $bunnyService->queueStorageCleanup($oldThumbnailPath, 'superseded_lesson_thumbnail');
             }
             $stagedVideoGuid = null;
             $stagedThumbnailPath = null;
@@ -918,7 +727,8 @@ class CourseSectionController extends Controller
                 return response()->json([
                     'success' => true,
                     'message' => 'تم تحديث القسم بنجاح',
-                    'section' => $section
+                    'section' => $section,
+                    'authoring_version' => $authoringVersion,
                 ]);
             }
 
@@ -929,20 +739,24 @@ class CourseSectionController extends Controller
                 DB::rollBack();
             }
             if ($stagedVideoGuid) {
-                $bunnyService->queueVideoCleanup($stagedVideoGuid, $oldLesson, 'section_update_rollback', 24);
+                $bunnyService->queueVideoCleanup($stagedVideoGuid, $oldLesson, 'section_update_rollback', 24, true);
             }
             if ($stagedThumbnailPath) {
-                $bunnyService->deleteFileFromStorage($stagedThumbnailPath);
+                $bunnyService->queueStorageCleanup($stagedThumbnailPath, 'section_update_rollback');
             }
+            if ($e instanceof ValidationException) {
+                throw $e;
+            }
+            report($e);
             if ($request->expectsJson()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'حدث خطأ أثناء تحديث القسم: ' . $e->getMessage()
+                    'message' => 'تعذر تحديث القسم الآن'
                 ], 500);
             }
 
             return redirect()->back()
-                ->with('error', 'حدث خطأ أثناء تحديث القسم: ' . $e->getMessage())
+                ->with('error', 'تعذر تحديث القسم الآن')
                 ->withInput();
         }
     }
@@ -950,10 +764,11 @@ class CourseSectionController extends Controller
     /**
      * Remove the specified section
      */
-    public function destroy(Course $course, CourseSection $section)
+    public function destroy(Request $request, Course $course, CourseSection $section)
     {
         $bunnyService = $this->bunnyService;
         $this->ensureSectionBelongsToCourse($course, $section);
+        $this->assertDraftForStagedAuthoring($course);
         $lesson = $section->getSectionType() === 'lesson' && $section->sectionable instanceof Lesson
             ? $section->sectionable
             : null;
@@ -963,23 +778,25 @@ class CourseSectionController extends Controller
         // The content row is intentionally retained as a recovery snapshot.
         // Only the published section pointer is removed atomically; irreversible
         // remote retirement is queued strictly after that commit.
-        DB::transaction(function () use ($course, $section): void {
+        $request->validate(['authoring_version' => 'required|integer|min:1']);
+        DB::transaction(function () use ($request, $course, $section): void {
+            $lockedCourse = $this->authoring->lock($request, $course);
+            $this->assertDraftForStagedAuthoring($lockedCourse);
             $lockedSection = CourseSection::query()
                 ->whereKey($section->id)
                 ->where('course_id', $course->id)
                 ->lockForUpdate()
                 ->firstOrFail();
             $lockedSection->delete();
+            $this->assertLiveCourseReady($course);
+            $this->authoring->advance($lockedCourse);
         });
 
         if ($videoGuid) {
-            $bunnyService->queueVideoCleanup($videoGuid, $lesson, 'section_deleted', 168);
+            $bunnyService->queueVideoCleanup($videoGuid, $lesson, 'section_deleted', 168, true);
         }
-        if ($thumbnailPath && !$bunnyService->deleteFileFromStorage($thumbnailPath)) {
-            Log::warning('Deleted lesson thumbnail could not be removed', [
-                'path' => $thumbnailPath,
-                'section_id' => $section->getKey(),
-            ]);
+        if ($thumbnailPath) {
+            $bunnyService->queueStorageCleanup($thumbnailPath, 'section_deleted');
         }
 
         return redirect()->route('admin.courses.sections.index', $course)
@@ -991,11 +808,13 @@ class CourseSectionController extends Controller
      */
     public function reorder(Request $request, Course $course)
     {
+        $this->assertDraftForStagedAuthoring($course);
         $request->validate([
             'sections' => 'required|array',
             'sections.*.id' => [
                 'required',
                 'integer',
+                'distinct',
                 Rule::exists('course_sections', 'id')->where(
                     fn ($query) => $query->where('course_id', $course->id)->whereNull('deleted_at')
                 ),
@@ -1008,6 +827,10 @@ class CourseSectionController extends Controller
                     fn ($query) => $query->where('course_id', $course->id)
                 ),
             ],
+            'authoring_version' => 'required|integer|min:1',
+        ], [
+            'module_id.required' => 'اختر الوحدة التي سيظهر فيها المحتوى',
+            'module_id.exists' => 'الوحدة المختارة لم تعد متاحة',
         ]);
 
         $requestedModules = collect($request->input('sections', []))
@@ -1017,26 +840,29 @@ class CourseSectionController extends Controller
                     ? null
                     : (int) $section['module_id'],
             ]);
-        $projectLayout = CourseSection::query()
+        $learnerLayout = CourseSection::query()
             ->where('course_id', $course->id)
             ->where(function ($query): void {
-                $query->where('section_type', 'project')
-                    ->orWhere('sectionable_type', Project::class);
+                $query->whereIn('section_type', ['lesson', 'quiz', 'project'])
+                    ->orWhereIn('sectionable_type', [Lesson::class, ItemList::class, Project::class]);
             })
-            ->get(['id', 'module_id'])
+            ->get(['id', 'module_id', 'section_type', 'sectionable_type'])
             ->map(fn (CourseSection $section): array => [
                 'id' => $section->id,
+                'is_project' => $section->getSectionType() === 'project',
                 'module_id' => $requestedModules->has($section->id)
                     ? $requestedModules->get($section->id)
                     : $section->module_id,
             ]);
 
-        if ($projectLayout->contains(fn (array $project): bool => $project['module_id'] === null)) {
+        if ($learnerLayout->contains(fn (array $section): bool =>
+            $requestedModules->has($section['id']) && $section['module_id'] === null
+        )) {
             throw ValidationException::withMessages([
-                'sections' => 'مشروع العبور يجب أن يبقى داخل وحدة.',
+                'sections' => 'يجب أن يبقى كل مقطع أو اختبار أو مشروع داخل وحدة',
             ]);
         }
-        if ($projectLayout->groupBy('module_id')->contains(fn ($projects): bool => $projects->count() > 1)) {
+        if ($learnerLayout->where('is_project', true)->groupBy('module_id')->contains(fn ($projects): bool => $projects->count() > 1)) {
             throw ValidationException::withMessages([
                 'sections' => 'يمكن لكل وحدة أن تحتوي مشروع عبور واحدًا فقط.',
             ]);
@@ -1053,8 +879,12 @@ class CourseSectionController extends Controller
             ->unique()
             ->values();
 
-        DB::transaction(function () use ($request, $course, $affectedModuleIds): void {
-            Course::query()->whereKey($course->id)->lockForUpdate()->firstOrFail();
+        $version = DB::transaction(function () use ($request, $course, $affectedModuleIds): int {
+            $lockedCourse = $this->authoring->lock($request, $course);
+            $this->assertDraftForStagedAuthoring($lockedCourse);
+            CourseSection::query()->where('course_id', $course->id)
+                ->whereIn('id', collect($request->sections)->pluck('id'))
+                ->orderBy('id')->lockForUpdate()->get();
             foreach ($request->sections as $sectionData) {
                 $updateData = ['order' => $sectionData['order']];
                 if (array_key_exists('module_id', $sectionData)) {
@@ -1068,9 +898,78 @@ class CourseSectionController extends Controller
             foreach ($affectedModuleIds as $moduleId) {
                 $this->normalizeModuleOrder($course, $moduleId);
             }
+            $this->assertLiveCourseReady($course);
+            return $this->authoring->advance($lockedCourse);
         });
 
-        return response()->json(['success' => true]);
+        return response()->json(['success' => true, 'authoring_version' => $version]);
+    }
+
+    private function assertDraftForStagedAuthoring(Course $course): void
+    {
+        if (!$course->is_coming_soon) {
+            throw ValidationException::withMessages([
+                'course' => [
+                    'حوّل الكورس إلى مسودة قبل تغيير بنية المحتوى أو الفيديو ثم أعد نشره بعد الفحص',
+                ],
+            ]);
+        }
+    }
+
+    private function assertLiveCourseReady(Course $course): void
+    {
+        if ($course->is_coming_soon) {
+            return;
+        }
+
+        $audit = $this->publishingService->audit($course->fresh());
+        if (!$audit['ready']) {
+            throw ValidationException::withMessages([
+                'course' => $audit['issues'],
+            ]);
+        }
+    }
+
+    private function normalizeAuthoringText(Request $request): void
+    {
+        $singleLine = [
+            'title_ar', 'title_en', 'lesson_title_ar', 'lesson_title_en',
+            'quiz_title_ar', 'quiz_title_en', 'link_title_ar', 'link_title_en',
+            'course_name_ar', 'course_name_en',
+        ];
+        $multiline = [
+            'lesson_description_ar', 'lesson_description_en',
+            'quiz_description_ar', 'quiz_description_en',
+            'course_description_ar', 'course_description_en',
+            'project_requirements_ar', 'project_requirements_en', 'ai_prompt',
+        ];
+        $normalized = [];
+        foreach ($singleLine as $field) {
+            if ($request->input($field) !== null) {
+                $normalized[$field] = UnicodeText::clean($request->input($field), false);
+            }
+        }
+        foreach ($multiline as $field) {
+            if ($request->input($field) !== null) {
+                $normalized[$field] = UnicodeText::clean($request->input($field));
+            }
+        }
+        foreach (['question', 'questions'] as $field) {
+            $value = $request->input($field);
+            if (!is_array($value)) continue;
+            $rows = $field === 'question' ? [$value] : $value;
+            foreach ($rows as &$row) {
+                if (!is_array($row)) continue;
+                foreach (['question_title', 'question_text', 'choice1', 'choice2', 'choice3', 'choice4', 'choice5', 'choice6'] as $key) {
+                    if (array_key_exists($key, $row) && is_string($row[$key])) {
+                        $row[$key] = UnicodeText::clean($row[$key], $key !== 'question_title');
+                    }
+                }
+            }
+            unset($row);
+            $normalized[$field] = $field === 'question' ? ($rows[0] ?? []) : $rows;
+        }
+        if ($normalized !== []) $request->merge($normalized);
     }
 
     private function validateSectionRequest(Request $request, Course $course): void
@@ -1078,15 +977,19 @@ class CourseSectionController extends Controller
         $request->validate([
             'title_ar' => 'required|string|max:255',
             'title_en' => 'nullable|string|max:255',
-            'section_type' => 'required|in:lesson,link,quiz,course,project',
+            'section_type' => 'required|in:lesson,quiz,project',
             'module_id' => [
-                'nullable',
+                'required',
                 'integer',
                 Rule::exists('course_modules', 'id')->where(
                     fn ($query) => $query->where('course_id', $course->id)
                 ),
             ],
             'order' => 'nullable|integer|min:0',
+            'authoring_version' => 'required|integer|min:1',
+        ], [
+            'module_id.required' => 'اختر الوحدة التي سيظهر فيها المحتوى',
+            'module_id.exists' => 'الوحدة المختارة لم تعد متاحة',
         ]);
 
         if ($request->input('section_type') !== 'project') {
@@ -1122,13 +1025,23 @@ class CourseSectionController extends Controller
         $request->validate([
             'lesson_title_ar' => 'required|string|max:255',
             'lesson_title_en' => 'nullable|string|max:255',
-            'bunny_video' => ($videoRequired ? 'required' : 'nullable')
-                . '|file|mimetypes:video/mp4,video/quicktime,video/x-msvideo,video/webm|max:5242880',
+            'bunny_video' => 'nullable|file|mimetypes:video/mp4,video/quicktime,video/x-msvideo,video/webm|max:5242880',
+            'bunny_video_claim' => 'nullable|string|max:4096',
             'file_link1' => 'nullable|url',
             'file_link2' => 'nullable|url',
             'lesson_thumbnail' => 'nullable|file|mimes:jpeg,jpg,png,webp,gif|max:2048',
             'lesson_duration_minutes' => 'nullable|integer|min:1',
         ]);
+        if ($request->hasFile('bunny_video') && $request->filled('bunny_video_claim')) {
+            throw ValidationException::withMessages([
+                'bunny_video' => 'اختر رفعًا واحدًا فقط',
+            ]);
+        }
+        if ($videoRequired && !$request->hasFile('bunny_video') && !$request->filled('bunny_video_claim')) {
+            throw ValidationException::withMessages([
+                'bunny_video' => 'اختر ملف الفيديو وانتظر اكتمال رفعه',
+            ]);
+        }
     }
 
     private function configureUploadRuntime(): void
@@ -1136,6 +1049,21 @@ class CourseSectionController extends Controller
         set_time_limit(0);
         ini_set('max_execution_time', '0');
         ini_set('memory_limit', '1024M');
+    }
+
+    private function dispatchMediaProbe(Lesson $lesson): void
+    {
+        try {
+            ProbeLessonMedia::dispatch((int) $lesson->id)->afterCommit();
+        } catch (Throwable $exception) {
+            // The durable processing row remains visible in the dashboard and
+            // the scheduled reconciliation will recover it if queue dispatch
+            // is briefly unavailable.
+            Log::warning('Lesson media probe remains pending after dispatch failure.', [
+                'lesson_id' => $lesson->id,
+                'exception' => $exception::class,
+            ]);
+        }
     }
 
     private function ensureSectionBelongsToCourse(Course $course, CourseSection $section): void
@@ -1163,6 +1091,75 @@ class CourseSectionController extends Controller
             if ((int) $section->order !== $normalizedOrder) {
                 $section->updateQuietly(['order' => $normalizedOrder]);
             }
+        }
+    }
+
+    /** @param array<int, array<string, mixed>> $questions */
+    private function syncQuizQuestions(ItemList $quiz, array $questions): void
+    {
+        $keptQuestionIds = [];
+        foreach ($questions as $index => $questionData) {
+            $correctChoice = 'choice' . (int) $questionData['correct_answer'];
+            if (trim((string) ($questionData[$correctChoice] ?? '')) === '') {
+                throw ValidationException::withMessages([
+                    "questions.{$index}.correct_answer" => 'اختر إجابة مكتوبة',
+                ]);
+            }
+            $question = !empty($questionData['id'])
+                ? Question::query()
+                    ->whereKey($questionData['id'])
+                    ->where('list_id', $quiz->id)
+                    ->lockForUpdate()
+                    ->first()
+                : new Question(['list_id' => $quiz->id]);
+            if (!$question) {
+                throw ValidationException::withMessages([
+                    "questions.{$index}.id" => 'السؤال لا يتبع هذا الاختبار',
+                ]);
+            }
+            $question->fill([
+                'title' => $questionData['question_title'] ?? null,
+                'question' => $questionData['question_text'],
+                'choice1' => $questionData['choice1'],
+                'choice2' => $questionData['choice2'],
+                'choice3' => $questionData['choice3'],
+                'choice4' => $questionData['choice4'],
+                'choice5' => $questionData['choice5'] ?? null,
+                'choice6' => $questionData['choice6'] ?? null,
+                'right_answer' => $questionData['correct_answer'],
+                'priority' => $index + 1,
+            ])->save();
+            $keptQuestionIds[] = (int) $question->id;
+        }
+
+        $quiz->questions()->whereNotIn('id', $keptQuestionIds)->delete();
+    }
+
+    private function assertSectionCanChangeType(CourseSection $section, object $content): void
+    {
+        $hasActivity = StudentSectionProgress::query()
+            ->where('course_section_id', $section->id)->exists()
+            || WatchingLog::query()->where('course_section_id', $section->id)->exists()
+            || PlaybackSession::query()->where('course_section_id', $section->id)->exists();
+
+        if ($content instanceof ItemList) {
+            $hasActivity = $hasActivity || ExamAttempt::withTrashed()
+                ->where(fn ($attempts) => $attempts
+                    ->where('section_id', $section->id)
+                    ->orWhere('quiz_id', $content->id))
+                ->exists();
+        } elseif ($content instanceof Project) {
+            $hasActivity = $hasActivity
+                || ProjectSubmission::query()->where('project_id', $content->id)->exists()
+                || PortfolioItem::query()->where('source_project_id', $content->id)->exists();
+        }
+
+        if ($hasActivity) {
+            throw ValidationException::withMessages([
+                'section_type' => [
+                    'هذا المحتوى مرتبط بتقدم طلاب محفوظ\nيمكنك تعديله أو حذفه لكن لا تغيّر نوعه',
+                ],
+            ]);
         }
     }
 

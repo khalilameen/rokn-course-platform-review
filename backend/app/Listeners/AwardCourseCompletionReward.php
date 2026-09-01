@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Listeners;
 
 use App\Events\CourseCompleted;
+use App\Models\Course;
+use App\Models\User;
 use App\Services\LearningRewardService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
@@ -15,6 +17,9 @@ final class AwardCourseCompletionReward implements ShouldQueue
 
     public bool $afterCommit = true;
     public int $tries = 3;
+    public int $timeout = 30;
+    public bool $failOnTimeout = true;
+    public array $backoff = [10, 60, 180];
 
     public function __construct(
         private readonly LearningRewardService $rewards
@@ -23,9 +28,15 @@ final class AwardCourseCompletionReward implements ShouldQueue
 
     public function handle(CourseCompleted $event): void
     {
+        $user = User::query()->find($event->resolvedUserId());
+        $course = Course::query()->find($event->resolvedCourseId());
+        if (!$user || !$course) {
+            return;
+        }
+
         $this->rewards->awardCourseCompletion(
-            $event->user,
-            $event->course
+            $user,
+            $course
         );
     }
 }

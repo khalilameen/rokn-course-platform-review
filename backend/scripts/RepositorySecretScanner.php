@@ -35,6 +35,7 @@ final class RepositorySecretScanner
         'BUNNY_API_KEY',
         'BUNNY_LIBRARY_API_KEY',
         'BUNNY_STREAM_API_KEY',
+        'BUNNY_STREAM_WEBHOOK_SECRET',
         'BUNNY_STORAGE_PASSWORD',
         'BUNNY_TOKEN_AUTH_KEY',
         'BUNNY_STORAGE_TOKEN_AUTH_KEY',

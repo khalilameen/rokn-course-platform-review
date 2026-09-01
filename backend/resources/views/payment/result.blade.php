@@ -243,10 +243,10 @@
         // -------------------------------------------------------
         // Payment result data (safe to embed — no sensitive info)
         // -------------------------------------------------------
-        var PAYMENT_STATUS  = "{{ $success ? 'success' : 'failed' }}";
-        var ORDER_REF       = "{{ $order_ref ?? '' }}";
-        var COINS_CREDITED  = "{{ $coins_credited ?? 0 }}";
-        var TRANSACTION_ID  = "{{ $transaction_id ?? '' }}";
+        var PAYMENT_STATUS  = @json($success ? 'success' : 'failed');
+        var ORDER_REF       = @json((string) ($order_ref ?? ''));
+        var COINS_CREDITED  = @json((int) ($coins_credited ?? 0));
+        var TRANSACTION_ID  = @json((string) ($transaction_id ?? ''));
 
         var deepLinkUrl = "rokn://payment-result"
             + "?status="         + PAYMENT_STATUS

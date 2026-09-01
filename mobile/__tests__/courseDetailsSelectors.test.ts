@@ -31,6 +31,7 @@ const course: CourseDetails = {
   previewReelCount: 3,
   ratingAverage: 4.8,
   ratingsCount: 91,
+  userRating: null,
   studentsCount: 640,
   durationMinutes: 125,
   accessPlans: [plan('basic', 300), plan('mentor', 700)],

@@ -1,77 +1,15 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const courseSearch = document.getElementById('courseSearch');
-    const typeFilter = document.getElementById('typeFilter');
-    const classificationFilter = document.getElementById('classificationFilter');
-    const coursesGrid = document.getElementById('coursesGrid');
-
-    function filterCourses() {
-        const searchTerm = courseSearch.value.toLowerCase();
-        const selectedType = typeFilter.value;
-        const selectedClassification = classificationFilter.value;
-        const courseCards = document.querySelectorAll('.course-card');
-
-        courseCards.forEach(card => {
-            const searchText = card.getAttribute('data-search');
-            const courseType = card.getAttribute('data-course-type');
-            const classificationIds = JSON.parse(card.getAttribute('data-classification-ids') || '[]');
-
-            const matchesSearch = !searchTerm || searchText.includes(searchTerm);
-            const matchesType = !selectedType || courseType === selectedType;
-            const matchesClassification = !selectedClassification || classificationIds.includes(parseInt(selectedClassification));
-
-            if (matchesSearch && matchesType && matchesClassification) {
-                card.style.display = 'block';
-            } else {
-                card.style.display = 'none';
-            }
-        });
-
-        // Show/hide empty state
-        const visibleCards = document.querySelectorAll('.course-card:not([style*="display: none"])');
-        const existingEmptyState = document.querySelector('.empty-state.search-empty-state');
-
-        if (visibleCards.length === 0 && !existingEmptyState) {
-            // Add empty state without replacing existing content
-            const emptyStateHtml = `
-                <div class="empty-state search-empty-state courses-search-empty-state">
-                    <div class="empty-icon">
-                        <i class="fa fa-search"></i>
-                    </div>
-                    <h3 class="empty-title">لم يتم العثور على نتائج</h3>
-                    <p class="empty-description">
-                        جرب تغيير معايير البحث للعثور على الكورسات المناسبة.
-                    </p>
-                </div>
-            `;
-            coursesGrid.insertAdjacentHTML('beforeend', emptyStateHtml);
-        } else if (visibleCards.length > 0 && existingEmptyState) {
-            // Remove empty state when courses are visible
-            existingEmptyState.remove();
-        }
-    }
-
-    // Event listeners for filters
-    courseSearch.addEventListener('input', filterCourses);
-    typeFilter.addEventListener('change', filterCourses);
-    classificationFilter.addEventListener('change', filterCourses);
+    // The result set is paginated on the server. Filtering only the cards on
+    // the current page creates false empty states while matching courses exist
+    // on later pages, so search is submitted as one authoritative query.
 });
 
 function resetFilters() {
     document.getElementById('courseSearch').value = '';
-    document.getElementById('typeFilter').value = '';
     document.getElementById('classificationFilter').value = '';
 
-    // Show all courses
-    document.querySelectorAll('.course-card').forEach(card => {
-        card.style.display = 'block';
-    });
-
-    // Remove any search-generated empty state
-    const searchEmptyState = document.querySelector('.empty-state.search-empty-state');
-    if (searchEmptyState) {
-        searchEmptyState.remove();
-    }
+    window.location.href = @json(route('admin.courses.index'));
 }
 
 function navigateToCourse(event, card) {
@@ -95,10 +33,10 @@ function deleteCourse(courseId) {
             <div class="modal-icon">
                 <i class="fa fa-exclamation-triangle"></i>
             </div>
-            <h3 class="modal-title">تأكيد الحذف</h3>
+            <h3 class="modal-title">أرشفة الكورس</h3>
             <p class="modal-message">
-                هل أنت متأكد من حذف هذا الكورس؟<br>
-                <strong>سيتم حذف جميع الأقسام والمحتوى المرتبط به نهائياً.</strong>
+                سيتوقف ظهوره وفتح محتواه للطلاب<br>
+                <strong>يمكنك استعادته لاحقًا كمسودة مخفية.</strong>
             </p>
             <div class="modal-actions">
                 <button class="btn-modal btn-cancel" onclick="closeDeleteModal()">
@@ -107,7 +45,7 @@ function deleteCourse(courseId) {
                 </button>
                 <button class="btn-modal btn-confirm" onclick="confirmDelete(${courseId})">
                     <i class="fa fa-trash"></i>
-                    حذف نهائياً
+                    نقل إلى الأرشيف
                 </button>
             </div>
         </div>
@@ -139,14 +77,11 @@ function confirmDelete(courseId) {
     const confirmBtn = document.querySelector('.btn-confirm');
 
     // Add loading state
-    confirmBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> جاري الحذف...';
+    confirmBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> جارٍ النقل...';
     confirmBtn.disabled = true;
     confirmBtn.style.opacity = '0.7';
 
-    // Submit form after short delay for better UX
-    setTimeout(() => {
-        document.getElementById('deleteForm' + courseId).submit();
-    }, 500);
+    document.getElementById('deleteForm' + courseId).submit();
 }
 
 </script>

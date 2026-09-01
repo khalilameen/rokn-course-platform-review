@@ -7,7 +7,9 @@
     <div class="page-content">
         <h1>{{ __('privacy.heading') }}</h1>
         <div class="policy-content">
-            @if(is_array(__('privacy.sections')))
+            @if(!empty($managedBody))
+                {!! nl2br(e($managedBody)) !!}
+            @elseif(is_array(__('privacy.sections')))
                 <div class="terms-header">
                     <p class="terms-brand">{{ __('privacy.brand') }}</p>
                     <p class="terms-version">{{ __('privacy.version_label') }} {{ __('privacy.version') }}</p>

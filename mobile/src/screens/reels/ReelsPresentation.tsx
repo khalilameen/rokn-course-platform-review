@@ -15,12 +15,17 @@ import {Palette, rtlRowStyle} from '../../constants/designSystem';
 import {Fonts} from '../../constants/styleConstants';
 
 export const ReelsLoadingState = () => (
-  <View style={styles.loadingState}>
+  <View
+    accessibilityLiveRegion="polite"
+    accessibilityLabel="جارٍ تجهيز الكورس"
+    style={styles.loadingState}>
     <View style={styles.loadingMark}>
       <ActivityIndicator color="#FFFFFF" size="large" />
     </View>
-    <Text style={styles.loadingTitle}>نجهّز مكانك في الكورس</Text>
-    <Text style={styles.loadingText}>لحظات وتبدأ من آخر نقطة وصلت لها</Text>
+    <Text accessibilityRole="header" style={styles.loadingTitle}>
+      جارٍ فتح الكورس
+    </Text>
+    <Text style={styles.loadingText}>سنفتح آخر مقطع وصلت إليه</Text>
   </View>
 );
 
@@ -39,8 +44,10 @@ export const ReelsUnavailableState = ({
   secondaryLabel: string;
   title: string;
 }) => (
-  <View style={styles.loadingState}>
-    <Text style={styles.loadErrorTitle}>{title}</Text>
+  <View accessibilityLiveRegion="assertive" style={styles.loadingState}>
+    <Text accessibilityRole="header" style={styles.loadErrorTitle}>
+      {title}
+    </Text>
     <Text style={styles.loadErrorText}>{message}</Text>
     <Pressable
       accessibilityRole="button"
@@ -70,10 +77,14 @@ export const ReelsPreviewGate = ({
   previewCount: number;
   topInset: number;
 }) => (
-  <View accessibilityViewIsModal style={styles.previewGate}>
+  <View
+    accessibilityViewIsModal
+    accessibilityLabel="انتهت المعاينة المجانية"
+    style={styles.previewGate}>
     <View style={styles.previewGateGlow} />
     <ScrollView
       bounces={false}
+      contentInsetAdjustmentBehavior="automatic"
       contentContainerStyle={[
         styles.previewGateScrollContent,
         {
@@ -87,10 +98,12 @@ export const ReelsPreviewGate = ({
         <View style={styles.previewBadge}>
           <Text style={styles.previewBadgeText}>معاينة مجانية مكتملة</Text>
         </View>
-        <Text style={styles.previewGateTitle}>هذه كانت البداية</Text>
+        <Text accessibilityRole="header" style={styles.previewGateTitle}>
+          انتهت المعاينة المجانية
+        </Text>
         <Text style={styles.previewGateText}>
-          خلّصت {formatArabicNumber(previewCount)} من المحتوى المجاني
-          {'\n'}أكمل من المقطع التالي واحفظ تقدمك
+          شاهدت {formatArabicNumber(previewCount)} مقطع مجانًا
+          {'\n'}افتح الكورس للمتابعة من المقطع التالي
         </Text>
         <Pressable
           accessibilityRole="button"
@@ -124,7 +137,10 @@ export const ReelsConnectionNote = ({
   message: string;
   topInset: number;
 }) => (
-  <View style={[styles.connectionNote, {top: topInset + 12}]}>
+  <View
+    accessibilityLiveRegion="polite"
+    accessibilityRole="alert"
+    style={[styles.connectionNote, {top: topInset + 12}]}>
     <View style={styles.connectionDot} />
     <Text style={styles.connectionText}>
       {formatArabicDisplayText(message)}

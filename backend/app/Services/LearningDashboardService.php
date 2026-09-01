@@ -6,7 +6,6 @@ namespace App\Services;
 
 use App\Models\CourseEnrollment;
 use App\Models\CourseSection;
-use App\Models\Order;
 use App\Models\StudentSectionProgress;
 use App\Models\User;
 use App\Models\WatchingLog;
@@ -15,6 +14,16 @@ use Illuminate\Support\Carbon;
 
 final readonly class LearningDashboardService
 {
+    private const MAX_ACTIVE_COURSES = 100;
+
+    public function __construct(
+        private CourseSectionSequenceService $sectionSequence,
+        private CourseChatAccessService $courseAccess,
+        private CertificateEligibilityService $certificateEligibility,
+        private LatestWatchResumeService $latestResume
+    ) {
+    }
+
     /**
      * @return array{items: mixed}
      */
@@ -26,28 +35,54 @@ final readonly class LearningDashboardService
             ->where(function (Builder $active): void {
                 $active->whereNull('expires_at')->orWhere('expires_at', '>', now());
             })
+            // Filter before applying the bounded window. Otherwise an
+            // unpublished or nested enrollment can consume one of the first
+            // 101 rows, hide an older valid course and make has_more false.
+            ->whereHas('course', static function (Builder $courses): void {
+                $courses->where('is_coming_soon', false)
+                    ->whereNull('parent_id')
+                    ->whereHas('sections')
+                    ->whereDoesntHave('courseSection');
+            })
             ->with([
                 'course.photo',
                 'course.classifications',
-                'order.courseCode',
-                'financialHolds' => fn ($query) => $query->where('status', 'active'),
             ])
             ->latest('access_granted_at')
-            ->get()
-            ->filter(fn (CourseEnrollment $enrollment): bool => (bool) $enrollment->course);
+            ->latest('id')
+            ->limit(self::MAX_ACTIVE_COURSES + 1)
+            ->get();
+        $hasMoreCourses = $enrollments->count() > self::MAX_ACTIVE_COURSES;
+        $enrollments = $enrollments->take(self::MAX_ACTIVE_COURSES)->values();
 
         $courseIds = $enrollments
             ->pluck('course_id')
             ->map(fn ($id): int => (int) $id)
             ->unique();
-        $sectionCourse = CourseSection::query()
+        $sections = CourseSection::query()
             ->whereIn('course_id', $courseIds)
-            ->pluck('course_id', 'id');
-        $totalByCourse = $sectionCourse->values()->countBy();
+            ->orderBy('course_id')
+            ->orderBy('order')
+            ->orderBy('id')
+            ->get([
+                'id', 'course_id', 'module_id', 'title', 'title_ar', 'title_en',
+                'section_type', 'sectionable_type', 'sectionable_id', 'order',
+            ]);
+        $sectionsByCourse = $sections
+            ->groupBy('course_id')
+            ->map(fn ($courseSections) => $this->sectionSequence->learning($courseSections));
+        $sections = $sectionsByCourse->flatten(1);
+        $sectionCourse = $sections->pluck('course_id', 'id');
+        $totalByCourse = $sectionsByCourse->map->count();
         $progressRows = StudentSectionProgress::query()
             ->where('user_id', $user->id)
             ->whereIn('course_section_id', $sectionCourse->keys())
-            ->get(['course_section_id', 'is_completed', 'updated_at']);
+            ->get(['course_section_id', 'is_completed', 'completed_at', 'updated_at']);
+        $completedSectionIds = $progressRows
+            ->where('is_completed', true)
+            ->pluck('course_section_id')
+            ->map(fn ($id): int => (int) $id)
+            ->flip();
         $completedByCourse = $progressRows
             ->where('is_completed', true)
             ->unique('course_section_id')
@@ -56,28 +91,27 @@ final readonly class LearningDashboardService
             ->countBy();
         $progressActivityByCourse = $progressRows
             ->groupBy(fn ($progress) => $sectionCourse->get($progress->course_section_id))
-            ->map(fn ($rows) => $rows->max('updated_at'));
+            ->map(fn ($rows) => $rows
+                ->map(fn ($row) => $row->completed_at ?? $row->updated_at)
+                ->filter()
+                ->max());
 
         $resumeByCourse = collect();
         if ((bool) $user->watch_history_enabled && $courseIds->isNotEmpty()) {
-            $resumeByCourse = WatchingLog::query()
-                ->where('user_id', $user->id)
-                ->whereIn('course_id', $courseIds)
-                ->with([
+            $resumeByCourse = $this->latestResume->forUser(
+                (int) $user->id,
+                $courseIds,
+                [
                     'lesson:id,list_id,title,title_ar,title_en,thumbnail_path',
                     'courseSection:id,course_id,sectionable_type,sectionable_id,order',
-                ])
-                ->orderByRaw('COALESCE(watched_at, updated_at) DESC')
-                ->orderByDesc('id')
-                ->get()
-                ->filter(function (WatchingLog $log): bool {
+                ]
+            )->filter(function (WatchingLog $log): bool {
                     return $log->lesson !== null
                         && $log->courseSection !== null
                         && (int) $log->lesson->list_id === (int) $log->course_id
                         && (int) $log->courseSection->course_id === (int) $log->course_id
                         && (int) $log->courseSection->sectionable_id === (int) $log->lesson_id;
                 })
-                ->unique(fn (WatchingLog $log): int => (int) $log->course_id)
                 ->keyBy(fn (WatchingLog $log): int => (int) $log->course_id);
         }
 
@@ -85,31 +119,25 @@ final readonly class LearningDashboardService
             $totalByCourse,
             $completedByCourse,
             $progressActivityByCourse,
-            $resumeByCourse
+            $resumeByCourse,
+            $sectionsByCourse,
+            $completedSectionIds,
+            $user
         ): array {
             $course = $enrollment->course;
             $courseId = (int) $course->id;
             $total = (int) $totalByCourse->get($courseId, 0);
             $completed = min($total, (int) $completedByCourse->get($courseId, 0));
             $percentage = $total > 0 ? round(($completed / $total) * 100, 2) : 0.0;
-            $order = $enrollment->order;
-            $courseHeld = $enrollment->financialHolds->contains(
-                fn ($hold): bool => $hold->entitlement_scope === 'course'
-            );
-            $chatHeld = $courseHeld || $enrollment->financialHolds->contains(
-                fn ($hold): bool => $hold->entitlement_scope === 'chat'
-            );
-            $isCourseCode = $order
-                && $order->status === Order::STATUS_APPROVED
-                && $order->payment_method === Order::PAYMENT_METHOD_COURSE_CODE;
-            $isGrant = $isCourseCode && (bool) $order->courseCode?->isInstitutionalGrant();
-            $isPaid = $order
-                && $order->status === Order::STATUS_APPROVED
-                && !$isCourseCode
-                && ((int) $order->total_coins > 0 || (float) $order->final_amount > 0);
-            $accessType = $isPaid
-                ? 'paid'
-                : ($isGrant ? 'scholarship' : ($isCourseCode ? 'course_code' : 'free'));
+            $entitlement = $this->courseAccess->entitlementFor((int) $user->id, $courseId);
+            $certificateStatus = (bool) $entitlement['certificate_available']
+                && $total > 0
+                && $completed === $total
+                ? $this->certificateEligibility->for($user, $course)
+                : [
+                    'included' => (bool) $entitlement['certificate_available'],
+                    'available' => false,
+                ];
 
             /** @var WatchingLog|null $resumeLog */
             $resumeLog = $resumeByCourse->get($courseId);
@@ -135,6 +163,21 @@ final readonly class LearningDashboardService
                 ];
             }
 
+            $nextSection = $sectionsByCourse->get($courseId, collect())->first(
+                fn (CourseSection $section): bool => !$completedSectionIds->has((int) $section->id)
+            );
+            $next = null;
+            if ($nextSection) {
+                $next = [
+                    'course_section_id' => (int) $nextSection->id,
+                    'id' => (int) $nextSection->sectionable_id,
+                    'type' => (string) $nextSection->getSectionType(),
+                    'title' => (string) $nextSection->title,
+                    'module_id' => $nextSection->module_id ? (int) $nextSection->module_id : null,
+                    'order' => (int) $nextSection->order,
+                ];
+            }
+
             $progressActivity = $progressActivityByCourse->get($courseId);
             $lastActivity = collect([$watchActivity, $progressActivity])->filter()->max();
 
@@ -147,14 +190,14 @@ final readonly class LearningDashboardService
                 'total_sections' => $total,
                 'is_completed' => $total > 0 && $completed === $total,
                 'resume' => $resume,
+                'next_section' => $next,
                 'last_activity_at' => $lastActivity
                     ? Carbon::parse($lastActivity)->toIso8601String()
                     : null,
-                'access_type' => $accessType,
-                'chat_available' => !$chatHeld
-                    && (bool) $course->ai_chat_enabled
-                    && ($isPaid || ($isCourseCode && !$isGrant)),
-                'certificate_available' => !$courseHeld && !$isGrant,
+                'access_type' => (string) $entitlement['access_type'],
+                'chat_available' => (bool) $entitlement['chat_available'],
+                'certificate_included' => (bool) $certificateStatus['included'],
+                'certificate_available' => (bool) $certificateStatus['available'],
                 'access_granted_at' => $enrollment->access_granted_at?->toIso8601String(),
                 'tags' => $course->classifications
                     ->map(fn ($classification): array => [
@@ -168,12 +211,30 @@ final readonly class LearningDashboardService
                 return $left['is_completed'] ? 1 : -1;
             }
 
-            return strcmp(
+            $activityOrder = strcmp(
                 (string) ($right['last_activity_at'] ?? ''),
                 (string) ($left['last_activity_at'] ?? '')
             );
+            if ($activityOrder !== 0) {
+                return $activityOrder;
+            }
+
+            $accessOrder = strcmp(
+                (string) ($right['access_granted_at'] ?? ''),
+                (string) ($left['access_granted_at'] ?? '')
+            );
+
+            return $accessOrder !== 0
+                ? $accessOrder
+                : ((int) $right['course_id'] <=> (int) $left['course_id']);
         })->values();
 
-        return ['items' => $items];
+        return [
+            'items' => $items,
+            'pagination' => [
+                'limit' => self::MAX_ACTIVE_COURSES,
+                'has_more' => $hasMoreCourses,
+            ],
+        ];
     }
 }

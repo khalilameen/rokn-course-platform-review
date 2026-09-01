@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {publicRequest} from '../constants/api';
+import {serverNowMs} from '../utils/serverClock';
 
 export type ProductFeatureKey =
   | 'checkout'
@@ -32,8 +33,7 @@ const FEATURE_KEYS: ProductFeatureKey[] = [
   'project_uploads',
   'ai_chat',
 ];
-const DEVICE_BUCKET_KEY = '@rokn/product-feature-bucket/v1';
-const SNAPSHOT_KEY = '@rokn/product-feature-snapshot/v1';
+const SNAPSHOT_KEY = '@rokn/product-feature-snapshot/v2';
 const MAX_SNAPSHOT_TTL_MS = 15 * 60 * 1000;
 const REQUIRE_REMOTE_FLAGS =
   process.env.EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS === '1' ||
@@ -56,7 +56,6 @@ const DEVELOPMENT_DEFAULTS: Record<ProductFeatureKey, boolean> = {
 
 let memorySnapshot: ProductFeatureSnapshot | null = null;
 let refreshFlight: Promise<ProductFeatureSnapshot | null> | null = null;
-let bucketFlight: Promise<number> | null = null;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -100,28 +99,6 @@ const loadSnapshot = async () => {
   return memorySnapshot;
 };
 
-const getDeviceBucket = async (): Promise<number> => {
-  if (bucketFlight) return bucketFlight;
-  bucketFlight = (async () => {
-    const persisted = await AsyncStorage.getItem(DEVICE_BUCKET_KEY);
-    if (/^\d{1,2}$/.test(persisted || '')) {
-      const parsed = Number(persisted);
-      if (parsed >= 0 && parsed <= 99) return parsed;
-    }
-
-    // This anonymous value assigns one of 100 rollout cohorts and contains no
-    // account or device identifier.
-    const bucket = Math.floor(Math.random() * 100);
-    await AsyncStorage.setItem(DEVICE_BUCKET_KEY, String(bucket));
-    return bucket;
-  })();
-  try {
-    return await bucketFlight;
-  } finally {
-    bucketFlight = null;
-  }
-};
-
 const normalizeRemoteSnapshot = (
   raw: unknown,
 ): ProductFeatureSnapshot | null => {
@@ -136,7 +113,7 @@ const normalizeRemoteSnapshot = (
   }
   const remoteExpiry = Date.parse(String(raw.expires_at || ''));
   if (!Number.isFinite(remoteExpiry)) return null;
-  const retrievedAt = Date.now();
+  const retrievedAt = serverNowMs();
   const expiresAt = Math.min(
     Math.max(retrievedAt, remoteExpiry),
     retrievedAt + MAX_SNAPSHOT_TTL_MS,
@@ -158,9 +135,7 @@ export const refreshProductFeatures =
     if (refreshFlight) return refreshFlight;
     refreshFlight = (async () => {
       try {
-        const bucket = await getDeviceBucket();
         const response = await publicRequest.get<unknown>('product-features', {
-          params: {bucket},
           timeout: 6000,
         });
         const envelope = isRecord(response.data) ? response.data : {};
@@ -168,7 +143,10 @@ export const refreshProductFeatures =
         const snapshot = normalizeRemoteSnapshot(raw);
         if (!snapshot) return null;
         memorySnapshot = snapshot;
-        await AsyncStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshot));
+        await AsyncStorage.setItem(
+          SNAPSHOT_KEY,
+          JSON.stringify(snapshot),
+        ).catch(() => undefined);
         return snapshot;
       } catch {
         return null;
@@ -185,12 +163,12 @@ export const isProductFeatureEnabled = async (
   feature: ProductFeatureKey,
 ): Promise<boolean> => {
   const cached = await loadSnapshot();
-  if (cached && cached.expiresAt > Date.now()) {
+  if (cached && cached.expiresAt > serverNowMs()) {
     return cached.flags[feature];
   }
 
   const refreshed = await refreshProductFeatures();
-  if (refreshed && refreshed.expiresAt > Date.now()) {
+  if (refreshed && refreshed.expiresAt > serverNowMs()) {
     return refreshed.flags[feature];
   }
 
@@ -212,7 +190,7 @@ export const getProductFeatureDiagnosticsSnapshot = async () => {
   const snapshot = await loadSnapshot();
   return {
     source:
-      snapshot && snapshot.expiresAt > Date.now()
+      snapshot && snapshot.expiresAt > serverNowMs()
         ? ('remote' as const)
         : REQUIRE_REMOTE_FLAGS
         ? ('safe-default' as const)
@@ -222,7 +200,7 @@ export const getProductFeatureDiagnosticsSnapshot = async () => {
       ? new Date(snapshot.expiresAt).toISOString()
       : null,
     flags:
-      snapshot && snapshot.expiresAt > Date.now()
+      snapshot && snapshot.expiresAt > serverNowMs()
         ? snapshot.flags
         : REQUIRE_REMOTE_FLAGS
         ? SAFE_DEFAULTS
@@ -233,7 +211,6 @@ export const getProductFeatureDiagnosticsSnapshot = async () => {
 export const resetProductFeaturesForTests = () => {
   memorySnapshot = null;
   refreshFlight = null;
-  bucketFlight = null;
 };
 
 export const productFeatureSnapshotStorageKey = SNAPSHOT_KEY;

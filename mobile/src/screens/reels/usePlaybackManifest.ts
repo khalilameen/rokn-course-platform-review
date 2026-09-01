@@ -15,12 +15,13 @@ import {
   applyPlaybackManifest,
   disableLessonPlayback,
   playbackFeatureErrorCode,
+  playbackManifestHttpStatus,
 } from './playbackCourseState';
 
 type PlaybackManifestRefs = {
   course: MutableRefObject<CourseLearningData | null>;
   durations: MutableRefObject<Record<string, number>>;
-  flights: MutableRefObject<Set<string>>;
+  flights: MutableRefObject<Map<string, Promise<void>>>;
   mounted: MutableRefObject<boolean>;
   positions: MutableRefObject<Record<string, number>>;
   runtime: MutableRefObject<Record<string, PlaybackRuntimeMetrics>>;
@@ -53,26 +54,29 @@ export const usePlaybackManifest = ({
   setManifestRefreshNonce: Dispatch<SetStateAction<number>>;
 }) =>
   useCallback(
-    (reel: CourseReel, expectedSessionId?: string) => {
-      if (
-        !serverSession ||
-        !playbackPreferencesReady ||
-        refs.flights.current.has(reel.lessonId)
-      ) {
+    (
+      reel: CourseReel,
+      expectedSessionId?: string,
+      reuseExpectedSession = true,
+    ) => {
+      if (!serverSession || !playbackPreferencesReady) {
         return;
       }
       const sourceCourseId = courseId;
       const lessonId = reel.lessonId;
+      const existingFlight = refs.flights.current.get(lessonId);
+      if (existingFlight) return existingFlight;
       const requestVersion = (refs.versions.current[lessonId] || 0) + 1;
       refs.versions.current[lessonId] = requestVersion;
-      refs.flights.current.add(lessonId);
       const maxBitrateKbps = dataSaver
         ? 750
         : PLAYBACK_PREFERENCE_BITRATE_KBPS[selectedQuality];
-      void openPlaybackSession(lessonId, {
+      const flight = openPlaybackSession(lessonId, {
         dataSaver,
         maxBitrateKbps,
-        playbackSessionId: expectedSessionId,
+        playbackSessionId: reuseExpectedSession
+          ? expectedSessionId
+          : undefined,
       })
         .then(manifest => {
           if (
@@ -120,25 +124,51 @@ export const usePlaybackManifest = ({
         })
         .catch((error: unknown) => {
           if (
-            playbackFeatureErrorCode(error) !== 'FEATURE_PLAYBACK_DISABLED' ||
             !refs.mounted.current ||
             refs.course.current?.id !== sourceCourseId ||
             refs.versions.current[lessonId] !== requestVersion
           ) {
             return;
           }
+          const code = playbackFeatureErrorCode(error).toLowerCase();
+          const status = playbackManifestHttpStatus(error);
+          if (code === 'feature_playback_disabled') {
+            setConnectionNote('تشغيل الفيديو متوقف مؤقتًا للصيانة');
+            setCourse(previous =>
+              disableLessonPlayback(previous, sourceCourseId, lessonId),
+            );
+            return;
+          }
+          if (status === 403 || status === 404 || code === 'lesson_locked') {
+            setConnectionNote('هذا المقطع غير متاح لحسابك');
+            setCourse(previous =>
+              disableLessonPlayback(previous, sourceCourseId, lessonId),
+            );
+            return;
+          }
+          if (status === 401) {
+            setConnectionNote('انتهت جلسة الدخول\nسجّل الدخول ثم أكمل');
+            return;
+          }
           setConnectionNote(
-            'تشغيل الفيديو متوقف مؤقتًا للصيانة. تقدمك محفوظ ويمكنك المحاولة لاحقًا.',
+            code === 'video_processing'
+              ? 'الفيديو قيد التجهيز\nحاول بعد قليل'
+              : 'تعذّر تجديد رابط الفيديو\nسنحاول مرة أخرى',
           );
-          setCourse(previous =>
-            disableLessonPlayback(previous, sourceCourseId, lessonId),
+          scheduleDelayedAction(
+            () => setManifestRefreshNonce(value => value + 1),
+            status === 409 ? 15_000 : 4_000,
           );
         })
         .finally(() => {
-          if (refs.versions.current[lessonId] === requestVersion) {
+          // Delete only the flight we own. A replacement request registered
+          // during a course transition must remain awaitable by the player.
+          if (refs.flights.current.get(lessonId) === flight) {
             refs.flights.current.delete(lessonId);
           }
         });
+      refs.flights.current.set(lessonId, flight);
+      return flight;
     },
     [
       courseId,

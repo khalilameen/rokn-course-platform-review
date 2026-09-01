@@ -31,14 +31,21 @@ final class CourseChatAccessService
      */
     public function entitlementFor(int $userId, int $courseId): array
     {
-        $enrollment = $this->activeEnrollments($userId, $this->accessCourseIds($courseId))
-            ->with($this->enrollmentRelations())
-            ->get()
-            ->first(fn (CourseEnrollment $candidate): bool =>
-                !$this->provenance->enrollmentHasActiveHold($candidate, ['course'])
-            );
-        if (!$enrollment) {
-            return [
+        return $this->resolveEntitlement($userId, $courseId)['entitlement'];
+    }
+
+    /**
+     * Resolve the public entitlement and the enrollment that produced it in
+     * one pass. Detail resources need both; querying them separately doubled
+     * the same course/parent/order/hold reads.
+     *
+     * @return array{entitlement: array<string,mixed>, enrollment: CourseEnrollment|null}
+     */
+    public function resolveEntitlement(int $userId, int $courseId): array
+    {
+        $course = Course::query()->withCount('sections')->find($courseId);
+        if (!$course || !$course->isPublishedForLearning()) {
+            return ['entitlement' => [
                 'has_learning_access' => false,
                 'access_type' => 'none',
                 'chat_available' => false,
@@ -46,14 +53,38 @@ final class CourseChatAccessService
                 'plan_code' => null,
                 'plan_name' => null,
                 'project_feedback_level' => 'pass_only',
-            ];
+            ], 'enrollment' => null];
         }
 
-        $hasChatAccess = $this->hasChatAccess($userId, $courseId);
+        // Resolve the candidate enrollment graph once. Previously
+        // entitlementFor() loaded it here and hasChatAccess() loaded the same
+        // course, parent links, orders and plans again in the same request.
+        $candidates = $this->activeEnrollments($userId, $this->accessCourseIds($courseId))
+            ->with($this->enrollmentRelations())
+            ->get();
+        $enrollment = $candidates->first(fn (CourseEnrollment $candidate): bool =>
+                !$this->provenance->enrollmentHasActiveHold($candidate, ['course'])
+            );
+        if (!$enrollment) {
+            return ['entitlement' => [
+                'has_learning_access' => false,
+                'access_type' => 'none',
+                'chat_available' => false,
+                'certificate_available' => false,
+                'plan_code' => null,
+                'plan_name' => null,
+                'project_feedback_level' => 'pass_only',
+            ], 'enrollment' => null];
+        }
+
+        $hasChatAccess = (bool) $course->ai_chat_enabled
+            && $candidates->contains(
+                fn (CourseEnrollment $candidate): bool => $this->enrollmentHasChatAccess($candidate)
+            );
         $order = $enrollment->order;
         $planOrder = $enrollment->accessPlanOrder;
         $isPaid = $order
-            && $order->status === Order::STATUS_APPROVED
+            && $order->isFinanciallyEffective()
             && $order->payment_method !== Order::PAYMENT_METHOD_COURSE_CODE
             && ((int) $order->total_coins > 0 || (float) $order->final_amount > 0);
         $isCourseCode = $order && $order->payment_method === Order::PAYMENT_METHOD_COURSE_CODE;
@@ -66,20 +97,24 @@ final class CourseChatAccessService
         $isPaidPlanUpgrade = $this->isPaidPlanUpgrade($enrollment, $planOrder);
         $plan = $this->plans->planForEnrollment($enrollment);
         $terms = $this->plans->termsForEnrollment($enrollment);
+        $publicTerms = $terms ? $this->plans->publicPayloadFromTerms($terms) : null;
+        $hasPlanReference = $enrollment->access_plan_id !== null;
 
-        return [
+        return ['entitlement' => [
             'has_learning_access' => true,
             'access_type' => ($isPaid || $isPaidPlanUpgrade)
                 ? 'paid'
                 : ($isGrant ? 'scholarship' : ($isFullAccessCode ? 'course_code' : 'free')),
             'chat_available' => $hasChatAccess,
             'certificate_available' => (!$isGrant || $isPaidPlanUpgrade)
-                && (!$terms || (bool) ($terms['certificate_enabled'] ?? true)),
+                && ($terms
+                    ? (bool) ($terms['certificate_enabled'] ?? false)
+                    : !$hasPlanReference),
             'plan_code' => $terms['code'] ?? $plan?->code,
             'plan_name' => $terms['name_ar'] ?? $plan?->name_ar,
             'chat_message_limit' => $terms ? (int) ($terms['chat_message_limit'] ?? 0) : null,
-            'project_feedback_level' => $terms['project_feedback_level'] ?? 'pass_only',
-        ];
+            'project_feedback_level' => $publicTerms['project_feedback_level'] ?? 'pass_only',
+        ], 'enrollment' => $enrollment];
     }
 
     public function hasCertificateAccess(int $userId, int $courseId): bool
@@ -89,6 +124,10 @@ final class CourseChatAccessService
 
     public function hasLearningAccess(int $userId, int $courseId): bool
     {
+        if (!$this->courseIsReady($courseId)) {
+            return false;
+        }
+
         return $this->activeEnrollments($userId, $this->accessCourseIds($courseId))
             ->get()
             ->contains(fn (CourseEnrollment $enrollment): bool =>
@@ -98,39 +137,25 @@ final class CourseChatAccessService
 
     public function hasChatAccess(int $userId, int $courseId): bool
     {
-        if (!Course::query()->whereKey($courseId)->where('ai_chat_enabled', true)->exists()) {
+        $course = Course::query()->withCount('sections')->find($courseId);
+        if (!$course || !$course->isPublishedForLearning() || !(bool) $course->ai_chat_enabled) {
             return false;
         }
 
         return $this->activeEnrollments($userId, $this->accessCourseIds($courseId))
             ->with($this->enrollmentRelations())
             ->get()
-            ->contains(function (CourseEnrollment $enrollment): bool {
-                $order = $enrollment->order;
-                if (!$order || $order->status !== Order::STATUS_APPROVED) return false;
-                $planOrder = $enrollment->accessPlanOrder;
-
-                $paid = $order->payment_method !== Order::PAYMENT_METHOD_COURSE_CODE
-                    && ((int) $order->total_coins > 0 || (float) $order->final_amount > 0);
-                $fullAccessCode = $order->payment_method === Order::PAYMENT_METHOD_COURSE_CODE
-                    && $order->courseCode
-                    && !$order->courseCode->isInstitutionalGrant();
-                $paidPlanUpgrade = $this->isPaidPlanUpgrade($enrollment, $planOrder);
-
-                $terms = $this->plans->termsForEnrollment($enrollment);
-
-                return ($paid || $fullAccessCode || $paidPlanUpgrade)
-                    && (!$terms || (bool) ($terms['chat_enabled'] ?? false))
-                    && !$this->provenance->enrollmentHasActiveHold(
-                        $enrollment,
-                        ['course', 'chat', 'plan']
-                    )
-                    && $this->financialRisk->allowsVariableCostFeatures($enrollment);
-            });
+            ->contains(fn (CourseEnrollment $enrollment): bool =>
+                $this->enrollmentHasChatAccess($enrollment)
+            );
     }
 
     public function activeEnrollmentFor(int $userId, int $courseId): ?CourseEnrollment
     {
+        if (!$this->courseIsReady($courseId)) {
+            return null;
+        }
+
         return $this->activeEnrollments($userId, $this->accessCourseIds($courseId))
             ->with($this->enrollmentRelations())
             ->get()
@@ -148,6 +173,13 @@ final class CourseChatAccessService
             ->where(function (Builder $query): void {
                 $query->whereNull('expires_at')->orWhere('expires_at', '>', now());
             });
+    }
+
+    private function courseIsReady(int $courseId): bool
+    {
+        $course = Course::query()->withCount('sections')->find($courseId);
+
+        return $course !== null && $course->isPublishedForLearning();
     }
 
     /** @return list<int> */
@@ -170,10 +202,35 @@ final class CourseChatAccessService
         return $planOrder !== null
             && (int) $planOrder->id !== (int) $enrollment->order_id
             && $planOrder->parent_order_id !== null
-            && $planOrder->status === Order::STATUS_APPROVED
+            && $planOrder->isFinanciallyEffective()
             && $planOrder->payment_method !== Order::PAYMENT_METHOD_COURSE_CODE
             && (int) $planOrder->user_id === (int) $enrollment->user_id
             && (int) $planOrder->course_id === (int) $enrollment->course_id;
+    }
+
+    private function enrollmentHasChatAccess(CourseEnrollment $enrollment): bool
+    {
+        $order = $enrollment->order;
+        if (!$order || !$order->isFinanciallyEffective()) {
+            return false;
+        }
+        $planOrder = $enrollment->accessPlanOrder;
+        $paid = $order->payment_method !== Order::PAYMENT_METHOD_COURSE_CODE
+            && ((int) $order->total_coins > 0 || (float) $order->final_amount > 0);
+        $fullAccessCode = $order->payment_method === Order::PAYMENT_METHOD_COURSE_CODE
+            && $order->courseCode
+            && !$order->courseCode->isInstitutionalGrant();
+        $paidPlanUpgrade = $this->isPaidPlanUpgrade($enrollment, $planOrder);
+        $terms = $this->plans->termsForEnrollment($enrollment);
+
+        return ($paid || $fullAccessCode || $paidPlanUpgrade)
+            && $terms !== null
+            && (bool) ($terms['chat_enabled'] ?? false)
+            && !$this->provenance->enrollmentHasActiveHold(
+                $enrollment,
+                ['course', 'chat', 'plan']
+            )
+            && $this->financialRisk->allowsVariableCostFeatures($enrollment);
     }
 
     /** @return list<string> */

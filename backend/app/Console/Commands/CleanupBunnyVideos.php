@@ -5,9 +5,8 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Models\BunnyVideoCleanupCandidate;
-use App\Models\CourseSection;
-use App\Models\Lesson;
 use App\Services\BunnyService;
+use App\Services\StoredFileReferenceService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -18,14 +17,13 @@ final class CleanupBunnyVideos extends Command
 
     protected $description = 'Safely retire unreferenced Bunny Stream videos with retry and backoff';
 
-    public function handle(BunnyService $bunny): int
+    public function handle(BunnyService $bunny, StoredFileReferenceService $references): int
     {
         $limit = max(1, min(500, (int) $this->option('limit')));
         $ids = BunnyVideoCleanupCandidate::query()
             ->whereNull('remote_deleted_at')
             ->where('requires_review', false)
             ->whereNotNull('reviewed_at')
-            ->whereNotNull('reviewed_by')
             ->where('eligible_after', '<=', now())
             ->orderBy('eligible_after')
             ->limit($limit)
@@ -54,7 +52,7 @@ final class CleanupBunnyVideos extends Command
                 continue;
             }
 
-            if ($this->hasActiveCourseReference($candidate->video_guid)) {
+            if ($references->isBunnyStreamVideoReferenced((string) $candidate->video_guid)) {
                 $candidate->forceFill([
                     // A changed reference graph invalidates the prior human
                     // approval. An administrator must review it again.
@@ -62,7 +60,7 @@ final class CleanupBunnyVideos extends Command
                     'reviewed_by' => null,
                     'requires_review' => true,
                     'eligible_after' => now()->addDay(),
-                    'last_error' => 'Cleanup blocked: video is still referenced by an active course section.',
+                    'last_error' => 'Cleanup blocked: video is still referenced by live content.',
                 ])->save();
                 $failed++;
                 continue;
@@ -80,9 +78,16 @@ final class CleanupBunnyVideos extends Command
                 $this->line("Deleted Bunny video {$candidate->video_guid}");
             } catch (Throwable $exception) {
                 $delayMinutes = min(1440, 5 * (2 ** min(8, max(0, (int) $candidate->attempts - 1))));
+                $poisoned = (int) $candidate->attempts >= max(
+                    3,
+                    (int) config('operations.bunny_cleanup_max_attempts', 8)
+                );
                 $candidate->forceFill([
                     'eligible_after' => now()->addMinutes($delayMinutes),
                     'last_error' => mb_substr($exception->getMessage(), 0, 2000),
+                    'requires_review' => $poisoned,
+                    'reviewed_at' => $poisoned ? null : $candidate->reviewed_at,
+                    'reviewed_by' => $poisoned ? null : $candidate->reviewed_by,
                 ])->save();
                 $this->warn("Bunny cleanup deferred for {$candidate->video_guid}");
                 $failed++;
@@ -91,17 +96,19 @@ final class CleanupBunnyVideos extends Command
 
         $this->info(sprintf('Processed %d Bunny cleanup candidate(s); %d deferred.', $ids->count(), $failed));
 
-        return $failed > 0 ? self::FAILURE : self::SUCCESS;
-    }
+        // Retain recent authoring history for support, but do not grow the
+        // idempotency ledger forever after its remote candidate is settled.
+        if (\Illuminate\Support\Facades\Schema::hasTable('bunny_direct_uploads')) {
+            DB::table('bunny_direct_uploads')
+                ->where('expires_at', '<', now())
+                ->whereIn('status', ['pending', 'allocating'])
+                ->update(['status' => 'failed', 'updated_at' => now()]);
+            DB::table('bunny_direct_uploads')
+                ->where('expires_at', '<', now()->subDays(7))
+                ->whereIn('status', ['attached', 'failed'])
+                ->delete();
+        }
 
-    private function hasActiveCourseReference(string $videoGuid): bool
-    {
-        return CourseSection::query()
-            ->join('lessons', function ($join): void {
-                $join->on('lessons.id', '=', 'course_sections.sectionable_id')
-                    ->where('course_sections.sectionable_type', '=', Lesson::class);
-            })
-            ->where('lessons.bunny_video_id', $videoGuid)
-            ->exists();
+        return $failed > 0 ? self::FAILURE : self::SUCCESS;
     }
 }

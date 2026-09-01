@@ -62,6 +62,11 @@ class ProjectSubmission extends Model
         return $this->belongsTo(User::class, 'reviewed_by')->withTrashed();
     }
 
+    public function feedbackThread()
+    {
+        return $this->hasOne(ProjectFeedbackThread::class, 'submission_id');
+    }
+
     public function getSubmissionFileUrlAttribute(): ?string
     {
         return $this->submission_file

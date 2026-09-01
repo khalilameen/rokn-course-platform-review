@@ -29,12 +29,24 @@ class TrustProxies extends Middleware
 
     public function handle(Request $request, Closure $next)
     {
-        // Trust only explicitly configured edge addresses. With an empty or
-        // invalid list, Laravel safely ignores forwarded client IP/proto data.
-        $this->proxies = array_values(array_filter(
-            (array) config('trusted_proxies.proxies', []),
-            fn ($proxy) => $this->isSafeProxyDefinition((string) $proxy)
-        ));
+        $configured = array_values(array_filter(array_map(
+            static fn ($proxy): string => trim((string) $proxy),
+            (array) config('trusted_proxies.proxies', [])
+        )));
+
+        // Laravel Cloud keeps the app origin private but its edge addresses
+        // are not a customer-maintained fixed allow-list. In that topology,
+        // trusting the cloud edge is required for real client IPs, per-user
+        // throttles, secure redirects and audit evidence. The second explicit
+        // flag prevents `*` becoming an accidental default elsewhere.
+        $dynamicCloudEdge = $configured === ['*']
+            && (bool) config('trusted_proxies.allow_dynamic_edge', false);
+        $this->proxies = $dynamicCloudEdge
+            ? '*'
+            : array_values(array_filter(
+                $configured,
+                fn ($proxy) => $this->isSafeProxyDefinition($proxy)
+            ));
 
         return parent::handle($request, $next);
     }

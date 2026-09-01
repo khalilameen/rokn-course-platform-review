@@ -2,16 +2,16 @@ import {useFocusEffect, useNavigation} from '@react-navigation/native';
 import type {RootNavigation} from '../../navigation/types';
 import React, {useCallback, useRef, useState} from 'react';
 import {
-  Linking,
+  Alert,
   Modal,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import {useSelector} from 'react-redux';
+import {openExternalUrlOnce, shareOnce} from '../../services/systemActions';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Button from '../../components/touchables/Button';
 import FullTrackUpgradeSheet from '../../components/FullTrackUpgradeSheet';
@@ -50,6 +50,8 @@ import {extractUserProfile} from '../../constants/helpers';
 import {LOCAL_DEMO_ENABLED} from '../../config/runtime';
 import type {RootState} from '../../store/store';
 import {certificateUrlFor} from '../../services/publicLinks';
+import {isolateBidirectionalText} from '../../constants/arabicFormatting';
+import {useReducedMotion} from '../../hooks/useReducedMotion';
 
 const demoCredential = 'RKN-FRL-24018';
 const demoCourseTitle = 'من أول مهارة إلى أول عميل';
@@ -59,12 +61,14 @@ const CertificateArtwork = ({
   url,
   courseTitle,
   credential,
+  reviewedProject = false,
   compact = false,
 }: {
   name: string;
   url: string;
   courseTitle: string;
   credential: string;
+  reviewedProject?: boolean;
   compact?: boolean;
 }) => (
   <View style={[styles.artwork, compact && styles.artworkCompact]}>
@@ -92,7 +96,9 @@ const CertificateArtwork = ({
       allowFontScaling={false}
       numberOfLines={compact ? 2 : 3}
       style={[styles.certificateCourse, compact && styles.compactCourse]}>
-      أتم بنجاح كورس «{courseTitle}» ومشروعاته العملية
+      {reviewedProject
+        ? `أتم كورس «${courseTitle}» واجتاز مشروعه`
+        : `أتم بنجاح كورس «${courseTitle}»`}
     </Text>
     <View style={styles.artworkFooter}>
       <View style={styles.signature}>
@@ -115,6 +121,7 @@ export default function Certificates({
 }) {
   const navigation = useNavigation<RootNavigation>();
   const insets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
   const {contentWidth} = useResponsiveLayout();
   const user = extractUserProfile(
     useSelector((state: RootState) => state.auth.userData),
@@ -122,10 +129,7 @@ export default function Certificates({
   const username =
     resolvedUsername || user?.username || user?.portfolio_slug || 'student';
   const displayName = resolvedDisplayName || user?.name || 'طالب ركن';
-  const certificateLink = certificateUrlFor(
-    String(username),
-    demoCredential,
-  );
+  const certificateLink = certificateUrlFor(String(username), demoCredential);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -141,63 +145,89 @@ export default function Certificates({
     setLoading(true);
     setLoadError('');
     setSelectedId(null);
-    setCertificates([]);
-    setGrantCourses([]);
     try {
       const sessionAvailable = await hasSession();
       if (isCurrent()) setServerSession(sessionAvailable);
       if (sessionAvailable) {
-        const [remoteCertificates, learningCourses] = await Promise.all([
+        const [certificatesResult, learningResult] = await Promise.allSettled([
           getCertificates(),
           getLearningCourses(),
         ]);
-        const certificateByCourse = new Map(
-          remoteCertificates
-            .filter(item => item.courseId)
-            .map(item => [item.courseId as string, item]),
-        );
-        const completedGrantCourses = learningCourses.filter(
-          course =>
-            course.accessType === 'scholarship' &&
-            !course.certificateAvailable &&
-            (course.progress >= 100 ||
-              (course.totalSections > 0 &&
-                course.completedSections >= course.totalSections)),
-        );
-        const recoverableCourseIds = learningCourses
-          .filter(
-            course =>
-              course.progress >= 100 ||
-              (course.totalSections > 0 &&
-                course.completedSections >= course.totalSections),
-          )
-          .filter(course => {
-            const existing = certificateByCourse.get(course.id);
-            return !existing || existing.status === 'pending';
-          })
-          .filter(course => course.certificateAvailable)
-          // Opening this screen must stay bounded even for a long-time user.
-          // Remaining certificates recover on the next focus.
-          .slice(0, 5)
-          .map(course => course.id);
-        const issued = await Promise.allSettled(
-          recoverableCourseIds.map(courseId => issueCertificate(courseId)),
-        );
-        const merged = new Map(remoteCertificates.map(item => [item.id, item]));
-        issued.forEach(result => {
-          if (result.status === 'fulfilled' && result.value) {
-            merged.set(result.value.id, result.value);
-          }
-        });
-        if (isCurrent()) {
-          setCertificates(
-            [...merged.values()].filter(item => item.status === 'active'),
+        if (
+          certificatesResult.status === 'rejected' &&
+          learningResult.status === 'rejected'
+        ) {
+          throw certificatesResult.reason;
+        }
+        if (
+          certificatesResult.status === 'rejected' ||
+          learningResult.status === 'rejected'
+        ) {
+          setLoadError('نعرض المتاح الآن وسنحدّث الباقي عند عودة الاتصال');
+        }
+        if (learningResult.status === 'fulfilled' && isCurrent()) {
+          setGrantCourses(
+            learningResult.value.filter(
+              course =>
+                course.accessType === 'scholarship' &&
+                !course.certificateAvailable &&
+                (course.progress >= 100 ||
+                  (course.totalSections > 0 &&
+                    course.completedSections >= course.totalSections)),
+            ),
           );
-          setGrantCourses(completedGrantCourses);
+        }
+        if (certificatesResult.status === 'fulfilled') {
+          const remoteCertificates = certificatesResult.value;
+          const merged = new Map(
+            remoteCertificates.map(item => [item.id, item]),
+          );
+          const pendingCourseIds = remoteCertificates
+            .filter(item => item.status === 'pending' && item.courseId)
+            .map(item => item.courseId as string);
+          let eligibleCourseIds: string[] = [];
+          if (learningResult.status === 'fulfilled') {
+            const certificateByCourse = new Map(
+              remoteCertificates
+                .filter(item => item.courseId)
+                .map(item => [item.courseId as string, item]),
+            );
+            // certificate_available is the server-side eligibility verdict;
+            // progress alone does not include every quiz/project/evidence gate.
+            eligibleCourseIds = learningResult.value
+              .filter(course => course.certificateAvailable)
+              .filter(course => {
+                const existing = certificateByCourse.get(course.id);
+                return !existing || existing.status === 'pending';
+              })
+              .map(course => course.id);
+          }
+          const recoverableCourseIds = [
+            ...new Set([...pendingCourseIds, ...eligibleCourseIds]),
+          ].slice(0, 5);
+          if (recoverableCourseIds.length) {
+            const issued = await Promise.allSettled(
+              recoverableCourseIds.map(courseId => issueCertificate(courseId)),
+            );
+            issued.forEach(result => {
+              if (result.status === 'fulfilled' && result.value) {
+                merged.set(result.value.id, result.value);
+              }
+            });
+          }
+          if (isCurrent()) {
+            setCertificates(
+              [...merged.values()].filter(item => item.status === 'active'),
+            );
+          }
         }
         return;
       }
       if (!LOCAL_DEMO_ENABLED) {
+        if (isCurrent()) {
+          setCertificates([]);
+          setGrantCourses([]);
+        }
         return;
       }
       const result = await loadCourseLearningData(DEMO_COURSE_ID);
@@ -206,6 +236,7 @@ export default function Certificates({
         .reverse()
         .find(module => module.project)?.project;
       if (isCurrent()) {
+        setGrantCourses([]);
         setCertificates(
           finalProject?.status === 'passed'
             ? [
@@ -213,8 +244,11 @@ export default function Certificates({
                   id: demoCredential,
                   publicId: demoCredential,
                   portfolioUrl: certificateLink,
+                  holderName: displayName,
                   courseName: demoCourseTitle,
                   status: 'active',
+                  verificationLevel: 'reviewed_project',
+                  verificationLabel: 'إتمام الكورس ومراجعة المشروع',
                 },
               ]
             : [],
@@ -222,14 +256,12 @@ export default function Certificates({
       }
     } catch {
       if (isCurrent()) {
-        setLoadError(
-          'تعذّر التحقق من شهاداتك الآن. لم نفقد أي شهادة أو إنجاز.',
-        );
+        setLoadError('تعذّر التحقق من شهاداتك الآن\nشهاداتك محفوظة');
       }
     } finally {
       if (isCurrent()) setLoading(false);
     }
-  }, [certificateLink]);
+  }, [certificateLink, displayName]);
 
   useFocusEffect(
     useCallback(() => {
@@ -244,22 +276,45 @@ export default function Certificates({
     certificates.find(certificate => certificate.id === selectedId) || null;
   const selectedGrantCourse =
     grantCourses.find(course => course.id === selectedGrantId) || null;
-  const activeCourseTitle = selectedCertificate?.courseName || demoCourseTitle;
-  const activeCredential = selectedCertificate?.publicId || demoCredential;
-  const activeCertificateLink =
-    selectedCertificate?.portfolioUrl ||
-    certificateUrlFor(String(username), activeCredential);
+  const activeCourseTitle = selectedCertificate?.courseName || '';
+  const activeHolderName = selectedCertificate?.holderName || '';
+  const activeCredential = selectedCertificate?.publicId || '';
+  const activeCertificateLink = selectedCertificate
+    ? selectedCertificate.portfolioUrl ||
+      certificateUrlFor(String(username), selectedCertificate.publicId)
+    : '';
   const destinationFor = (certificate: CertificateDto) =>
     certificate.portfolioUrl ||
     certificateUrlFor(String(username), certificate.publicId);
+
+  const openCertificate = async () => {
+    if (!selectedCertificate || !activeCertificateLink) return;
+    try {
+      await openExternalUrlOnce(activeCertificateLink);
+    } catch {
+      Alert.alert('تعذّر فتح الشهادة', 'حاول مرة أخرى');
+    }
+  };
+
+  const shareCertificate = async () => {
+    if (!selectedCertificate || !activeCertificateLink) return;
+    try {
+      await shareOnce(`certificate:${activeCredential}`, {
+        message: `شهادتي الموثقة على ركن\n${activeCertificateLink}`,
+        url: activeCertificateLink,
+      });
+    } catch {
+      Alert.alert('تعذّرت المشاركة', 'حاول مرة أخرى');
+    }
+  };
 
   return (
     <View style={styles.container}>
       <SectionHeading title="شهاداتي" />
 
-      {loading ? (
-        <StatusView state="loading" title="نتحقق من آخر إنجازاتك…" />
-      ) : loadError ? (
+      {loading && !certificates.length && !grantCourses.length ? (
+        <StatusView state="loading" title="جارٍ تحميل شهاداتك" />
+      ) : loadError && !certificates.length && !grantCourses.length ? (
         <StatusView
           actionLabel="إعادة المحاولة"
           description={loadError}
@@ -277,7 +332,7 @@ export default function Certificates({
           description={
             serverSession === false && !LOCAL_DEMO_ENABLED
               ? 'سجّل الدخول لعرض شهاداتك ومشاركتها'
-              : 'تظهر شهادتك هنا بعد اجتياز مشروع التخرج'
+              : 'تظهر شهادتك هنا بعد إكمال الكورس واستيفاء شروطها'
           }
           onAction={() => {
             if (serverSession === false && !LOCAL_DEMO_ENABLED) {
@@ -297,6 +352,11 @@ export default function Certificates({
         />
       ) : (
         <>
+          {!!loadError && (
+            <Text accessibilityRole="alert" style={styles.partialNotice}>
+              {loadError}
+            </Text>
+          )}
           <View style={styles.grid}>
             {certificates.map(certificate => (
               <Pressable
@@ -311,10 +371,13 @@ export default function Certificates({
                 ]}>
                 <CertificateArtwork
                   compact
-                  name={displayName}
+                  name={certificate.holderName}
                   url={destinationFor(certificate)}
                   courseTitle={certificate.courseName}
                   credential={certificate.publicId}
+                  reviewedProject={
+                    certificate.verificationLevel === 'reviewed_project'
+                  }
                 />
                 <View style={styles.cardCopy}>
                   <MetaPill label="شهادة موثقة" tone="success" />
@@ -324,7 +387,8 @@ export default function Certificates({
                   <View style={styles.verifiedRow}>
                     <View style={styles.verifiedDot} />
                     <Text numberOfLines={1} style={styles.verified}>
-                      رقم الاعتماد · {certificate.publicId}
+                      رقم الاعتماد ·{' '}
+                      {isolateBidirectionalText(certificate.publicId)}
                     </Text>
                   </View>
                 </View>
@@ -377,12 +441,16 @@ export default function Certificates({
       />
 
       <Modal
-        animationType="slide"
+        animationType={reducedMotion ? 'none' : 'slide'}
         onRequestClose={() => setSelectedId(null)}
+        statusBarTranslucent
         transparent
         visible={Boolean(selectedCertificate)}>
         <View style={styles.overlay}>
-          <View style={styles.sheet}>
+          <View
+            accessibilityLabel="تفاصيل الشهادة"
+            accessibilityViewIsModal
+            style={styles.sheet}>
             <ScrollView
               contentContainerStyle={[
                 styles.sheetContent,
@@ -395,19 +463,33 @@ export default function Certificates({
               ]}
               showsVerticalScrollIndicator={false}>
               <CertificateArtwork
-                name={displayName}
+                name={activeHolderName}
                 url={activeCertificateLink}
                 courseTitle={activeCourseTitle}
                 credential={activeCredential}
+                reviewedProject={
+                  selectedCertificate?.verificationLevel === 'reviewed_project'
+                }
               />
-              <View style={styles.detailCopy}>
+              <View
+                style={[
+                  styles.detailCopy,
+                  {
+                    paddingLeft: Math.max(Spacing.xl, insets.left + Spacing.md),
+                    paddingRight: Math.max(
+                      Spacing.xl,
+                      insets.right + Spacing.md,
+                    ),
+                  },
+                ]}>
                 <View style={styles.verifiedRow}>
                   <View style={styles.verifiedDot} />
                   <Text style={styles.verified}>شهادة موثقة من ركن</Text>
                 </View>
                 <Text style={styles.detailTitle}>{activeCourseTitle}</Text>
                 <Text style={styles.detailMeta}>
-                  رقم الاعتماد: {activeCredential}
+                  رقم الاعتماد {'\n'}
+                  {isolateBidirectionalText(activeCredential)}
                 </Text>
                 <MetaPill
                   label="قابلة للتحقق والمشاركة"
@@ -419,24 +501,19 @@ export default function Certificates({
                   <View style={styles.qrCopy}>
                     <Text style={styles.qrTitle}>امسح للتحقق</Text>
                     <Text numberOfLines={2} style={styles.qrLink}>
-                      {activeCertificateLink}
+                      {isolateBidirectionalText(activeCertificateLink)}
                     </Text>
                     <Text style={styles.qrHint}>
-                      يفتح رابط البورتفوليو غير المُدرج ويقف مباشرة على هذه الشهادة.
+                      يفتح صفحة التحقق من الشهادة
                     </Text>
                   </View>
                 </View>
                 <Button
-                  onPress={() => Linking.openURL(activeCertificateLink)}
-                  title="فتح رابط البورتفوليو"
+                  onPress={() => void openCertificate()}
+                  title="فتح صفحة التحقق"
                 />
                 <Button
-                  onPress={() =>
-                    Share.share({
-                      message: `شهادتي الموثقة على ركن\n${activeCertificateLink}`,
-                      url: activeCertificateLink,
-                    })
-                  }
+                  onPress={() => void shareCertificate()}
                   title="مشاركة رابط الشهادة"
                   useGradient={false}
                 />
@@ -476,6 +553,12 @@ const styles = StyleSheet.create({
   },
   cardNarrow: {flexBasis: '100%', maxWidth: '100%'},
   lockedSection: {marginTop: Spacing.xl},
+  partialNotice: {
+    ...Type.caption,
+    ...textDirection,
+    color: Palette.textMuted,
+    marginBottom: Spacing.sm,
+  },
   lockedHeading: {...Type.section, ...textDirection, color: Palette.text},
   lockedIntro: {
     ...Type.body,
@@ -647,9 +730,10 @@ const styles = StyleSheet.create({
   qrTitle: {...Type.bodyStrong, ...textDirection, color: Palette.text},
   qrLink: {
     ...Type.caption,
-    ...textDirection,
     color: '#8BB5FF',
     marginTop: Spacing.xs,
+    writingDirection: 'ltr',
+    textAlign: 'left',
   },
   qrHint: {
     ...Type.caption,

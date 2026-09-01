@@ -66,32 +66,13 @@
                         <div class="form-help">لن تُمنح الشارة إلا عند تفعيل الخيار واختيار مهني أو فريلانس.</div>
                     </div>
 
-                    <div class="form-group-modern">
-                        <label for="students_count" class="form-label-modern">
-                            <i class="fa fa-users label-icon"></i>
-                            طلاب سابقون موثّقون
-                        </label>
-                        {!! Form::number('students_count', null, [
-                            'class' => 'form-control-modern' . ($errors->has('students_count') ? ' is-invalid' : ''),
-                            'id' => 'students_count',
-                            'placeholder' => '0',
-                            'min' => '0'
-                        ]) !!}
-                        @if ($errors->has('students_count'))
-                            <div class="invalid-feedback">
-                                <i class="fa fa-exclamation-circle"></i>
-                                {{ $errors->first('students_count') }}
-                            </div>
-                        @endif
-                        <div class="form-help">استخدمه فقط لطلاب سابقين قبل تشغيل النظام. المسجلون الجدد يُضافون تلقائيًا.</div>
-                    </div>
                 </div>
 
                 <div class="form-row">
                     <div class="form-group-modern">
                         <label for="price" class="form-label-modern">
                             <i class="fa fa-money label-icon"></i>
-                            سعر الكورس (بالعملات)
+                            سعر فئة التعلّم (بالعملات)
                         </label>
                         {!! Form::number('price', null, [
                             'class' => 'form-control-modern' . ($errors->has('price') ? ' is-invalid' : ''),
@@ -106,7 +87,7 @@
                                 {{ $errors->first('price') }}
                             </div>
                         @endif
-                        <div class="form-help">حدد سعر الكورس بالعملات الافتراضية</div>
+                        <div class="form-help">يُنشئ هذا السعر الفئة الأولى ويمكنك ضبط الفئات الثلاث بعد إضافة الكورس</div>
                     </div>
 
 

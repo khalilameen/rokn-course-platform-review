@@ -35,19 +35,17 @@ final class FinancialProvenanceTest extends ApiTestCase
         Schema::table('courses', function (Blueprint $table): void {
             $table->boolean('ai_chat_enabled')->default(true);
         });
-        Schema::table('course_enrollments', function (Blueprint $table): void {
-            $table->timestamp('expires_at')->nullable();
-            $table->unsignedBigInteger('access_plan_id')->nullable();
-            $table->json('access_plan_snapshot')->nullable();
-            $table->unsignedBigInteger('access_plan_order_id')->nullable();
-        });
         Schema::table('orders', function (Blueprint $table): void {
             $table->unsignedInteger('package_coins')->nullable();
-            $table->unsignedBigInteger('access_plan_id')->nullable();
-            $table->json('access_plan_snapshot')->nullable();
             $table->unsignedBigInteger('parent_order_id')->nullable();
         });
-
+        Schema::create('course_modules', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('course_id');
+            $table->unsignedInteger('order')->default(1);
+            $table->timestamps();
+            $table->softDeletes();
+        });
         Schema::create('packages', function (Blueprint $table): void {
             $table->id();
             $table->string('name_ar')->nullable();
@@ -89,6 +87,7 @@ final class FinancialProvenanceTest extends ApiTestCase
 
     protected function tearDown(): void
     {
+        Schema::dropIfExists('course_modules');
         Schema::dropIfExists('financial_entitlement_holds');
         Schema::dropIfExists('wallet_debit_allocations');
         Schema::dropIfExists('wallet_credit_lots');
@@ -195,6 +194,45 @@ final class FinancialProvenanceTest extends ApiTestCase
         );
         self::assertTrue($access['has_learning_access']);
         self::assertFalse($access['chat_available']);
+    }
+
+    public function test_active_financial_hold_cannot_leak_the_full_course_contract(): void
+    {
+        $package = $this->paidPackage(400);
+        [$courseOrder, $enrollment] = $this->courseSpend(400);
+
+        FinancialEntitlementHold::query()->create([
+            'public_id' => (string) str()->uuid(),
+            'user_id' => $this->user->id,
+            'course_id' => $this->courseId,
+            'course_order_id' => $courseOrder->id,
+            'source_order_id' => $package->id,
+            'enrollment_id' => $enrollment->id,
+            'status' => FinancialEntitlementHold::STATUS_ACTIVE,
+            'entitlement_scope' => 'course',
+            'reason' => 'Payment reversal pending review',
+            'held_at' => now(),
+        ]);
+
+        self::assertTrue((bool) $enrollment->fresh()->is_active);
+
+        $this->actingAs($this->user, 'api')
+            ->getJson("/api/v1/courses/{$this->courseId}/details")
+            ->assertOk()
+            ->assertJsonPath('data.access_type', 'none')
+            ->assertJsonMissingPath('data.enrollment')
+            ->assertJsonMissingPath('data.attachment_prompt');
+
+        $this->actingAs($this->user, 'api')
+            ->getJson("/api/v1/courses/{$this->courseId}/progress")
+            ->assertForbidden();
+
+        $this->actingAs($this->user, 'api')
+            ->postJson("/api/v1/courses/{$this->courseId}/rate", [
+                'rating' => 5,
+                'version' => 0,
+            ])
+            ->assertForbidden();
     }
 
     public function test_base_purchase_reversal_still_revokes_learning_after_a_plan_upgrade(): void

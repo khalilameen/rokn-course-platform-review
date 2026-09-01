@@ -30,8 +30,6 @@ class LessonResource extends JsonResource
             'video_link' => $videoData['video_link'],
             'bunny_video_url' => $videoData['bunny_video_url'],
             'bunny_video_expires_at' => $videoData['bunny_video_expires_at'],
-            'file_link1' => $this->file_link1 ? (string)$this->file_link1: null,            
-            'file_link2' => $this->file_link2 ? (string)$this->file_link2: null,
             'image' => $this->image ? (string)$this->image: null,
             // Lesson previews may advertise an attached assessment, but the
             // enrolled exam endpoint is the only place that serves questions.
@@ -48,7 +46,15 @@ class LessonResource extends JsonResource
      */
     private function getVideoData(): array
     {
-        $bunnyService = new BunnyService();
+        if (!(bool) $this->resource->is_opened) {
+            return [
+                'video_source_type' => 'bunny',
+                'video_link' => null,
+                'bunny_video_url' => null,
+                'bunny_video_expires_at' => null,
+            ];
+        }
+        $bunnyService = app(BunnyService::class);
         return $bunnyService->getVideoDataForLesson($this->resource);
     }
 }

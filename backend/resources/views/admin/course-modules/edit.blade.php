@@ -18,8 +18,9 @@
         </div>
 
         <div class="form-body">
-            {!! Form::model($module, ['route' => ['admin.courses.modules.update', [$course, $module]], 'method' => 'PUT']) !!}
+            {!! Form::model($module, ['route' => ['admin.courses.modules.update', [$course, $module]], 'method' => 'PUT', 'id' => 'moduleForm']) !!}
             <input type="hidden" name="return_to" value="{{ request('return_to') === 'studio' ? 'studio' : '' }}">
+            <input type="hidden" name="authoring_version" value="{{ $course->authoring_version }}">
 
             <div class="row">
                 <div class="col-md-6">
@@ -67,7 +68,12 @@
             </div>
 
             {!! Form::close() !!}
+            @include('admin.attachments.manager', [
+                'attachmentOwner' => $module,
+                'attachmentType' => 'course_module',
+            ])
         </div>
     </div>
 </div>
+@include('admin.partials.course-authoring-draft', ['formId' => 'moduleForm'])
 @endsection

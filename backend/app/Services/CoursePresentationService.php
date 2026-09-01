@@ -8,17 +8,23 @@ use App\Http\Resources\BaseCourseResource;
 use App\Http\Resources\CourseResource;
 use App\Models\Course;
 use App\Models\CourseEnrollment;
-use App\Models\CourseModule;
 use App\Models\Setting;
 use App\Models\StudentSectionProgress;
 use App\Models\User;
+use App\Models\UserProjectEvaluation;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
+use Throwable;
 
 final readonly class CoursePresentationService
 {
-    public function __construct(private CourseChatAccessService $chatAccess)
+    public function __construct(
+        private CourseChatAccessService $chatAccess,
+        private CourseSectionSequenceService $sectionSequence,
+        private CertificateEligibilityService $certificateEligibility
+    )
     {
     }
 
@@ -66,31 +72,53 @@ final readonly class CoursePresentationService
     public function detailedCourse(
         Course $course,
         ?User $user,
-        bool $hasAccess
+        bool $hasAccess,
+        ?array $resolvedEntitlement = null,
+        ?CourseEnrollment $resolvedEnrollment = null
     ): BaseCourseResource {
+        $completedSectionIds = collect();
         if ($user && $hasAccess) {
             $completedSectionIds = StudentSectionProgress::query()
                 ->where('user_id', $user->id)
                 ->whereIn('course_section_id', $course->sections->pluck('id'))
                 ->where('is_completed', true)
                 ->pluck('course_section_id');
-            $resource = new CourseResource($course, $completedSectionIds);
+            $resource = (new CourseResource($course))->withLearningContext(
+                $completedSectionIds,
+                $resolvedEntitlement,
+                $resolvedEnrollment
+            );
         } else {
             $resource = new BaseCourseResource($course);
         }
 
         $entitlement = $user
-            ? $this->chatAccess->entitlementFor((int) $user->id, (int) $course->id)
+            ? ($resolvedEntitlement
+                ?? $this->chatAccess->entitlementFor((int) $user->id, (int) $course->id))
             : [
                 'access_type' => 'none',
                 'chat_available' => false,
                 'certificate_available' => false,
             ];
+        $certificateIncludedByPlan = (bool) $entitlement['certificate_available'];
+        $learningSections = $this->sectionSequence->learning($course->sections);
+        $courseStepsComplete = $user
+            && $hasAccess
+            && $certificateIncludedByPlan
+            && $learningSections->isNotEmpty()
+            && $completedSectionIds->intersect($learningSections->pluck('id'))->count()
+                === $learningSections->count();
+        $certificateStatus = $user && $courseStepsComplete
+            ? $this->certificateEligibility->for($user, $course)
+            : ['included' => $certificateIncludedByPlan, 'available' => false];
+        $certificateIncluded = (bool) $certificateStatus['included'];
+        $certificateAvailable = (bool) $certificateStatus['available'];
 
         return $resource->withEntitlement(
             (string) $entitlement['access_type'],
             (bool) $entitlement['chat_available'],
-            (bool) $entitlement['certificate_available']
+            $certificateIncluded,
+            $certificateAvailable
         );
     }
 
@@ -103,12 +131,13 @@ final readonly class CoursePresentationService
         string $accessType,
         int $userId
     ): array {
+        $learningSections = $this->sectionSequence->learning($course->sections);
         $completedSectionIds = StudentSectionProgress::query()
             ->where('user_id', $userId)
-            ->whereIn('course_section_id', $course->sections->pluck('id'))
+            ->whereIn('course_section_id', $learningSections->pluck('id'))
             ->where('is_completed', true)
             ->pluck('course_section_id');
-        $totalSections = $course->sections->count();
+        $totalSections = $learningSections->count();
         $completedSections = $completedSectionIds->count();
         $progressPercentage = $totalSections > 0
             ? round(($completedSections / $totalSections) * 100, 2)
@@ -135,7 +164,7 @@ final readonly class CoursePresentationService
                 'is_completed' => $totalSections > 0 && $completedSections === $totalSections,
             ],
             'sections' => $this->sectionLockStatus(
-                $course->sections,
+                $learningSections,
                 $completedSectionIds,
                 $userId
             ),
@@ -147,37 +176,60 @@ final readonly class CoursePresentationService
         Collection $completedSectionIds,
         ?int $userId = null
     ): Collection {
-        $settings = Setting::first();
+        try {
+            $settings = Cache::remember(
+                'learning:sequence-settings:v2',
+                30,
+                fn () => Setting::query()->first()
+            );
+        } catch (Throwable) {
+            $settings = Setting::query()->first();
+        }
         $enforceSectionOrder = $settings
             ? (bool) $settings->enforce_course_section_order
             : true;
         $moduleProjectStatus = [];
+        $orderedSections = $this->sectionSequence->learning($sections);
+        $previousSections = [];
+        $previousSection = null;
+        foreach ($orderedSections as $orderedSection) {
+            $previousSections[(int) $orderedSection->id] = $previousSection;
+            $previousSection = $orderedSection;
+        }
 
         if ($userId) {
+            $projectsByModule = $sections
+                ->filter(fn ($section): bool => $section->module_id && $section->getSectionType() === 'project')
+                ->keyBy('module_id');
+            $projectIds = $projectsByModule->pluck('sectionable_id')->filter();
+            $passedProjectIds = $projectIds->isEmpty()
+                ? collect()
+                : UserProjectEvaluation::query()
+                    ->where('user_id', $userId)
+                    ->whereIn('project_id', $projectIds)
+                    ->where('passed', true)
+                    ->pluck('project_id');
+
             foreach ($sections->pluck('module_id')->filter()->unique() as $moduleId) {
-                $module = CourseModule::find($moduleId);
-                if ($module) {
-                    $moduleProjectStatus[$moduleId] = $module->userPassedProject($userId);
-                }
+                $projectSection = $projectsByModule->get($moduleId);
+                $moduleProjectStatus[$moduleId] = !$projectSection
+                    || $passedProjectIds->contains($projectSection->sectionable_id);
             }
         }
 
-        return $sections->map(function ($section) use (
+        return $orderedSections->map(function ($section) use (
             $completedSectionIds,
             $enforceSectionOrder,
             $moduleProjectStatus,
-            $sections,
+            $previousSections,
             $userId
         ): array {
             $isCompleted = $completedSectionIds->contains($section->id);
             $isLocked = false;
             $lockReason = null;
 
-            if ($enforceSectionOrder && $section->order > 1) {
-                $previousSection = $sections
-                    ->where('order', '<', $section->order)
-                    ->sortByDesc('order')
-                    ->first();
+            if ($enforceSectionOrder) {
+                $previousSection = $previousSections[(int) $section->id] ?? null;
 
                 if ($previousSection) {
                     if (!$completedSectionIds->contains($previousSection->id)) {
@@ -226,12 +278,13 @@ final readonly class CoursePresentationService
         $course = Course::with([
             'sections' => fn ($sections) => $sections->orderBy('order'),
         ])->findOrFail($courseId);
+        $learningSections = $this->sectionSequence->learning($course->sections);
         $completedSectionIds = StudentSectionProgress::query()
             ->where('user_id', $userId)
-            ->whereIn('course_section_id', $course->sections->pluck('id'))
+            ->whereIn('course_section_id', $learningSections->pluck('id'))
             ->where('is_completed', true)
             ->pluck('course_section_id');
-        $totalSections = $course->sections->count();
+        $totalSections = $learningSections->count();
         $completedSections = $completedSectionIds->count();
 
         return [

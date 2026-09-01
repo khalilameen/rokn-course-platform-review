@@ -19,17 +19,27 @@ final class OutboxService
         string|int|null $aggregateId = null,
         ?string $eventKey = null
     ): OutboxEvent {
+        $normalizedAggregateId = $aggregateId === null ? null : (string) $aggregateId;
         $event = OutboxEvent::query()->firstOrCreate(
             ['event_key' => $eventKey ?: (string) Str::uuid()],
             [
                 'topic' => $topic,
                 'aggregate_type' => $aggregateType,
-                'aggregate_id' => $aggregateId === null ? null : (string) $aggregateId,
+                'aggregate_id' => $normalizedAggregateId,
                 'payload' => $payload,
                 'status' => OutboxEvent::STATUS_PENDING,
                 'available_at' => now(),
             ]
         );
+
+        if (!$event->wasRecentlyCreated && (
+            !hash_equals((string) $event->topic, $topic)
+            || ($event->aggregate_type === null ? null : (string) $event->aggregate_type) !== $aggregateType
+            || ($event->aggregate_id === null ? null : (string) $event->aggregate_id) !== $normalizedAggregateId
+            || $this->canonical($event->payload ?? []) !== $this->canonical($payload)
+        )) {
+            throw new \UnexpectedValueException('Outbox event key was reused for another payload.');
+        }
 
         if ($event->wasRecentlyCreated) {
             DB::afterCommit(static function () use ($event): void {
@@ -53,5 +63,20 @@ final class OutboxService
         }
 
         return $event;
+    }
+
+    private function canonical(mixed $value): mixed
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+        if (!array_is_list($value)) {
+            ksort($value);
+        }
+        foreach ($value as $key => $item) {
+            $value[$key] = $this->canonical($item);
+        }
+
+        return $value;
     }
 }

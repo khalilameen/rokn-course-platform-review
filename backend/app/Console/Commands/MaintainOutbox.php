@@ -39,6 +39,40 @@ final class MaintainOutbox extends Command
             ]);
         }
 
+        // Aggregate events are emitted in database order. A later event waits
+        // quietly behind an unfinished predecessor instead of burning queue
+        // retries; once the predecessor is delivered it becomes due again.
+        $unblocked = 0;
+        $blocked = OutboxEvent::query()
+            ->where('status', OutboxEvent::STATUS_BLOCKED)
+            ->orderBy('id')
+            ->limit($dispatchLimit)
+            ->get(['id', 'aggregate_type', 'aggregate_id']);
+        foreach ($blocked as $event) {
+            $hasPredecessor = OutboxEvent::query()
+                ->where('aggregate_type', $event->aggregate_type)
+                ->where('aggregate_id', $event->aggregate_id)
+                ->where('id', '<', $event->id)
+                ->whereNotIn('status', [
+                    OutboxEvent::STATUS_DELIVERED,
+                    OutboxEvent::STATUS_SKIPPED,
+                ])
+                ->exists();
+            if ($hasPredecessor) {
+                continue;
+            }
+            $unblocked += OutboxEvent::query()
+                ->whereKey($event->id)
+                ->where('status', OutboxEvent::STATUS_BLOCKED)
+                ->update([
+                    'status' => OutboxEvent::STATUS_PENDING,
+                    'available_at' => now(),
+                    'dispatched_at' => null,
+                    'last_error_fingerprint' => null,
+                    'updated_at' => now(),
+                ]);
+        }
+
         $leaseBefore = now()->subSeconds(max(60, (int) config('webhooks.claim_stale_seconds', 180)));
         $dueIds = OutboxEvent::query()
             ->where('status', OutboxEvent::STATUS_PENDING)
@@ -73,8 +107,9 @@ final class MaintainOutbox extends Command
 
         $pruned = $pruneLimit > 0 ? $this->prune($pruneLimit) : 0;
         $this->info(sprintf(
-            'Recovered %d stale claim(s), dispatched %d event(s), pruned %d terminal event(s).',
+            'Recovered %d stale claim(s), unblocked %d ordered event(s), dispatched %d event(s), pruned %d terminal event(s).',
             $staleIds->count(),
+            $unblocked,
             $dispatched,
             $pruned
         ));
@@ -92,7 +127,10 @@ final class MaintainOutbox extends Command
                     $delivered->where('status', OutboxEvent::STATUS_DELIVERED)
                         ->where('delivered_at', '<=', $deliveredBefore);
                 })->orWhere(function ($failed) use ($failedBefore): void {
-                    $failed->where('status', OutboxEvent::STATUS_FAILED)
+                    $failed->whereIn('status', [
+                        OutboxEvent::STATUS_FAILED,
+                        OutboxEvent::STATUS_SKIPPED,
+                    ])
                         ->where('updated_at', '<=', $failedBefore);
                 });
             })

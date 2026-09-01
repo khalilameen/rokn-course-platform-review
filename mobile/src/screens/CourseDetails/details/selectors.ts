@@ -3,7 +3,7 @@ import {
   ECONOMY_CONFIG,
   selectSmallestSufficientPackage,
 } from '../../../config/economy';
-import {CAN_START_EXTERNAL_CHECKOUT} from '../../../constants/distribution';
+import {CAN_START_COIN_CHECKOUT} from '../../../constants/distribution';
 import {formatArabicNumber} from '../../../constants/arabicFormatting';
 import {
   DEMO_COIN_PACKAGES,
@@ -51,7 +51,7 @@ export const canChooseCourseAccess = ({
   (isDemoCourse || remoteSession === true);
 
 export const planBenefits = (plan: CourseAccessPlan): string[] => {
-  const items = ['الكورس كامل ومشروعات العبور'];
+  const items = ['محتوى الكورس كامل'];
   if (!plan.chatEnabled) {
     items.push('من غير Rokn AI');
   } else {
@@ -60,22 +60,24 @@ export const planBenefits = (plan: CourseAccessPlan): string[] => {
     );
   }
   if (plan.projectFeedbackLevel === 'report') {
-    items.push('تقرير وتوصيات على وصف مشروعك');
+    items.push('تقرير المشروع داخل شات ركن');
   } else if (plan.projectFeedbackLevel === 'enhanced') {
     items.push(
-      plan.projectOutputEnabled
-        ? 'مراجعة أعمق ونموذج محسّن عند ملاءمته'
-        : 'مراجعة أعمق وتوصيات أكثر تفصيلًا',
+      plan.projectFollowupEnabled && (plan.projectFollowupMessageLimit ?? 0) > 0
+        ? `تقرير ومتابعة داخل شات ركن حتى ${formatArabicNumber(
+            plan.projectFollowupMessageLimit ?? 0,
+          )} رسالة`
+        : 'تقرير المشروع داخل شات ركن',
     );
   } else {
-    items.push('العبور بعد المحاولة الجادة');
+    items.push('العبور بعد قبول المشروع');
   }
   if (plan.certificateEnabled) items.push('إصدار الشهادة عند استيفاء شروطها');
   if ((plan.minimumPaidCoins ?? 0) > 0) {
     items.push(
-      `يمكن استخدام الهدايا حتى ${formatArabicNumber(
+      `يمكن استخدام عملات المكافآت حتى ${formatArabicNumber(
         Math.max(0, plan.priceCoins - (plan.minimumPaidCoins ?? 0)),
-      )} عملة من السعر`,
+      )} عملة ركن من السعر`,
     );
   }
   return items;
@@ -150,6 +152,8 @@ export const selectCourseDetailsPresentation = ({
           chatMessageLimit: 0,
           projectFeedbackLevel: 'pass_only',
           projectReportEnabled: false,
+          projectFollowupEnabled: false,
+          projectFollowupMessageLimit: 0,
           projectOutputEnabled: false,
           certificateEnabled: true,
         },
@@ -162,6 +166,8 @@ export const selectCourseDetailsPresentation = ({
           chatMessageLimit: 25,
           projectFeedbackLevel: 'report',
           projectReportEnabled: true,
+          projectFollowupEnabled: false,
+          projectFollowupMessageLimit: 0,
           projectOutputEnabled: false,
           certificateEnabled: true,
         },
@@ -174,6 +180,8 @@ export const selectCourseDetailsPresentation = ({
           chatMessageLimit: 80,
           projectFeedbackLevel: 'enhanced',
           projectReportEnabled: true,
+          projectFollowupEnabled: true,
+          projectFollowupMessageLimit: 20,
           projectOutputEnabled: true,
           certificateEnabled: true,
         },
@@ -191,7 +199,7 @@ export const selectCourseDetailsPresentation = ({
     ? COURSE_TITLE
     : remoteCourse?.title || String(route.params?.title || 'كورس ركن');
   const courseDescription = isDemoCourse
-    ? 'ابنِ عرضك، أدر عميلك، وحوّل التسليم إلى مشروع يفتح لك الباب التالي.'
+    ? 'ابنِ عرضك وأدر عميلك وحوّل التسليم إلى مشروع يفتح لك الباب التالي'
     : remoteCourse?.description || String(route.params?.description || '');
   const reelCount = isDemoCourse ? 30 : remoteCourse?.reelCount || 0;
   const projectCount = isDemoCourse ? 3 : remoteCourse?.projectCount || 0;
@@ -261,10 +269,10 @@ export const selectCourseDetailsPresentation = ({
     ? 'سجّل الدخول لفتح الكورس'
     : coursePrice === null
     ? 'السعر لم يُنشر بعد'
-    : !CAN_START_EXTERNAL_CHECKOUT && hasPreview
-    ? 'شاهد المحتوى المجاني'
-    : !CAN_START_EXTERNAL_CHECKOUT
-    ? 'متاح للحسابات المشتركة'
+    : !CAN_START_COIN_CHECKOUT && hasPreview
+    ? 'شاهد مجانًا'
+    : !CAN_START_COIN_CHECKOUT
+    ? 'الشراء غير متاح الآن'
     : coursePrice === 0
     ? 'ابدأ التعلّم مجانًا'
     : accessPlans.length > 1

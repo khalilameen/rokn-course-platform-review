@@ -48,11 +48,11 @@
                         </div>
                         <div class="info-box-row">
                             <span class="info-box-label">تاريخ الإنشاء:</span>
-                            <strong class="info-box-value">{{ $bill->created_at->format('Y-m-d') }}</strong>
+                            <strong class="info-box-value">{{ \App\Support\BusinessClock::format($bill->created_at, 'Y-m-d') }}</strong>
                         </div>
                         <div class="info-box-row">
                             <span class="info-box-label">الوقت:</span>
-                            <strong class="info-box-value">{{ $bill->created_at->format('H:i:s') }}</strong>
+                            <strong class="info-box-value">{{ \App\Support\BusinessClock::format($bill->created_at, 'H:i:s') }}</strong>
                         </div>
                         @if($bill->due_date)
                         <div class="info-box-row info-box-row-last">

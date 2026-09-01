@@ -24,7 +24,7 @@ class ProductResource extends JsonResource
             'list_id' =>$this->list_id ? (string)$this->list_id: null,
             'price' =>$this->price ? (string)$this->price: null,
             'tax' =>$this->tax ? (string)$this->tax: null,
-            'image' => $this->image ? $this->image : url('/images/service.jpg'),
+            'image' => $this->image ?: null,
             'date' => $this->created_at->format('h:i A'),
             'addons' => ProductAddonResource::collection($this->addons),
         ];

@@ -34,6 +34,8 @@ class HomeEndpointTest extends ApiTestCase
 
         Schema::create('contacts', function (Blueprint $table): void {
             $table->id();
+            $table->uuid('client_request_id')->unique();
+            $table->char('request_fingerprint', 64);
             $table->string('name');
             $table->string('email');
             $table->string('phone');

@@ -4,6 +4,7 @@ namespace App\Listeners;
 
 use App\Events\CourseCompleted;
 use App\Models\User;
+use App\Models\Course;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\DB;
@@ -14,6 +15,9 @@ class AwardLevelBadge implements ShouldQueue
 
     public bool $afterCommit = true;
     public int $tries = 3;
+    public int $timeout = 30;
+    public bool $failOnTimeout = true;
+    public array $backoff = [10, 60, 180];
     /**
      * Handle the event.
      *
@@ -22,8 +26,11 @@ class AwardLevelBadge implements ShouldQueue
      */
     public function handle(CourseCompleted $event): void
     {
-        $user = $event->user;
-        $course = $event->course;
+        $user = User::query()->find($event->resolvedUserId());
+        $course = Course::query()->find($event->resolvedCourseId());
+        if (!$user || !$course) {
+            return;
+        }
 
         // Badges are an explicit opt-in for professional/freelance courses only.
         // Religious and language courses never award career badges by accident.

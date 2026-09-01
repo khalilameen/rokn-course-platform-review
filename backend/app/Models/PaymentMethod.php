@@ -47,6 +47,14 @@ class PaymentMethod extends Model
         return $query->where('is_active', true);
     }
 
+    public function scopeConfigured($query)
+    {
+        return $query
+            ->whereNotNull('account_details')
+            ->whereRaw("TRIM(account_details) <> ''")
+            ->where('account_details', '<>', self::DEFAULT_ACCOUNT_DETAILS);
+    }
+
 
     /**
      * Scope a query to only include default payment methods.
@@ -54,14 +62,6 @@ class PaymentMethod extends Model
     public function scopeDefault($query)
     {
         return $query->where('is_default', true);
-    }
-
-    /**
-     * Check if the payment method has default account details (not updated).
-     */
-    public function hasDefaultAccountDetails(): bool
-    {
-        return $this->account_details === self::DEFAULT_ACCOUNT_DETAILS;
     }
 
     /**

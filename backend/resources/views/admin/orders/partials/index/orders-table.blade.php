@@ -111,8 +111,8 @@
                                     </td>
                                     <td class="text-center">
                                         <div class="order-created-at">
-                                            <div class="order-created-at__date">{{ $order->created_at->format('Y-m-d') }}</div>
-                                            <small class="text-muted">{{ $order->created_at->format('H:i') }}</small>
+                                            <div class="order-created-at__date">{{ \App\Support\BusinessClock::format($order->created_at, 'Y-m-d') }}</div>
+                                            <small class="text-muted">{{ \App\Support\BusinessClock::format($order->created_at, 'H:i') }}</small>
                                         </div>
                                     </td>
                                     <td class="text-center">

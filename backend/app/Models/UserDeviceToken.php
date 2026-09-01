@@ -11,6 +11,7 @@ class UserDeviceToken extends Model
         'device_token',
         'device_type',
         'device_os',
+        'device_id',
     ];
 
     public function user()

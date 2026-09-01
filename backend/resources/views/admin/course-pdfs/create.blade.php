@@ -30,8 +30,9 @@
 
     <!-- Form Container -->
     <div class="form-container">
-        <form action="{{ route('admin.courses.pdfs.store', $course) }}" method="POST" enctype="multipart/form-data">
+        <form action="{{ route('admin.courses.pdfs.store', $course) }}" method="POST" enctype="multipart/form-data" id="coursePdfForm">
             @csrf
+            <input type="hidden" name="authoring_version" value="{{ $course->authoring_version }}">
 
             <!-- Arabic Content -->
             <h4 class="section-title">
@@ -157,20 +158,10 @@
                     </div>
                 </div>
 
-                <div class="form-group mt-3">
-                    <div class="toggle-switch-container">
-                        <label class="toggle-switch">
-                            <input type="checkbox" name="create_section" id="createSection" value="1" 
-                                   {{ old('create_section', true) ? 'checked' : '' }}>
-                            <span class="toggle-slider"></span>
-                        </label>
-                        <div class="toggle-label">
-                            <span class="toggle-label-text">إنشاء قسم في الكورس</span>
-                            <span class="toggle-label-hint">سيظهر الملف كقسم مستقل في صفحة الكورس للطلاب</span>
-                        </div>
-                    </div>
-                </div>
+                <p class="form-text mt-3 mb-0">يظهر الملف داخل زر مرفقات الكورس أثناء المشاهدة</p>
             </div>
+
+            @include('admin.course-pdfs.partials._upload-progress')
 
             <!-- Form Actions -->
             <div class="form-actions">
@@ -278,4 +269,5 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
+@include('admin.partials.course-authoring-draft', ['formId' => 'coursePdfForm'])
 @endsection

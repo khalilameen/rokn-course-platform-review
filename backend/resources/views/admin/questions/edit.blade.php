@@ -19,9 +19,11 @@
                 <div class="card-header"><i class="fa fa-th-large"></i><strong class="card-title pr-2">تعديل السؤال</strong>
                 </div>
                 <div class="card-body card-block">
-                    {!! Form::model($question,['method' => 'PATCH', 'files' => true, 'url' => route('admin.questions.update', $question->id)]) !!}
+                    {!! Form::model($question,['method' => 'PATCH', 'files' => true, 'url' => route('admin.questions.update', $question->id), 'id' => 'questionForm']) !!}
+                        <input type="hidden" name="editor_version" value="{{ hash('sha256', $question->id.'|'.optional($question->updated_at)->format('Y-m-d H:i:s.u')) }}">
                         @include('admin.questions._form')
                     {!! Form::close() !!}
+                    @include('admin.partials.course-authoring-draft', ['formId' => 'questionForm'])
                 </div>
             </div>
         </div>
