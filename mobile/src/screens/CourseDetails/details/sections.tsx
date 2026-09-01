@@ -12,7 +12,6 @@ import LinearGradient from 'react-native-linear-gradient';
 import {CourseDetailsSkeleton} from '../../../components/ui/Skeleton';
 import {StatusView} from '../../../components/ui/PremiumUI';
 import {CourseArtwork} from '../../../components/ui/CourseArtwork';
-import {CoinAmount} from '../../../components/ui/RoknCoin';
 import {CAN_START_COIN_CHECKOUT} from '../../../constants/distribution';
 import {Palette, useResponsiveLayout} from '../../../constants/designSystem';
 import {
@@ -23,12 +22,8 @@ import {
   formatArabicStudents,
 } from '../../../constants/arabicFormatting';
 import {createDemoCourse} from '../../../components/VideoPlayer/demoCourse';
-import type {
-  CourseAccessPlan,
-  CourseDetails as CourseDetailsDto,
-} from '../../../services/roknApi';
+import type {CourseDetails as CourseDetailsDto} from '../../../services/roknApi';
 import Lessons from '../Lessons';
-import {planBenefits} from './selectors';
 import styles from './styles';
 
 export const CourseAbout = ({details}: {details?: CourseDetailsDto | null}) => {
@@ -273,63 +268,6 @@ type CourseHeroProps = {
   onBack: () => void;
   remoteCourse: CourseDetailsDto | null;
   topInset: number;
-};
-
-type CourseAccessPlansSectionProps = {
-  accessPlans: CourseAccessPlan[];
-  onSelectPlan: (plan: CourseAccessPlan) => void;
-  selectedPlanCode: string;
-  visible: boolean;
-};
-
-export const CourseAccessPlansSection = ({
-  accessPlans,
-  onSelectPlan,
-  selectedPlanCode,
-  visible,
-}: CourseAccessPlansSectionProps) => {
-  if (!visible || !accessPlans.length) return null;
-
-  return (
-    <View style={styles.coursePlansSection}>
-      <Text style={styles.sheetEyebrow}>اختر الفئة المناسبة لك</Text>
-      <Text style={styles.sheetTitle}>الكورس واحد ومستوى الدعم باختيارك</Text>
-      <Text style={styles.sheetDescription}>
-        قارن الإمكانيات واختر الفئة
-        {'\n'}ثم أكمل الدفع من الصفحة نفسها
-      </Text>
-      <View style={styles.planList}>
-        {accessPlans.map(plan => (
-          <Pressable
-            accessibilityHint="يفتح ملخص الفئة وإتمام الشراء"
-            accessibilityLabel={`${plan.name} بسعر ${formatArabicNumber(
-              plan.priceCoins,
-            )} عملة ركن`}
-            accessibilityRole="button"
-            key={plan.code}
-            onPress={() => onSelectPlan(plan)}
-            style={({pressed}) => [
-              styles.planCard,
-              plan.code === selectedPlanCode && styles.planCardSelected,
-              pressed && styles.pressed,
-            ]}>
-            <View style={styles.planHeader}>
-              <Text style={styles.planName}>{plan.name}</Text>
-              <CoinAmount size={17} value={plan.priceCoins} />
-            </View>
-            <View style={styles.planBenefits}>
-              {planBenefits(plan).map(item => (
-                <View key={item} style={styles.planBenefitRow}>
-                  <View style={styles.planCheck} />
-                  <Text style={styles.planBenefitText}>{item}</Text>
-                </View>
-              ))}
-            </View>
-          </Pressable>
-        ))}
-      </View>
-    </View>
-  );
 };
 
 export const CourseHero = ({

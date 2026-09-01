@@ -90,6 +90,7 @@ describe('course details presentation contract', () => {
     expect(presentation({remoteOwned: true}).primaryActionLabel).toBe(
       'استكمل الكورس',
     );
+    expect(presentation().primaryActionLabel).toBe('اختر الفئة المناسبة لك');
   });
 
   it('never exposes pricing tiers or educational access codes to a guest', () => {

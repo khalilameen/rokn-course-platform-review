@@ -184,7 +184,10 @@ type CoursePurchaseDialogProps = {
   balance: number;
   bottomInset: number;
   busy: boolean;
+  codeBusy?: boolean;
   courseTitle: string;
+  courseCode?: string;
+  courseCodeEnabled?: boolean;
   couponApplied?: boolean;
   couponBusy?: boolean;
   couponCode?: string;
@@ -198,6 +201,8 @@ type CoursePurchaseDialogProps = {
   onCouponCodeChange?: (value: string) => void;
   onClose: () => void;
   onConfirmPurchase: () => void | Promise<void>;
+  onCourseCodeChange?: (value: string) => void;
+  onRedeemCourseCode?: () => void | Promise<void>;
   onSelectPlan: (plan: CourseAccessPlan) => void;
   onSuccessStart: () => void;
   packages: DemoCoinPackage[];
@@ -216,7 +221,10 @@ export const CoursePurchaseDialog = ({
   balance,
   bottomInset,
   busy,
+  codeBusy = false,
   courseTitle,
+  courseCode = '',
+  courseCodeEnabled = false,
   couponApplied = false,
   couponBusy = false,
   couponCode = '',
@@ -230,6 +238,8 @@ export const CoursePurchaseDialog = ({
   onCouponCodeChange = () => undefined,
   onClose,
   onConfirmPurchase,
+  onCourseCodeChange = () => undefined,
+  onRedeemCourseCode = () => undefined,
   onSelectPlan,
   onSuccessStart,
   packages,
@@ -249,7 +259,7 @@ export const CoursePurchaseDialog = ({
     <Modal
       animationType={reducedMotion ? 'none' : 'slide'}
       onRequestClose={() => {
-        if (!busy && !couponBusy) onClose();
+        if (!busy && !couponBusy && !codeBusy) onClose();
       }}
       statusBarTranslucent
       transparent
@@ -260,8 +270,8 @@ export const CoursePurchaseDialog = ({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="إغلاق"
-          accessibilityState={{disabled: busy || couponBusy}}
-          disabled={busy || couponBusy}
+          accessibilityState={{disabled: busy || couponBusy || codeBusy}}
+          disabled={busy || couponBusy || codeBusy}
           onPress={onClose}
           style={styles.modalBackdrop}
         />
@@ -299,8 +309,10 @@ export const CoursePurchaseDialog = ({
                     <Pressable
                       accessibilityRole="button"
                       accessibilityState={{
+                        disabled: codeBusy,
                         selected: plan.code === selectedPlan?.code,
                       }}
+                      disabled={codeBusy}
                       key={plan.code}
                       onPress={() => onSelectPlan(plan)}
                       style={({pressed}) => [
@@ -308,6 +320,7 @@ export const CoursePurchaseDialog = ({
                         plan.code === selectedPlan?.code &&
                           styles.planCardSelected,
                         pressed && styles.pressed,
+                        codeBusy && styles.disabled,
                       ]}>
                       <View style={styles.planHeader}>
                         <Text style={styles.planName}>{plan.name}</Text>
@@ -324,6 +337,14 @@ export const CoursePurchaseDialog = ({
                     </Pressable>
                   ))}
                 </View>
+                {courseCodeEnabled && (
+                  <CourseCodeEntry
+                    codeBusy={codeBusy}
+                    courseCode={courseCode}
+                    onCourseCodeChange={onCourseCodeChange}
+                    onRedeemCourseCode={onRedeemCourseCode}
+                  />
+                )}
               </>
             )}
             {dialogStep === 'topup' && (

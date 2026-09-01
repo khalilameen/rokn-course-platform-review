@@ -34,13 +34,11 @@ import type {LoginReturnTo} from '../../navigation/types';
 import {goBackOrHome} from '../../navigation/RootNavigationHelper';
 import {
   CourseBody,
-  CourseAccessPlansSection,
   CourseHero,
   CourseIntro,
   CourseRatingAction,
   StickyCourseAction,
 } from './details/sections';
-import {CourseCodeRedemptionAction} from './details/CourseCodeRedemptionAction';
 import {
   CourseCodeRedemptionDialog,
   CoursePurchaseDialog,
@@ -442,16 +440,6 @@ export default function CourseDetails() {
     handlePurchaseAction();
   };
 
-  const openCodeRedemption = () => {
-    if (!CAN_REDEEM_COURSE_ACCESS_CODE) return;
-    setNotice('');
-    if (!isDemoCourse && remoteSession === false) {
-      openLoginForCodeRedemption();
-      return;
-    }
-    setRedemptionVisible(true);
-  };
-
   useEffect(() => {
     autoPurchaseHandledRef.current = false;
     autoRedemptionHandledRef.current = false;
@@ -829,19 +817,6 @@ export default function CourseDetails() {
             remoteError={remoteError}
             studentsCount={studentsCount}
           />
-          <CourseAccessPlansSection
-            accessPlans={accessPlans}
-            onSelectPlan={plan => {
-              setSelectedPlanCode(plan.code);
-              setDialogStep(
-                (planSpendableBalances[plan.code] ?? 0) >= plan.priceCoins
-                  ? 'confirm'
-                  : 'topup',
-              );
-            }}
-            selectedPlanCode={selectedPlanCode}
-            visible={showCourseAccessOptions}
-          />
           <CourseRatingAction
             busy={ratingBusy}
             editable={remoteCourse?.ratingEligible === true}
@@ -856,10 +831,6 @@ export default function CourseDetails() {
               (remoteCourse?.ratingEligible === true ||
                 submittedRating !== null)
             }
-          />
-          <CourseCodeRedemptionAction
-            onPress={openCodeRedemption}
-            visible={CAN_REDEEM_COURSE_ACCESS_CODE && showCourseAccessOptions}
           />
           {!!notice && dialogStep === null && !redemptionVisible && (
             <Text style={[styles.notice, styles.inlineNotice]}>{notice}</Text>
@@ -906,7 +877,12 @@ export default function CourseDetails() {
         balance={balance}
         bottomInset={insets.bottom}
         busy={busy}
+        codeBusy={codeBusy}
         courseTitle={courseTitle}
+        courseCode={courseCode}
+        courseCodeEnabled={
+          CAN_REDEEM_COURSE_ACCESS_CODE && showCourseAccessOptions
+        }
         couponApplied={appliedCoupon}
         couponBusy={couponBusy}
         couponCode={purchaseCouponCode}
@@ -925,6 +901,8 @@ export default function CourseDetails() {
         }}
         onClose={closePurchaseDialog}
         onConfirmPurchase={confirmPurchase}
+        onCourseCodeChange={setCourseCode}
+        onRedeemCourseCode={redeemCourseCode}
         onSelectPlan={plan => {
           setCouponQuote(null);
           setSelectedPlanCode(plan.code);

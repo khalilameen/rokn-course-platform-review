@@ -18,7 +18,6 @@ import {
   CourseCodeRedemptionDialog,
   CoursePurchaseDialog,
 } from '../src/screens/CourseDetails/details/PurchaseDialogs';
-import {CourseCodeRedemptionAction} from '../src/screens/CourseDetails/details/CourseCodeRedemptionAction';
 import type {CourseAccessPlan} from '../src/services/roknApi';
 
 const plans: CourseAccessPlan[] = [
@@ -80,32 +79,6 @@ describe('course-code distribution boundary', () => {
 });
 
 describe('course-code redemption UI', () => {
-  it('exposes a separate labelled action without a payment call to action', async () => {
-    const onPress = jest.fn();
-    let renderer: ReactTestRenderer.ReactTestRenderer;
-
-    await ReactTestRenderer.act(() => {
-      renderer = ReactTestRenderer.create(
-        <CourseCodeRedemptionAction onPress={onPress} visible />,
-      );
-    });
-
-    const action = renderer!.root.find(
-      node => node.props.accessibilityLabel === 'تفعيل كود جهة تعليمية',
-    );
-    expect(action.props).toMatchObject({
-      accessibilityRole: 'button',
-      accessibilityHint: 'يفتح إدخال كود الوصول إلى هذا الكورس',
-    });
-    expect(JSON.stringify(renderer!.toJSON())).not.toMatch(
-      /شراء|دفع الآن|رابط/,
-    );
-
-    await ReactTestRenderer.act(() => action.props.onPress());
-    expect(onPress).toHaveBeenCalledTimes(1);
-    await ReactTestRenderer.act(() => renderer!.unmount());
-  });
-
   it('labels the code input, submit action, progress state, and close action', async () => {
     const onClose = jest.fn();
     const onChange = jest.fn();
@@ -191,8 +164,9 @@ describe('course-code redemption UI', () => {
     await ReactTestRenderer.act(() => renderer!.unmount());
   });
 
-  it('keeps all three direct-checkout plans while excluding code entry from the purchase dialog', async () => {
+  it('keeps all three plans and reveals educational code entry inside the purchase dialog', async () => {
     const onSelectPlan = jest.fn();
+    const onRedeem = jest.fn();
     let renderer: ReactTestRenderer.ReactTestRenderer;
 
     await ReactTestRenderer.act(() => {
@@ -202,7 +176,10 @@ describe('course-code redemption UI', () => {
           balance={1000}
           bottomInset={0}
           busy={false}
+          codeBusy={false}
           courseTitle="كورس الإنتاج"
+          courseCode="GRANT-42"
+          courseCodeEnabled
           dialogStep="plans"
           grantActivated={false}
           isTablet={false}
@@ -210,6 +187,8 @@ describe('course-code redemption UI', () => {
           onBuyCoins={jest.fn()}
           onClose={jest.fn()}
           onConfirmPurchase={jest.fn()}
+          onCourseCodeChange={jest.fn()}
+          onRedeemCourseCode={onRedeem}
           onSelectPlan={onSelectPlan}
           onSuccessStart={jest.fn()}
           packages={[]}
@@ -225,12 +204,12 @@ describe('course-code redemption UI', () => {
 
     const tree = JSON.stringify(renderer!.toJSON());
     for (const plan of plans) expect(tree).toContain(plan.name);
-    expect(tree).not.toContain('اكتب الكود');
+    expect(tree).toContain('اكتب الكود');
     expect(
       renderer!.root.findAll(
         node => node.props.accessibilityLabel === 'تفعيل كود الوصول',
-      ),
-    ).toHaveLength(0);
+      ).length,
+    ).toBeGreaterThanOrEqual(1);
 
     await ReactTestRenderer.act(() => renderer!.unmount());
   });

@@ -276,7 +276,7 @@ export const selectCourseDetailsPresentation = ({
     : coursePrice === 0
     ? 'ابدأ التعلّم مجانًا'
     : accessPlans.length > 1
-    ? 'ابدأ التعلّم الآن'
+    ? 'اختر الفئة المناسبة لك'
     : 'شراء الكورس';
   // Demo metrics stay isolated from server course data.
   const ratingsCount = isDemoCourse ? 186 : remoteCourse?.ratingsCount ?? 0;
