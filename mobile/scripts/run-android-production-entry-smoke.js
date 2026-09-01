@@ -106,7 +106,12 @@ const tapNode = node => {
 };
 
 const tapLabel = async label => {
-  const {match} = await waitForUi(node => textOrDescription(node, label));
+  const {match} = await waitForUi(
+    node =>
+      textOrDescription(node, label) &&
+      node.enabled !== 'false' &&
+      node.clickable !== 'false',
+  );
   tapNode(match);
 };
 
@@ -183,7 +188,9 @@ const verifyProviderHandoff = async ({label, expectedDomain, finalProvider = fal
   process.stdout.write(`PASS ${label} > ${expectedDomain}\n`);
   adb(['shell', 'input', 'keyevent', '4']);
   const returned = await waitForUi(node =>
-    textOrDescription(node, label) ||
+    (textOrDescription(node, label) &&
+      node.enabled !== 'false' &&
+      node.clickable !== 'false') ||
     (finalProvider && node['content-desc'] === 'الرئيسية'),
   );
   assertNoPublicBlocker(returned.nodes);
