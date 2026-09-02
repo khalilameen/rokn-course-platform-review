@@ -1559,6 +1559,25 @@ class KashierPaymentTest extends TestCase
             ->assertJsonPath('status', 'pending');
     }
 
+    public function test_explicit_reconciliation_keeps_an_active_checkout_absent_at_provider_open(): void
+    {
+        $order = $this->createPendingOrder('PKG-POLL-NOT-OPENED');
+        $order->forceFill(['checkout_expires_at' => now()->addMinutes(20)])->save();
+        Http::fake([
+            'https://test-api.kashier.io/*' => Http::response([], 404),
+        ]);
+
+        $this->actingAs($this->user, 'api')
+            ->postJson("/api/v1/payment/reconcile/{$order->order_ref}")
+            ->assertOk()
+            ->assertJsonPath('status', Order::STATUS_PENDING)
+            ->assertJsonPath('financial_status', Order::FINANCIAL_PENDING);
+
+        self::assertSame(Order::STATUS_PENDING, $order->fresh()->status);
+        self::assertSame(0, (int) $this->user->fresh()->wallet_coins);
+        self::assertSame(0, \Illuminate\Support\Facades\DB::table('wallet_transactions')->count());
+    }
+
    public function test_unauthenticated_user_cannot_poll_status(): void
     {
         $this->createPendingOrder();

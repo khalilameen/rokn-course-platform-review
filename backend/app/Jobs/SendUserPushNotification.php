@@ -380,6 +380,15 @@ final class SendUserPushNotification implements ShouldQueue, ShouldBeUnique
                 ]);
                 continue;
             }
+            if ($result['unknown']) {
+                NotificationPushDelivery::query()->whereKey($delivery->id)->update([
+                    'status' => NotificationPushDelivery::STATUS_UNKNOWN,
+                    'failed_at' => now(),
+                    'failure_code' => $result['failure_code'] ?: 'provider_outcome_unknown',
+                    'updated_at' => now(),
+                ]);
+                continue;
+            }
             if ($result['retryable']) {
                 NotificationPushDelivery::query()->whereKey($delivery->id)->update([
                     'status' => NotificationPushDelivery::STATUS_RETRYABLE,

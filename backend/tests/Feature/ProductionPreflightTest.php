@@ -328,6 +328,13 @@ class ProductionPreflightTest extends TestCase
                 'certificate.disk' => 's3',
                 'course_pdfs.disk' => 's3',
                 'payment_evidence.disk' => 's3',
+                'filesystems.disks.public' => [
+                    'driver' => 'local',
+                    'root' => storage_path('framework/testing/public'),
+                    'url' => 'https://rokn.academy/storage',
+                    'visibility' => 'public',
+                    'throw' => true,
+                ],
                 'filesystems.disks.feedback' => [
                     'driver' => 'local',
                     'root' => storage_path('framework/testing/feedback'),

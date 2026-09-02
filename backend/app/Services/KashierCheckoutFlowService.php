@@ -424,6 +424,16 @@ final readonly class KashierCheckoutFlowService
         }
 
         $providerStatus = $this->payments->providerOrderStatus($apiResponse);
+        if (
+            $providerStatus === 'NOT_FOUND'
+            && !$order->isCheckoutExpired()
+        ) {
+            // Kashier may not create its order until the hosted page is
+            // opened. Absence during an active local checkout is therefore
+            // not payment failure and must not release a second payable
+            // attempt. Expiry or an explicit abandon remains authoritative.
+            return $order->fresh(['package']);
+        }
         if ($this->payments->isProviderFailureStatus($providerStatus)) {
             return $this->payments->cancelPendingOrder($order, $apiResponse);
         }

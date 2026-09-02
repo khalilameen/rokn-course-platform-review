@@ -176,7 +176,7 @@ class FcmNotificationService
      * the provider result per device prevents one healthy phone from hiding a
      * failed second phone belonging to the same learner.
      *
-     * @return array{accepted:bool,retryable:bool,failure_code:?string}
+     * @return array{accepted:bool,retryable:bool,unknown:bool,failure_code:?string}
      */
     public static function sendToDeviceDetailed(
         User $user,
@@ -190,14 +190,14 @@ class FcmNotificationService
     ): array {
         $type = (string) ($extraData['notification_type'] ?? '');
         if (!NotificationDeliveryPolicy::allowsPush($user, $type)) {
-            return ['accepted' => false, 'retryable' => false, 'failure_code' => 'preference_disabled'];
+            return ['accepted' => false, 'retryable' => false, 'unknown' => false, 'failure_code' => 'preference_disabled'];
         }
         $deviceToken = trim((string) $tokenRecord->device_token);
         if ($deviceToken === '') {
-            return ['accepted' => false, 'retryable' => false, 'failure_code' => 'token_missing'];
+            return ['accepted' => false, 'retryable' => false, 'unknown' => false, 'failure_code' => 'token_missing'];
         }
         if (self::circuitIsOpen()) {
-            return ['accepted' => false, 'retryable' => true, 'failure_code' => 'provider_circuit_open'];
+            return ['accepted' => false, 'retryable' => true, 'unknown' => false, 'failure_code' => 'provider_circuit_open'];
         }
 
         try {
@@ -205,7 +205,7 @@ class FcmNotificationService
         } catch (\Throwable $exception) {
             self::recordFailure('binding');
             Log::warning('FCM messaging service unavailable', ['exception' => $exception::class]);
-            return ['accepted' => false, 'retryable' => true, 'failure_code' => 'provider_unavailable'];
+            return ['accepted' => false, 'retryable' => true, 'unknown' => false, 'failure_code' => 'provider_unavailable'];
         }
 
         $titleAr = self::firstText($titleAr, $titleEn, 'إشعار من ركن');
@@ -254,28 +254,39 @@ class FcmNotificationService
         try {
             $messaging->send($message);
             self::recordSuccess();
-            return ['accepted' => true, 'retryable' => false, 'failure_code' => null];
+            return ['accepted' => true, 'retryable' => false, 'unknown' => false, 'failure_code' => null];
         } catch (NotFound $exception) {
-            return ['accepted' => false, 'retryable' => false, 'failure_code' => 'token_unregistered'];
+            return ['accepted' => false, 'retryable' => false, 'unknown' => false, 'failure_code' => 'token_unregistered'];
         } catch (InvalidArgument|InvalidMessage $exception) {
             Log::error('FCM rejected a notification payload.', [
                 'user_id' => $user->id,
                 'token_id' => $tokenRecord->id,
                 'exception' => $exception::class,
             ]);
-            return ['accepted' => false, 'retryable' => false, 'failure_code' => 'payload_invalid'];
+            return ['accepted' => false, 'retryable' => false, 'unknown' => false, 'failure_code' => 'payload_invalid'];
         } catch (AuthenticationError $exception) {
             self::recordFailure('authentication');
             Log::error('FCM credentials rejected.', ['exception' => $exception::class]);
-            return ['accepted' => false, 'retryable' => false, 'failure_code' => 'provider_authentication'];
-        } catch (ApiConnectionFailed|QuotaExceeded|ServerError|ServerUnavailable $exception) {
+            return ['accepted' => false, 'retryable' => false, 'unknown' => false, 'failure_code' => 'provider_authentication'];
+        } catch (ApiConnectionFailed $exception) {
+            // The socket may have failed after FCM accepted the request. FCM
+            // has no application idempotency key, so a blind retry can wake
+            // the learner twice. The durable in-app inbox remains available.
+            self::recordFailure('provider_connection_unknown');
+            Log::warning('FCM delivery outcome is unknown for token.', [
+                'user_id' => $user->id,
+                'token_id' => $tokenRecord->id,
+                'exception' => $exception::class,
+            ]);
+            return ['accepted' => false, 'retryable' => false, 'unknown' => true, 'failure_code' => 'provider_outcome_unknown'];
+        } catch (QuotaExceeded|ServerError|ServerUnavailable $exception) {
             self::recordFailure('provider_temporary');
             Log::warning('FCM temporarily unavailable for token.', [
                 'user_id' => $user->id,
                 'token_id' => $tokenRecord->id,
                 'exception' => $exception::class,
             ]);
-            return ['accepted' => false, 'retryable' => true, 'failure_code' => 'provider_unavailable'];
+            return ['accepted' => false, 'retryable' => true, 'unknown' => false, 'failure_code' => 'provider_unavailable'];
         } catch (MessagingException $exception) {
             self::recordFailure('messaging');
             Log::warning('FCM send failed for token', [
@@ -283,7 +294,7 @@ class FcmNotificationService
                 'token_id' => $tokenRecord->id,
                 'exception' => $exception::class,
             ]);
-            return ['accepted' => false, 'retryable' => true, 'failure_code' => 'provider_rejected_temporarily'];
+            return ['accepted' => false, 'retryable' => true, 'unknown' => false, 'failure_code' => 'provider_rejected_temporarily'];
         } catch (\Throwable $exception) {
             self::recordFailure('unexpected');
             Log::error('Unexpected FCM error', [
@@ -291,7 +302,7 @@ class FcmNotificationService
                 'token_id' => $tokenRecord->id,
                 'exception' => $exception::class,
             ]);
-            return ['accepted' => false, 'retryable' => true, 'failure_code' => 'provider_error'];
+            return ['accepted' => false, 'retryable' => false, 'unknown' => true, 'failure_code' => 'provider_outcome_unknown'];
         }
     }
 

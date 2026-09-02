@@ -16,6 +16,7 @@ final class RepositorySecretScanner
         'REDIS_PASSWORD',
         'AWS_ACCESS_KEY_ID',
         'AWS_SECRET_ACCESS_KEY',
+        'PUBLIC_AWS_SECRET_ACCESS_KEY',
         'FCM_SERVER_KEY',
         'FIREBASE_CREDENTIALS',
         'GOOGLE_MAPS_API_KEY',

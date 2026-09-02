@@ -203,7 +203,13 @@ final readonly class KashierReconciliationService
         }
 
         if ($providerStatus === 'NOT_FOUND' && $order->status === Order::STATUS_PENDING) {
-            $this->payments->cancelPendingOrder($order, $evidence);
+            // The provider-side order can be absent until the learner opens
+            // the HPP. Only local expiry proves that this particular checkout
+            // may be closed; otherwise a periodic scan would cancel a fresh
+            // link and allow two payable attempts for the same tap.
+            if ($order->isCheckoutExpired()) {
+                $this->payments->cancelPendingOrder($order, $evidence);
+            }
             $this->resolveOpenFindings($order->fresh());
 
             return 'consistent';
