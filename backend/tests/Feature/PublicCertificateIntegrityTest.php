@@ -12,6 +12,7 @@ use App\Models\Certificate;
 use App\Models\Course;
 use App\Models\User;
 use App\Services\PublicPortfolioService;
+use App\Services\CertificateService;
 use App\Support\RoknPublicUrl;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
@@ -170,6 +171,45 @@ final class PublicCertificateIntegrityTest extends TestCase
             self::assertLessThanOrEqual(1, $position['x']);
             self::assertGreaterThanOrEqual(0, $position['y']);
             self::assertLessThanOrEqual(1, $position['y']);
+        }
+    }
+
+    public function test_long_arabic_certificate_fields_stay_inside_the_editorial_main_field(): void
+    {
+        $reflection = new \ReflectionClass(CertificateService::class);
+        $service = $reflection->newInstanceWithoutConstructor();
+        $shape = $reflection->getMethod('shapeIfArabic');
+        $fit = $reflection->getMethod('fittedFontSize');
+        $place = $reflection->getMethod('horizontalTextPlacement');
+        $fontPath = (string) config('certificate.font_regular');
+        $positions = (array) config('certificate.text_positions');
+        $fields = [
+            'name' => 'عبد الرحمن مصطفى عبد العزيز الشافعي',
+            'achievement' => 'تقديرًا لإتمام المتطلبات التطبيقية لكورس',
+            'course' => 'صناعة المحتوى الاحترافي واستراتيجيات النمو بالفيديو القصير',
+        ];
+
+        foreach ($fields as $key => $value) {
+            $text = $shape->invoke($service, $value);
+            self::assertStringNotContainsString("\n", $text);
+            $position = $positions[$key];
+            $position['size'] = $fit->invoke(
+                $service,
+                $text,
+                $fontPath,
+                $position,
+                1200
+            );
+            $placement = $place->invoke(
+                $service,
+                $text,
+                $fontPath,
+                $position,
+                1200
+            );
+
+            self::assertGreaterThanOrEqual(340, $placement['left'], $key);
+            self::assertLessThanOrEqual(1080, $placement['right'], $key);
         }
     }
 

@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Console\Commands\ProductionPreflight;
 use App\Models\CourseModule;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
@@ -143,6 +145,62 @@ class ProductionPreflightTest extends TestCase
         self::assertStringContainsString('APP_LINK_ANDROID_PACKAGE', $output);
         self::assertStringContainsString('APP_LINK_ANDROID_SHA256_FINGERPRINTS', $output);
         self::assertStringContainsString('APP_LINK_APPLE_APP_IDS', $output);
+    }
+
+    public function test_preflight_does_not_require_apple_association_before_apple_is_declared(): void
+    {
+        config([
+            'mobile_contract.launch_channels' => ['direct'],
+            'social_auth.providers' => ['google', 'tiktok'],
+            'app_links.apple_app_ids' => [],
+        ]);
+
+        self::assertSame(1, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
+        self::assertStringNotContainsString('APP_LINK_APPLE_APP_IDS', Artisan::output());
+    }
+
+    public function test_preflight_requires_apple_association_for_an_app_store_release_even_without_apple_login(): void
+    {
+        config([
+            'mobile_contract.launch_channels' => ['appstore'],
+            'social_auth.providers' => ['google', 'tiktok'],
+            'app_links.apple_app_ids' => [],
+        ]);
+
+        self::assertSame(1, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
+        $output = Artisan::output();
+        self::assertStringContainsString('APP_LINK_APPLE_APP_IDS', $output);
+        self::assertStringNotContainsString('APP_LINK_ANDROID_PACKAGE', $output);
+        self::assertStringNotContainsString('APP_LINK_ANDROID_SHA256_FINGERPRINTS', $output);
+    }
+
+    public function test_app_link_connectivity_accepts_the_real_android_contract_without_an_internal_release_header(): void
+    {
+        $fingerprint = implode(':', array_fill(0, 32, 'AB'));
+        config([
+            'app_links.android_package' => 'com.rokn',
+            'app_links.android_sha256_fingerprints' => [$fingerprint],
+        ]);
+        $statement = [[
+            'relation' => ['delegate_permission/common.handle_all_urls'],
+            'target' => [
+                'namespace' => 'android_app',
+                'package_name' => 'com.rokn',
+                'sha256_cert_fingerprints' => [$fingerprint],
+            ],
+        ]];
+        $invalidStatement = $statement;
+        $invalidStatement[0]['target']['package_name'] = 'com.attacker';
+        Http::fakeSequence()
+            ->push($statement, 200)
+            ->push($invalidStatement, 200);
+        $response = Http::get('https://rokn.test/.well-known/assetlinks.json');
+
+        $method = new \ReflectionMethod(ProductionPreflight::class, 'validAndroidAssociation');
+        self::assertTrue($method->invoke(app(ProductionPreflight::class), $response, 'release-id'));
+
+        $response = Http::get('https://rokn.test/.well-known/assetlinks.json');
+        self::assertFalse($method->invoke(app(ProductionPreflight::class), $response, 'release-id'));
     }
 
     public function test_preflight_fails_closed_for_unsafe_social_auth_and_host_configuration(): void

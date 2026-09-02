@@ -89,52 +89,63 @@ return [
     */
     'text_positions' => [
 
-        // Student name — centred below the Arabic recipient label.
+        // RTL editorial statement: the learner is the visual centre.
         'name' => [
-            'x'     => 0.50,
+            'x'     => 0.90,
             'y'     => 0.385,
-            'size'  => 38,
-            'color' => '#08172F',
+            'size'  => 48,
+            'min_size' => 28,
+            'max_width' => 0.60,
+            'align' => 'right',
+            'color' => '#09172C',
         ],
 
-        // Course name — the final line in the central credential hierarchy.
+        // Course title closes the central statement, close to its wording.
         'course' => [
-            'x'     => 0.50,
-            'y'     => 0.590,
-            'size'  => 27,
-            'color' => '#08172F',
+            'x'     => 0.90,
+            'y'     => 0.560,
+            'size'  => 30,
+            'min_size' => 18,
+            'max_width' => 0.60,
+            'align' => 'right',
+            'color' => '#09172C',
         ],
 
-        // Certificate ID — below its Arabic label at the lower right.
+        // Certificate ID belongs to the dedicated verification rail.
         'cert_id' => [
-            'x'     => 0.885,
-            'y'     => 0.952,
+            'x'     => 0.125,
+            'y'     => 0.510,
             // A UUID is the externally verifiable credential identifier.
-            'size'  => 8,
-            'color' => '#08172F',
+            'size'  => 9,
+            'align' => 'center',
+            'color' => '#314056',
         ],
 
-        // Immutable achievement wording selected for this issued credential.
+        // Immutable wording and course title read as one intentional sentence.
         'achievement' => [
-            'x'     => 0.50,
-            'y'     => 0.505,
-            'size'  => 18,
-            'color' => '#41506A',
+            'x'     => 0.90,
+            'y'     => 0.495,
+            'size'  => 17,
+            'min_size' => 13,
+            'max_width' => 0.60,
+            'align' => 'right',
+            'color' => '#657083',
         ],
 
-        // Date — centred below its Arabic label at the lower right.
+        // Date aligns with the signature and verification group without rules.
         'date' => [
-            'x'     => 0.823,
-            'y'     => 0.800,
+            'x'     => 0.90,
+            'y'     => 0.815,
             'size'  => 14,
-            'color' => '#08172F',
+            'align' => 'right',
+            'color' => '#09172C',
         ],
 
-        // QR code — centred inside the fixed verification frame.
+        // QR stands on its own; no decorative container competes with it.
         'qr_code' => [
-            'x'    => 0.160,
-            'y'    => 0.804,
-            'size' => 132,
+            'x'    => 0.125,
+            'y'    => 0.345,
+            'size' => 128,
         ],
     ],
 ];

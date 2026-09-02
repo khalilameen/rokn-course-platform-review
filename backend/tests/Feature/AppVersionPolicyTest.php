@@ -293,6 +293,64 @@ class AppVersionPolicyTest extends TestCase
         $this->assertTrue($readiness['channels']['direct']['ready']);
     }
 
+    public function test_direct_release_bootstrap_is_validated_active_and_idempotent(): void
+    {
+        config([
+            'app.env' => 'production',
+            'mobile_contract.launch_channels' => ['direct'],
+        ]);
+        $arguments = [
+            '--version-name' => '1.0.0',
+            '--version-code' => 1,
+            '--download-url' => 'https://rokn.app/downloads/Rokn-direct.apk',
+            '--activate' => true,
+        ];
+
+        $this->artisan('app-release:bootstrap-direct', $arguments)->assertSuccessful();
+        $this->artisan('app-release:bootstrap-direct', $arguments)->assertSuccessful();
+
+        $this->assertDatabaseCount('app_versions', 1);
+        $this->assertDatabaseHas('app_versions', [
+            'platform' => 'android',
+            'distribution_channel' => 'direct',
+            'version_name' => '1.0.0',
+            'version_code' => 1,
+            'is_active' => true,
+            'is_force_update' => false,
+            'download_url' => 'https://rokn.app/downloads/Rokn-direct.apk',
+        ]);
+        self::assertTrue(app(AppReleasePolicyService::class)->launchReadiness()['ready']);
+    }
+
+    public function test_direct_release_bootstrap_never_overwrites_or_downgrades(): void
+    {
+        config([
+            'app.env' => 'production',
+            'mobile_contract.launch_channels' => ['direct'],
+        ]);
+        $this->insertVersion('android', '2.0.0', 20, null, false, 'direct');
+
+        $this->artisan('app-release:bootstrap-direct', [
+            '--version-name' => '1.9.0',
+            '--version-code' => 19,
+            '--download-url' => 'https://rokn.app/downloads/Rokn-old.apk',
+            '--activate' => true,
+        ])->assertExitCode(1);
+        $this->artisan('app-release:bootstrap-direct', [
+            '--version-name' => '2.1.0',
+            '--version-code' => 21,
+            '--download-url' => 'https://example.com/Rokn.apk',
+            '--activate' => true,
+        ])->assertExitCode(2);
+
+        $this->assertDatabaseCount('app_versions', 1);
+        $this->assertDatabaseHas('app_versions', [
+            'distribution_channel' => 'direct',
+            'version_code' => 20,
+            'version_name' => '2.0.0',
+        ]);
+    }
+
     private function insertVersion(
         string $platform,
         string $name,

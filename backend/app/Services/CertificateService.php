@@ -366,11 +366,13 @@ class CertificateService
             $studentName = $this->shapeIfArabic($studentName);
 
             $pos = $positions['name'];
-            $img->text($studentName, (int)($width * $pos['x']), (int)($height * $pos['y']), function ($font) use ($fontPath, $pos) {
+            $pos['size'] = $this->fittedFontSize($studentName, $fontPath, $pos, $width);
+            $placement = $this->horizontalTextPlacement($studentName, $fontPath, $pos, $width);
+            $img->text($studentName, $placement['x'], (int)($height * $pos['y']), function ($font) use ($fontPath, $pos, $placement) {
                 $font->file($fontPath);
                 $font->size($pos['size']);
                 $font->color($pos['color']);
-                $font->align('center');
+                $font->align($placement['align']);
                 $font->valign('middle');
             });
 
@@ -381,15 +383,27 @@ class CertificateService
             $achievementPosition = $positions['achievement'] ?? null;
             if ($achievementText !== '' && is_array($achievementPosition)) {
                 $achievementText = $this->shapeIfArabic($achievementText);
+                $achievementPosition['size'] = $this->fittedFontSize(
+                    $achievementText,
+                    $fontPath,
+                    $achievementPosition,
+                    $width
+                );
+                $placement = $this->horizontalTextPlacement(
+                    $achievementText,
+                    $fontPath,
+                    $achievementPosition,
+                    $width
+                );
                 $img->text(
                     $achievementText,
-                    (int) ($width * $achievementPosition['x']),
+                    $placement['x'],
                     (int) ($height * $achievementPosition['y']),
-                    function ($font) use ($fontPath, $achievementPosition): void {
+                    function ($font) use ($fontPath, $achievementPosition, $placement): void {
                         $font->file($fontPath);
                         $font->size($achievementPosition['size']);
                         $font->color($achievementPosition['color']);
-                        $font->align('center');
+                        $font->align($placement['align']);
                         $font->valign('middle');
                     }
                 );
@@ -401,11 +415,13 @@ class CertificateService
             if ($courseName) {
                 $courseName = $this->shapeIfArabic($courseName);
                 $pos = $positions['course'];
-                $img->text($courseName, (int)($width * $pos['x']), (int)($height * $pos['y']), function ($font) use ($fontPath, $pos) {
+                $pos['size'] = $this->fittedFontSize($courseName, $fontPath, $pos, $width);
+                $placement = $this->horizontalTextPlacement($courseName, $fontPath, $pos, $width);
+                $img->text($courseName, $placement['x'], (int)($height * $pos['y']), function ($font) use ($fontPath, $pos, $placement) {
                     $font->file($fontPath);
                     $font->size($pos['size']);
                     $font->color($pos['color']);
-                    $font->align('center');
+                    $font->align($placement['align']);
                     $font->valign('middle');
                 });
             }
@@ -419,7 +435,7 @@ class CertificateService
                 $font->file($fontPath);
                 $font->size($pos['size']);
                 $font->color($pos['color']);
-                $font->align('center');
+                $font->align($pos['align'] ?? 'center');
                 $font->valign('middle');
             });
 
@@ -433,11 +449,12 @@ class CertificateService
             ]);
             $dateText = $this->shapeIfArabic($dateText);
             $pos = $positions['date'];
-            $img->text($dateText, (int)($width * $pos['x']), (int)($height * $pos['y']), function ($font) use ($fontPath, $pos) {
+            $placement = $this->horizontalTextPlacement($dateText, $fontPath, $pos, $width);
+            $img->text($dateText, $placement['x'], (int)($height * $pos['y']), function ($font) use ($fontPath, $pos, $placement) {
                 $font->file($fontPath);
                 $font->size($pos['size']);
                 $font->color($pos['color']);
-                $font->align('center');
+                $font->align($placement['align']);
                 $font->valign('middle');
             });
 
@@ -483,6 +500,90 @@ class CertificateService
     private function artifactExists(Certificate $certificate): bool
     {
         return $certificate->hasStoredArtifact();
+    }
+
+    /**
+     * Keep personal names and course titles on one deliberate line without
+     * letting unusually long values break the certificate composition.
+     *
+     * @param array{size:int,min_size?:int,max_width?:float} $position
+     */
+    private function fittedFontSize(
+        string $text,
+        string $fontPath,
+        array $position,
+        int $canvasWidth
+    ): int {
+        $preferred = max(1, (int) $position['size']);
+        $minimum = max(1, min($preferred, (int) ($position['min_size'] ?? $preferred)));
+        $available = (int) round(
+            $canvasWidth * max(0.1, min(1.0, (float) ($position['max_width'] ?? 1.0)))
+        );
+        if (!function_exists('imagettfbbox') || !is_file($fontPath)) {
+            return $preferred;
+        }
+
+        for ($size = $preferred; $size > $minimum; $size--) {
+            $bounds = $this->gdTextBounds($text, $fontPath, $size);
+            if ($bounds !== null && $bounds['width'] <= $available) return $size;
+        }
+
+        return $minimum;
+    }
+
+    /**
+     * Intervention's GD right/middle correction is based on font-coordinate
+     * extrema and becomes unreliable after Arabic glyph shaping. Convert a
+     * right edge into an explicit left drawing origin using the exact GD box,
+     * then ask Intervention to draw left-aligned. This keeps the visual box,
+     * not the logical string, inside the main editorial field.
+     *
+     * @param array{x:float,size:int,align?:string} $position
+     * @return array{x:int,align:string,left:int,right:int}
+     */
+    private function horizontalTextPlacement(
+        string $text,
+        string $fontPath,
+        array $position,
+        int $canvasWidth
+    ): array {
+        $anchor = (int) round($canvasWidth * (float) $position['x']);
+        $align = strtolower((string) ($position['align'] ?? 'center'));
+        $bounds = $this->gdTextBounds($text, $fontPath, (int) $position['size']);
+        if ($align !== 'right' || $bounds === null) {
+            return ['x' => $anchor, 'align' => $align, 'left' => $anchor, 'right' => $anchor];
+        }
+
+        $left = $anchor - $bounds['width'];
+
+        return [
+            'x' => $left,
+            'align' => 'left',
+            'left' => $left,
+            'right' => $anchor,
+        ];
+    }
+
+    /** @return array{width:int,min_x:int,max_x:int}|null */
+    private function gdTextBounds(string $text, string $fontPath, int $pixelSize): ?array
+    {
+        if (!function_exists('imagettfbbox') || !is_file($fontPath)) return null;
+
+        // Intervention Image v2 converts configured pixel sizes to GD points.
+        $pointSize = (int) ceil(max(1, $pixelSize) * 0.75);
+        $encoded = preg_replace('/&(#(?:x[a-fA-F0-9]+|[0-9]+);)/', '&#38;\\1', $text);
+        $encoded = mb_encode_numericentity(
+            (string) $encoded,
+            [0x0080, 0xffff, 0, 0xffff],
+            'UTF-8'
+        );
+        $box = imagettfbbox($pointSize, 0, $fontPath, $encoded);
+        if (!is_array($box)) return null;
+
+        $minX = (int) min($box[0], $box[2], $box[4], $box[6]);
+        $maxX = (int) max($box[0], $box[2], $box[4], $box[6]);
+
+        return ['width' => $maxX - $minX, 'min_x' => $minX, 'max_x' => $maxX];
     }
 
     private function deleteCertificateArtifact(string $path): void
@@ -664,7 +765,14 @@ class CertificateService
             $start  = $positions[$i - 1];
             $length = $positions[$i] - $start;
             $substr = substr($text, $start, $length);
-            $shaped = $arabic->utf8Glyphs($substr);
+            // ArPHP defaults to wrapping after 50 characters, which silently
+            // inserts a newline into long names or course titles. Certificate
+            // wrapping is controlled by our measured layout, so shaping must
+            // never mutate a one-line field into multiple lines.
+            $shaped = $arabic->utf8Glyphs(
+                $substr,
+                max(1, mb_strlen($substr, 'UTF-8') + 1)
+            );
             $text   = substr_replace($text, $shaped, $start, $length);
         }
 

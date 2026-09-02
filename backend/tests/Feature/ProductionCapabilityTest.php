@@ -360,15 +360,19 @@ final class ProductionCapabilityTest extends TestCase
         $response = $this->getJson('/api/health/launch-ready')->assertOk();
         $response->assertJsonPath('status', 'launch_ready')
             ->assertJsonPath('checks.bunny_assets', true)
-            ->assertJsonPath('checks.payment_google_play', true)
-            ->assertJsonPath('checks.payment_app_store', true)
+            ->assertJsonPath('checks.payment_kashier', true)
+            ->assertJsonMissingPath('checks.payment_google_play')
+            ->assertJsonMissingPath('checks.payment_app_store')
+            ->assertJsonPath('optional_checks.payment_google_play', true)
+            ->assertJsonPath('optional_checks.payment_app_store', true)
             ->assertJsonPath('checks.queue', true)
             ->assertJsonPath('checks.mail', true)
             ->assertJsonPath('checks.push', true)
             ->assertJsonPath('checks.social_facebook', true)
             ->assertJsonPath('checks.social_tiktok', true)
             ->assertJsonPath('checks.app_links_android', true)
-            ->assertJsonPath('checks.app_links_apple', true)
+            ->assertJsonMissingPath('checks.app_links_apple')
+            ->assertJsonPath('optional_checks.app_links_apple', true)
             ->assertJsonMissing(['reason'])
             ->assertDontSee('stream-secret')
             ->assertDontSee('payment-secret')
@@ -514,7 +518,7 @@ final class ProductionCapabilityTest extends TestCase
             ->assertJsonPath('optional_checks.social_apple', false);
     }
 
-    public function test_android_and_apple_domain_associations_block_launch_independently(): void
+    public function test_direct_launch_requires_android_but_not_apple_domain_association(): void
     {
         $this->recordAllQueueHeartbeats();
         config([
@@ -530,6 +534,76 @@ final class ProductionCapabilityTest extends TestCase
         $this->getJson('/api/health/launch-ready')
             ->assertServiceUnavailable()
             ->assertJsonPath('checks.app_links_android', false)
+            ->assertJsonMissingPath('checks.app_links_apple')
+            ->assertJsonPath('optional_checks.app_links_apple', false);
+
+        config([
+            'app_links.android_sha256_fingerprints' => [implode(':', array_fill(0, 32, 'AB'))],
+        ]);
+        self::assertTrue(app(ProductionCapabilityService::class)->report()['capabilities']['app_links']['ready']);
+        $this->getJson('/api/health/launch-ready')
+            ->assertOk()
+            ->assertJsonPath('checks.app_links_android', true)
+            ->assertJsonMissingPath('checks.app_links_apple');
+    }
+
+    public function test_direct_launch_does_not_require_unreleased_store_billing(): void
+    {
+        $this->recordAllQueueHeartbeats();
+        config([
+            'store_billing.google.credentials_base64' => null,
+            'store_billing.apple.private_key_base64' => null,
+            'app_links.apple_app_ids' => [],
+        ]);
+        DB::table('packages')->update([
+            'google_enabled' => false,
+            'apple_enabled' => false,
+        ]);
+
+        $report = app(ProductionCapabilityService::class)->report();
+        self::assertTrue($report['capabilities']['payment']['ready']);
+        self::assertTrue($report['capabilities']['payment']['kashier']['required']);
+        self::assertFalse($report['capabilities']['payment']['google_play']['required']);
+        self::assertFalse($report['capabilities']['payment']['app_store']['required']);
+        self::assertFalse($report['capabilities']['payment']['google_play']['ready']);
+        self::assertFalse($report['capabilities']['payment']['app_store']['ready']);
+
+        $this->getJson('/api/health/launch-ready')
+            ->assertOk()
+            ->assertJsonPath('checks.payment_kashier', true)
+            ->assertJsonMissingPath('checks.payment_google_play')
+            ->assertJsonMissingPath('checks.payment_app_store')
+            ->assertJsonPath('optional_checks.payment_google_play', false)
+            ->assertJsonPath('optional_checks.payment_app_store', false);
+    }
+
+    public function test_app_store_channel_restores_apple_payment_and_link_gates(): void
+    {
+        $this->recordAllQueueHeartbeats();
+        config([
+            'mobile_contract.launch_channels' => ['direct', 'appstore'],
+            'app_links.apple_app_ids' => ['invalid'],
+        ]);
+        DB::table('app_versions')->insert([
+            'platform' => 'ios',
+            'distribution_channel' => 'appstore',
+            'version_name' => '1.0.0',
+            'version_code' => null,
+            'build_number' => 1,
+            'is_force_update' => false,
+            'is_active' => true,
+            'download_url' => 'https://apps.apple.com/app/id123456789',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $report = app(ProductionCapabilityService::class)->report();
+        self::assertTrue($report['capabilities']['payment']['app_store']['required']);
+        self::assertTrue($report['capabilities']['payment']['app_store']['ready']);
+        self::assertFalse($report['capabilities']['app_links']['ready']);
+        $this->getJson('/api/health/launch-ready')
+            ->assertServiceUnavailable()
+            ->assertJsonPath('checks.payment_app_store', true)
             ->assertJsonPath('checks.app_links_apple', false);
     }
 

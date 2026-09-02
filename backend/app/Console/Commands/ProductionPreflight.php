@@ -12,6 +12,7 @@ use App\Services\AppReleasePolicyService;
 use App\Support\PaymentEvidencePath;
 use App\Support\StorageWriteOptions;
 use Illuminate\Console\Command;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -482,6 +483,10 @@ class ProductionPreflight extends Command
         ))));
         $socialProviders = app(SocialAuthProviderRegistry::class);
         $declaredSocialProviders = $socialProviders->declared();
+        $launchChannels = array_values((array) config('mobile_contract.launch_channels', []));
+        $requiresAndroidLinks = in_array(AppReleasePolicyService::CHANNEL_DIRECT, $launchChannels, true)
+            || in_array(AppReleasePolicyService::CHANNEL_PLAY, $launchChannels, true);
+        $requiresAppleLinks = in_array(AppReleasePolicyService::CHANNEL_APP_STORE, $launchChannels, true);
         $swaggerApiMiddleware = (array) config('l5-swagger.routes.middleware.api', []);
         $swaggerDocsMiddleware = (array) config('l5-swagger.routes.middleware.docs', []);
 
@@ -569,18 +574,19 @@ class ProductionPreflight extends Command
             'APP_TRUSTED_HOSTS must contain explicit non-local public hosts, including the APP_URL host.'
         );
         $require(
-            $this->validAndroidPackage($androidPackage),
-            'APP_LINK_ANDROID_PACKAGE must be the real Android application ID.'
+            !$requiresAndroidLinks || $this->validAndroidPackage($androidPackage),
+            'APP_LINK_ANDROID_PACKAGE must be the real Android application ID while an Android release channel is enabled.'
         );
         $require(
-            $androidFingerprints !== []
-                && collect($androidFingerprints)->every(fn (string $value): bool => $this->validAndroidFingerprint($value)),
-            'APP_LINK_ANDROID_SHA256_FINGERPRINTS must contain valid colon-separated SHA-256 signing fingerprints.'
+            !$requiresAndroidLinks || ($androidFingerprints !== []
+                && collect($androidFingerprints)->every(fn (string $value): bool => $this->validAndroidFingerprint($value))),
+            'APP_LINK_ANDROID_SHA256_FINGERPRINTS must contain valid colon-separated SHA-256 signing fingerprints while an Android release channel is enabled.'
         );
         $require(
-            $appleAppIds !== []
-                && collect($appleAppIds)->every(fn (string $value): bool => $this->validAppleAppId($value)),
-            'APP_LINK_APPLE_APP_IDS must contain valid Team-ID and bundle-ID pairs.'
+            !($requiresAppleLinks || $declaredSocialProviders->contains('apple'))
+                || ($appleAppIds !== []
+                    && collect($appleAppIds)->every(fn (string $value): bool => $this->validAppleAppId($value))),
+            'APP_LINK_APPLE_APP_IDS must contain valid Team-ID and bundle-ID pairs while Apple sign-in or the App Store channel is enabled.'
         );
         $require(
             $socialPublicApiValid,
@@ -1030,14 +1036,12 @@ class ProductionPreflight extends Command
                         ->timeout(6)
                         ->withoutRedirecting()
                         ->get($redirectUrl);
-                    if (!$association->successful()
-                        || !hash_equals($expectedIdentity, trim((string) $association->header('X-Rokn-App-Identity')))) {
-                        $failures[] = 'The branded app-link redirect does not terminate on this release contract.';
+                    if (!$this->validAndroidAssociation($association, $expectedIdentity)) {
+                        $failures[] = 'The branded app-link redirect does not terminate on the configured Android contract.';
                     }
                 }
-            } elseif (!$association->successful()
-                || !hash_equals($expectedIdentity, trim((string) $association->header('X-Rokn-App-Identity')))) {
-                $failures[] = 'The branded public host does not serve this release app-link/API contract identity.';
+            } elseif (!$this->validAndroidAssociation($association, $expectedIdentity)) {
+                $failures[] = 'The branded public host does not serve the configured Android app-link contract.';
             }
         } catch (Throwable) {
             $failures[] = 'The branded public app-link host is unreachable or did not return a stable contract identity.';
@@ -1384,6 +1388,46 @@ class ProductionPreflight extends Command
     private function validAndroidFingerprint(string $fingerprint): bool
     {
         return preg_match('/\A(?:[0-9A-F]{2}:){31}[0-9A-F]{2}\z/', $fingerprint) === 1;
+    }
+
+    private function validAndroidAssociation(Response $response, string $expectedIdentity): bool
+    {
+        if (!$response->successful()) {
+            return false;
+        }
+
+        $identity = trim((string) $response->header('X-Rokn-App-Identity'));
+        if ($identity !== '' && !hash_equals($expectedIdentity, $identity)) {
+            return false;
+        }
+
+        $expectedPackage = trim((string) config('app_links.android_package'));
+        $expectedFingerprints = array_values(array_unique(array_map(
+            static fn ($value): string => strtoupper(trim((string) $value)),
+            (array) config('app_links.android_sha256_fingerprints', [])
+        )));
+        sort($expectedFingerprints);
+
+        foreach ((array) $response->json() as $statement) {
+            $target = is_array($statement) ? ($statement['target'] ?? null) : null;
+            if (!is_array($target)
+                || ($target['namespace'] ?? null) !== 'android_app'
+                || !hash_equals($expectedPackage, trim((string) ($target['package_name'] ?? '')))) {
+                continue;
+            }
+
+            $actualFingerprints = array_values(array_unique(array_map(
+                static fn ($value): string => strtoupper(trim((string) $value)),
+                (array) ($target['sha256_cert_fingerprints'] ?? [])
+            )));
+            sort($actualFingerprints);
+
+            if ($actualFingerprints === $expectedFingerprints) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function validAppleAppId(string $appId): bool

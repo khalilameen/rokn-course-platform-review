@@ -114,12 +114,13 @@ final class ProductionCapabilityService
             && $signingReady
             && $assetsReady;
 
-        $payment = $this->paymentCapability();
+        $launchChannels = $this->requiredLaunchChannels();
+        $payment = $this->paymentCapability($launchChannels);
         $ai = $this->aiCapability();
         $mail = $this->mailCapability();
         $push = $this->pushCapability();
         $social = $this->socialCapability();
-        $appLinks = $this->appLinksCapability();
+        $appLinks = $this->appLinksCapability($launchChannels);
         $queue = $this->queueCapability();
         $recoveryState = $this->recoveryEvidence->readiness();
         $recovery = [
@@ -147,6 +148,7 @@ final class ProductionCapabilityService
                 && $queue['ready']
                 && $recovery['ready'],
             'checked_at' => now()->toIso8601String(),
+            'launch_channels' => $launchChannels,
             'capabilities' => [
                 'bunny' => $bunny,
                 'payment' => $payment,
@@ -161,7 +163,8 @@ final class ProductionCapabilityService
         ];
     }
 
-    private function paymentCapability(): array
+    /** @param list<string> $launchChannels */
+    private function paymentCapability(array $launchChannels): array
     {
         $mode = strtolower(trim((string) config('kashier.mode')));
         $selected = is_array(config("kashier.{$mode}")) ? config("kashier.{$mode}") : [];
@@ -237,16 +240,24 @@ final class ProductionCapabilityService
                 : 'منتجات App Store أو issuer/key أو private key أو جذور Apple ناقصة'
         );
 
-        $ready = $kashierReady && $googleReady && $appleReady;
+        $required = [
+            'kashier' => in_array(AppReleasePolicyService::CHANNEL_DIRECT, $launchChannels, true),
+            'google_play' => in_array(AppReleasePolicyService::CHANNEL_PLAY, $launchChannels, true),
+            'app_store' => in_array(AppReleasePolicyService::CHANNEL_APP_STORE, $launchChannels, true),
+        ];
+        $ready = $launchChannels !== []
+            && (!$required['kashier'] || $kashierReady)
+            && (!$required['google_play'] || $googleReady)
+            && (!$required['app_store'] || $appleReady);
 
         return [
             'ready' => $ready,
             'reason' => $ready
-                ? 'Kashier وGoogle Play وApp Store جاهزة'
-                : 'قناة دفع واحدة أو أكثر غير مكتملة',
-            'kashier' => $kashier,
-            'google_play' => $google,
-            'app_store' => $apple,
+                ? 'قنوات الدفع المعلنة جاهزة'
+                : 'قناة دفع معلنة واحدة أو أكثر غير مكتملة',
+            'kashier' => $kashier + ['required' => $required['kashier']],
+            'google_play' => $google + ['required' => $required['google_play']],
+            'app_store' => $apple + ['required' => $required['app_store']],
         ];
     }
 
@@ -411,7 +422,8 @@ final class ProductionCapabilityService
         }
     }
 
-    private function appLinksCapability(): array
+    /** @param list<string> $launchChannels */
+    private function appLinksCapability(array $launchChannels): array
     {
         $androidPackage = trim((string) config('app_links.android_package'));
         $androidFingerprints = array_values(array_unique(array_filter(array_map(
@@ -441,12 +453,43 @@ final class ProductionCapabilityService
                 $appleReady ? 'Apple Universal Links app IDs مضبوطة' : 'Apple Team ID أو bundle ID ناقص'
             ),
         ];
-        $appLinks['ready'] = $androidReady && $appleReady;
+        $requiresAndroid = in_array(AppReleasePolicyService::CHANNEL_DIRECT, $launchChannels, true)
+            || in_array(AppReleasePolicyService::CHANNEL_PLAY, $launchChannels, true);
+        $requiresApple = in_array(AppReleasePolicyService::CHANNEL_APP_STORE, $launchChannels, true);
+        $appLinks['android']['required'] = $requiresAndroid;
+        $appLinks['apple']['required'] = $requiresApple;
+        $appLinks['ready'] = $launchChannels !== []
+            && (!$requiresAndroid || $androidReady)
+            && (!$requiresApple || $appleReady);
+        $requiredPlatforms = array_values(array_filter([
+            $requiresAndroid ? 'Android' : null,
+            $requiresApple ? 'Apple' : null,
+        ]));
         $appLinks['reason'] = $appLinks['ready']
-            ? 'روابط فتح التطبيق مضبوطة على Android وApple'
-            : 'ربط التطبيق بالنطاق ناقص على منصة واحدة أو أكثر';
+            ? 'روابط فتح التطبيق مضبوطة للقنوات المعلنة: '.implode(' و', $requiredPlatforms)
+            : ($requiredPlatforms === []
+                ? 'لا توجد قناة إصدار معلنة'
+                : 'ربط التطبيق بالنطاق ناقص للقنوات المعلنة: '.implode(' و', $requiredPlatforms));
 
         return $appLinks;
+    }
+
+    /** @return list<string> */
+    private function requiredLaunchChannels(): array
+    {
+        $supported = [
+            AppReleasePolicyService::CHANNEL_PLAY,
+            AppReleasePolicyService::CHANNEL_DIRECT,
+            AppReleasePolicyService::CHANNEL_APP_STORE,
+        ];
+
+        return array_values(array_intersect(
+            $supported,
+            array_values(array_unique(array_map(
+                static fn ($channel): string => strtolower(trim((string) $channel)),
+                (array) config('mobile_contract.launch_channels', [])
+            )))
+        ));
     }
 
     private function queueCapability(): array

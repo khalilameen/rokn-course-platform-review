@@ -150,6 +150,7 @@ final class OperationalHealthController extends Controller
     {
         $report = $this->capabilities->report();
         $mobileRelease = $this->releasePolicy->launchReadiness();
+        $launchChannels = array_values((array) ($report['launch_channels'] ?? []));
         $checks = [
             'database' => $this->databaseIsReady(),
             'critical_schema' => $this->criticalSchemaIsReady(),
@@ -163,20 +164,34 @@ final class OperationalHealthController extends Controller
             'bunny_signing' => (bool) data_get($report, 'capabilities.bunny.signing.ready'),
             'bunny_assets' => (bool) data_get($report, 'capabilities.bunny.assets.ready'),
             'payment' => (bool) data_get($report, 'capabilities.payment.ready'),
-            'payment_kashier' => (bool) data_get($report, 'capabilities.payment.kashier.ready'),
-            'payment_google_play' => (bool) data_get($report, 'capabilities.payment.google_play.ready'),
-            'payment_app_store' => (bool) data_get($report, 'capabilities.payment.app_store.ready'),
             'ai' => (bool) data_get($report, 'capabilities.ai.ready'),
             'mail' => (bool) data_get($report, 'capabilities.mail.ready'),
             'push' => (bool) data_get($report, 'capabilities.push.ready'),
             'social_callbacks' => (bool) data_get($report, 'capabilities.social.callbacks.ready'),
             'social_handoff' => (bool) data_get($report, 'capabilities.social.handoff.ready'),
-            'app_links_android' => (bool) data_get($report, 'capabilities.app_links.android.ready'),
-            'app_links_apple' => (bool) data_get($report, 'capabilities.app_links.apple.ready'),
+            'app_links' => (bool) data_get($report, 'capabilities.app_links.ready'),
             'queue' => (bool) data_get($report, 'capabilities.queue.ready'),
             'recovery' => (bool) data_get($report, 'capabilities.recovery.ready'),
             'mobile_release' => $mobileRelease['ready'],
         ];
+        if (in_array(AppReleasePolicyService::CHANNEL_DIRECT, $launchChannels, true)) {
+            $checks['payment_kashier'] = (bool) data_get($report, 'capabilities.payment.kashier.ready');
+        }
+        if (in_array(AppReleasePolicyService::CHANNEL_PLAY, $launchChannels, true)) {
+            $checks['payment_google_play'] = (bool) data_get($report, 'capabilities.payment.google_play.ready');
+        }
+        if (in_array(AppReleasePolicyService::CHANNEL_APP_STORE, $launchChannels, true)) {
+            $checks['payment_app_store'] = (bool) data_get($report, 'capabilities.payment.app_store.ready');
+        }
+        if (array_intersect([
+            AppReleasePolicyService::CHANNEL_DIRECT,
+            AppReleasePolicyService::CHANNEL_PLAY,
+        ], $launchChannels) !== []) {
+            $checks['app_links_android'] = (bool) data_get($report, 'capabilities.app_links.android.ready');
+        }
+        if (in_array(AppReleasePolicyService::CHANNEL_APP_STORE, $launchChannels, true)) {
+            $checks['app_links_apple'] = (bool) data_get($report, 'capabilities.app_links.apple.ready');
+        }
         foreach ((array) data_get($report, 'capabilities.social.declared_providers', []) as $provider) {
             $checks['social_'.$provider] = (bool) data_get($report, "capabilities.social.{$provider}.ready");
         }
@@ -186,6 +201,17 @@ final class OperationalHealthController extends Controller
                 'social_'.$provider => (bool) data_get($report, "capabilities.social.{$provider}.ready"),
             ])
             ->all();
+        foreach ([
+            'payment_kashier' => 'capabilities.payment.kashier.ready',
+            'payment_google_play' => 'capabilities.payment.google_play.ready',
+            'payment_app_store' => 'capabilities.payment.app_store.ready',
+            'app_links_android' => 'capabilities.app_links.android.ready',
+            'app_links_apple' => 'capabilities.app_links.apple.ready',
+        ] as $name => $path) {
+            if (!array_key_exists($name, $checks)) {
+                $optionalChecks[$name] = (bool) data_get($report, $path);
+            }
+        }
         $ready = !in_array(false, $checks, true);
 
         $status = $ready ? 'launch_ready' : 'launch_blocked';

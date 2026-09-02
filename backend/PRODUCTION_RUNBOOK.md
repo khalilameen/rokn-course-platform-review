@@ -15,6 +15,15 @@ This backend is prepared for the first production load, but capacity is an opera
   dashboard datetime-local values use Cairo. The production preflight rejects
   a mixed configuration.
 - `CACHE_DRIVER=redis`, `QUEUE_CONNECTION=redis`, `SESSION_DRIVER=redis`.
+- Set `MOBILE_RELEASE_REQUIRED_CHANNELS` to only the channels promoted in this
+  release. The initial direct Android release uses `direct`: it requires the
+  direct APK, Android App Links and live Kashier, but deliberately does not
+  require Play Console or App Store credentials. Add `play` or `appstore` only
+  when that store's product records, server verification and official URL are
+  ready; every declared channel remains a hard launch gate.
+  Social login is declared independently by `SOCIAL_AUTH_PROVIDERS`; keep
+  Apple out of that list until its login identifiers are ready, then add it in
+  the same release that exposes the Apple button.
 - Start from `.env.production.example`; it contains variable names only and no
   usable credentials. Set `REDIS_HOST`, `REDIS_PASSWORD`, `REDIS_PORT`,
   `REDIS_DB`, and `REDIS_CACHE_DB`, and point every web/worker node at the same
@@ -81,6 +90,13 @@ production as an application rollback.
 3. From the candidate artifact, run `php artisan rokn:preflight --configuration-only --connectivity`. Do not continue while it reports a missing, placeholder, local-only, or unreachable dependency.
 4. Run `php artisan rokn:release-migrate` once from the candidate artifact while the compatible old release continues serving traffic. It applies `migrate --isolated --force` with a bounded MySQL metadata-lock wait, then runs the schema/connectivity gate. `--isolated` requires the shared Redis cache. Never start it from a second node. If interrupted, retain the same artifact, diagnose the failed statement, and rerun: the forward tail is designed to resume after partially committed MySQL DDL.
 5. Before switching traffic, confirm the command's `rokn:preflight --schema-only --allow-mixed-release --connectivity` stage passed. This proves that its migration ledger, required tables, required columns, database, cache, and shared storage match the code that will receive traffic while explicitly deferring old-writer backfills until the drain step.
+   For the first direct release, publish the final APK at its immutable
+   `https://rokn.app/...apk` URL, then create the initial release record once:
+   `php artisan app-release:bootstrap-direct --version-name=1.0.0 --version-code=1 --download-url=https://rokn.app/downloads/Rokn-direct.apk --activate`.
+   The command is production-only, requires `direct` to be declared, validates
+   the same host/build monotonicity rules as the dashboard, is idempotent for
+   the exact same release, and never rewrites an existing row. Later releases
+   should be managed from the dashboard.
 6. Privatize legacy learner assets before serving the new release:
    - Run `php artisan attachments:privatize` to audit module attachments.
    - Run `php artisan attachments:privatize --execute --delete-public`. The command copies each file, verifies the private copy exists with the same byte size, updates the database, and only then removes its public source.
