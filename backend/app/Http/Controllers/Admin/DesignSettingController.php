@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Admin;
 
+use App\Support\PublicDiskUrl;
 use App\Http\Controllers\Controller;
 use App\Models\DesignSetting;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use App\Services\PublicAppSettingsService;
 use App\Services\StoredFileDeletionService;
@@ -110,7 +110,7 @@ final class DesignSettingController extends Controller
                 $path = $storedFiles->storeTrackedUpload($request->file($input), $directory);
 
                 $newFiles[] = $path;
-                $data[$attribute] = Storage::disk('public')->url($path);
+                $data[$attribute] = PublicDiskUrl::from($path);
                 if ($settings?->{$attribute}) {
                     $oldFiles[] = $this->publicPathFromUrl((string) $settings->{$attribute});
                 }
@@ -226,12 +226,7 @@ final class DesignSettingController extends Controller
 
     private function publicPathFromUrl(string $url): ?string
     {
-        $path = parse_url($url, PHP_URL_PATH);
-        if (!is_string($path) || !str_starts_with($path, '/storage/')) {
-            return null;
-        }
-
-        return ltrim(substr($path, strlen('/storage/')), '/');
+        return PublicDiskUrl::pathFrom($url);
     }
 
     private function editorVersion(DesignSetting $settings): string

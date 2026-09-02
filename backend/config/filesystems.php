@@ -1,5 +1,58 @@
 <?php
 
+$s3Disk = static function (string $environmentPrefix = '', string $root = ''): array {
+    $value = static fn (string $name, mixed $default = null): mixed =>
+        env($environmentPrefix.$name, $default);
+
+    return [
+        'driver' => 's3',
+        'key' => $value('AWS_ACCESS_KEY_ID'),
+        'secret' => $value('AWS_SECRET_ACCESS_KEY'),
+        'region' => $value('AWS_DEFAULT_REGION'),
+        'bucket' => $value('AWS_BUCKET'),
+        'url' => $value('AWS_URL'),
+        'endpoint' => $value('AWS_ENDPOINT'),
+        'use_path_style_endpoint' => filter_var(
+            $value('AWS_USE_PATH_STYLE_ENDPOINT', false),
+            FILTER_VALIDATE_BOOL
+        ),
+        'root' => trim($root, '/'),
+        'throw' => true,
+    ];
+};
+
+$publicDisk = strtolower(trim((string) env('PUBLIC_STORAGE_DRIVER', 'local'))) === 's3'
+    ? $s3Disk('PUBLIC_', (string) env('PUBLIC_STORAGE_PREFIX', 'public'))
+    : [
+        'driver' => 'local',
+        'root' => env('SHARED_PUBLIC_STORAGE_PATH', storage_path('app/public')),
+        'url' => env('APP_URL').'/storage',
+        'visibility' => 'public',
+        'throw' => true,
+    ];
+
+$feedbackDisk = strtolower(trim((string) env('FEEDBACK_STORAGE_DRIVER', 'local'))) === 's3'
+    ? $s3Disk('', (string) env('FEEDBACK_STORAGE_PREFIX', 'feedback'))
+    : [
+        'driver' => 'local',
+        'root' => env(
+            'FEEDBACK_STORAGE_PATH',
+            rtrim((string) env('SHARED_STORAGE_PATH', storage_path('app')), '/\\') . DIRECTORY_SEPARATOR . 'feedback'
+        ),
+        'visibility' => 'private',
+        'shared' => filter_var(env('FEEDBACK_SHARED_STORAGE', false), FILTER_VALIDATE_BOOL),
+        'throw' => true,
+    ];
+
+$quarantineDisk = strtolower(trim((string) env('SECURITY_QUARANTINE_STORAGE_DRIVER', 'local'))) === 's3'
+    ? $s3Disk('', (string) env('SECURITY_QUARANTINE_STORAGE_PREFIX', 'security-quarantine'))
+    : [
+        'driver' => 'local',
+        'root' => env('SECURITY_QUARANTINE_PATH', storage_path('app/security-quarantine')),
+        'visibility' => 'private',
+        'throw' => true,
+    ];
+
 return [
 
     /*
@@ -48,12 +101,7 @@ return [
             'root' => env('SHARED_STORAGE_PATH', storage_path('app')),
         ],
 
-        'public' => [
-            'driver' => 'local',
-            'root' => env('SHARED_PUBLIC_STORAGE_PATH', storage_path('app/public')),
-            'url' => env('APP_URL').'/storage',
-            'visibility' => 'public',
-        ],
+        'public' => $publicDisk,
 
         // Course resources are entitlements, not public assets.
         'module-attachments' => [
@@ -74,30 +122,11 @@ return [
             'visibility' => 'private',
         ],
 
-        'security-quarantine' => [
-            'driver' => 'local',
-            'root' => env('SECURITY_QUARANTINE_PATH', storage_path('app/security-quarantine')),
-            'visibility' => 'private',
-        ],
+        'security-quarantine' => $quarantineDisk,
 
-        'feedback' => [
-            'driver' => 'local',
-            'root' => env(
-                'FEEDBACK_STORAGE_PATH',
-                rtrim((string) env('SHARED_STORAGE_PATH', storage_path('app')), '/\\') . DIRECTORY_SEPARATOR . 'feedback'
-            ),
-            'visibility' => 'private',
-            'shared' => filter_var(env('FEEDBACK_SHARED_STORAGE', false), FILTER_VALIDATE_BOOL),
-        ],
+        'feedback' => $feedbackDisk,
 
-        's3' => [
-            'driver' => 's3',
-            'key' => env('AWS_ACCESS_KEY_ID'),
-            'secret' => env('AWS_SECRET_ACCESS_KEY'),
-            'region' => env('AWS_DEFAULT_REGION'),
-            'bucket' => env('AWS_BUCKET'),
-            'url' => env('AWS_URL'),
-        ],
+        's3' => $s3Disk(),
 
     ],
 

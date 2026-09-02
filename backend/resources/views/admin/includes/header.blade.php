@@ -4,13 +4,12 @@
     $headerNotificationState = app(\App\Services\AdminHeaderNotificationService::class)->for($headerUser);
     $headerNotifications = $headerNotificationState['items'];
     $headerUnreadCount = $headerNotificationState['unread_count'];
-    $headerProfileImage = $headerUser?->getRawOriginal('profile_image');
-    if ($headerProfileImage && !filter_var($headerProfileImage, FILTER_VALIDATE_URL)) {
-        $headerProfileImage = asset('storage/' . ltrim($headerProfileImage, '/'));
-    }
+    $headerProfileImage = $headerUser?->profile_image_url;
     if (!$headerProfileImage && ($legacyProfileImage = $headerUser?->getRawOriginal('image'))) {
         $headerProfileImage = filter_var($legacyProfileImage, FILTER_VALIDATE_URL)
-            ? $legacyProfileImage
+            ? (str_starts_with(strtolower((string) $legacyProfileImage), 'https://')
+                ? $legacyProfileImage
+                : null)
             : asset(ltrim($legacyProfileImage, '/'));
     }
     $headerProfileImage = $headerProfileImage ?: asset('images/admin.jpg');

@@ -50,7 +50,72 @@ class ProductionPreflightTest extends TestCase
         config(['filesystems.disks.feedback.shared' => false]);
 
         self::assertSame(1, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
-        self::assertStringContainsString('FEEDBACK_SHARED_STORAGE=true', Artisan::output());
+        self::assertStringContainsString('feedback disk must use private durable', Artisan::output());
+    }
+
+    public function test_preflight_requires_payment_evidence_on_private_shared_object_storage(): void
+    {
+        foreach (['', 'local', 'public'] as $disk) {
+            config(['payment_evidence.disk' => $disk]);
+            self::assertSame(1, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
+            self::assertStringContainsString('PAYMENT_EVIDENCE_DISK', Artisan::output());
+        }
+
+        config([
+            'payment_evidence.disk' => 'unsafe-evidence',
+            'filesystems.disks.unsafe-evidence' => [
+                'driver' => 's3',
+                'visibility' => 'public',
+            ],
+        ]);
+        self::assertSame(1, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
+        self::assertStringContainsString('PAYMENT_EVIDENCE_DISK', Artisan::output());
+    }
+
+    public function test_preflight_accepts_private_object_storage_for_feedback_and_recovery_evidence(): void
+    {
+        config([
+            'filesystems.disks.feedback' => [
+                'driver' => 's3',
+            ],
+            'operations.recovery_evidence_disk' => 's3',
+            'operations.backup_evidence_path' => 'recovery/latest-backup.json',
+            'operations.recovery_evidence_path' => 'recovery/latest.json',
+        ]);
+
+        self::assertSame(1, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
+        $output = Artisan::output();
+        self::assertStringNotContainsString('feedback disk must use private durable', $output);
+        self::assertStringNotContainsString('Recovery evidence must use a configured private shared disk', $output);
+    }
+
+    public function test_preflight_rejects_a_shared_public_private_bucket_and_missing_public_url(): void
+    {
+        config([
+            'filesystems.disks.public' => [
+                'driver' => 's3',
+                'key' => 'public-key',
+                'secret' => 'public-secret',
+                'region' => 'auto',
+                'endpoint' => 'https://r2.example.test',
+                'bucket' => 'rokn-shared',
+                'url' => '',
+            ],
+            'filesystems.disks.s3' => [
+                'driver' => 's3',
+                'bucket' => 'rokn-shared',
+                'url' => 'https://private.example.test',
+            ],
+        ]);
+
+        self::assertSame(1, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
+        $output = Artisan::output();
+        self::assertStringContainsString('complete PUBLIC_AWS_* credentials', $output);
+        self::assertStringContainsString('PUBLIC_AWS_BUCKET must be separate', $output);
+
+        config(['filesystems.disks.public.url' => 'https://private.example.test']);
+        self::assertSame(1, Artisan::call('rokn:preflight', ['--configuration-only' => true]));
+        self::assertStringContainsString('PUBLIC_AWS_URL must not reuse', Artisan::output());
     }
 
     public function test_preflight_rejects_missing_or_malformed_app_association_identity(): void
@@ -204,6 +269,7 @@ class ProductionPreflightTest extends TestCase
                 'projects.submission_disk' => 's3',
                 'certificate.disk' => 's3',
                 'course_pdfs.disk' => 's3',
+                'payment_evidence.disk' => 's3',
                 'filesystems.disks.feedback' => [
                     'driver' => 'local',
                     'root' => storage_path('framework/testing/feedback'),
@@ -270,6 +336,10 @@ class ProductionPreflightTest extends TestCase
             $table->string('storage_disk')->nullable();
             $table->softDeletes();
         });
+        Schema::create('orders', function (Blueprint $table): void {
+            $table->id();
+            $table->string('payment_screenshot')->nullable();
+        });
 
         try {
             DB::table('attachments')->insert([
@@ -292,6 +362,12 @@ class ProductionPreflightTest extends TestCase
                 'file_path' => 'course-pdfs/legacy.pdf',
                 'storage_disk' => 'local',
             ]);
+            DB::table('orders')->insert([
+                'payment_screenshot' => '/storage/payment-evidence/legacy-receipt.png',
+            ]);
+            DB::table('orders')->insert([
+                'payment_screenshot' => 'receipts/non-canonical.png',
+            ]);
 
             self::assertSame(1, Artisan::call('rokn:preflight'));
             $output = Artisan::output();
@@ -303,7 +379,11 @@ class ProductionPreflightTest extends TestCase
             self::assertStringContainsString('duplicate Bunny lesson thumbnail', $output);
             self::assertStringContainsString('course PDF', $output);
             self::assertStringContainsString('course-pdfs:migrate-storage --execute', $output);
+            self::assertStringContainsString('legacy public payment evidence', $output);
+            self::assertStringContainsString('PAYMENT_EVIDENCE_DISK', $output);
+            self::assertStringContainsString('invalid payment evidence path', $output);
         } finally {
+            Schema::dropIfExists('orders');
             Schema::dropIfExists('course_pdfs');
             Schema::dropIfExists('lessons');
             Schema::dropIfExists('portfolio_media');

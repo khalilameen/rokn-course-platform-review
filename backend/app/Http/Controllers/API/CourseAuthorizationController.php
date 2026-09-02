@@ -357,7 +357,7 @@ final class CourseAuthorizationController extends Controller
                                 'discount_type' => $order->coupon->discount_type,
                                 'discount_value' => $order->coupon->discount_value
                             ] : null,
-                            'payment_screenshot' => $order->payment_screenshot,
+                            'payment_screenshot' => $order->payment_screenshot_url,
                             'notes' => $order->notes,
                             'approved_at' => $order->approved_at,
                             'approved_by' => $order->approvedBy ? [
@@ -428,7 +428,7 @@ final class CourseAuthorizationController extends Controller
                                     'image' => $bill->order->course->image
                                 ] : null,
                                 'payment_method' => $bill->order->payment_method,
-                                'payment_screenshot' => $bill->order->payment_screenshot,
+                                'payment_screenshot' => $bill->order->payment_screenshot_url,
                                 'course_code' => $bill->order->courseCode ? [
                                     'code' => $bill->order->courseCode->code
                                 ] : null,

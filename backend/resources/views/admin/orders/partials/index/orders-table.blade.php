@@ -84,12 +84,13 @@
                                         @elseif(in_array($order->payment_method, ['kashier', 'google_play', 'app_store'], true) && $order->gateway_net_amount === null)
                                             <br><span class="badge badge-warning mt-1">الصافي بانتظار التسوية</span>
                                         @endif
-                                        @if($order->payment_screenshot)
+                                        @php($paymentEvidenceUrl = $order->payment_screenshot_url)
+                                        @if($paymentEvidenceUrl)
                                             <br>
-                                            <img src="{{ asset('storage/' . $order->payment_screenshot) }}"
+                                            <img src="{{ $paymentEvidenceUrl }}"
                                                  alt="إيصال الدفع"
                                                  class="payment-screenshot-thumb mt-2"
-                                                 onclick="showPaymentScreenshot('{{ asset('storage/' . $order->payment_screenshot) }}')"
+                                                 onclick="showPaymentScreenshot(@js($paymentEvidenceUrl))"
                                                  title="عرض إيصال الدفع">
                                         @endif
                                     </td>

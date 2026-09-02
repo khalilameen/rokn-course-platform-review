@@ -3,9 +3,11 @@
 namespace App\Models;
 
 use App\Support\CourseAccessPlanSnapshot;
+use App\Support\PaymentEvidencePath;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\URL;
 use App\Models\PaymentMethod;
 
 class Order extends Model
@@ -82,6 +84,22 @@ class Order extends Model
         'is_premium_user' => 'boolean',
         'wallet_transaction_id' => 'integer',
     ];
+
+    public function getPaymentScreenshotUrlAttribute(): ?string
+    {
+        if (
+            !$this->exists
+            || PaymentEvidencePath::from($this->getRawOriginal('payment_screenshot')) === null
+        ) {
+            return null;
+        }
+
+        return URL::temporarySignedRoute(
+            'payment.evidence',
+            now()->addMinutes(5),
+            ['order' => $this->getKey()]
+        );
+    }
 
 
     // Payment methods

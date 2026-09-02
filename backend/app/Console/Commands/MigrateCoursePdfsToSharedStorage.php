@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Models\CoursePdf;
+use App\Support\StorageWriteOptions;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -27,7 +28,10 @@ final class MigrateCoursePdfsToSharedStorage extends Command
             $this->error('COURSE_PDF_DISK must name a configured private shared disk.');
             return self::FAILURE;
         }
-        if (($targetConfig['visibility'] ?? null) === 'public') {
+        if (
+            strtolower((string) ($targetConfig['driver'] ?? '')) !== 's3'
+            && ($targetConfig['visibility'] ?? null) === 'public'
+        ) {
             $this->error('COURSE_PDF_DISK must not have public visibility.');
             return self::FAILURE;
         }
@@ -79,7 +83,11 @@ final class MigrateCoursePdfsToSharedStorage extends Command
                     throw new \RuntimeException('could not open source stream');
                 }
                 try {
-                    if (!$target->put($targetPath, $stream, ['visibility' => 'private'])) {
+                    if (!$target->put(
+                        $targetPath,
+                        $stream,
+                        StorageWriteOptions::forDisk($targetName, 'private')
+                    )) {
                         throw new \RuntimeException('shared-storage write failed');
                     }
                 } finally {

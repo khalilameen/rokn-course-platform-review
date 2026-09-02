@@ -17,7 +17,7 @@ final class VerifyBackupArtifact extends Command
         {--artifact= : Absolute .sql or .sql.gz backup path}
         {--snapshot-at= : Provider snapshot completion time in ISO-8601}
         {--provider= : Backup provider name}
-        {--evidence= : Absolute signed evidence output path}';
+        {--evidence= : Signed evidence output path or configured-disk object key}';
     protected $description = 'Verify a backup artifact, checkpoint lag and signed operational evidence';
 
     public function handle(RecoveryCheckpointService $checkpoints, RecoveryEvidenceService $evidence): int

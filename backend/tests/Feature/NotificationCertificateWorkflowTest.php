@@ -413,13 +413,13 @@ final class NotificationCertificateWorkflowTest extends TestCase
         ]);
         Storage::forgetDisk('certificate-test');
         config()->set('certificate.disk', 'certificate-test');
-        config()->set('certificate.visibility', 'public');
         config()->set('certificate.font_regular', resource_path('fonts/Cairo.ttf'));
         config()->set('certificate.font_bold', resource_path('fonts/Cairo.ttf'));
 
         $user = $this->user('certificate@example.com');
         $user->forceFill(['portfolio_slug' => 'certificate-student'])->save();
         $course = $this->course();
+        $course->forceFill(['certificate_text_template_key' => 'projects'])->save();
         DB::table('course_enrollments')->insert([
             'user_id' => $user->id,
             'course_id' => $course->id,
@@ -431,6 +431,10 @@ final class NotificationCertificateWorkflowTest extends TestCase
             'public_id' => '11111111-2222-4333-8444-555555555555',
             'user_id' => $user->id,
             'course_id' => $course->id,
+            // Simulate a row left half-written by an older rolling worker.
+            // Recovery must repair the key/text pair from one course snapshot.
+            'certificate_text_template_key' => 'knowledge',
+            'certificate_text' => null,
             'image_path' => 'pending',
             'generated_at' => now(),
             'status' => 'active',
@@ -440,6 +444,11 @@ final class NotificationCertificateWorkflowTest extends TestCase
 
         self::assertNotNull($certificate);
         self::assertSame($pending->id, $certificate->id);
+        self::assertSame('projects', $certificate->certificate_text_template_key);
+        self::assertSame(
+            'تقديرًا لإنجاز مشروعات كورس',
+            $certificate->certificate_text
+        );
         self::assertNotSame('pending', $certificate->image_path);
         Storage::disk('certificate-test')->assertExists($certificate->image_path);
         self::assertStringContainsString(
@@ -458,6 +467,30 @@ final class NotificationCertificateWorkflowTest extends TestCase
             $verification['highlighted_certificate']['public_id']
         );
         self::assertSame('active', $verification['highlighted_certificate']['status']);
+
+        $firstArtifact = Storage::disk('certificate-test')->get($certificate->image_path);
+        Storage::disk('certificate-test')->delete($certificate->image_path);
+        $course->forceFill(['certificate_text_template_key' => 'applied'])->save();
+        config()->set(
+            'certificate.text_templates.projects.text',
+            'نص حي جديد لا يجوز أن يغير شهادة صادرة'
+        );
+
+        $recovered = app(CertificateService::class)->generate($user, $course);
+
+        self::assertNotNull($recovered);
+        self::assertSame('projects', $recovered->certificate_text_template_key);
+        self::assertSame(
+            'تقديرًا لإنجاز مشروعات كورس',
+            $recovered->certificate_text
+        );
+        self::assertSame(
+            hash('sha256', $firstArtifact),
+            hash(
+                'sha256',
+                Storage::disk('certificate-test')->get($recovered->image_path)
+            )
+        );
     }
 
     private function user(string $email): User
@@ -534,6 +567,7 @@ final class NotificationCertificateWorkflowTest extends TestCase
             $table->string('name_ar')->nullable();
             $table->string('name_en')->nullable();
             $table->boolean('awards_badge')->default(false);
+            $table->string('certificate_text_template_key', 32)->default('completion');
             $table->boolean('is_coming_soon')->default(false);
             $table->boolean('is_catalog_visible')->default(true);
             $table->unsignedBigInteger('parent_id')->nullable();
@@ -575,6 +609,8 @@ final class NotificationCertificateWorkflowTest extends TestCase
             $table->unsignedBigInteger('project_id')->nullable();
             $table->string('holder_name')->nullable();
             $table->string('course_name')->nullable();
+            $table->string('certificate_text_template_key', 32)->nullable();
+            $table->string('certificate_text')->nullable();
             $table->string('image_path');
             $table->uuid('generation_lease_id')->nullable()->index();
             $table->timestamp('generated_at')->nullable();

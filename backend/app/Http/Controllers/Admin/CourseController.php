@@ -178,7 +178,8 @@ class CourseController extends Controller
         $teachers = User::where('role', 'teacher')->orderBy('name_ar')->orderBy('id')->get();
         $paths = Path::query()->orderBy('title_ar')->orderBy('id')->get();
         $allowedAiModels = array_values(array_filter(config('openrouter.allowed_models', [])));
-        return view('admin.courses.create', compact('enableEnglish', 'classifications', 'levels', 'designSettings', 'teachers', 'paths', 'allowedAiModels'));
+        $certificateTextTemplates = (array) config('certificate.text_templates', []);
+        return view('admin.courses.create', compact('enableEnglish', 'classifications', 'levels', 'designSettings', 'teachers', 'paths', 'allowedAiModels', 'certificateTextTemplates'));
     }
 
     /**
@@ -424,6 +425,7 @@ class CourseController extends Controller
         $teachers = User::where('role', 'teacher')->orderBy('name_ar')->orderBy('id')->get();
         $paths = Path::query()->orderBy('title_ar')->orderBy('id')->get();
         $allowedAiModels = array_values(array_filter(config('openrouter.allowed_models', [])));
+        $certificateTextTemplates = (array) config('certificate.text_templates', []);
         $publishingAudit = $publishingService->audit($course);
         // Moderators author the three product tiers, but actual sales, wallet
         // composition and provider cost belong to the administrator. Keeping
@@ -432,7 +434,7 @@ class CourseController extends Controller
         $planStats = $this->isAdministrator()
             ? $this->accessPlanStats($course)
             : collect();
-        return view('admin.courses.edit', compact('course', 'enableEnglish', 'classifications', 'levels', 'designSettings', 'teachers', 'paths', 'allowedAiModels', 'publishingAudit', 'planStats'));
+        return view('admin.courses.edit', compact('course', 'enableEnglish', 'classifications', 'levels', 'designSettings', 'teachers', 'paths', 'allowedAiModels', 'certificateTextTemplates', 'publishingAudit', 'planStats'));
     }
 
     /**

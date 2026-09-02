@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Support\StorageWriteOptions;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 use Throwable;
 
@@ -77,8 +79,18 @@ final class RecoveryEvidenceService
     public function readSigned(string $path): ?array
     {
         try {
-            if ($path === '' || !is_file($path) || !is_readable($path)) return null;
-            $payload = json_decode((string) file_get_contents($path), true, 64, JSON_THROW_ON_ERROR);
+            if ($path === '') return null;
+            $disk = trim((string) config('operations.recovery_evidence_disk'));
+            if ($disk !== '') {
+                if (!is_array(config("filesystems.disks.{$disk}"))) return null;
+                $storage = Storage::disk($disk);
+                if (!$storage->exists($path)) return null;
+                $contents = $storage->get($path);
+            } else {
+                if (!is_file($path) || !is_readable($path)) return null;
+                $contents = (string) file_get_contents($path);
+            }
+            $payload = json_decode($contents, true, 64, JSON_THROW_ON_ERROR);
             if (!is_array($payload)) return null;
             $signature = (string) ($payload['signature'] ?? '');
             unset($payload['signature']);
@@ -104,10 +116,26 @@ final class RecoveryEvidenceService
     /** @param array<string,mixed> $payload */
     public function write(string $path, array $payload): void
     {
-        if ($path === '' || !str_starts_with($path, DIRECTORY_SEPARATOR) && !preg_match('/^[A-Za-z]:[\\\\\/]/', $path)) {
-            throw new RuntimeException('Recovery evidence path must be absolute.');
-        }
+        $disk = trim((string) config('operations.recovery_evidence_disk'));
+        if ($path === '') throw new RuntimeException('Recovery evidence path is required.');
         $payload['signature'] = $this->sign($payload);
+        $encoded = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES).PHP_EOL;
+        if ($disk !== '') {
+            if (!is_array(config("filesystems.disks.{$disk}"))) {
+                throw new RuntimeException('Recovery evidence disk is not configured.');
+            }
+            if (!Storage::disk($disk)->put(
+                $path,
+                $encoded,
+                StorageWriteOptions::forDisk($disk, 'private')
+            )) {
+                throw new RuntimeException('Could not write recovery evidence.');
+            }
+            return;
+        }
+        if (!str_starts_with($path, DIRECTORY_SEPARATOR) && !preg_match('/^[A-Za-z]:[\\\\\/]/', $path)) {
+            throw new RuntimeException('Recovery evidence path must be absolute without a configured disk.');
+        }
         $directory = dirname($path);
         if (!is_dir($directory) && !mkdir($directory, 0700, true) && !is_dir($directory)) {
             throw new RuntimeException('Could not create recovery evidence directory.');
@@ -116,7 +144,7 @@ final class RecoveryEvidenceService
         try {
             if (file_put_contents(
                 $temporary,
-                json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES).PHP_EOL,
+                $encoded,
                 LOCK_EX
             ) === false) {
                 throw new RuntimeException('Could not write recovery evidence.');

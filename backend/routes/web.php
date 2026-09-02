@@ -49,6 +49,11 @@ Route::post('/account-deletion', [\App\Http\Controllers\AccountDeletionRequestCo
     ->middleware('throttle:5,1')
     ->name('account-deletion.store');
 
+Route::get('/payment-evidence/{order}', [\App\Http\Controllers\PaymentEvidenceController::class, 'show'])
+    ->whereNumber('order')
+    ->middleware(['signed', 'throttle:60,1'])
+    ->name('payment.evidence');
+
 Route::get('/c/{publicId}', [\App\Http\Controllers\PublicCertificateController::class, 'show'])
     ->whereUuid('publicId')
     ->middleware('throttle:60,1')

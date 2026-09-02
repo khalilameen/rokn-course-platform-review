@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\PublicDiskUrl;
 use Illuminate\Database\Eloquent\Model;
 use App\Services\StoredFileDeletionService;
 use Illuminate\Support\Facades\Cache;
@@ -55,7 +56,7 @@ class Photo extends Model
      */
     public function assetPath()
     {
-        return asset('storage/' . $this->path);
+        return PublicDiskUrl::from($this->path);
     }
 
     private function invalidateCourseCatalogue(): void

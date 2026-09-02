@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\PublicDiskUrl;
 use App\Traits\HasPhoto;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -60,7 +61,7 @@ class Level extends Model
             if (str_starts_with(ltrim($this->badge_image, '/'), 'assets/')) {
                 return asset(ltrim($this->badge_image, '/'));
             }
-            return asset('storage/' . ltrim($this->badge_image, '/'));
+            return PublicDiskUrl::from((string) $this->badge_image);
         }
 
         // Fallback to HasPhoto image if available

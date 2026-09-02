@@ -16,6 +16,8 @@ class Certificate extends Model
         'project_id',
         'holder_name',
         'course_name',
+        'certificate_text_template_key',
+        'certificate_text',
         'image_path',
         'generation_lease_id',
         'generated_at',
@@ -47,7 +49,14 @@ class Certificate extends Model
         });
 
         static::updating(function (Certificate $certificate): void {
-            foreach (['public_id', 'holder_name', 'course_name', 'generated_at'] as $attribute) {
+            foreach ([
+                'public_id',
+                'holder_name',
+                'course_name',
+                'certificate_text_template_key',
+                'certificate_text',
+                'generated_at',
+            ] as $attribute) {
                 $original = $certificate->getRawOriginal($attribute);
                 if (
                     $certificate->isDirty($attribute)

@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use App\Http\Middleware\AppFrontNameSpace;
 use App\Http\Middleware\WebsiteVisitorCount;
+use App\Http\Requests\Admin\CourseRequest;
 use App\Http\Resources\CertificateResource;
 use App\Models\Certificate;
 use App\Models\Course;
@@ -14,6 +15,7 @@ use App\Services\PublicPortfolioService;
 use App\Support\RoknPublicUrl;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -40,6 +42,8 @@ final class PublicCertificateIntegrityTest extends TestCase
             'public_id' => (string) Str::uuid(),
             'holder_name' => 'اسم مستبدل',
             'course_name' => 'كورس مستبدل',
+            'certificate_text_template_key' => 'projects',
+            'certificate_text' => 'نص مستبدل',
             'generated_at' => now()->addDay(),
         ])->save();
         self::assertSame($permanentUrl, $certificate->fresh()->portfolio_url);
@@ -48,18 +52,27 @@ final class PublicCertificateIntegrityTest extends TestCase
             'name' => 'اسم حالي مختلف',
             'portfolio_slug' => 'new-profile-slug',
         ])->save();
-        $course->forceFill(['name_ar' => 'اسم الكورس الحالي'])->save();
+        $course->forceFill([
+            'name_ar' => 'اسم الكورس الحالي',
+            'certificate_text_template_key' => 'projects',
+        ])->save();
 
         $this->get('/c/'.$certificate->public_id)
             ->assertOk()
             ->assertHeader('X-Robots-Tag', 'noindex, nofollow, noarchive')
             ->assertSee('اسم حامل الشهادة')
-            ->assertSee('اسم الكورس وقت الإصدار');
+            ->assertSee('اسم الكورس وقت الإصدار')
+            ->assertSee('تقديرًا لإتمام المتطلبات التطبيقية لكورس');
 
         $payload = (new CertificateResource($certificate->fresh()->load('course')))->resolve();
         self::assertSame('اسم حامل الشهادة', $payload['holder_name']);
         self::assertSame('اسم الكورس وقت الإصدار', $payload['course_name']);
         self::assertSame('اسم الكورس وقت الإصدار', $payload['course']['name']);
+        self::assertSame('applied', $payload['certificate_text_template_key']);
+        self::assertSame(
+            'تقديرًا لإتمام المتطلبات التطبيقية لكورس',
+            $payload['certificate_text']
+        );
         self::assertSame($permanentUrl, $payload['verification_url']);
     }
 
@@ -94,6 +107,70 @@ final class PublicCertificateIntegrityTest extends TestCase
             ->assertDontSee('اسم خاص حالي')
             ->assertDontSee('سيرة خاصة لا ينبغي كشفها')
             ->assertDontSee('اسم كورس جديد');
+    }
+
+    public function test_legacy_artifact_does_not_gain_wording_that_was_never_printed(): void
+    {
+        [, , $certificate] = $this->credential();
+        \Illuminate\Support\Facades\DB::table('certificates')
+            ->where('id', $certificate->id)
+            ->update([
+                'certificate_text_template_key' => null,
+                'certificate_text' => null,
+            ]);
+        config()->set(
+            'certificate.text_templates.completion.text',
+            'نص حي لا يجوز إضافته إلى شهادة قديمة'
+        );
+
+        $payload = (new CertificateResource($certificate->fresh()->load('course')))->resolve();
+        self::assertNull($payload['certificate_text_template_key']);
+        self::assertNull($payload['certificate_text']);
+
+        $this->get('/c/'.$certificate->public_id)
+            ->assertOk()
+            ->assertDontSee('نص حي لا يجوز إضافته إلى شهادة قديمة');
+    }
+
+    public function test_course_certificate_wording_accepts_only_a_complete_approved_choice(): void
+    {
+        $base = [
+            'name_ar' => 'كورس اختبار',
+            'authoring_request_id' => (string) Str::uuid(),
+        ];
+        $request = CourseRequest::create('/', 'POST', $base);
+        $rules = $request->rules();
+
+        self::assertFalse(Validator::make(
+            $base + ['certificate_text_template_key' => 'projects'],
+            $rules
+        )->fails());
+        self::assertTrue(Validator::make(
+            $base + ['certificate_text_template_key' => ''],
+            $rules
+        )->errors()->has('certificate_text_template_key'));
+        self::assertTrue(Validator::make(
+            $base + ['certificate_text_template_key' => 'custom-live-text'],
+            $rules
+        )->errors()->has('certificate_text_template_key'));
+    }
+
+    public function test_live_certificate_template_matches_the_renderer_canvas_contract(): void
+    {
+        $path = (string) config('certificate.template_path');
+        self::assertFileExists($path);
+
+        $size = getimagesize($path);
+        self::assertIsArray($size);
+        self::assertSame(1200, $size[0]);
+        self::assertSame(900, $size[1]);
+
+        foreach ((array) config('certificate.text_positions') as $position) {
+            self::assertGreaterThanOrEqual(0, $position['x']);
+            self::assertLessThanOrEqual(1, $position['x']);
+            self::assertGreaterThanOrEqual(0, $position['y']);
+            self::assertLessThanOrEqual(1, $position['y']);
+        }
     }
 
     public function test_pending_unknown_and_non_uuid_credentials_are_not_public(): void
@@ -162,6 +239,8 @@ final class PublicCertificateIntegrityTest extends TestCase
             'course_id' => $course->id,
             'holder_name' => 'اسم حامل الشهادة',
             'course_name' => 'اسم الكورس وقت الإصدار',
+            'certificate_text_template_key' => 'applied',
+            'certificate_text' => 'تقديرًا لإتمام المتطلبات التطبيقية لكورس',
             'image_path' => 'certificates/issued.png',
             'generated_at' => now(),
             'status' => 'active',

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Support\PublicDiskUrl;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\UserRequest;
 use App\Models\Order;
@@ -17,7 +18,6 @@ use App\Services\AdminAuthoringCreateIntentService;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class UsersController extends Controller
@@ -338,7 +338,7 @@ class UsersController extends Controller
             if (!is_string($imagePath) || trim($imagePath) === '') {
                 throw ValidationException::withMessages(['image' => ['تعذّر حفظ الصورة']]);
             }
-            $imageUrl = Storage::disk('public')->url($imagePath);
+            $imageUrl = PublicDiskUrl::from($imagePath);
         }
 
         $notification = StudentNotificationService::notifyUser(

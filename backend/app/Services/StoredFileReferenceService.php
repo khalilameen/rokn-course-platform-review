@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Support\PublicDiskUrl;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Storage;
 
 /** Final guard against a delayed cleanup deleting a path reused by new data. */
 final class StoredFileReferenceService
@@ -148,7 +148,7 @@ final class StoredFileReferenceService
                     return true;
                 }
             }
-            $publicUrl = Storage::disk('public')->url($path);
+            $publicUrl = PublicDiskUrl::from($path);
             foreach ([
                 ['notification_campaigns', 'image_url'],
                 ['student_notifications', 'image_url'],

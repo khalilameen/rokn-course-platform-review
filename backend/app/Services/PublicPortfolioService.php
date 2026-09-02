@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Support\PublicDiskUrl;
 use App\Support\RoknPublicUrl;
 
 use App\Http\Resources\CertificateResource;
@@ -181,7 +182,7 @@ final class PublicPortfolioService
                 } elseif ($path !== '' && str_starts_with(ltrim($path, '/'), 'assets/')) {
                     $badge->badge_image = asset(ltrim($path, '/'));
                 } elseif ($path !== '') {
-                    $badge->badge_image = asset('storage/' . ltrim($path, '/'));
+                    $badge->badge_image = PublicDiskUrl::from($path);
                 } else {
                     $fallback = (int) $badge->order <= 1
                         ? 'junior.png'
@@ -365,6 +366,8 @@ final class PublicPortfolioService
                 'public_id' => (string) $certificate->public_id,
                 'holder_name' => $holderName,
                 'course_name' => $courseName,
+                'certificate_text_template_key' => trim((string) $certificate->certificate_text_template_key) ?: null,
+                'certificate_text' => trim((string) $certificate->certificate_text) ?: null,
                 'certificate_url' => '',
                 'portfolio_url' => $verificationUrl,
                 'verification_url' => $verificationUrl,

@@ -20,6 +20,8 @@ class CertificateResource extends JsonResource
         if ($courseName === '' && $this->relationLoaded('course') && $this->course) {
             $courseName = trim((string) ($this->course->name_ar ?: $this->course->name_en));
         }
+        $textTemplateKey = trim((string) $this->certificate_text_template_key);
+        $certificateText = trim((string) $this->certificate_text);
 
         return [
             'id' => $this->id,
@@ -27,6 +29,8 @@ class CertificateResource extends JsonResource
             'public_id' => $this->public_id,
             'holder_name' => $holderName !== '' ? $holderName : 'طالب ركن',
             'course_name' => $courseName !== '' ? $courseName : 'كورس ركن',
+            'certificate_text_template_key' => $textTemplateKey !== '' ? $textTemplateKey : null,
+            'certificate_text' => $certificateText !== '' ? $certificateText : null,
             'certificate_url' => $status === 'active' ? $this->certificate_url : '',
             'portfolio_url' => $this->portfolio_url,
             'verification_url' => $this->portfolio_url,

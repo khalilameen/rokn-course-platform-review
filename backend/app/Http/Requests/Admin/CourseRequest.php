@@ -109,6 +109,11 @@ class CourseRequest extends FormRequest
             'level_id' => 'nullable|required_if:awards_badge,1|exists:levels,id',
             'awards_badge' => 'nullable|boolean',
             'badge_track' => 'nullable|required_if:awards_badge,1|in:professional,freelance',
+            'certificate_text_template_key' => [
+                'sometimes',
+                'required',
+                Rule::in(array_keys((array) config('certificate.text_templates', []))),
+            ],
             'classification_ids' => 'nullable|array|max:12',
             'classification_ids.*' => 'integer|distinct|exists:classifications,id',
             'teacher_ids' => 'nullable|array|max:10',

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\PublicDiskUrl;
 use App\Support\RoknPublicUrl;
 
 use App\Models\UserNote;
@@ -116,13 +117,12 @@ class User extends Authenticatable
             return null;
         }
 
-        if (filter_var($this->profile_image, FILTER_VALIDATE_URL)) {
-            return str_starts_with(strtolower((string) $this->profile_image), 'https://')
-                ? (string) $this->profile_image
-                : null;
+        $raw = (string) $this->profile_image;
+        if (filter_var($raw, FILTER_VALIDATE_URL)) {
+            return str_starts_with(strtolower($raw), 'https://') ? $raw : null;
         }
 
-        return asset('storage/' . $this->profile_image);
+        return PublicDiskUrl::from($raw);
     }
 
     /**

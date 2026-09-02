@@ -1,5 +1,7 @@
 <?php
 
+$recoveryEvidenceDisk = trim((string) env('RECOVERY_EVIDENCE_DISK', ''));
+
 return [
     'queue_heartbeat_key' => env('QUEUE_HEARTBEAT_KEY', 'operations:queue-heartbeat:v1'),
     'queue_heartbeat_required_queues' => array_values(array_unique(array_filter(array_map(
@@ -63,8 +65,17 @@ return [
     'disaster_recovery_mode' => filter_var(env('DISASTER_RECOVERY_MODE', false), FILTER_VALIDATE_BOOL),
     'recovery_encryption_key_id' => env('RECOVERY_ENCRYPTION_KEY_ID'),
     'recovery_evidence_signing_key' => env('RECOVERY_EVIDENCE_SIGNING_KEY'),
-    'recovery_evidence_path' => env('RECOVERY_EVIDENCE_PATH', storage_path('app/recovery/latest.json')),
-    'backup_evidence_path' => env('BACKUP_EVIDENCE_PATH', storage_path('app/recovery/latest-backup.json')),
+    // Evidence may live on a durable Laravel disk (recommended on Cloud) or
+    // on explicit absolute paths for a deliberately mounted shared volume.
+    'recovery_evidence_disk' => $recoveryEvidenceDisk,
+    'recovery_evidence_path' => env(
+        'RECOVERY_EVIDENCE_PATH',
+        $recoveryEvidenceDisk !== '' ? 'recovery/latest.json' : storage_path('app/recovery/latest.json')
+    ),
+    'backup_evidence_path' => env(
+        'BACKUP_EVIDENCE_PATH',
+        $recoveryEvidenceDisk !== '' ? 'recovery/latest-backup.json' : storage_path('app/recovery/latest-backup.json')
+    ),
     'recovery_rpo_minutes' => (int) env('RECOVERY_RPO_MINUTES', 15),
     'recovery_rto_minutes' => (int) env('RECOVERY_RTO_MINUTES', 60),
 ];

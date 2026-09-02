@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\PublicDiskUrl;
 use Illuminate\Database\Eloquent\Model;
 use App\Traits\HasPhoto;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -31,7 +32,7 @@ class Question extends Model
     public function getImageAttribute(): ?string
     {
         if ($this->photo) {
-            return asset('storage/' . ltrim((string) $this->photo->path, '/'));
+            return PublicDiskUrl::from((string) $this->photo->path);
         }
 
         $legacy = trim((string) ($this->attributes['question_image'] ?? ''));

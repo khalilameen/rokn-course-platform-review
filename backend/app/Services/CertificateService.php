@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Support\RoknPublicUrl;
+use App\Support\StorageWriteOptions;
 use App\Support\UnicodeText;
 
 use App\Models\Certificate;
@@ -14,6 +15,7 @@ use App\Models\Project;
 use App\Models\ProjectSubmission;
 use App\Models\User;
 use ArPHP\I18N\Arabic;
+use Carbon\CarbonImmutable;
 use Endroid\QrCode\Color\Color;
 use Endroid\QrCode\Encoding\Encoding;
 use Endroid\QrCode\ErrorCorrectionLevel;
@@ -91,6 +93,11 @@ class CertificateService
             'holder_name',
             'course_name',
         ]);
+        $supportsTextSnapshots = Schema::hasColumns('certificates', [
+            'certificate_text_template_key',
+            'certificate_text',
+        ]);
+        $textTemplate = $this->textTemplateForCourse($course);
         $requestedHolderName = UnicodeText::limit(
             UnicodeText::clean($requestedHolderName, false),
             120
@@ -118,7 +125,6 @@ class CertificateService
         if ($certificate && $supportsIdentitySnapshots) {
             $this->fillMissingIdentitySnapshots($certificate, $user, $course);
         }
-
         if ($certificate && $this->artifactExists($certificate)) {
             if (Schema::hasColumn('certificates', 'artifact_checked_at')) {
                 $certificate->forceFill(['artifact_checked_at' => now()])->save();
@@ -147,6 +153,10 @@ class CertificateService
                 }
                 if ($supportsVerificationLevel) {
                     $createAttributes['verification_level'] = $verificationLevel;
+                }
+                if ($supportsTextSnapshots) {
+                    $createAttributes['certificate_text_template_key'] = $textTemplate['key'];
+                    $createAttributes['certificate_text'] = $textTemplate['text'];
                 }
                 $certificate = DB::transaction(function () use (
                     $user,
@@ -193,6 +203,9 @@ class CertificateService
 
         if ($supportsIdentitySnapshots) {
             $this->fillMissingIdentitySnapshots($certificate, $user, $course);
+        }
+        if ($supportsTextSnapshots) {
+            $this->fillMissingTextSnapshot($certificate, $textTemplate);
         }
 
         $leaseId = (string) Str::uuid();
@@ -361,7 +374,28 @@ class CertificateService
                 $font->valign('middle');
             });
 
-            // ----- 2. Course name -----
+            // ----- 2. Achievement wording -----
+            // This comes from the immutable certificate snapshot, never from
+            // the course's current selection or the live config entry.
+            $achievementText = UnicodeText::clean($certificate->certificate_text, false);
+            $achievementPosition = $positions['achievement'] ?? null;
+            if ($achievementText !== '' && is_array($achievementPosition)) {
+                $achievementText = $this->shapeIfArabic($achievementText);
+                $img->text(
+                    $achievementText,
+                    (int) ($width * $achievementPosition['x']),
+                    (int) ($height * $achievementPosition['y']),
+                    function ($font) use ($fontPath, $achievementPosition): void {
+                        $font->file($fontPath);
+                        $font->size($achievementPosition['size']);
+                        $font->color($achievementPosition['color']);
+                        $font->align('center');
+                        $font->valign('middle');
+                    }
+                );
+            }
+
+            // ----- 3. Course name -----
             $courseName = UnicodeText::clean($certificate->course_name, false)
                 ?: $this->courseName($course);
             if ($courseName) {
@@ -376,7 +410,7 @@ class CertificateService
                 });
             }
 
-            // ----- 3. Certificate ID -----
+            // ----- 4. Certificate ID -----
             // The printed credential must match the public API and QR target;
             // database sequence IDs are implementation details, not credentials.
             $certIdText = (string) $certificate->public_id;
@@ -389,8 +423,15 @@ class CertificateService
                 $font->valign('middle');
             });
 
-            // ----- 4. Date -----
-            $dateText = $generatedAt->format($cfg['date_format']);
+            // ----- 5. Date -----
+            $dateText = CarbonImmutable::instance($generatedAt)
+                ->locale('ar')
+                ->translatedFormat($cfg['date_format']);
+            $dateText = strtr($dateText, [
+                '0' => '٠', '1' => '١', '2' => '٢', '3' => '٣', '4' => '٤',
+                '5' => '٥', '6' => '٦', '7' => '٧', '8' => '٨', '9' => '٩',
+            ]);
+            $dateText = $this->shapeIfArabic($dateText);
             $pos = $positions['date'];
             $img->text($dateText, (int)($width * $pos['x']), (int)($height * $pos['y']), function ($font) use ($fontPath, $pos) {
                 $font->file($fontPath);
@@ -400,7 +441,7 @@ class CertificateService
                 $font->valign('middle');
             });
 
-            // ----- 5. QR code -----
+            // ----- 6. QR code -----
             $profileUrl = RoknPublicUrl::certificate((string) $certificate->public_id);
             $qrSize     = $positions['qr_code']['size'];
             $qrPng      = $this->generateQrCode($profileUrl, $qrSize);
@@ -419,13 +460,14 @@ class CertificateService
                 . '_' . str_replace('-', '', $generationLeaseId) . '.png';
             $storagePath = 'certificates/' . $filename;
             $disk = (string) config('certificate.disk', 'public');
-            $visibility = (string) config('certificate.visibility', 'public');
             $encoded = (string) $img->encode('png', 95);
             app(StoredFileDeletionService::class)
                 ->trackPotentialOrphan($disk, $storagePath, 60);
-            $stored = Storage::disk($disk)->put($storagePath, $encoded, [
-                'visibility' => $visibility,
-            ]);
+            $stored = Storage::disk($disk)->put(
+                $storagePath,
+                $encoded,
+                StorageWriteOptions::forDisk($disk, 'private')
+            );
 
             if (!$stored) {
                 throw new \RuntimeException('Certificate artifact could not be stored.');
@@ -482,6 +524,65 @@ class CertificateService
                 ->update([$column => $value]);
         }
         $certificate->refresh();
+    }
+
+    /** @param array{key:string,text:string} $template */
+    private function fillMissingTextSnapshot(
+        Certificate $certificate,
+        array $template
+    ): void {
+        DB::transaction(function () use ($certificate, $template): void {
+            $locked = Certificate::query()->lockForUpdate()->find($certificate->id);
+            if (!$locked) return;
+
+            $key = trim((string) $locked->certificate_text_template_key);
+            $text = trim((string) $locked->certificate_text);
+            if ($key !== '' && $text !== '') return;
+
+            // The two values are one immutable editorial snapshot. Fill them
+            // together under the same row lock so parallel recovery cannot
+            // combine a key from one course setting with another text. This
+            // path runs only when no artifact exists yet, so an incomplete
+            // pair has no prior printed claim to preserve. Repair the pair
+            // from the one course snapshot captured by this generation call;
+            // never derive half of it from mutable live config.
+            Certificate::query()->whereKey($locked->id)->update([
+                'certificate_text_template_key' => $template['key'],
+                'certificate_text' => $template['text'],
+            ]);
+        }, 3);
+        $certificate->refresh();
+    }
+
+    /** @return array{key:string,text:string} */
+    private function textTemplateForCourse(Course $course): array
+    {
+        $templates = (array) config('certificate.text_templates', []);
+        $defaultKey = trim((string) config(
+            'certificate.default_text_template_key',
+            'completion'
+        ));
+        if (!isset($templates[$defaultKey]) || !is_array($templates[$defaultKey])) {
+            $defaultKey = 'completion';
+        }
+
+        $selectedKey = trim((string) $course->getRawOriginal(
+            'certificate_text_template_key'
+        ));
+        if (!isset($templates[$selectedKey]) || !is_array($templates[$selectedKey])) {
+            $selectedKey = $defaultKey;
+        }
+
+        $text = UnicodeText::limit(
+            UnicodeText::clean(data_get($templates, $selectedKey.'.text'), false),
+            255
+        );
+        if ($text === '') {
+            $selectedKey = 'completion';
+            $text = 'تقديرًا لإتمام متطلبات كورس';
+        }
+
+        return ['key' => $selectedKey, 'text' => $text];
     }
 
     private function holderName(User $user): string

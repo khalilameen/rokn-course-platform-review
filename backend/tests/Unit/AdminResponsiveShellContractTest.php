@@ -22,6 +22,8 @@ final class AdminResponsiveShellContractTest extends TestCase
         self::assertMatchesRegularExpression('/<button[^>]+id="menuToggle"[^>]*>/s', $header);
         self::assertStringContainsString('aria-controls="left-panel"', $header);
         self::assertStringContainsString('aria-expanded="false"', $header);
+        self::assertStringContainsString('$headerUser?->profile_image_url', $header);
+        self::assertStringNotContainsString('PublicDiskUrl::from', $header);
 
         self::assertStringContainsString('aria-label="القائمة الرئيسية"', $aside);
         self::assertStringContainsString('id="adminSidebarClose"', $aside);

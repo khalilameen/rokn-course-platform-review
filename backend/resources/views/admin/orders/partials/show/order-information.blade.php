@@ -187,7 +187,8 @@
             </div>
 
             <!-- Payment Screenshot Section -->
-            @if($order->payment_screenshot)
+            @php($paymentEvidenceUrl = $order->payment_screenshot_url)
+            @if($paymentEvidenceUrl)
             <div class="card order-detail-card">
                 <div class="card-header order-receipt-header">
                     <h5>
@@ -197,12 +198,12 @@
                 </div>
                 <div class="card-body">
                     <div class="payment-screenshot-box">
-                        <img src="{{ asset('storage/' . $order->payment_screenshot) }}"
+                        <img src="{{ $paymentEvidenceUrl }}"
                              alt="إيصال الدفع"
                              class="payment-screenshot-large"
-                             onclick="showFullScreenshot('{{ asset('storage/' . $order->payment_screenshot) }}')">
+                             onclick="showFullScreenshot(@js($paymentEvidenceUrl))">
                         <div class="mt-3">
-                            <a href="{{ asset('storage/' . $order->payment_screenshot) }}"
+                            <a href="{{ $paymentEvidenceUrl }}"
                                download
                                class="btn btn-primary">
                                 <i class="fa fa-download"></i> تحميل الإيصال

@@ -2,6 +2,7 @@
 
 namespace App\Traits;
 
+use App\Support\PublicDiskUrl;
 use App\Models\Photo;
 use App\Services\StoredFileDeletionService;
 use Illuminate\Support\Facades\Storage;
@@ -281,10 +282,14 @@ trait HasPhoto
                 return $rawImage;
             }
 
+            if (str_starts_with(ltrim((string) $rawImage, '/'), 'storage/')) {
+                return PublicDiskUrl::from((string) $rawImage);
+            }
+
             return asset(ltrim($rawImage, '/'));
         }
 
-        return asset('storage/' . $photo->path);
+        return PublicDiskUrl::from($photo->path);
     }
     /**
      * @return null|string
@@ -296,7 +301,7 @@ trait HasPhoto
             return null;
         }
 
-        return asset('storage/' . $galleyPhoto->path);
+        return PublicDiskUrl::from($galleyPhoto->path);
     }    
 
     /**
@@ -309,7 +314,7 @@ trait HasPhoto
             return null;
         }
 
-        return asset('storage/' . $photo->path);
+        return PublicDiskUrl::from($photo->path);
     }
 
     /**
@@ -322,7 +327,7 @@ trait HasPhoto
             return null;
         }
 
-        return asset('storage/' . $photo->path);
+        return PublicDiskUrl::from($photo->path);
     }
 
     /**
@@ -335,7 +340,7 @@ trait HasPhoto
             return null;
         }
 
-        return asset('storage/' . $photo->path);
+        return PublicDiskUrl::from($photo->path);
     }
 
     /**
@@ -348,7 +353,7 @@ trait HasPhoto
             return null;
         }
 
-        return asset('storage/' . $photo->path);
+        return PublicDiskUrl::from($photo->path);
     } 
     /**
      * @return null|string
@@ -360,7 +365,7 @@ trait HasPhoto
             return null;
         }
 
-        return asset('storage/' . $photo->path);
+        return PublicDiskUrl::from($photo->path);
     }  
     /**
      * @return null|string
@@ -372,7 +377,7 @@ trait HasPhoto
             return null;
         }
 
-        return asset('storage/' . $photo->path);
+        return PublicDiskUrl::from($photo->path);
     } 
     /**
      * @return null|string
@@ -384,7 +389,7 @@ trait HasPhoto
             return null;
         }
 
-        return asset('storage/' . $photo->path);
+        return PublicDiskUrl::from($photo->path);
     }               
     /**
      * @return null|string
@@ -396,7 +401,7 @@ trait HasPhoto
             return null;
         }
 
-        return asset('storage/' . $photo->path);
+        return PublicDiskUrl::from($photo->path);
     }
     /**
      * @return null|string

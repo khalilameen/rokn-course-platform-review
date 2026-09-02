@@ -10,8 +10,6 @@ return [
     | public credential route and must not have a durable public object URL.
     */
     'disk' => env('CERTIFICATE_DISK', env('FILESYSTEM_PUBLIC_DISK', 'public')),
-    'visibility' => env('CERTIFICATE_VISIBILITY', 'private'),
-
     /*
     |--------------------------------------------------------------------------
     | Certificate template image
@@ -19,7 +17,7 @@ return [
     | Path to the background PNG/JPG that serves as the certificate canvas.
     | All dynamic text and QR code are drawn on top of this image.
     */
-    'template_path' => env('CERTIFICATE_TEMPLATE_PATH', null) ?: public_path('images/certificate_template.png'),
+    'template_path' => env('CERTIFICATE_TEMPLATE_PATH', null) ?: public_path('images/certificate_template_v2.png'),
 
     /*
     |--------------------------------------------------------------------------
@@ -45,7 +43,39 @@ return [
     | Date format
     |--------------------------------------------------------------------------
     */
-    'date_format' => 'F j, Y',
+    'date_format' => 'j F Y',
+
+    /*
+    |--------------------------------------------------------------------------
+    | Achievement text
+    |--------------------------------------------------------------------------
+    | Every course selects one approved wording key. The resolved key and text
+    | are copied to the certificate row when it is issued, so later editorial
+    | changes never rewrite an existing credential.
+    */
+    'default_text_template_key' => 'completion',
+    'text_templates' => [
+        'completion' => [
+            'label' => 'إتمام الكورس',
+            'description' => 'مناسبة لمعظم الكورسات',
+            'text' => 'تقديرًا لإتمام متطلبات كورس',
+        ],
+        'knowledge' => [
+            'label' => 'المعرفة',
+            'description' => 'مناسبة للكورسات المعرفية والنظرية',
+            'text' => 'تقديرًا لإتمام المسار المعرفي لكورس',
+        ],
+        'applied' => [
+            'label' => 'التطبيق العملي',
+            'description' => 'مناسبة للكورسات التي تجمع التعلم بالتطبيق',
+            'text' => 'تقديرًا لإتمام المتطلبات التطبيقية لكورس',
+        ],
+        'projects' => [
+            'label' => 'المشروعات',
+            'description' => 'مناسبة للكورسات التي تعتمد على مشروعات العبور',
+            'text' => 'تقديرًا لإنجاز مشروعات كورس',
+        ],
+    ],
 
     /*
     |--------------------------------------------------------------------------
@@ -59,44 +89,52 @@ return [
     */
     'text_positions' => [
 
-        // Student name — centred below "Rokn Certifies That"
+        // Student name — centred below the Arabic recipient label.
         'name' => [
             'x'     => 0.50,
-            'y'     => 0.395,
-            'size'  => 36,
-            'color' => '#1a365d',
+            'y'     => 0.385,
+            'size'  => 38,
+            'color' => '#08172F',
         ],
 
-        // Course name — centred below "In The Course Of:"
+        // Course name — the final line in the central credential hierarchy.
         'course' => [
             'x'     => 0.50,
-            'y'     => 0.615,
-            'size'  => 22,
-            'color' => '#1a365d',
+            'y'     => 0.590,
+            'size'  => 27,
+            'color' => '#08172F',
         ],
 
-        // Certificate ID — below the Rokn logo's "Certificate ID:" label
+        // Certificate ID — below its Arabic label at the lower right.
         'cert_id' => [
-            'x'     => 0.135,
-            'y'     => 0.87,
+            'x'     => 0.885,
+            'y'     => 0.952,
             // A UUID is the externally verifiable credential identifier.
-            'size'  => 9,
-            'color' => '#333333',
+            'size'  => 8,
+            'color' => '#08172F',
         ],
 
-        // Date — next to the "DATE:" label
+        // Immutable achievement wording selected for this issued credential.
+        'achievement' => [
+            'x'     => 0.50,
+            'y'     => 0.505,
+            'size'  => 18,
+            'color' => '#41506A',
+        ],
+
+        // Date — centred below its Arabic label at the lower right.
         'date' => [
-            'x'     => 0.265,
-            'y'     => 0.78,
+            'x'     => 0.823,
+            'y'     => 0.800,
             'size'  => 14,
-            'color' => '#333333',
+            'color' => '#08172F',
         ],
 
-        // QR code — centred under "Scan To View The Graduate's Portfolio"
+        // QR code — centred inside the fixed verification frame.
         'qr_code' => [
-            'x'    => 0.81,
-            'y'    => 0.825,
-            'size' => 110,   // QR image width/height in pixels
+            'x'    => 0.160,
+            'y'    => 0.804,
+            'size' => 132,
         ],
     ],
 ];

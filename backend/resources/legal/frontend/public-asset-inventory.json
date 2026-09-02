@@ -479,6 +479,11 @@
       "classification": "first_party"
     },
     {
+      "path": "public/images/certificate_template_v2.png",
+      "sha256": "596fa818b5a448f2da2ada72cfc1ce9fcf18dbed14521330e5bfdfe67daf8fe7",
+      "classification": "first_party"
+    },
+    {
       "path": "public/images/certificate_template.png",
       "sha256": "46c3648df784b3d9e32c4225ba3fd1b48b4be63f00da678d5dcaa37f7a1abeb3",
       "classification": "first_party"

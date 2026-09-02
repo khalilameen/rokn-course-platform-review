@@ -66,6 +66,8 @@
                         <div class="form-help">لن تُمنح الشارة إلا عند تفعيل الخيار واختيار مهني أو فريلانس.</div>
                     </div>
 
+                    @include('admin.courses.partials.certificate-text-template', ['course' => null])
+
                 </div>
 
                 <div class="form-row">

@@ -175,6 +175,7 @@ final readonly class KashierPaymentService
                 'discount_amount' => round($baseAmount - $finalAmount, 2),
                 'final_amount' => $finalAmount,
                 'status' => Order::STATUS_PENDING,
+                'financial_status' => Order::FINANCIAL_PENDING,
                 'is_premium_user' => $user->isPremiumUser(),
             ]);
 
@@ -480,7 +481,7 @@ final readonly class KashierPaymentService
         }
 
         if (in_array($normalized, [
-            'NOT_FOUND', 'PENDING', 'INITIATED', 'FAILED', 'DECLINED',
+            'NOT_FOUND', 'PENDING', 'INITIATED', 'FAILED', 'FAILURE', 'DECLINED',
             'CANCELLED', 'CANCELED', 'VOIDED', 'EXPIRED',
         ], true)) {
             return false;
@@ -495,7 +496,7 @@ final readonly class KashierPaymentService
     public function isProviderFailureStatus(?string $status): bool
     {
         return in_array($status, [
-            'NOT_FOUND', 'FAILED', 'DECLINED', 'CANCELLED', 'CANCELED',
+            'NOT_FOUND', 'FAILED', 'FAILURE', 'DECLINED', 'CANCELLED', 'CANCELED',
             'VOIDED', 'EXPIRED',
         ], true);
     }

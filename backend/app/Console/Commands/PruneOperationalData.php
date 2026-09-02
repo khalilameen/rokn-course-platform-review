@@ -8,6 +8,7 @@ use App\Models\PortfolioItem;
 use App\Models\AiInputAttachment;
 use App\Models\User;
 use App\Services\BunnyService;
+use App\Support\PublicDiskUrl;
 use Illuminate\Console\Command;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
@@ -388,23 +389,18 @@ final class PruneOperationalData extends Command
             return $deleted;
         }
 
+        $referencedAssets = $this->notificationAssetReferenceSet();
         $rows->pluck('image_url')
             ->filter()
             ->unique()
-            ->each(function (string $url): void {
-                if (DB::table('student_notifications')->where('image_url', $url)->exists()) {
-                    return;
-                }
+            ->each(function (string $url) use ($referencedAssets): void {
+                $path = PublicDiskUrl::pathFrom($url);
                 if (
-                    Schema::hasTable('notification_campaigns')
-                    && DB::table('notification_campaigns')->where('image_url', $url)->exists()
+                    is_string($path)
+                    && str_starts_with($path, 'student-notifications/')
+                    && !isset($referencedAssets[$path])
                 ) {
-                    return;
-                }
-
-                $path = parse_url($url, PHP_URL_PATH);
-                if (is_string($path) && str_starts_with($path, '/storage/student-notifications/')) {
-                    Storage::disk('public')->delete(ltrim(substr($path, strlen('/storage/')), '/'));
+                    Storage::disk('public')->delete($path);
                 }
             });
 
@@ -421,14 +417,11 @@ final class PruneOperationalData extends Command
         }
 
         $disk = Storage::disk('public');
+        $referencedAssets = $this->notificationAssetReferenceSet();
         $deleted = 0;
         foreach (array_slice($disk->files('student-notifications'), 0, $limit) as $path) {
             if (
-                DB::table('student_notifications')->where('image_url', 'like', '%' . $path)->exists()
-                || (
-                    Schema::hasTable('notification_campaigns')
-                    && DB::table('notification_campaigns')->where('image_url', 'like', '%' . $path)->exists()
-                )
+                isset($referencedAssets[$path])
                 || $disk->lastModified($path) > now()->subDay()->timestamp
             ) {
                 continue;
@@ -440,6 +433,39 @@ final class PruneOperationalData extends Command
         }
 
         return $deleted;
+    }
+
+    /** @return array<string,true> */
+    private function notificationAssetReferenceSet(): array
+    {
+        $paths = [];
+        foreach (['student_notifications', 'notification_campaigns'] as $table) {
+            if (
+                !Schema::hasTable($table)
+                || !Schema::hasColumns($table, ['id', 'image_url'])
+            ) {
+                continue;
+            }
+
+            DB::table($table)
+                ->select(['id', 'image_url'])
+                ->whereNotNull('image_url')
+                ->where('image_url', 'like', '%student-notifications%')
+                ->orderBy('id')
+                ->chunkById(500, function ($rows) use (&$paths): void {
+                    foreach ($rows as $row) {
+                        $path = PublicDiskUrl::pathFrom((string) $row->image_url);
+                        if (
+                            is_string($path)
+                            && str_starts_with($path, 'student-notifications/')
+                        ) {
+                            $paths[$path] = true;
+                        }
+                    }
+                });
+        }
+
+        return $paths;
     }
 
     private function pruneSupportCases(int $limit): int

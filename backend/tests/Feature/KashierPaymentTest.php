@@ -16,6 +16,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 /**
@@ -486,6 +487,7 @@ class KashierPaymentTest extends TestCase
             'package_id'     => $this->package->id,
             'payment_method' => 'kashier',
             'status'         => 'pending',
+            'financial_status' => Order::FINANCIAL_PENDING,
         ]);
     }
 
@@ -547,6 +549,99 @@ class KashierPaymentTest extends TestCase
             'status'    => Order::STATUS_PENDING,
         ]);
         $this->assertSame(1, Order::query()->where('user_id', $this->user->id)->count());
+    }
+
+    public function test_closing_an_uncreated_provider_checkout_releases_it_for_a_fresh_retry(): void
+    {
+        $abandoned = $this->createPendingOrder('PKG-ABANDON-NOT-FOUND');
+        Http::fake([
+            'https://test-api.kashier.io/*' => Http::response([], 404),
+        ]);
+
+        $this->actingAs($this->user, 'api')
+            ->postJson("/api/v1/payment/abandon/{$abandoned->order_ref}")
+            ->assertOk()
+            ->assertJsonPath('status', Order::STATUS_CANCELLED)
+            ->assertJsonPath('financial_status', Order::FINANCIAL_CANCELLED);
+
+        $key = '96e07193-d6a9-4b62-9976-b652b4e4f8a7';
+        $fresh = $this->actingAs($this->user, 'api')
+            ->withHeader('Idempotency-Key', $key)
+            ->postJson('/api/v1/payment/initiate', [
+                'package_id' => $this->package->id,
+                'idempotency_key' => $key,
+            ]);
+
+        $fresh->assertOk();
+        self::assertNotSame($abandoned->order_ref, $fresh->json('order_ref'));
+        self::assertSame(2, Order::query()->where('user_id', $this->user->id)->count());
+    }
+
+    public function test_closing_checkout_during_provider_outage_keeps_one_recoverable_intent(): void
+    {
+        $order = $this->createPendingOrder('PKG-ABANDON-PROVIDER-DOWN');
+        Http::fake([
+            'https://test-api.kashier.io/*' => Http::response([], 503),
+        ]);
+
+        $this->actingAs($this->user, 'api')
+            ->postJson("/api/v1/payment/abandon/{$order->order_ref}")
+            ->assertOk()
+            ->assertJsonPath('status', Order::STATUS_PENDING)
+            ->assertJsonPath('financial_status', Order::FINANCIAL_PENDING);
+
+        self::assertSame(Order::STATUS_PENDING, $order->fresh()->status);
+        self::assertSame(1, Order::query()->where('user_id', $this->user->id)->count());
+    }
+
+    public function test_payment_evidence_uses_private_storage_and_a_short_lived_signed_route(): void
+    {
+        config([
+            'payment_evidence.disk' => 'payment-evidence-test',
+            'filesystems.disks.payment-evidence-test' => [
+                'driver' => 'local',
+                'root' => storage_path('framework/testing/payment-evidence'),
+                'visibility' => 'private',
+            ],
+        ]);
+        Storage::fake('payment-evidence-test');
+        Storage::fake('public');
+        $path = 'payment-evidence/legacy-receipt.png';
+        $bytes = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true);
+        Storage::disk('payment-evidence-test')->put($path, $bytes);
+        $order = $this->createPendingOrder('PKG-PRIVATE-EVIDENCE');
+        $order->forceFill(['payment_screenshot' => '/storage/'.$path])->save();
+
+        $url = (string) $order->fresh()->payment_screenshot_url;
+        self::assertStringContainsString('/payment-evidence/'.$order->id, $url);
+        self::assertStringNotContainsString($path, $url);
+
+        $this->get($url)
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'max-age=0, no-store, private')
+            ->assertHeader('X-Content-Type-Options', 'nosniff');
+
+        $tampered = preg_replace('/signature=[^&]+/', 'signature=invalid', $url);
+        $this->get((string) $tampered)->assertForbidden();
+
+        // A legacy public object with the same key is never used as fallback.
+        Storage::disk('payment-evidence-test')->delete($path);
+        Storage::disk('public')->put($path, $bytes);
+        $this->get($url)->assertNotFound();
+
+        foreach ([
+            '../payment-evidence/receipt.png',
+            'payment-evidence/../receipt.png',
+            'payment-evidence//receipt.png',
+            'C:\\payment-evidence\\receipt.png',
+            'receipts/receipt.png',
+        ] as $unsafePath) {
+            $order->forceFill(['payment_screenshot' => $unsafePath])->save();
+            self::assertNull($order->fresh()->payment_screenshot_url);
+        }
+
+        $order->forceFill(['payment_screenshot' => 'https://public.example.test/receipt.png'])->save();
+        self::assertNull($order->fresh()->payment_screenshot_url);
     }
 
     public function test_a_new_package_does_not_rewrite_an_unrelated_older_checkout(): void
@@ -1384,6 +1479,23 @@ class KashierPaymentTest extends TestCase
         $this->assertDatabaseHas('orders', [
             'order_ref' => $this->orderRef,
             'status'    => Order::STATUS_CANCELLED,
+        ]);
+    }
+
+    public function test_signed_failure_literal_closes_the_pending_attempt(): void
+    {
+        $this->createPendingOrder();
+
+        $params = $this->buildKashierParams($this->orderRef, 'FAILURE');
+
+        $this->postJson('/payment/webhook', $params)
+            ->assertOk()
+            ->assertJsonPath('message', 'Payment failure recorded');
+
+        $this->assertDatabaseHas('orders', [
+            'order_ref' => $this->orderRef,
+            'status' => Order::STATUS_CANCELLED,
+            'financial_status' => Order::FINANCIAL_CANCELLED,
         ]);
     }
 

@@ -23,7 +23,7 @@ final class VerifyRestoreDrill extends Command
     protected $signature = 'ops:verify-restore
         {--dump= : Absolute path to the exact .sql or .sql.gz artifact verified by ops:verify-backup}
         {--database= : Disposable MySQL database name, beginning rokn_restore_verify_}
-        {--evidence= : Absolute signed evidence path}
+        {--evidence= : Signed evidence path or configured-disk object key}
         {--media-samples=20 : Maximum rows sampled from each stored-object family}
         {--keep : Retain the disposable verification database for investigation}
         {--confirm= : Required exact acknowledgement: RESTORE_<database>}';

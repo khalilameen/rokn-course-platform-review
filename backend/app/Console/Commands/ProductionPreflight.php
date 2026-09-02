@@ -9,6 +9,8 @@ use App\Services\ArabicSearchNormalizer;
 use App\Services\SocialAuthProviderRegistry;
 use App\Services\RecoveryEvidenceService;
 use App\Services\AppReleasePolicyService;
+use App\Support\PaymentEvidencePath;
+use App\Support\StorageWriteOptions;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -390,6 +392,10 @@ class ProductionPreflight extends Command
         $publicWebHost = strtolower((string) parse_url($publicWebUrl, PHP_URL_HOST));
         $appKey = trim((string) config('app.key'));
         $recoverySigningKey = trim((string) config('operations.recovery_evidence_signing_key'));
+        $recoveryEvidenceDisk = trim((string) config('operations.recovery_evidence_disk'));
+        $recoveryEvidenceDiskConfig = $recoveryEvidenceDisk !== ''
+            ? config("filesystems.disks.{$recoveryEvidenceDisk}")
+            : null;
         $backupEvidencePath = trim((string) config('operations.backup_evidence_path'));
         $restoreEvidencePath = trim((string) config('operations.recovery_evidence_path'));
         $absolutePath = static fn (string $path): bool => str_starts_with($path, DIRECTORY_SEPARATOR)
@@ -419,11 +425,41 @@ class ProductionPreflight extends Command
         $coursePdfDiskConfig = $coursePdfDisk !== '' ? config("filesystems.disks.{$coursePdfDisk}") : null;
         $coursePdfDriver = is_array($coursePdfDiskConfig) ? strtolower((string) ($coursePdfDiskConfig['driver'] ?? '')) : '';
         $publicDiskConfig = config('filesystems.disks.public');
+        $privateObjectDiskConfig = config('filesystems.disks.s3');
+        $publicDiskDriver = is_array($publicDiskConfig)
+            ? strtolower((string) ($publicDiskConfig['driver'] ?? ''))
+            : '';
+        $publicBucket = is_array($publicDiskConfig)
+            ? strtolower(trim((string) ($publicDiskConfig['bucket'] ?? '')))
+            : '';
+        $privateBucket = is_array($privateObjectDiskConfig)
+            ? strtolower(trim((string) ($privateObjectDiskConfig['bucket'] ?? '')))
+            : '';
+        $publicStorageUrl = is_array($publicDiskConfig)
+            ? rtrim(trim((string) ($publicDiskConfig['url'] ?? '')), '/')
+            : '';
+        $privateStorageUrl = is_array($privateObjectDiskConfig)
+            ? rtrim(trim((string) ($privateObjectDiskConfig['url'] ?? '')), '/')
+            : '';
+        $publicStorageUrlParts = $publicStorageUrl !== ''
+            ? parse_url($publicStorageUrl)
+            : false;
+        $publicStorageUrlValid = is_array($publicStorageUrlParts)
+            && strtolower((string) ($publicStorageUrlParts['scheme'] ?? '')) === 'https'
+            && filled($publicStorageUrlParts['host'] ?? null)
+            && !isset($publicStorageUrlParts['user'])
+            && !isset($publicStorageUrlParts['pass'])
+            && !isset($publicStorageUrlParts['query'])
+            && !isset($publicStorageUrlParts['fragment']);
         $attachmentDiskName = trim((string) config('course_attachments.disk'));
         $attachmentDiskConfig = $attachmentDiskName !== ''
             ? config("filesystems.disks.{$attachmentDiskName}")
             : null;
         $feedbackDiskConfig = config('filesystems.disks.feedback');
+        $paymentEvidenceDisk = trim((string) config('payment_evidence.disk'));
+        $paymentEvidenceDiskConfig = $paymentEvidenceDisk !== ''
+            ? config("filesystems.disks.{$paymentEvidenceDisk}")
+            : null;
         $androidPackage = trim((string) config('app_links.android_package'));
         $androidFingerprints = array_values(array_unique(array_filter(array_map(
             static fn ($value): string => strtoupper(trim((string) $value)),
@@ -479,11 +515,27 @@ class ProductionPreflight extends Command
             $recoverySigningKey === '' || !hash_equals($appKey, $recoverySigningKey),
             'RECOVERY_EVIDENCE_SIGNING_KEY must not reuse APP_KEY.'
         );
+        $recoveryEvidenceDriver = is_array($recoveryEvidenceDiskConfig)
+            ? strtolower((string) ($recoveryEvidenceDiskConfig['driver'] ?? ''))
+            : '';
+        $durableEvidenceDisk = is_array($recoveryEvidenceDiskConfig)
+            && $recoveryEvidenceDriver !== 'local'
+            && (
+                $recoveryEvidenceDriver === 's3'
+                || ($recoveryEvidenceDiskConfig['visibility'] ?? null) !== 'public'
+            );
+        $durableEvidencePaths = $backupEvidencePath !== ''
+            && $restoreEvidencePath !== ''
+            && $backupEvidencePath !== $restoreEvidencePath
+            && (
+                $durableEvidenceDisk
+                || ($recoveryEvidenceDisk === ''
+                    && $absolutePath($backupEvidencePath)
+                    && $absolutePath($restoreEvidencePath))
+            );
         $require(
-            $absolutePath($backupEvidencePath)
-                && $absolutePath($restoreEvidencePath)
-                && $backupEvidencePath !== $restoreEvidencePath,
-            'BACKUP_EVIDENCE_PATH and RECOVERY_EVIDENCE_PATH must be distinct absolute durable paths.'
+            $durableEvidencePaths,
+            'Recovery evidence must use a configured private shared disk with distinct object paths, or distinct absolute durable mounted paths.'
         );
         $require((int) config('operations.recovery_rpo_minutes') > 0, 'RECOVERY_RPO_MINUTES must be positive.');
         $require((int) config('operations.recovery_rto_minutes') > 0, 'RECOVERY_RTO_MINUTES must be positive.');
@@ -696,7 +748,10 @@ class ProductionPreflight extends Command
         );
         $require(
             is_array($attachmentDiskConfig)
-                && ($attachmentDiskConfig['visibility'] ?? null) === 'private'
+                && (
+                    strtolower((string) ($attachmentDiskConfig['driver'] ?? '')) === 's3'
+                    || ($attachmentDiskConfig['visibility'] ?? null) === 'private'
+                )
                 && (
                     ($attachmentDiskConfig['driver'] ?? null) !== 'local'
                     || rtrim((string) ($attachmentDiskConfig['root'] ?? ''), '/\\')
@@ -714,11 +769,37 @@ class ProductionPreflight extends Command
             'Course and instructor images require SHARED_PUBLIC_STORAGE_PATH on durable shared storage.'
         );
         $require(
+            $publicDiskDriver !== 's3'
+                || (
+                    $publicBucket !== ''
+                    && $publicStorageUrlValid
+                    && filled($publicDiskConfig['key'] ?? null)
+                    && filled($publicDiskConfig['secret'] ?? null)
+                    && filled($publicDiskConfig['region'] ?? null)
+                    && filled($publicDiskConfig['endpoint'] ?? null)
+                ),
+            'The public S3/R2 disk requires complete PUBLIC_AWS_* credentials, endpoint, bucket and a clean public HTTPS URL.'
+        );
+        $require(
+            $publicDiskDriver !== 's3'
+                || $privateBucket === ''
+                || !hash_equals($privateBucket, $publicBucket),
+            'PUBLIC_AWS_BUCKET must be separate from the private AWS_BUCKET.'
+        );
+        $require(
+            $publicDiskDriver !== 's3'
+                || $privateStorageUrl === ''
+                || !hash_equals(strtolower($privateStorageUrl), strtolower($publicStorageUrl)),
+            'PUBLIC_AWS_URL must not reuse the private AWS_URL.'
+        );
+        $require(
             !in_array($coursePdfDisk, ['', 'local', 'public'], true) && is_array($coursePdfDiskConfig),
             'COURSE_PDF_DISK must name a configured private shared disk.'
         );
         $require(
-            !is_array($coursePdfDiskConfig) || ($coursePdfDiskConfig['visibility'] ?? null) !== 'public',
+            !is_array($coursePdfDiskConfig)
+                || $coursePdfDriver === 's3'
+                || ($coursePdfDiskConfig['visibility'] ?? null) !== 'public',
             'COURSE_PDF_DISK must not have public visibility.'
         );
         $require(
@@ -727,13 +808,26 @@ class ProductionPreflight extends Command
                 || config('course_pdfs.shared_storage') === true,
             'A local-driver COURSE_PDF_DISK requires COURSE_PDF_SHARED_STORAGE=true and a shared mounted path.'
         );
+        $feedbackDriver = strtolower((string) ($feedbackDiskConfig['driver'] ?? ''));
         $require(
             is_array($feedbackDiskConfig)
-                && ($feedbackDiskConfig['driver'] ?? null) === 'local'
-                && ($feedbackDiskConfig['visibility'] ?? null) === 'private'
-                && ($feedbackDiskConfig['shared'] ?? false) === true
-                && trim((string) ($feedbackDiskConfig['root'] ?? '')) !== '',
-            'The feedback disk must use a private shared mounted path with FEEDBACK_SHARED_STORAGE=true.'
+                && (
+                    $feedbackDriver === 's3'
+                    || ($feedbackDiskConfig['visibility'] ?? null) === 'private'
+                )
+                && (
+                    $feedbackDriver !== 'local'
+                    || (($feedbackDiskConfig['shared'] ?? false) === true
+                        && trim((string) ($feedbackDiskConfig['root'] ?? '')) !== '')
+                ),
+            'The feedback disk must use private durable object storage or an explicitly shared mounted path.'
+        );
+        $require(
+            $paymentEvidenceDisk === 's3'
+                && is_array($paymentEvidenceDiskConfig)
+                && strtolower((string) ($paymentEvidenceDiskConfig['driver'] ?? '')) === 's3'
+                && ($paymentEvidenceDiskConfig['visibility'] ?? null) !== 'public',
+            'PAYMENT_EVIDENCE_DISK must be the private shared s3 disk in production.'
         );
 
         $require(
@@ -855,6 +949,34 @@ class ProductionPreflight extends Command
                 }
             }
 
+            if (Schema::hasTable('orders') && Schema::hasColumn('orders', 'payment_screenshot')) {
+                $legacyPaymentEvidence = 0;
+                $invalidPaymentEvidence = 0;
+                DB::table('orders')
+                    ->select(['id', 'payment_screenshot'])
+                    ->whereNotNull('payment_screenshot')
+                    ->where('payment_screenshot', '<>', '')
+                    ->orderBy('id')
+                    ->chunkById(500, function ($orders) use (
+                        &$legacyPaymentEvidence,
+                        &$invalidPaymentEvidence
+                    ): void {
+                        foreach ($orders as $order) {
+                            if (PaymentEvidencePath::isLegacyPublicReference($order->payment_screenshot)) {
+                                $legacyPaymentEvidence++;
+                            } elseif (PaymentEvidencePath::from($order->payment_screenshot) === null) {
+                                $invalidPaymentEvidence++;
+                            }
+                        }
+                    });
+                if ($legacyPaymentEvidence > 0) {
+                    $failures[] = "{$legacyPaymentEvidence} legacy public payment evidence record(s) remain. Move each object to PAYMENT_EVIDENCE_DISK under payment-evidence/, remove its public copy, then store only the private relative path.";
+                }
+                if ($invalidPaymentEvidence > 0) {
+                    $failures[] = "{$invalidPaymentEvidence} invalid payment evidence path(s) remain. Store only normalized private keys under payment-evidence/.";
+                }
+            }
+
             foreach ([
                 ['table' => 'portfolio_media', 'column' => 'file_path', 'label' => 'portfolio image'],
                 ['table' => 'lessons', 'column' => 'thumbnail_path', 'label' => 'lesson thumbnail'],
@@ -936,20 +1058,35 @@ class ProductionPreflight extends Command
             $failures[] = 'The configured production database is not reachable.';
         }
 
-        $pdfDiskName = trim((string) config('course_pdfs.disk'));
-        if ($pdfDiskName !== '' && is_array(config("filesystems.disks.{$pdfDiskName}"))) {
+        $privateDisks = array_values(array_unique(array_filter(array_map(
+            static fn ($disk): string => trim((string) $disk),
+            [
+                config('course_pdfs.disk'),
+                config('course_attachments.disk'),
+                config('projects.submission_disk'),
+                config('certificate.disk'),
+                config('operations.recovery_evidence_disk'),
+                config('payment_evidence.disk'),
+            ]
+        ))));
+        foreach ($privateDisks as $diskName) {
+            if (!is_array(config("filesystems.disks.{$diskName}"))) continue;
             $probe = 'preflight/' . bin2hex(random_bytes(8)) . '.txt';
             try {
-                $disk = Storage::disk($pdfDiskName);
-                $disk->put($probe, 'ok', ['visibility' => 'private']);
+                $disk = Storage::disk($diskName);
+                $disk->put(
+                    $probe,
+                    'ok',
+                    StorageWriteOptions::forDisk($diskName, 'private')
+                );
                 if (!$disk->exists($probe) || $disk->get($probe) !== 'ok') {
-                    $failures[] = 'The configured shared course-PDF disk did not return its preflight object.';
+                    $failures[] = "The configured private shared disk {$diskName} did not return its preflight object.";
                 }
             } catch (Throwable) {
-                $failures[] = 'The configured shared course-PDF disk is not reachable.';
+                $failures[] = "The configured private shared disk {$diskName} is not reachable.";
             } finally {
                 try {
-                    Storage::disk($pdfDiskName)->delete($probe);
+                    Storage::disk($diskName)->delete($probe);
                 } catch (Throwable) {
                     // The reachability failure above is the useful signal.
                 }
@@ -959,7 +1096,11 @@ class ProductionPreflight extends Command
         $feedbackProbe = 'preflight/' . bin2hex(random_bytes(8)) . '.txt';
         try {
             $disk = Storage::disk('feedback');
-            $disk->put($feedbackProbe, 'ok', ['visibility' => 'private']);
+            $disk->put(
+                $feedbackProbe,
+                'ok',
+                StorageWriteOptions::forDisk('feedback', 'private')
+            );
             if (!$disk->exists($feedbackProbe) || $disk->get($feedbackProbe) !== 'ok') {
                 $failures[] = 'The shared private feedback disk did not return its preflight object.';
             }
@@ -968,6 +1109,30 @@ class ProductionPreflight extends Command
         } finally {
             try {
                 Storage::disk('feedback')->delete($feedbackProbe);
+            } catch (Throwable) {
+                // The reachability failure above is the useful signal.
+            }
+        }
+
+        $publicProbe = 'preflight/' . bin2hex(random_bytes(8)) . '.txt';
+        $publicToken = 'rokn-public-storage-' . bin2hex(random_bytes(12));
+        try {
+            $public = Storage::disk('public');
+            $public->put(
+                $publicProbe,
+                $publicToken,
+                StorageWriteOptions::forDisk('public', 'public')
+            );
+            $url = $public->url($publicProbe);
+            $response = Http::connectTimeout(3)->timeout(8)->get($url);
+            if (!$response->successful() || !hash_equals($publicToken, $response->body())) {
+                $failures[] = 'The durable public-image disk writes objects but does not deliver them through its public URL.';
+            }
+        } catch (Throwable) {
+            $failures[] = 'The durable public-image disk is not writable and publicly reachable.';
+        } finally {
+            try {
+                Storage::disk('public')->delete($publicProbe);
             } catch (Throwable) {
                 // The reachability failure above is the useful signal.
             }

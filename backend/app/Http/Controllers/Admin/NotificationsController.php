@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Admin;
 
+use App\Support\PublicDiskUrl;
 use App\Http\Controllers\Controller;
 use App\Services\NotificationCampaignService;
 use App\Services\NotificationService;
@@ -19,7 +20,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\View\View;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -217,7 +217,7 @@ class NotificationsController extends Controller
             if (!is_string($imagePath) || trim($imagePath) === '') {
                 throw ValidationException::withMessages(['image' => ['تعذّر حفظ الصورة']]);
             }
-            $imageUrl = Storage::disk('public')->url($imagePath);
+            $imageUrl = PublicDiskUrl::from($imagePath);
         }
         $campaign = null;
         DB::transaction(function () use (
