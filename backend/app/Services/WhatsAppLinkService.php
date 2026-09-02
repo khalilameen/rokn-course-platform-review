@@ -26,7 +26,8 @@ final readonly class WhatsAppLinkService
     public function createLink(User $user, CoinEarningMethod $method): array
     {
         if (
-            !$method->isAvailableNow()
+            !(bool) config('whatsapp.enabled')
+            || !$method->isAvailableNow()
             || !$method->hasClaimCapacity()
             || $method->action_key !== 'link_whatsapp'
         ) {

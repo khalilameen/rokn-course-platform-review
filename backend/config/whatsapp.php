@@ -1,6 +1,10 @@
 <?php
 
 return [
+    // The linking reward is optional until a real inbound provider is connected.
+    // Keeping it disabled removes the task instead of exposing a dead action.
+    'enabled' => filter_var(env('WHATSAPP_LINKING_ENABLED', false), FILTER_VALIDATE_BOOL),
+
     /*
     |--------------------------------------------------------------------------
     | Whatspie API Configuration

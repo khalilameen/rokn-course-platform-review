@@ -705,28 +705,30 @@ class ProductionPreflight extends Command
         $require($this->configured('kashier.live.secret_key'), 'KASHIER_LIVE_SECRET_KEY is required.');
         $require($this->configured('kashier.live.mid'), 'KASHIER_LIVE_MID is required.');
 
-        $whatsAppApiUrl = trim((string) config('whatsapp.whatspie.api_url'));
-        $whatsAppApiParts = $whatsAppApiUrl !== '' ? parse_url($whatsAppApiUrl) : false;
-        $whatsAppBotPhone = trim((string) config('whatsapp.linking.bot_phone'));
-        $whatsAppWebhookSecret = trim((string) config('whatsapp.linking.webhook_secret'));
-        $require(
-            is_array($whatsAppApiParts)
-                && strtolower((string) ($whatsAppApiParts['scheme'] ?? '')) === 'https'
-                && filled($whatsAppApiParts['host'] ?? null)
-                && !isset($whatsAppApiParts['user'])
-                && !isset($whatsAppApiParts['pass']),
-            'WHATSPIE_API_URL must be a real HTTPS provider endpoint.'
-        );
-        $require($this->configured('whatsapp.whatspie.api_key'), 'WHATSPIE_API_KEY is required for WhatsApp replies.');
-        $require($this->configured('whatsapp.whatspie.device'), 'WHATSPIE_DEVICE is required for WhatsApp replies.');
-        $require(
-            preg_match('/\A[1-9][0-9]{7,14}\z/D', $whatsAppBotPhone) === 1,
-            'WHATSAPP_BOT_PHONE must contain 8 to 15 international digits without a leading plus.'
-        );
-        $require(
-            strlen($whatsAppWebhookSecret) >= 32,
-            'WHATSAPP_WEBHOOK_SECRET must be a stable high-entropy secret of at least 32 characters.'
-        );
+        if ((bool) config('whatsapp.enabled')) {
+            $whatsAppApiUrl = trim((string) config('whatsapp.whatspie.api_url'));
+            $whatsAppApiParts = $whatsAppApiUrl !== '' ? parse_url($whatsAppApiUrl) : false;
+            $whatsAppBotPhone = trim((string) config('whatsapp.linking.bot_phone'));
+            $whatsAppWebhookSecret = trim((string) config('whatsapp.linking.webhook_secret'));
+            $require(
+                is_array($whatsAppApiParts)
+                    && strtolower((string) ($whatsAppApiParts['scheme'] ?? '')) === 'https'
+                    && filled($whatsAppApiParts['host'] ?? null)
+                    && !isset($whatsAppApiParts['user'])
+                    && !isset($whatsAppApiParts['pass']),
+                'WHATSPIE_API_URL must be a real HTTPS provider endpoint.'
+            );
+            $require($this->configured('whatsapp.whatspie.api_key'), 'WHATSPIE_API_KEY is required for WhatsApp replies.');
+            $require($this->configured('whatsapp.whatspie.device'), 'WHATSPIE_DEVICE is required for WhatsApp replies.');
+            $require(
+                preg_match('/\A[1-9][0-9]{7,14}\z/D', $whatsAppBotPhone) === 1,
+                'WHATSAPP_BOT_PHONE must contain 8 to 15 international digits without a leading plus.'
+            );
+            $require(
+                strlen($whatsAppWebhookSecret) >= 32,
+                'WHATSAPP_WEBHOOK_SECRET must be a stable high-entropy secret of at least 32 characters.'
+            );
+        }
 
         $require($declaredSocialProviders->isNotEmpty(), 'SOCIAL_AUTH_PROVIDERS must declare at least one sign-in provider.');
         foreach ($declaredSocialProviders as $provider) {

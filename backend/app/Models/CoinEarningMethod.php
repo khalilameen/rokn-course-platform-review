@@ -148,9 +148,15 @@ class CoinEarningMethod extends Model
 
     public function hasUsableDestination(): bool
     {
-        return $this->action_key === 'link_whatsapp'
-            || !$this->requires_external_visit
-            || $this->resolvedActionUrl() !== null;
+        if ($this->action_key === 'link_whatsapp') {
+            return (bool) config('whatsapp.enabled')
+                && preg_match(
+                    '/\A[1-9][0-9]{7,14}\z/D',
+                    trim((string) config('whatsapp.linking.bot_phone'))
+                ) === 1;
+        }
+
+        return !$this->requires_external_visit || $this->resolvedActionUrl() !== null;
     }
 
     public static function isTrustedActionUrl(?string $value): bool
