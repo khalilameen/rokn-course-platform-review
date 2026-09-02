@@ -1104,47 +1104,21 @@ class ProductionPreflight extends Command
         ))));
         foreach ($privateDisks as $diskName) {
             if (!is_array(config("filesystems.disks.{$diskName}"))) continue;
-            $probe = 'preflight/' . bin2hex(random_bytes(8)) . '.txt';
-            try {
-                $disk = Storage::disk($diskName);
-                $disk->put(
-                    $probe,
-                    'ok',
-                    StorageWriteOptions::forDisk($diskName, 'private')
-                );
-                if (!$disk->exists($probe) || $disk->get($probe) !== 'ok') {
-                    $failures[] = "The configured private shared disk {$diskName} did not return its preflight object.";
-                }
-            } catch (Throwable) {
-                $failures[] = "The configured private shared disk {$diskName} is not reachable.";
-            } finally {
-                try {
-                    Storage::disk($diskName)->delete($probe);
-                } catch (Throwable) {
-                    // The reachability failure above is the useful signal.
-                }
+            $failure = $this->privateStorageProbeFailure(
+                $diskName,
+                "The configured private shared disk {$diskName} is not reachable."
+            );
+            if ($failure !== null) {
+                $failures[] = $failure;
             }
         }
 
-        $feedbackProbe = 'preflight/' . bin2hex(random_bytes(8)) . '.txt';
-        try {
-            $disk = Storage::disk('feedback');
-            $disk->put(
-                $feedbackProbe,
-                'ok',
-                StorageWriteOptions::forDisk('feedback', 'private')
-            );
-            if (!$disk->exists($feedbackProbe) || $disk->get($feedbackProbe) !== 'ok') {
-                $failures[] = 'The shared private feedback disk did not return its preflight object.';
-            }
-        } catch (Throwable) {
-            $failures[] = 'The shared private feedback disk is not reachable.';
-        } finally {
-            try {
-                Storage::disk('feedback')->delete($feedbackProbe);
-            } catch (Throwable) {
-                // The reachability failure above is the useful signal.
-            }
+        $feedbackFailure = $this->privateStorageProbeFailure(
+            'feedback',
+            'The shared private feedback disk is not reachable.'
+        );
+        if ($feedbackFailure !== null) {
+            $failures[] = $feedbackFailure;
         }
 
         $publicProbe = 'preflight/' . bin2hex(random_bytes(8)) . '.txt';
@@ -1188,6 +1162,42 @@ class ProductionPreflight extends Command
         }
 
         return $failures;
+    }
+
+    private function privateStorageProbeFailure(string $diskName, string $message): ?string
+    {
+        $lastFailure = null;
+
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            $probe = 'preflight/' . bin2hex(random_bytes(8)) . '.txt';
+            try {
+                $disk = Storage::disk($diskName);
+                $written = $disk->put(
+                    $probe,
+                    'ok',
+                    StorageWriteOptions::forDisk($diskName, 'private')
+                );
+                if ($written !== false && $disk->exists($probe) && $disk->get($probe) === 'ok') {
+                    return null;
+                }
+                $lastFailure = 'verification_failed';
+            } catch (Throwable $exception) {
+                $lastFailure = class_basename($exception);
+                Storage::forgetDisk($diskName);
+            } finally {
+                try {
+                    Storage::disk($diskName)->delete($probe);
+                } catch (Throwable) {
+                    // The probe result above is the useful signal.
+                }
+            }
+
+            if ($attempt < 3) {
+                usleep($attempt * 200_000);
+            }
+        }
+
+        return $message . ' [' . ($lastFailure ?? 'unknown') . ']';
     }
 
     /** @return list<string> */
