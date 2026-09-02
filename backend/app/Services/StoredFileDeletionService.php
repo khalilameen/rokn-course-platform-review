@@ -85,6 +85,19 @@ final class StoredFileDeletionService
         int $orphanDelayMinutes = 60,
         ?string $operationIdentity = null
     ): string {
+        $path = $this->trackedUploadDestination($file, $directory, $disk, $operationIdentity);
+        $this->trackPotentialOrphan($disk, $path, $orphanDelayMinutes);
+        $this->writeTrackedUpload($file, $path, $disk);
+        return $path;
+    }
+
+    /** Resolve the stable destination before a caller reserves ownership in its database. */
+    public function trackedUploadDestination(
+        UploadedFile $file,
+        string $directory,
+        string $disk = 'public',
+        ?string $operationIdentity = null
+    ): string {
         $directory = trim($directory, '/');
         $disk = trim($disk);
         if ($directory === '' || $disk === '') {
@@ -100,19 +113,29 @@ final class StoredFileDeletionService
         $filename = $operationIdentity === null
             ? (string) Str::uuid() . '.' . $extension
             : hash('sha256', $operationIdentity) . '.' . $extension;
-        $path = $directory . '/' . $filename;
-        $this->trackPotentialOrphan($disk, $path, $orphanDelayMinutes);
+        return $directory . '/' . $filename;
+    }
+
+    /** Write bytes only after the orphan ledger and any domain reservation exist. */
+    public function writeTrackedUpload(UploadedFile $file, string $path, string $disk = 'public'): void
+    {
+        $path = ltrim(trim($path), '/');
+        $disk = trim($disk);
+        $directory = trim((string) dirname($path), './\\');
+        $filename = basename($path);
+        if ($path === '' || $disk === '' || $directory === '' || $filename === '') {
+            throw new \InvalidArgumentException('Tracked upload destination is invalid.');
+        }
         $storage = Storage::disk($disk);
         $expectedSize = (int) $file->getSize();
         if ($storage->exists($path) && (int) $storage->size($path) === $expectedSize) {
-            return $path;
+            return;
         }
         $stored = $file->storeAs($directory, $filename, $disk);
         if (!is_string($stored) || ltrim($stored, '/') !== $path
             || !$storage->exists($path) || (int) $storage->size($path) !== $expectedSize) {
             throw new RuntimeException('Tracked file storage failed.');
         }
-        return $path;
     }
 
     /** Persist cleanup before a byte write that will be referenced later. */

@@ -26,7 +26,11 @@ import {cleanUnicodeText} from '../../../utils/unicodeText';
 import {isLocalDemoId} from '../../../config/runtime';
 import {loadCourseChatHistory, saveCourseChatHistory} from './persistence';
 import {useAppActiveState} from '../../../hooks/useAppActiveState';
-import {getCurrentAccountStorageScope} from '../../../constants/helpers';
+import {
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+  getCurrentAccountStorageScope,
+} from '../../../constants/helpers';
 import {removeLearnerDraftFile} from '../../../services/learnerDraftFiles';
 
 export type AssistantPresence = 'online' | 'working';
@@ -381,10 +385,19 @@ export const useCourseChat = ({
     scheduleScrollToEnd(true, 80);
 
     try {
+      const turnBoundary = await captureAccountSessionBoundary();
+      if (activeAccountScopeRef.current !== turnBoundary.scope) {
+        throw new Error('ACCOUNT_CHANGED_DURING_REQUEST');
+      }
       // Persist the outbox before the paid request leaves the phone. If the
       // process dies after this point, the same client id can recover the
       // accepted server response without another provider call or debit.
-      await saveCourseChatHistory(courseId, queuedMessages, lessonId);
+      await saveCourseChatHistory(
+        courseId,
+        queuedMessages,
+        lessonId,
+        turnBoundary,
+      );
       const uploadedWithLocalFiles = await Promise.all(
         selectedAttachments.map(async file => ({
           ...file,
@@ -405,7 +418,14 @@ export const useCourseChat = ({
       // The upload mapping is the recovery source of truth. Commit it before
       // removing app-owned files; a crash can then resume with the same server
       // ids and immutable client request id.
-      await saveCourseChatHistory(courseId, queuedMessages, lessonId);
+      assertAccountSessionBoundary(turnBoundary);
+      await saveCourseChatHistory(
+        courseId,
+        queuedMessages,
+        lessonId,
+        turnBoundary,
+      );
+      assertAccountSessionBoundary(turnBoundary);
       await Promise.all(
         selectedAttachments
           .filter(file => file.uri && !file.serverId)
@@ -447,9 +467,13 @@ export const useCourseChat = ({
             : item,
         );
         setMessages(queuedMessages);
-        await saveCourseChatHistory(courseId, queuedMessages, lessonId).catch(
-          () => undefined,
-        );
+        await saveCourseChatHistory(
+          courseId,
+          queuedMessages,
+          lessonId,
+          turnBoundary,
+        ).catch(() => undefined);
+        assertAccountSessionBoundary(turnBoundary);
         response = await askCourseAssistant({
           course: upgraded
             ? {...course, accessType: 'paid', chatAvailable: true}
@@ -583,10 +607,12 @@ export const useCourseChat = ({
             : item;
         }),
       );
-    } catch {
+    } catch (error: unknown) {
       if (
         conversationGeneration !== conversationGenerationRef.current ||
-        sendGeneration !== sendGenerationRef.current
+        sendGeneration !== sendGenerationRef.current ||
+        (error instanceof Error &&
+          error.message === 'ACCOUNT_CHANGED_DURING_REQUEST')
       )
         return;
       setMessages(current =>

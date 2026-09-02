@@ -59,19 +59,42 @@ final class AttachmentController extends Controller
         );
         $disk = (string) config('course_attachments.disk', 'module-attachments');
         $directory = 'attachments/' . $validated['attachable_type'] . '/' . $attachable->getKey();
-        $existingAttachment = $attachable->attachments()
-            ->where('content_sha256', $metadata['sha256'])
-            ->first();
-        if ($existingAttachment) {
+        $version = (int) $course->authoring_version;
+        // Even a no-op duplicate response must validate the editor revision.
+        // Returning the current version to an old form lets that stale page
+        // adopt a revision it never rendered and overwrite newer authoring on
+        // its next request.
+        $existingAttachment = DB::transaction(function () use (
+            $request,
+            $course,
+            $validated,
+            $metadata,
+            &$version
+        ): ?Attachment {
+            $lockedCourse = $this->authoring->lock($request, $course);
+            $this->assertDraft($lockedCourse);
+            $lockedAttachable = $this->attachable(
+                (string) $validated['attachable_type'],
+                (int) $validated['attachable_id'],
+                true
+            );
+            abort_unless((int) $lockedAttachable->course_id === (int) $lockedCourse->id, 404);
+            $version = (int) $lockedCourse->authoring_version;
+
+            return $lockedAttachable->attachments()
+                ->where('content_sha256', $metadata['sha256'])
+                ->lockForUpdate()
+                ->first();
+        });
+        if ($existingAttachment instanceof Attachment) {
             return $this->storedResponse(
                 $existingAttachment,
                 true,
-                (int) $course->fresh()->authoring_version
+                $version
             );
         }
         $savedPath = null;
         $duplicate = false;
-        $version = (int) $course->authoring_version;
 
         try {
             $savedPath = $this->fileDeletion->storeTrackedUpload(

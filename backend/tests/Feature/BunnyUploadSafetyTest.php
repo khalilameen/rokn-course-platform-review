@@ -6,11 +6,15 @@ namespace Tests\Feature;
 
 use App\Models\Lesson;
 use App\Models\Setting;
+use App\Jobs\ProbeLessonMedia;
+use App\Services\MediaHealthService;
+use App\Services\MediaReconciliationService;
 use App\Services\BunnyService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
@@ -25,8 +29,14 @@ final class BunnyUploadSafetyTest extends TestCase
             $table->boolean('bunny_enabled')->default(false);
             $table->timestamps();
         });
+        Schema::create('courses', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name_ar')->nullable();
+            $table->timestamps();
+        });
         Schema::create('lessons', function (Blueprint $table): void {
             $table->id();
+            $table->unsignedBigInteger('list_id')->nullable();
             $table->string('title_ar')->nullable();
             $table->string('title_en')->nullable();
             $table->string('video_source_type')->nullable();
@@ -86,6 +96,7 @@ final class BunnyUploadSafetyTest extends TestCase
         Schema::dropIfExists('bunny_video_cleanup_candidates');
         Schema::dropIfExists('lesson_media_states');
         Schema::dropIfExists('lessons');
+        Schema::dropIfExists('courses');
         Schema::dropIfExists('settings');
         parent::tearDown();
     }
@@ -174,6 +185,59 @@ final class BunnyUploadSafetyTest extends TestCase
         self::assertStringNotContainsString(
             'file_get_contents($file->getRealPath())',
             $source
+        );
+    }
+
+    public function test_replacement_generation_has_its_own_probe_and_stale_job_never_calls_provider(): void
+    {
+        $courseId = \Illuminate\Support\Facades\DB::table('courses')->insertGetId([
+            'name_ar' => 'كورس',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $lesson = Lesson::query()->create([
+            'list_id' => $courseId,
+            'title_ar' => 'درس',
+            'video_source_type' => 'bunny',
+            'bunny_video_id' => 'old-generation',
+        ]);
+        $oldJob = new ProbeLessonMedia((int) $lesson->id);
+        $lesson->forceFill(['bunny_video_id' => 'new-generation'])->save();
+        $newJob = new ProbeLessonMedia((int) $lesson->id);
+
+        self::assertNotSame($oldJob->uniqueId(), $newJob->uniqueId());
+        Http::preventStrayRequests();
+        $oldJob->handle(app(MediaHealthService::class), app(MediaReconciliationService::class));
+        Http::assertNothingSent();
+    }
+
+    public function test_legacy_serialized_probe_hands_off_to_the_current_generation(): void
+    {
+        $courseId = \Illuminate\Support\Facades\DB::table('courses')->insertGetId([
+            'name_ar' => 'كورس',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $lesson = Lesson::query()->create([
+            'list_id' => $courseId,
+            'title_ar' => 'درس',
+            'video_source_type' => 'bunny',
+            'bunny_video_id' => 'current-generation',
+        ]);
+        $legacy = new ProbeLessonMedia((int) $lesson->id);
+        unset($legacy->expectedVideoGuid);
+        /** @var ProbeLessonMedia $restored */
+        $restored = unserialize(serialize($legacy));
+
+        self::assertSame('lesson-media-probe:' . $lesson->id . ':legacy', $restored->uniqueId());
+        Queue::fake();
+        Http::preventStrayRequests();
+        $restored->handle(app(MediaHealthService::class), app(MediaReconciliationService::class));
+
+        Http::assertNothingSent();
+        Queue::assertPushed(ProbeLessonMedia::class, static fn (ProbeLessonMedia $job): bool =>
+            $job->lessonId === (int) $lesson->id
+            && $job->expectedVideoGuid === 'current-generation'
         );
     }
 

@@ -7,7 +7,10 @@ namespace Tests\Feature\API;
 use App\Models\User;
 use App\Models\Lesson;
 use App\Services\LearningEvidenceService;
+use App\Services\InternalSignalService;
+use App\Services\InternalSignalHandler;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 
 /**
  * End-to-end Feature flow test simulating a realistic student journey in the Rokn e-learning platform.
@@ -16,6 +19,99 @@ use Illuminate\Support\Facades\DB;
  */
 class StudentElearningFlowTest extends ApiTestCase
 {
+    public function test_completion_signal_cannot_create_an_earned_revision_without_complete_learning_evidence(): void
+    {
+        Queue::fake();
+        DB::table('course_enrollments')->insert([
+            'user_id' => $this->user->id,
+            'course_id' => $this->courseId,
+            'is_active' => true,
+            'enrolled_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $signal = app(InternalSignalService::class)->record(
+            'course.completed',
+            "user:{$this->user->id}:course:{$this->courseId}",
+            ['user_id' => $this->user->id, 'course_id' => $this->courseId]
+        );
+
+        self::assertNull(data_get($signal->payload, 'curriculum_revision'));
+        $this->assertDatabaseHas('course_enrollments', [
+            'user_id' => $this->user->id,
+            'course_id' => $this->courseId,
+            'completed_curriculum_revision' => null,
+        ]);
+
+        app(InternalSignalHandler::class)->handle($signal);
+
+        self::assertSame(0, DB::table('internal_signals')
+            ->where('type', 'like', 'course.completed.%')
+            ->count());
+    }
+
+    public function test_earned_course_revision_is_grandfathered_and_signal_identity_is_versioned(): void
+    {
+        Queue::fake();
+        DB::table('courses')->where('id', $this->courseId)->update([
+            'authoring_version' => 7,
+            'last_published_authoring_version' => 7,
+        ]);
+        DB::table('course_enrollments')->insert([
+            'user_id' => $this->user->id,
+            'course_id' => $this->courseId,
+            'is_active' => true,
+            'enrolled_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('student_section_progress')->insert([
+            'user_id' => $this->user->id,
+            'course_section_id' => $this->sectionId,
+            'is_completed' => true,
+            'completed_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $signals = app(InternalSignalService::class);
+        $first = $signals->record(
+            'course.completed',
+            "user:{$this->user->id}:course:{$this->courseId}",
+            ['user_id' => $this->user->id, 'course_id' => $this->courseId]
+        );
+
+        self::assertSame(7, (int) data_get($first->payload, 'curriculum_revision'));
+        self::assertSame(
+            hash('sha256', "course.completed|user:{$this->user->id}:course:{$this->courseId}:revision:7"),
+            $first->signal_key
+        );
+        $this->assertDatabaseHas('course_enrollments', [
+            'user_id' => $this->user->id,
+            'course_id' => $this->courseId,
+            'completed_curriculum_revision' => 7,
+        ]);
+
+        DB::table('courses')->where('id', $this->courseId)->update([
+            'authoring_version' => 8,
+            'last_published_authoring_version' => 8,
+        ]);
+        $replay = $signals->record(
+            'course.completed',
+            "user:{$this->user->id}:course:{$this->courseId}",
+            ['user_id' => $this->user->id, 'course_id' => $this->courseId]
+        );
+
+        self::assertSame($first->id, $replay->id);
+        self::assertSame(1, DB::table('internal_signals')->where('type', 'course.completed')->count());
+        $this->assertDatabaseHas('course_enrollments', [
+            'user_id' => $this->user->id,
+            'course_id' => $this->courseId,
+            'completed_curriculum_revision' => 7,
+        ]);
+    }
+
     public function test_learning_evidence_uses_the_accepted_playback_session_sample(): void
     {
         DB::table('lessons')->where('id', 10)->update(['duration_minutes' => 2]);

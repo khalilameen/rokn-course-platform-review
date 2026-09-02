@@ -72,7 +72,7 @@ final class MediaHealthService
             ], true);
         }
 
-        $resolutions = collect(explode(',', (string) ($details['availableResolutions'] ?? ''))
+        $resolutions = collect(explode(',', (string) ($details['availableResolutions'] ?? '')))
             ->map(fn ($value) => trim((string) $value))->filter()->values();
         $providerStatus = (int) ($details['status'] ?? -1);
         $ready = BunnyService::providerVideoStatusIsPlayable($providerStatus);

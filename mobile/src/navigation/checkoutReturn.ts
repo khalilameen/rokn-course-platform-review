@@ -11,6 +11,7 @@ import type {LoginReturnTo} from './types';
 
 const CHECKOUT_RETURN_KEY = '@rokn/pending-checkout-return/v1';
 const CHECKOUT_RETURN_TTL_MS = 30 * 60 * 1000;
+let checkoutReturnWriteTail: Promise<void> = Promise.resolve();
 
 type CheckoutReturnEnvelope = {
   returnTo: LoginReturnTo;
@@ -29,6 +30,30 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
     ? (value as Record<string, unknown>)
     : null;
 
+const withCheckoutReturnWrite = <T>(operation: () => Promise<T>) => {
+  const result = checkoutReturnWriteTail.then(operation, operation);
+  checkoutReturnWriteTail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+};
+
+const removeCheckoutReturnIfUnchanged = (
+  storageKey: string,
+  receipt: string,
+  accountBoundary: AccountSessionBoundary,
+) =>
+  withCheckoutReturnWrite(async () => {
+    assertAccountSessionBoundary(accountBoundary);
+    const current = await AsyncStorage.getItem(storageKey);
+    assertAccountSessionBoundary(accountBoundary);
+    if (current !== receipt) return false;
+    await AsyncStorage.removeItem(storageKey);
+    assertAccountSessionBoundary(accountBoundary);
+    return true;
+  });
+
 /** Persist only a canonical in-app destination, never provider/browser data. */
 export const savePendingCheckoutReturn = async (
   value: unknown,
@@ -44,8 +69,11 @@ export const savePendingCheckoutReturn = async (
     createdAt: serverNowMs(),
   };
   const receipt = JSON.stringify(envelope);
-  await AsyncStorage.setItem(storageKey, receipt);
-  assertAccountSessionBoundary(owner);
+  await withCheckoutReturnWrite(async () => {
+    assertAccountSessionBoundary(owner);
+    await AsyncStorage.setItem(storageKey, receipt);
+    assertAccountSessionBoundary(owner);
+  });
   return {
     accountBoundary: owner,
     returnTo,
@@ -69,9 +97,11 @@ export const claimPendingCheckoutReturn = async (): Promise<
   try {
     envelope = asRecord(JSON.parse(receipt));
   } catch {
-    assertAccountSessionBoundary(accountBoundary);
-    await AsyncStorage.removeItem(storageKey);
-    assertAccountSessionBoundary(accountBoundary);
+    await removeCheckoutReturnIfUnchanged(
+      storageKey,
+      receipt,
+      accountBoundary,
+    );
     return undefined;
   }
   const createdAt = Number(envelope?.createdAt);
@@ -83,9 +113,11 @@ export const claimPendingCheckoutReturn = async (): Promise<
     age < -60_000 ||
     age > CHECKOUT_RETURN_TTL_MS
   ) {
-    assertAccountSessionBoundary(accountBoundary);
-    await AsyncStorage.removeItem(storageKey);
-    assertAccountSessionBoundary(accountBoundary);
+    await removeCheckoutReturnIfUnchanged(
+      storageKey,
+      receipt,
+      accountBoundary,
+    );
     return undefined;
   }
   return {accountBoundary, returnTo, receipt, storageKey};
@@ -93,14 +125,9 @@ export const claimPendingCheckoutReturn = async (): Promise<
 
 export const acknowledgePendingCheckoutReturn = async (
   claim: PendingCheckoutReturnClaim,
-) => {
-  assertAccountSessionBoundary(claim.accountBoundary);
-  const current = await AsyncStorage.getItem(claim.storageKey);
-  assertAccountSessionBoundary(claim.accountBoundary);
-  if (current === claim.receipt) {
-    await AsyncStorage.removeItem(claim.storageKey);
-    assertAccountSessionBoundary(claim.accountBoundary);
-    return true;
-  }
-  return false;
-};
+) =>
+  removeCheckoutReturnIfUnchanged(
+    claim.storageKey,
+    claim.receipt,
+    claim.accountBoundary,
+  );

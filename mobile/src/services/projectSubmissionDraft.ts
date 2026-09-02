@@ -181,11 +181,12 @@ const feedbackKeyFor = async (threadId: string, boundary?: AccountSessionBoundar
 
 export const cacheProjectFeedbackFile = async (
   file: ChatAttachmentDraft,
+  ownerBoundary?: AccountSessionBoundary,
 ): Promise<ChatAttachmentDraft> => {
   if (file.serverId || !file.uri) return file;
   const cached = await cacheLearnerDraftFile('project', {
     uri: file.uri, fileName: file.name, type: file.type, size: file.size,
-  }, 8 * 1024 * 1024);
+  }, 8 * 1024 * 1024, ownerBoundary);
   return {...file, uri: cached.uri, name: cached.fileName || file.name,
     type: cached.type || file.type, size: cached.size};
 };
@@ -225,8 +226,9 @@ export const loadProjectFeedbackDraft = async (
 export const saveProjectFeedbackDraft = async (
   threadId: string,
   draft: ProjectFeedbackDraft,
+  ownerBoundary?: AccountSessionBoundary,
 ): Promise<void> => {
-  const boundary = await captureAccountSessionBoundary();
+  const boundary = ownerBoundary || (await captureAccountSessionBoundary());
   const key = await feedbackKeyFor(threadId, boundary);
   await withDraftLock(key, async () => {
     assertAccountSessionBoundary(boundary);
@@ -244,8 +246,9 @@ export const saveProjectFeedbackDraft = async (
 export const clearProjectFeedbackDraft = async (
   threadId: string,
   files: ChatAttachmentDraft[] = [],
+  ownerBoundary?: AccountSessionBoundary,
 ): Promise<void> => {
-  const boundary = await captureAccountSessionBoundary();
+  const boundary = ownerBoundary || (await captureAccountSessionBoundary());
   const key = await feedbackKeyFor(threadId, boundary);
   await withDraftLock(key, async () => {
     assertAccountSessionBoundary(boundary);

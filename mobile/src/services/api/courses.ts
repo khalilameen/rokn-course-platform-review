@@ -212,6 +212,7 @@ type CourseDetailsCacheRecord = {
 
 const courseCategory = (course: CourseDto): DemoCourse['category'] => {
   const labels = (Array.isArray(course?.tags) ? course.tags : [])
+    .filter(isApiRecord)
     .flatMap(tag => [tag.name_ar, tag.name_en])
     .filter(Boolean)
     .join(' ')
@@ -625,6 +626,7 @@ const mapPublishedCourses = (
   const seenCourseIds = new Set<string>();
   return items
     .filter(item => {
+      if (!isApiRecord(item)) return false;
       const rawId = item?.id ?? item?.course_id;
       if (
         rawId === null ||
@@ -648,6 +650,7 @@ const mapPublishedCourses = (
         item?.catalog_badge?.tone || item?.badge_tone || 'blue',
       );
       const homeRows = (Array.isArray(item?.tags) ? item.tags : [])
+        .filter(isApiRecord)
         .filter(tag => valueAsBoolean(tag.show_on_home))
         .map(tag => ({
           id: String(tag.id),

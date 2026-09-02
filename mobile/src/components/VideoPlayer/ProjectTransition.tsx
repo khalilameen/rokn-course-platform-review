@@ -56,6 +56,10 @@ import {
 import {removeLearnerDraftFile} from '../../services/learnerDraftFiles';
 import {useAppActiveState} from '../../hooks/useAppActiveState';
 import {showMediaPickerFailure} from '../../services/mediaPickerErrors';
+import {
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+} from '../../constants/helpers';
 
 interface ProjectTransitionProps {
   active: boolean;
@@ -149,10 +153,14 @@ const ProjectTransition = ({
   const submissionInFlightRef = useRef(false);
   const feedbackRequestRef = useRef<{fingerprint: string; id: string} | null>(null);
   const feedbackSendFlightRef = useRef<symbol | null>(null);
+  const feedbackPickerFlightRef = useRef<symbol | null>(null);
   const feedbackGenerationRef = useRef(0);
   const draftGenerationRef = useRef(0);
   const projectGenerationRef = useRef(0);
   const activeProjectIdRef = useRef(project.id);
+  const activeFeedbackThreadIdRef = useRef<string | null>(
+    project.feedbackThread?.id || null,
+  );
   const submissionDraftSnapshotRef = useRef({
     files: selectedFiles,
     note: submissionNote,
@@ -166,6 +174,7 @@ const ProjectTransition = ({
     activeProjectIdRef.current = project.id;
     projectGenerationRef.current += 1;
   }
+  activeFeedbackThreadIdRef.current = feedbackThread?.id || null;
 
   const ownsProject = useCallback(
     (projectId: string, generation: number) =>
@@ -279,12 +288,17 @@ const ProjectTransition = ({
     feedbackGenerationRef.current += 1;
     feedbackRequestRef.current = null;
     feedbackSendFlightRef.current = null;
+    feedbackPickerFlightRef.current = null;
     setFeedbackSending(false);
     setFeedbackError('');
     setFeedbackDraft('');
     setFeedbackAttachments([]);
     setFeedbackDraftReady(false);
-  }, [project.id]);
+    return () => {
+      feedbackGenerationRef.current += 1;
+      feedbackPickerFlightRef.current = null;
+    };
+  }, [feedbackThread?.id, project.id]);
 
   useEffect(() => {
     setFeedbackThread(project.feedbackThread);
@@ -434,6 +448,13 @@ const ProjectTransition = ({
       return;
     const flight = Symbol('project-feedback-send');
     const generation = feedbackGenerationRef.current;
+    const projectId = project.id;
+    const threadId = feedbackThread.id;
+    const ownsFeedbackContext = () =>
+      feedbackSendFlightRef.current === flight &&
+      feedbackGenerationRef.current === generation &&
+      activeProjectIdRef.current === projectId &&
+      activeFeedbackThreadIdRef.current === threadId;
     feedbackSendFlightRef.current = flight;
     setFeedbackSending(true);
     setFeedbackError('');
@@ -444,34 +465,45 @@ const ProjectTransition = ({
         : secureRandomUuid());
     feedbackRequestRef.current = {fingerprint, id: requestId};
     try {
+      const feedbackBoundary = await captureAccountSessionBoundary();
       const uploaded = await Promise.all(files.map(async file => ({
         ...file,
-        serverId: file.serverId || await uploadProjectFeedbackAttachment(feedbackThread.id, file),
+        serverId: file.serverId || await uploadProjectFeedbackAttachment(threadId, file),
       })));
+      assertAccountSessionBoundary(feedbackBoundary);
+      if (!ownsFeedbackContext()) return;
       const durableFingerprint = [value, ...uploaded.map(file =>
         `${file.serverId || file.uploadId}:${file.name}:${file.size || 0}`)].join('|');
       // Persist the server-owned ids before removing local copies. A process
       // death after upload can then resume the same logical message without
       // losing the attachment or uploading a second blob.
-      await saveProjectFeedbackDraft(feedbackThread.id, {
+      await saveProjectFeedbackDraft(threadId, {
         text: value,
         attachments: uploaded,
         requestId,
         fingerprint: durableFingerprint,
         updatedAt: Date.now(),
-      });
+      }, feedbackBoundary);
+      assertAccountSessionBoundary(feedbackBoundary);
+      if (!ownsFeedbackContext()) return;
       setFeedbackAttachments(uploaded);
       feedbackRequestRef.current = {
         id: requestId,
         fingerprint: durableFingerprint,
       };
       const next = await sendProjectFeedbackMessage(
-        feedbackThread.id,
+        threadId,
         value,
         requestId,
         uploaded.map(file => file.serverId!).filter(Boolean),
       );
-      void clearProjectFeedbackDraft(feedbackThread.id, uploaded).catch(() => undefined);
+      assertAccountSessionBoundary(feedbackBoundary);
+      if (!ownsFeedbackContext()) return;
+      void clearProjectFeedbackDraft(
+        threadId,
+        uploaded,
+        feedbackBoundary,
+      ).catch(() => undefined);
       if (generation !== feedbackGenerationRef.current) return;
       // The server response is authoritative. Publish it before local cleanup:
       // a registry/AsyncStorage failure must never turn an accepted message
@@ -481,24 +513,50 @@ const ProjectTransition = ({
       setFeedbackAttachments([]);
       feedbackRequestRef.current = null;
     } catch (error: unknown) {
-      if (generation !== feedbackGenerationRef.current) return;
+      if (
+        !ownsFeedbackContext() ||
+        (error instanceof Error &&
+          error.message === 'ACCOUNT_CHANGED_DURING_REQUEST')
+      )
+        return;
       setFeedbackError(
         learnerErrorMessage(error, 'لم تُرسل الرسالة\nحاول مرة أخرى'),
       );
     } finally {
-      if (
-        generation === feedbackGenerationRef.current &&
-        feedbackSendFlightRef.current === flight
-      ) {
+      if (feedbackSendFlightRef.current === flight) {
         feedbackSendFlightRef.current = null;
-        setFeedbackSending(false);
+        if (
+          feedbackGenerationRef.current === generation &&
+          activeProjectIdRef.current === projectId &&
+          activeFeedbackThreadIdRef.current === threadId
+        ) {
+          setFeedbackSending(false);
+        }
       }
     }
   };
 
   const pickFeedbackAttachments = async () => {
-    if (!feedbackThread?.attachmentsEnabled) return;
+    if (
+      !feedbackThread?.attachmentsEnabled ||
+      feedbackPickerFlightRef.current
+    )
+      return;
+    const projectId = project.id;
+    const threadId = feedbackThread.id;
+    const generation = feedbackGenerationRef.current;
+    const flight = Symbol('project-feedback-picker');
+    const ownsPickerContext = () =>
+      feedbackGenerationRef.current === generation &&
+      activeProjectIdRef.current === projectId &&
+      activeFeedbackThreadIdRef.current === threadId;
+    const ownsPicker = () =>
+      feedbackPickerFlightRef.current === flight && ownsPickerContext();
+    feedbackPickerFlightRef.current = flight;
+    const additions: ChatAttachmentDraft[] = [];
     try {
+      const pickerBoundary = await captureAccountSessionBoundary();
+      assertAccountSessionBoundary(pickerBoundary);
       const maximum = Math.max(0, feedbackThread.attachmentMaxFiles || 0);
       const result = await DocumentPicker.getDocumentAsync({
         type: [
@@ -510,22 +568,63 @@ const ProjectTransition = ({
         copyToCacheDirectory: true,
       });
       if (result.canceled) return;
+      assertAccountSessionBoundary(pickerBoundary);
+      if (!ownsPicker()) return;
       const remaining = Math.max(0, maximum - feedbackAttachments.length);
-      const additions = await Promise.all(result.assets.slice(0, remaining).map(async asset =>
-        cacheProjectFeedbackFile({
-          uri: asset.uri,
-          name: asset.name,
-          type: asset.mimeType || 'application/octet-stream',
-          size: asset.size,
-          uploadId: secureRandomUuid(),
-        })));
-      setFeedbackAttachments(current => [...current, ...additions].slice(0, maximum));
+      for (const asset of result.assets.slice(0, remaining)) {
+        additions.push(
+          await cacheProjectFeedbackFile(
+            {
+              uri: asset.uri,
+              name: asset.name,
+              type: asset.mimeType || 'application/octet-stream',
+              size: asset.size,
+              uploadId: secureRandomUuid(),
+            },
+            pickerBoundary,
+          ),
+        );
+        assertAccountSessionBoundary(pickerBoundary);
+        if (!ownsPicker()) {
+          await Promise.all(additions.map(removeLearnerDraftFile));
+          return;
+        }
+      }
+      if (!ownsPicker()) {
+        await Promise.all(additions.map(removeLearnerDraftFile));
+        return;
+      }
+      setFeedbackAttachments(current => {
+        if (!ownsPickerContext()) {
+          void Promise.all(additions.map(removeLearnerDraftFile));
+          return current;
+        }
+        const kept = [...current, ...additions].slice(0, maximum);
+        const keptIds = new Set(kept.map(file => file.uploadId));
+        void Promise.all(
+          additions
+            .filter(file => !keptIds.has(file.uploadId))
+            .map(removeLearnerDraftFile),
+        );
+        return kept;
+      });
     } catch (error: unknown) {
+      await Promise.all(additions.map(removeLearnerDraftFile));
+      if (!ownsPicker()) return;
+      if (
+        error instanceof Error &&
+        error.message === 'ACCOUNT_CHANGED_DURING_REQUEST'
+      )
+        return;
       showMediaPickerFailure(
         error instanceof Error && error.message === 'LEARNER_DRAFT_STORAGE_FULL'
           ? error.message
           : 'document_picker_failed',
       );
+    } finally {
+      if (feedbackPickerFlightRef.current === flight) {
+        feedbackPickerFlightRef.current = null;
+      }
     }
   };
 

@@ -22,4 +22,32 @@ describe('profile recovery contracts', () => {
     expect(certificates).toContain('!grantCourses.length ?');
     expect(certificates).toContain('onAction={loadCertificates}');
   });
+
+  it('hydrates portfolio data independently and replays media as one flight', () => {
+    const gallery = source('src/screens/Profile/Gallery.tsx');
+    const initializer = source('src/screens/AppInitializer.tsx');
+
+    expect(gallery).not.toContain(
+      'for (const entry of await listPortfolioMediaUploads())',
+    );
+    expect(gallery).toContain('portfolioReplayRefreshFlightRef.current');
+    expect(gallery).toContain('await replayPendingPortfolioMediaUploads()');
+    expect(initializer).toContain('replayPendingPortfolioMediaUploads()');
+  });
+
+  it('owns edit, finalize and media-delete mutations synchronously', () => {
+    const gallery = source('src/screens/Profile/Gallery.tsx');
+
+    expect(gallery).toContain('projectMutationFlightRef.current = flight');
+    expect(gallery).not.toContain('mediaFlightRef');
+    expect(gallery).not.toContain('deleteFlightRef');
+    expect(gallery.match(/beginProjectMutation\((?:false)?\)/g)).toHaveLength(5);
+    expect(gallery.match(/finishProjectMutation\(flight\)/g)).toHaveLength(8);
+    expect(gallery).toContain(
+      '{cancelable: true, onDismiss: releaseUnstartedDelete}',
+    );
+    expect(gallery).toContain(
+      'if (!deleteStarted) finishProjectMutation(flight)',
+    );
+  });
 });

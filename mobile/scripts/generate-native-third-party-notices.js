@@ -199,27 +199,50 @@ const expoUpstreamLicense = (npmCoordinate, gitHead) => ({
 const EXPO_GIT_HEAD_C8 = 'c8f16914a2713c37fe446c46d613004626b3e6b3';
 const EXPO_GIT_HEAD_7C = '7c081282cf88968f81732feb67a71840e769a40f';
 const EXPO_GIT_HEAD_FC = 'fcb091766242d53248cd3c5949965961dbc5ec1d';
+const EXPO_GIT_HEAD_85 = '856b99321eeb04bd528b33f90c0e7fa2859a1fcb';
+const EXPO_GIT_HEAD_30 = '30a1c5b4871a5a3f0f6545be0c2d1f67521a5e6f';
 const POD_UPSTREAM_LEGAL_DOCUMENTS = new Map([
   [
     'EXApplication@55.0.17',
     expoUpstreamLicense('expo-application@55.0.17', EXPO_GIT_HEAD_C8),
   ],
   [
+    'EXApplication@55.0.19',
+    expoUpstreamLicense('expo-application@55.0.19', EXPO_GIT_HEAD_85),
+  ],
+  [
     'EXConstants@55.0.17',
     expoUpstreamLicense('expo-constants@55.0.17', EXPO_GIT_HEAD_C8),
   ],
   ['Expo@55.0.28', expoUpstreamLicense('expo@55.0.28', EXPO_GIT_HEAD_C8)],
+  ['Expo@55.0.31', expoUpstreamLicense('expo@55.0.31', EXPO_GIT_HEAD_30)],
   [
     'ExpoAppleAuthentication@55.0.15',
     expoUpstreamLicense('expo-apple-authentication@55.0.15', EXPO_GIT_HEAD_C8),
+  ],
+  [
+    'ExpoAppleAuthentication@55.0.17',
+    expoUpstreamLicense('expo-apple-authentication@55.0.17', EXPO_GIT_HEAD_85),
   ],
   [
     'ExpoAsset@55.0.18',
     expoUpstreamLicense('expo-asset@55.0.18', EXPO_GIT_HEAD_C8),
   ],
   [
+    'ExpoAsset@55.0.20',
+    expoUpstreamLicense('expo-asset@55.0.20', EXPO_GIT_HEAD_85),
+  ],
+  [
     'ExpoCrypto@55.0.17',
     expoUpstreamLicense('expo-crypto@55.0.17', EXPO_GIT_HEAD_C8),
+  ],
+  [
+    'ExpoCrypto@55.0.19',
+    expoUpstreamLicense('expo-crypto@55.0.19', EXPO_GIT_HEAD_85),
+  ],
+  [
+    'ExpoDocumentPicker@55.0.17',
+    expoUpstreamLicense('expo-document-picker@55.0.17', EXPO_GIT_HEAD_85),
   ],
   [
     'ExpoDomWebView@55.0.6',
@@ -228,6 +251,10 @@ const POD_UPSTREAM_LEGAL_DOCUMENTS = new Map([
   [
     'ExpoFileSystem@55.0.24',
     expoUpstreamLicense('expo-file-system@55.0.24', EXPO_GIT_HEAD_C8),
+  ],
+  [
+    'ExpoFileSystem@55.0.26',
+    expoUpstreamLicense('expo-file-system@55.0.26', EXPO_GIT_HEAD_85),
   ],
   [
     'ExpoFont@55.0.8',
@@ -246,20 +273,40 @@ const POD_UPSTREAM_LEGAL_DOCUMENTS = new Map([
     expoUpstreamLicense('expo-modules-core@55.0.25', EXPO_GIT_HEAD_7C),
   ],
   [
+    'ExpoModulesCore@55.0.26',
+    expoUpstreamLicense('expo-modules-core@55.0.26', EXPO_GIT_HEAD_30),
+  ],
+  [
     'ExpoModulesJSI@55.0.25',
     expoUpstreamLicense('expo-modules-core@55.0.25', EXPO_GIT_HEAD_7C),
+  ],
+  [
+    'ExpoModulesJSI@55.0.26',
+    expoUpstreamLicense('expo-modules-core@55.0.26', EXPO_GIT_HEAD_30),
   ],
   [
     'ExpoNotifications@55.0.25',
     expoUpstreamLicense('expo-notifications@55.0.25', EXPO_GIT_HEAD_C8),
   ],
   [
+    'ExpoNotifications@55.0.27',
+    expoUpstreamLicense('expo-notifications@55.0.27', EXPO_GIT_HEAD_85),
+  ],
+  [
     'ExpoSecureStore@55.0.16',
     expoUpstreamLicense('expo-secure-store@55.0.16', EXPO_GIT_HEAD_C8),
   ],
   [
+    'ExpoSecureStore@55.0.18',
+    expoUpstreamLicense('expo-secure-store@55.0.18', EXPO_GIT_HEAD_85),
+  ],
+  [
     'ExpoWebBrowser@55.0.18',
     expoUpstreamLicense('expo-web-browser@55.0.18', EXPO_GIT_HEAD_C8),
+  ],
+  [
+    'ExpoWebBrowser@55.0.20',
+    expoUpstreamLicense('expo-web-browser@55.0.20', EXPO_GIT_HEAD_85),
   ],
 ]);
 

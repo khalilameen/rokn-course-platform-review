@@ -12,6 +12,7 @@ jest.mock('react-native-video', () => {
 jest.mock('react-native-linear-gradient', () => 'LinearGradient');
 
 import VideoComponent from '../src/components/VideoPlayer/VideoComponent';
+import {createVideoEventHandlers} from '../src/components/VideoPlayer/video/eventHandlers';
 import {
   formatVideoDuration,
   normalizeVideoUri,
@@ -31,6 +32,64 @@ describe('VideoComponent facade', () => {
 });
 
 describe('video component policy', () => {
+  it('drops every native event owned by a replaced player instance', () => {
+    const setCurrentTime = jest.fn();
+    const onProgressChange = jest.fn();
+    const onComplete = jest.fn();
+    const recoverOrFail = jest.fn();
+    const handlers = createVideoEventHandlers({
+      bufferCount: {current: 0},
+      bufferDurationMs: {current: 0},
+      bufferingStartedAt: {current: null},
+      data: {id: 'old-reel'},
+      diagnosticRequest: {current: 0},
+      duration: 60,
+      durationRef: {current: 60},
+      emitPlaybackEvent: jest.fn(),
+      hasRestored: {current: false},
+      hasStarted: {current: false},
+      isFallbackSource: false,
+      isPlaying: {current: false},
+      isVisible: true,
+      lastPosition: {current: 0},
+      loadStartedAt: {current: null},
+      longBufferTimer: {current: null},
+      onComplete,
+      onProgressChange,
+      ownsPlayback: () => false,
+      pendingSeek: {current: null},
+      publishRuntimeMetrics: jest.fn(),
+      recoverOrFail,
+      recoveryAttempts: {current: 0},
+      reelInitialPosition: {current: 0},
+      retryPosition: {current: null},
+      setBufferedTime: jest.fn(),
+      setCurrentTime,
+      setDuration: jest.fn(),
+      setError: jest.fn(),
+      setIsBuffering: jest.fn(),
+      setIsLoaded: jest.fn(),
+      setRecoveryMessage: jest.fn(),
+      sourceType: 'm3u8',
+      sourceUri: 'https://cdn.example.com/old.m3u8',
+      videoRef: {current: null},
+    });
+
+    handlers.onLoadStart?.({isNetwork: true} as never);
+    handlers.onProgress?.({
+      currentTime: 59,
+      playableDuration: 60,
+      seekableDuration: 60,
+    } as never);
+    handlers.onError?.({error: {errorCode: 'late'}} as never);
+    handlers.onEnd?.();
+
+    expect(setCurrentTime).not.toHaveBeenCalled();
+    expect(onProgressChange).not.toHaveBeenCalled();
+    expect(recoverOrFail).not.toHaveBeenCalled();
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
   it('normalizes remote sources without breaking emulator loopback URLs', () => {
     expect(
       normalizeVideoUri(' //cdn.example.com/video.m3u8?a=1&amp;b=2 '),

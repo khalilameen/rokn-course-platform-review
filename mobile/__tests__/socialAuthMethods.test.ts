@@ -123,6 +123,78 @@ describe('social auth discovery', () => {
     });
   });
 
+  it('keeps a claimed provider when a partial 200 response omits only its URL', async () => {
+    mockGet.mockResolvedValue({
+      data: {
+        data: {
+          providers: ['google', 'tiktok'],
+          authorization_urls: {
+            google:
+              'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/social-auth/google/start',
+            tiktok: null,
+          },
+          recommended_provider: 'google',
+        },
+      },
+    });
+    mockStorageGet.mockResolvedValue(
+      JSON.stringify({
+        savedAt: Date.now() - 60_000,
+        methods: {
+          providers: ['google', 'tiktok'],
+          authorizationApiUrl:
+            'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1',
+          authorizationUrls: {
+            google:
+              'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/social-auth/google/start',
+            tiktok:
+              'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/social-auth/tiktok/start',
+          },
+        },
+      }),
+    );
+
+    await expect(getSocialAuthMethods()).resolves.toMatchObject({
+      providers: ['google', 'tiktok'],
+      authorizationUrls: {
+        tiktok:
+          'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/social-auth/tiktok/start',
+      },
+    });
+  });
+
+  it('does not let the cache conceal an explicitly unsafe provider URL', async () => {
+    mockGet.mockResolvedValue({
+      data: {
+        data: {
+          providers: ['google'],
+          authorization_urls: {
+            google: 'https://attacker.example/api/v1/social-auth/google/start',
+          },
+        },
+      },
+    });
+    mockStorageGet.mockResolvedValue(
+      JSON.stringify({
+        savedAt: Date.now() - 60_000,
+        methods: {
+          providers: ['google'],
+          authorizationApiUrl:
+            'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1',
+          authorizationUrls: {
+            google:
+              'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/social-auth/google/start',
+          },
+        },
+      }),
+    );
+
+    await expect(getSocialAuthMethods()).resolves.toMatchObject({
+      providers: [],
+      authorizationUrls: {},
+    });
+  });
+
   it('does not let an expired provider contract hide a real outage', async () => {
     mockGet.mockRejectedValue(new Error('NETWORK_UNAVAILABLE'));
     mockStorageGet.mockResolvedValue(

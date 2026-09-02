@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\ProductFeatureFlag;
+use App\Support\AdminEditorVersion;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
@@ -127,7 +128,7 @@ final class ProductFeatureFlagService
         ];
     }
 
-    /** @return array<string, array{enabled: bool, rollout_percentage: int, owner: ?string, reason: ?string, expires_at: ?string, safe_default: bool, description: string}> */
+    /** @return array<string, array{enabled: bool, rollout_percentage: int, owner: ?string, reason: ?string, expires_at: ?string, safe_default: bool, description: string, editor_version: string}> */
     public function operationalSnapshot(): array
     {
         $rows = $this->rows();
@@ -151,10 +152,22 @@ final class ProductFeatureFlagService
                 'expires_at' => $row?->expires_at?->toIso8601String(),
                 'safe_default' => $definition['safe_default'],
                 'description' => $definition['description'],
+                'editor_version' => $this->editorVersion($key, $row),
             ];
         }
 
         return $result;
+    }
+
+    public function editorVersion(string $key, ?ProductFeatureFlag $flag): string
+    {
+        if (!$flag) {
+            return hash('sha256', 'product-feature:missing:'.$key);
+        }
+
+        return AdminEditorVersion::for($flag, [
+            'key', 'enabled', 'rollout_percentage', 'owner', 'reason', 'expires_at',
+        ]);
     }
 
     private function bucket(string $key, string $subject): int

@@ -420,6 +420,13 @@ final readonly class AiEntitlementBudgetService
                 $outcome = self::SETTLEMENT_TERMINAL_CONFLICT;
                 return;
             }
+            // The active-account lock and the metered event must describe the
+            // same learner. Otherwise a stale/misrouted job could use another
+            // active account to start or retain this learner's paid result.
+            if ((int) $lockedEvent->user_id !== $userId) {
+                $outcome = self::SETTLEMENT_TERMINAL_CONFLICT;
+                return;
+            }
             if ($lockedEvent->status === 'completed') {
                 $stored = trim((string) data_get($lockedEvent->metadata, 'accepted_response', ''));
                 $received = trim((string) data_get($providerResult, 'message', ''));

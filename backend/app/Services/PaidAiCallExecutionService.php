@@ -28,7 +28,12 @@ final class PaidAiCallExecutionService
                 ->lockForUpdate()->exists()) {
                 return self::INACTIVE;
             }
-            return $this->begin($event, $executionId);
+            $locked = AiUsageEvent::query()->lockForUpdate()->find($event->id);
+            if (!$locked || (int) $locked->user_id !== $userId) {
+                return self::TERMINAL;
+            }
+
+            return $this->beginLocked($locked, $executionId);
         }, 3);
     }
 
@@ -37,29 +42,8 @@ final class PaidAiCallExecutionService
         return DB::transaction(function () use ($event, $executionId): string {
             $locked = AiUsageEvent::query()->lockForUpdate()->find($event->id);
             if (!$locked || $locked->status !== 'reserved') return self::TERMINAL;
-            $metadata = is_array($locked->metadata) ? $locked->metadata : [];
-            $owner = trim((string) ($metadata['worker_execution_id'] ?? ''));
-            $state = trim((string) ($metadata['provider_call_state'] ?? ''));
-            if ($state === self::LANDED && is_array($metadata['provider_success_landing'] ?? null)) {
-                return self::LANDED;
-            }
-            if (in_array($state, ['started', 'outcome_unknown'], true)) {
-                $startedAt = strtotime((string) ($metadata['provider_call_started_at'] ?? ''));
-                $leaseSeconds = max(60, (int) config('openrouter.timeout_seconds', 45) + 30);
-                return $state === 'started' && $startedAt !== false && $startedAt > time() - $leaseSeconds
-                    ? self::LIVE
-                    : self::STALE_STARTED;
-            }
-            if (!in_array($state, ['', 'retry_safe'], true)) {
-                return self::TERMINAL;
-            }
-            $metadata['worker_execution_id'] = $executionId;
-            $metadata['provider_call_state'] = 'started';
-            $metadata['provider_call_started_at'] = now()->toIso8601String();
-            $metadata['provider_call_attempt'] = max(0, (int) ($metadata['provider_call_attempt'] ?? 0)) + 1;
-            unset($metadata['provider_retry_safe_at']);
-            $locked->forceFill(['metadata' => $metadata])->save();
-            return self::START;
+
+            return $this->beginLocked($locked, $executionId);
         }, 3);
     }
 
@@ -80,7 +64,8 @@ final class PaidAiCallExecutionService
             if (!User::query()->whereKey($userId)->where('active', true)
                 ->lockForUpdate()->exists()) return self::INACTIVE;
             $locked = AiUsageEvent::query()->lockForUpdate()->find($event->id);
-            if (!$locked || $locked->status !== 'reserved') return self::TERMINAL;
+            if (!$locked || (int) $locked->user_id !== $userId
+                || $locked->status !== 'reserved') return self::TERMINAL;
             $metadata = is_array($locked->metadata) ? $locked->metadata : [];
             $existing = $this->landedResult($locked);
             if ($existing !== null) {
@@ -105,6 +90,33 @@ final class PaidAiCallExecutionService
             $locked->forceFill(['metadata' => $metadata])->save();
             return self::LANDED;
         }, 3), 200);
+    }
+
+    private function beginLocked(AiUsageEvent $locked, string $executionId): string
+    {
+        if ($locked->status !== 'reserved') return self::TERMINAL;
+        $metadata = is_array($locked->metadata) ? $locked->metadata : [];
+        $state = trim((string) ($metadata['provider_call_state'] ?? ''));
+        if ($state === self::LANDED && is_array($metadata['provider_success_landing'] ?? null)) {
+            return self::LANDED;
+        }
+        if (in_array($state, ['started', 'outcome_unknown'], true)) {
+            $startedAt = strtotime((string) ($metadata['provider_call_started_at'] ?? ''));
+            $leaseSeconds = max(60, (int) config('openrouter.timeout_seconds', 45) + 30);
+            return $state === 'started' && $startedAt !== false && $startedAt > time() - $leaseSeconds
+                ? self::LIVE
+                : self::STALE_STARTED;
+        }
+        if (!in_array($state, ['', 'retry_safe'], true)) {
+            return self::TERMINAL;
+        }
+        $metadata['worker_execution_id'] = $executionId;
+        $metadata['provider_call_state'] = 'started';
+        $metadata['provider_call_started_at'] = now()->toIso8601String();
+        $metadata['provider_call_attempt'] = max(0, (int) ($metadata['provider_call_attempt'] ?? 0)) + 1;
+        unset($metadata['provider_retry_safe_at']);
+        $locked->forceFill(['metadata' => $metadata])->save();
+        return self::START;
     }
 
     public function landedResult(?AiUsageEvent $event): ?array

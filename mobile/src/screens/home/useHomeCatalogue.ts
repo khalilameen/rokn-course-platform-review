@@ -42,6 +42,7 @@ export const useHomeCatalogue = ({
   const [loadMoreError, setLoadMoreError] = useState('');
   const appIsActive = useAppActiveState();
   const previouslyActiveRef = useRef(appIsActive);
+  const previouslyFocusedRef = useRef(active);
   const requestId = useRef(0);
   const requestController = useRef<AbortController | null>(null);
   const loadingMoreRef = useRef(false);
@@ -258,14 +259,20 @@ export const useHomeCatalogue = ({
   localDemoActive.current = usingLocalDemo;
 
   useEffect(() => {
-    const wasActive = previouslyActiveRef.current;
+    const wasAppActive = previouslyActiveRef.current;
+    const wasFocused = previouslyFocusedRef.current;
     previouslyActiveRef.current = appIsActive;
-    if (!active || !appIsActive || wasActive || localDemoActive.current) {
+    previouslyFocusedRef.current = active;
+    if (!active || !appIsActive || localDemoActive.current) {
       return;
     }
+    const returnedToHome = !wasFocused;
+    const returnedToApp = !wasAppActive;
+    if (!returnedToHome && !returnedToApp) return;
     const now = Date.now();
-    if (now - lastAttemptAt.current < 3_000) return;
+    if (!returnedToHome && now - lastAttemptAt.current < 3_000) return;
     if (
+      !returnedToHome &&
       !shouldRefreshOnForeground.current &&
       now - lastSuccessfulLoadAt.current < 2 * 60 * 1000
     ) {

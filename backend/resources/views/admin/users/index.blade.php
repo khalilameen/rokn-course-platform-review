@@ -170,6 +170,7 @@
                                                             @csrf
                                                             @method('PATCH')
                                                             <input type="hidden" name="expected_active" value="{{ $user->active ? 1 : 0 }}">
+                                                            <input type="hidden" name="state_version" value="{{ $accountStateVersions[$user->id] }}">
                                                             <button type="submit" class="dropdown-item-modern border-0 w-100 text-right bg-transparent">
                                                                 <i class="fa {{ $user->active ? 'fa-ban' : 'fa-check' }}"></i>
                                                                 <span>{{ $user->active ? 'تعطيل الحساب' : 'تفعيل الحساب' }}</span>

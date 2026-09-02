@@ -51,6 +51,7 @@ class UserRequest extends FormRequest
             'password' => [$this->isMethod('post') ? 'required' : 'nullable', 'string', 'min:10', 'max:72'],
             'image' => ['nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:4096'],
             'authoring_request_id' => [$this->isMethod('post') ? 'required' : 'nullable', 'uuid'],
+            'editor_version' => [$this->isMethod('post') ? 'nullable' : 'required', 'string', 'size:64'],
         ];
     }
 

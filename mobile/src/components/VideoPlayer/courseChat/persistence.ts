@@ -153,8 +153,9 @@ export const saveCourseChatHistory = async (
   courseId: string,
   messages: ChatMessage[],
   lessonId?: string,
+  ownerBoundary?: AccountSessionBoundary,
 ): Promise<void> => {
-  const boundary = await captureAccountSessionBoundary();
+  const boundary = ownerBoundary || (await captureAccountSessionBoundary());
   const generation = persistenceGeneration;
   const durable = messages
     .filter(message => !message.id.startsWith('welcome-'))

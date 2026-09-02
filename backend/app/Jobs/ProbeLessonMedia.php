@@ -24,14 +24,26 @@ final class ProbeLessonMedia implements ShouldQueue, ShouldBeUnique
     public int $uniqueFor = 3600;
     public bool $failOnTimeout = true;
 
-    public function __construct(public int $lessonId)
+    // Nullable for rolling deploys: serialized jobs created by the previous
+    // release do not contain this property.
+    public ?string $expectedVideoGuid = null;
+
+    public function __construct(public int $lessonId, ?string $expectedVideoGuid = null)
     {
+        // Capture the provider generation at dispatch time. A lesson id alone
+        // would coalesce a replacement probe with an older job that is still
+        // running, potentially leaving the new video unprobed for an hour.
+        $this->expectedVideoGuid = strtolower(trim(
+            $expectedVideoGuid
+                ?? (string) Lesson::query()->whereKey($lessonId)->value('bunny_video_id')
+        ));
         $this->onQueue((string) config('queue.channels.media', 'media'));
     }
 
     public function uniqueId(): string
     {
-        return 'lesson-media-probe:' . $this->lessonId;
+        return 'lesson-media-probe:' . $this->lessonId . ':'
+            . (($this->expectedVideoGuid ?? '') !== '' ? $this->expectedVideoGuid : 'legacy');
     }
 
     public function handle(
@@ -40,6 +52,20 @@ final class ProbeLessonMedia implements ShouldQueue, ShouldBeUnique
     ): void {
         $lesson = Lesson::query()->with('course')->find($this->lessonId);
         if (!$lesson || !$lesson->usesBunnyVideo() || !$lesson->course) {
+            return;
+        }
+        if (($this->expectedVideoGuid ?? '') === '') {
+            // A pre-deploy payload has no generation. Hand it off instead of
+            // letting stale work observe whichever remote object is current.
+            self::dispatch((int) $lesson->id, (string) $lesson->bunny_video_id);
+            return;
+        }
+        if (!hash_equals(
+            $this->expectedVideoGuid,
+            strtolower(trim((string) $lesson->bunny_video_id))
+        )) {
+            // This job belongs to a superseded remote object. Its successor
+            // has a distinct unique key and owns all provider observations.
             return;
         }
 

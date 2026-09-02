@@ -22,13 +22,15 @@ class ProjectSubmissionController extends Controller
 {
     public function index(Request $request): View
     {
+        $isAdministrator = strtolower(trim((string) $request->user()?->role)) === 'admin';
         $filters = $request->validate([
             'status' => 'nullable|in:pending,passed,needs_resubmission',
             'search' => 'nullable|string|max:100',
         ]);
 
         $query = ProjectSubmission::query()
-            ->with(['user', 'project.section.course', 'reviewer'])
+            ->with(['project.section.course', 'reviewer'])
+            ->when($isAdministrator, fn ($submissions) => $submissions->with('user'))
             ->orderByRaw("CASE review_status WHEN 'pending' THEN 0 WHEN 'needs_resubmission' THEN 1 ELSE 2 END")
             ->latest('submitted_at')
             ->latest('id');
@@ -39,15 +41,17 @@ class ProjectSubmissionController extends Controller
 
         if (!empty($filters['search'])) {
             $search = trim($filters['search']);
-            $query->where(function ($submissionQuery) use ($search): void {
+            $query->where(function ($submissionQuery) use ($search, $isAdministrator): void {
                 $submissionQuery
-                    ->where('public_id', 'like', "%{$search}%")
-                    ->orWhereHas('user', function ($userQuery) use ($search): void {
+                    ->where('public_id', 'like', "%{$search}%");
+                if ($isAdministrator) {
+                    $submissionQuery->orWhereHas('user', function ($userQuery) use ($search): void {
                         $userQuery
                             ->where('name', 'like', "%{$search}%")
                             ->orWhere('email', 'like', "%{$search}%")
                             ->orWhere('phone', 'like', "%{$search}%");
                     });
+                }
             });
         }
 
@@ -60,20 +64,21 @@ class ProjectSubmissionController extends Controller
         return view('admin.project-submissions.index', compact(
             'submissions',
             'statusCounts',
-            'filters'
+            'filters',
+            'isAdministrator'
         ));
     }
 
     public function show(ProjectSubmission $projectSubmission): View
     {
         $isAdministrator = strtolower(trim((string) request()->user()?->role)) === 'admin';
-        $projectSubmission->load([
-            'user',
+        $projectSubmission->load(array_filter([
+            $isAdministrator ? 'user' : null,
             'project.section.course',
             'reviewer',
             'aiInputAttachments',
             'feedbackThread',
-        ]);
+        ]));
 
         $threadMessages = collect();
         if ($projectSubmission->feedbackThread) {

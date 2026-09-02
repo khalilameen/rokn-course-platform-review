@@ -155,6 +155,8 @@ class User extends Authenticatable
      * @var array
      */
     protected $casts = [
+        'active' => 'boolean',
+        'profile_revision' => 'integer',
         'email_verified_at' => 'datetime',
         'portfolio_is_public' => 'boolean',
         'portfolio_skills' => 'array',

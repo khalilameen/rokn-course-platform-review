@@ -35,8 +35,8 @@
         <div class="card-body">
             <form method="GET" action="{{ route('admin.project-submissions.index') }}" class="row align-items-end">
                 <div class="col-md-6 mb-2">
-                    <label for="search">بحث بالطالب أو رقم المحاولة</label>
-                    <input id="search" name="search" type="search" class="form-control" value="{{ $filters['search'] ?? '' }}" placeholder="الاسم، البريد، الهاتف، أو UUID">
+                    <label for="search">{{ $isAdministrator ? 'بحث بالطالب أو رقم المحاولة' : 'بحث برقم المحاولة' }}</label>
+                    <input id="search" name="search" type="search" class="form-control" value="{{ $filters['search'] ?? '' }}" placeholder="{{ $isAdministrator ? 'الاسم، البريد، الهاتف، أو UUID' : 'UUID' }}">
                 </div>
                 <div class="col-md-3 mb-2">
                     <label for="status">الحالة</label>
@@ -66,7 +66,13 @@
                         $course = optional($section)->course;
                     @endphp
                     <tr>
-                        <td><strong>{{ optional($submission->user)->name ?: 'حساب محذوف' }}</strong><br><small class="text-muted">{{ optional($submission->user)->email }}</small></td>
+                        <td>
+                            @if($isAdministrator)
+                                <strong>{{ optional($submission->user)->name ?: 'حساب محذوف' }}</strong><br><small class="text-muted">{{ optional($submission->user)->email }}</small>
+                            @else
+                                <strong>محاولة {{ Str::limit($submission->public_id, 12) }}</strong>
+                            @endif
+                        </td>
                         <td><strong>{{ optional($course)->title ?: 'كورس غير متاح' }}</strong><br><small class="text-muted">{{ optional($section)->title ?: 'مشروع #' . $submission->project_id }}</small></td>
                         <td>@include('admin.partials.status-badge', ['badgeStatus' => $submission->review_status])</td>
                         <td><span class="admin-code">{{ Str::limit($submission->public_id, 18) }}</span><br><small class="text-muted">الجهد: {{ $submission->effort_status }}</small></td>

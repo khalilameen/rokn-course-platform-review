@@ -88,6 +88,26 @@ final class RetryStalledNotificationPushes extends Command
     private function handlePerDevice(int $remaining): int
     {
         $retiredUntouched = $this->retireUntouchedParents();
+        $legacyClaims = StudentNotification::query()
+            ->whereDoesntHave('pushDeliveries')
+            ->whereNull('push_sent_at')
+            ->whereNull('push_failed_at')
+            ->whereNotNull('push_attempted_at')
+            ->where('push_attempted_at', '<=', now()->subMinutes(15))
+            ->limit(5000)
+            ->pluck('id');
+        $quarantinedLegacyClaims = StudentNotification::query()
+            ->whereIn('id', $legacyClaims)
+            ->whereNull('push_sent_at')
+            ->whereNull('push_failed_at')
+            ->update([
+                // This provider call predates the per-device ledger. Its
+                // outcome cannot be reconstructed or retried without risking
+                // a duplicate wake-up, so make the uncertainty explicit.
+                'push_failed_at' => now(),
+                'push_failure_code' => 'delivery_unknown_after_worker_loss',
+                'updated_at' => now(),
+            ]);
         $unboundDeliveryIds = NotificationPushDelivery::query()
             ->from('notification_push_deliveries as delivery')
             ->join('student_notifications as notification', 'notification.id', '=', 'delivery.student_notification_id')
@@ -241,7 +261,7 @@ SQL);
                 ->unique()
         );
 
-        $this->info("Queued {$queued} push job(s); {$dispatchFailures} queue write(s) failed; retired {$retiredUntouched} untouched parent(s), {$unboundDeliveryIds->count()} unbound and {$ineligibleDeliveryIds->count()} ineligible device claim(s); quarantined {$staleClaimed} uncertain delivery claim(s).");
+        $this->info("Queued {$queued} push job(s); {$dispatchFailures} queue write(s) failed; retired {$retiredUntouched} untouched parent(s), {$unboundDeliveryIds->count()} unbound and {$ineligibleDeliveryIds->count()} ineligible device claim(s); quarantined {$staleClaimed} device and {$quarantinedLegacyClaims} legacy uncertain claim(s).");
         return self::SUCCESS;
     }
 

@@ -25,6 +25,10 @@ return [
     // switches to a paid parser. cloudflare-ai is currently the free parser.
     'pdf_parser_engine' => env('OPENROUTER_PDF_PARSER_ENGINE', 'cloudflare-ai'),
     'attachment_provider_max_bytes' => (int) env('OPENROUTER_ATTACHMENT_PROVIDER_MAX_BYTES', 8388608),
+    // Uploading is a reservation, not free permanent storage. Keep enough
+    // headroom for retries while bounding abandoned input per account.
+    'attachment_staging_max_files_per_user' => (int) env('OPENROUTER_ATTACHMENT_STAGING_MAX_FILES', 12),
+    'attachment_staging_max_bytes_per_user' => (int) env('OPENROUTER_ATTACHMENT_STAGING_MAX_BYTES', 67108864),
     // Course-chat context never crosses a new learner session. This keeps the
     // user-visible privacy promise while preserving continuity during a real
     // study session and across lesson swipes.

@@ -70,10 +70,10 @@ import {showMediaPickerFailure} from '../../services/mediaPickerErrors';
 import {
   completePortfolioMediaUpload,
   discardPortfolioMediaUploads,
-  listPortfolioMediaUploads,
   stagePortfolioMediaUpload,
   type PortfolioMediaOutboxEntry,
 } from '../../services/portfolioMediaOutbox';
+import {replayPendingPortfolioMediaUploads} from '../../services/portfolioMediaReplay';
 import {remainingServerMilliseconds} from '../../utils/serverClock';
 
 type Project = {
@@ -202,12 +202,12 @@ export default function Gallery() {
   const loadGenerationRef = useRef(0);
   const eligibleGenerationRef = useRef(0);
   const addFlightRef = useRef(false);
-  const deleteFlightRef = useRef(false);
   const detailGenerationRef = useRef(0);
-  const mediaFlightRef = useRef(false);
+  const projectMutationFlightRef = useRef<symbol | null>(null);
   const pickerFlightRef = useRef(false);
   const pickerGenerationRef = useRef(0);
-  const mediaReplayProjectsRef = useRef(new Set<string>());
+  const portfolioReplayRefreshFlightRef = useRef<Promise<void> | null>(null);
+  const portfolioReplayRevisionRef = useRef(0);
   const mediaRefreshFlightRef = useRef(false);
   const mediaRefreshAttemptsRef = useRef(new Set<string>());
   const selectedRef = useRef<Project | null>(selected);
@@ -232,6 +232,20 @@ export default function Gallery() {
     summary: draftSummary,
     title: draftTitle,
     updatedAt: Date.now(),
+  };
+
+  const beginProjectMutation = (showSaving = true) => {
+    if (projectMutationFlightRef.current) return null;
+    const flight = Symbol('portfolio-project-mutation');
+    projectMutationFlightRef.current = flight;
+    if (showSaving) setSaving(true);
+    return flight;
+  };
+
+  const finishProjectMutation = (flight: symbol) => {
+    if (projectMutationFlightRef.current !== flight) return;
+    projectMutationFlightRef.current = null;
+    if (mountedRef.current) setSaving(false);
   };
 
   useEffect(() => {
@@ -392,20 +406,6 @@ export default function Gallery() {
     setServerSession(sessionAvailable);
     if (sessionAvailable) {
       try {
-        const failedProjects = new Set<string>();
-        for (const entry of await listPortfolioMediaUploads()) {
-          if (failedProjects.has(entry.projectId)) continue;
-          try {
-            await appendPortfolioMedia(
-              entry.projectId,
-              entry.file,
-              entry.clientRequestId,
-            );
-            await completePortfolioMediaUpload(entry);
-          } catch {
-            failedProjects.add(entry.projectId);
-          }
-        }
         const items = await getPortfolio();
         if (!isCurrent()) return;
         setProjects(items.map(remoteProject));
@@ -451,6 +451,37 @@ export default function Gallery() {
   useEffect(() => {
     void loadProjects();
   }, [loadProjects]);
+
+  const replayPortfolioMedia = useCallback(() => {
+    if (portfolioReplayRefreshFlightRef.current) {
+      return portfolioReplayRefreshFlightRef.current;
+    }
+    const flight = (async () => {
+      const result = await replayPendingPortfolioMediaUploads();
+      if (
+        !mountedRef.current ||
+        result.completionRevision <= portfolioReplayRevisionRef.current
+      )
+        return;
+      portfolioReplayRevisionRef.current = result.completionRevision;
+      await loadProjects();
+      const current = selectedRef.current;
+      if (current?.source === 'remote') {
+        await refreshOpenRemoteProject(true);
+      }
+    })().finally(() => {
+      if (portfolioReplayRefreshFlightRef.current === flight) {
+        portfolioReplayRefreshFlightRef.current = null;
+      }
+    });
+    portfolioReplayRefreshFlightRef.current = flight;
+    return flight;
+  }, [loadProjects, refreshOpenRemoteProject]);
+
+  useEffect(() => {
+    if (!appActive || serverSession !== true) return;
+    void replayPortfolioMedia().catch(() => undefined);
+  }, [appActive, replayPortfolioMedia, serverSession]);
 
   const persistCustomProjects = (next: Project[]) =>
     writeLocalPortfolioDrafts(
@@ -743,15 +774,12 @@ export default function Gallery() {
     }
   };
 
-  const deleteSelectedProject = async () => {
-    if (
-      !selected ||
-      saving ||
-      selected.source === 'demo' ||
-      deleteFlightRef.current
-    )
+  const deleteSelectedProject = async (flight: symbol) => {
+    if (projectMutationFlightRef.current !== flight) return;
+    if (!selected || selected.source === 'demo') {
+      finishProjectMutation(flight);
       return;
-    deleteFlightRef.current = true;
+    }
     setSaving(true);
     try {
       if (selected.source === 'remote') {
@@ -777,24 +805,44 @@ export default function Gallery() {
         );
       }
     } finally {
-      deleteFlightRef.current = false;
-      if (mountedRef.current) setSaving(false);
+      finishProjectMutation(flight);
     }
   };
 
   const confirmDeleteSelectedProject = () => {
-    if (!selected || selected.source === 'demo' || saving) return;
+    if (
+      !selected ||
+      selected.source === 'demo' ||
+      saving ||
+      projectMutationFlightRef.current
+    )
+      return;
+    const flight = beginProjectMutation(false);
+    if (!flight) return;
+    let deleteStarted = false;
+    const releaseUnstartedDelete = () => {
+      if (!deleteStarted) finishProjectMutation(flight);
+    };
     Alert.alert(
       'حذف المشروع',
       `سيُحذف ${selected.title} من البورتفوليو\nلا يمكن التراجع`,
       [
-        {text: 'إلغاء', style: 'cancel'},
+        {text: 'إلغاء', style: 'cancel', onPress: releaseUnstartedDelete},
         {
           text: 'حذف المشروع',
           style: 'destructive',
-          onPress: () => void deleteSelectedProject(),
+          onPress: () => {
+            if (
+              deleteStarted ||
+              projectMutationFlightRef.current !== flight
+            )
+              return;
+            deleteStarted = true;
+            void deleteSelectedProject(flight);
+          },
         },
       ],
+      {cancelable: true, onDismiss: releaseUnstartedDelete},
     );
   };
 
@@ -854,22 +902,6 @@ export default function Gallery() {
     }
   }
 
-  const replayPendingMedia = async (
-    projectId: string,
-    generation: number,
-  ): Promise<void> => {
-    if (mediaReplayProjectsRef.current.has(projectId)) return;
-    mediaReplayProjectsRef.current.add(projectId);
-    try {
-      const pending = await listPortfolioMediaUploads(projectId);
-      for (const entry of pending) {
-        if (!(await uploadStagedMedia(entry, generation))) break;
-      }
-    } finally {
-      mediaReplayProjectsRef.current.delete(projectId);
-    }
-  };
-
   const openProject = (project: Project) => {
     mediaRefreshAttemptsRef.current.clear();
     setSelected(project);
@@ -878,9 +910,7 @@ export default function Gallery() {
     if (project.source !== 'remote') return;
     const generation = ++detailGenerationRef.current;
     setDetailLoading(true);
-    void replayPendingMedia(project.id, generation)
-      .catch(() => undefined)
-      .then(() => getPortfolioItem(project.id))
+    void getPortfolioItem(project.id)
       .then(item => {
         if (!mountedRef.current || detailGenerationRef.current !== generation)
           return;
@@ -899,6 +929,7 @@ export default function Gallery() {
           setDetailLoading(false);
         }
       });
+    void replayPortfolioMedia().catch(() => undefined);
   };
 
   const closeProject = () => {
@@ -922,12 +953,14 @@ export default function Gallery() {
       !selected ||
       selected.source !== 'remote' ||
       !editTitle.trim() ||
-      saving
+      saving ||
+      projectMutationFlightRef.current
     )
       return;
+    const flight = beginProjectMutation();
+    if (!flight) return;
     const projectId = selected.id;
     const generation = detailGenerationRef.current;
-    setSaving(true);
     try {
       const item = await updatePortfolioItem(projectId, {
         title: editTitle.trim(),
@@ -950,15 +983,22 @@ export default function Gallery() {
         );
       }
     } finally {
-      if (mountedRef.current) setSaving(false);
+      finishProjectMutation(flight);
     }
   };
 
   const finalizeSelectedProject = async () => {
-    if (!selected || selected.source !== 'remote' || saving) return;
+    if (
+      !selected ||
+      selected.source !== 'remote' ||
+      saving ||
+      projectMutationFlightRef.current
+    )
+      return;
+    const flight = beginProjectMutation();
+    if (!flight) return;
     const projectId = selected.id;
     const generation = detailGenerationRef.current;
-    setSaving(true);
     try {
       const item = await finalizePortfolioItem(projectId);
       await discardPortfolioMediaUploads(projectId).catch(() => undefined);
@@ -976,7 +1016,7 @@ export default function Gallery() {
         );
       }
     } finally {
-      if (mountedRef.current) setSaving(false);
+      finishProjectMutation(flight);
     }
   };
 
@@ -985,10 +1025,11 @@ export default function Gallery() {
       !selected ||
       selected.source !== 'remote' ||
       saving ||
-      mediaFlightRef.current
+      projectMutationFlightRef.current
     )
       return;
-    mediaFlightRef.current = true;
+    const flight = beginProjectMutation(false);
+    if (!flight) return;
     const projectId = selected.id;
     const generation = detailGenerationRef.current;
     try {
@@ -1048,72 +1089,100 @@ export default function Gallery() {
         );
       }
     } finally {
-      mediaFlightRef.current = false;
-      if (mountedRef.current) setSaving(false);
+      finishProjectMutation(flight);
     }
   };
 
   const removeSelectedMedia = (media: PortfolioMedia) => {
-    if (!selected || selected.source !== 'remote' || saving) return;
-    Alert.alert('حذف الملف', 'سيُحذف من المشروع', [
-      {text: 'إلغاء', style: 'cancel'},
-      {
-        text: 'حذف',
-        style: 'destructive',
-        onPress: () => {
-          const projectId = selected.id;
-          const generation = detailGenerationRef.current;
-          setSaving(true);
-          void deletePortfolioMedia(projectId, media.id)
-            .then(() => {
-              if (!mountedRef.current) return;
-              const withoutMedia = (project: Project): Project => {
-                const remaining = project.media.filter(
-                  candidate => candidate.id !== media.id,
-                );
-                const firstImage = remaining.find(
-                  candidate => candidate.type === 'image' && candidate.uri,
-                );
-                return {
-                  ...project,
-                  media: remaining,
-                  cover: firstImage?.uri
-                    ? {uri: firstImage.uri}
-                    : fallbackCover,
-                };
-              };
-              setProjects(current =>
-                current.map(project =>
-                  project.id === projectId ? withoutMedia(project) : project,
-                ),
-              );
-              if (detailGenerationRef.current === generation) {
-                setSelected(current =>
-                  current?.id === projectId ? withoutMedia(current) : current,
-                );
-                setPreviewMedia(current =>
-                  current?.id === media.id
-                    ? selected.media.find(
-                        candidate => candidate.id !== media.id && candidate.uri,
-                      ) || null
-                    : current,
-                );
-              }
-            })
-            .catch(error => {
-              if (mountedRef.current) {
-                Alert.alert(
-                  'تعذّر حذف الملف',
-                  learnerErrorMessage(error, 'حاول مرة أخرى'),
-                );
-              }
-            })
-            .finally(() => {
-              if (mountedRef.current) setSaving(false);
-            });
+    if (
+      !selected ||
+      selected.source !== 'remote' ||
+      saving ||
+      projectMutationFlightRef.current
+    )
+      return;
+    const flight = beginProjectMutation();
+    if (!flight) return;
+    let deleteStarted = false;
+    const releaseUnstartedDelete = () => {
+      if (!deleteStarted) finishProjectMutation(flight);
+    };
+    Alert.alert(
+      'حذف الملف',
+      'سيُحذف من المشروع',
+      [
+        {
+          text: 'إلغاء',
+          style: 'cancel',
+          onPress: releaseUnstartedDelete,
         },
-      },
-    ]);
+        {
+          text: 'حذف',
+          style: 'destructive',
+          onPress: () => {
+            if (
+              deleteStarted ||
+              projectMutationFlightRef.current !== flight
+            )
+              return;
+            deleteStarted = true;
+            const projectId = selected.id;
+            const generation = detailGenerationRef.current;
+            void deletePortfolioMedia(projectId, media.id)
+              .then(() => {
+                if (!mountedRef.current) return;
+                const withoutMedia = (project: Project): Project => {
+                  const remaining = project.media.filter(
+                    candidate => candidate.id !== media.id,
+                  );
+                  const firstImage = remaining.find(
+                    candidate => candidate.type === 'image' && candidate.uri,
+                  );
+                  return {
+                    ...project,
+                    media: remaining,
+                    cover: firstImage?.uri
+                      ? {uri: firstImage.uri}
+                      : fallbackCover,
+                  };
+                };
+                setProjects(current =>
+                  current.map(project =>
+                    project.id === projectId ? withoutMedia(project) : project,
+                  ),
+                );
+                if (detailGenerationRef.current === generation) {
+                  setSelected(current =>
+                    current?.id === projectId
+                      ? withoutMedia(current)
+                      : current,
+                  );
+                  setPreviewMedia(current =>
+                    current?.id === media.id
+                      ? selected.media.find(
+                          candidate =>
+                            candidate.id !== media.id && candidate.uri,
+                        ) || null
+                      : current,
+                  );
+                }
+              })
+              .catch(error => {
+                if (mountedRef.current) {
+                  Alert.alert(
+                    'تعذّر حذف الملف',
+                    learnerErrorMessage(error, 'حاول مرة أخرى'),
+                  );
+                }
+              })
+              .finally(() => {
+                finishProjectMutation(flight);
+              });
+          },
+        },
+      ],
+      {cancelable: true, onDismiss: releaseUnstartedDelete},
+    );
   };
 
   return (

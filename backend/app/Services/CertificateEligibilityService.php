@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\Course;
+use App\Models\CourseEnrollment;
 use App\Models\CourseSection;
 use App\Models\ExamAttempt;
 use App\Models\Lesson;
@@ -20,20 +21,33 @@ final readonly class CertificateEligibilityService
     public function __construct(
         private CourseChatAccessService $courseAccess,
         private CourseSectionSequenceService $sectionSequence,
-        private LearningEvidenceService $learningEvidence
+        private LearningEvidenceService $learningEvidence,
+        private CurriculumCompletionService $curriculumCompletion
     ) {
     }
 
     /** @return array{included:bool,available:bool,reason:string} */
     public function for(User $user, Course $course): array
     {
-        $included = $this->courseAccess->hasCertificateAccess((int) $user->id, (int) $course->id);
+        $earnedEnrollment = CourseEnrollment::query()
+            ->where('user_id', $user->id)
+            ->where('course_id', $course->id)
+            ->where('is_active', true)
+            ->where(function ($active): void {
+                $active->whereNull('expires_at')->orWhere('expires_at', '>', now());
+            })
+            ->first();
+        $earnedRevision = $earnedEnrollment
+            ? $this->curriculumCompletion->earnedRevision($earnedEnrollment)
+            : null;
+        $included = $earnedRevision !== null
+            ? $this->courseAccess->enrollmentHasCertificateAccess($earnedEnrollment)
+            : $this->courseAccess->hasCertificateAccess((int) $user->id, (int) $course->id);
         if (!$included) return ['included' => false, 'available' => false, 'reason' => 'upgrade_required'];
-        if (!$course->isPublishedForLearning() || $course->isNestedCourse()) {
-            return ['included' => true, 'available' => false, 'reason' => 'course_unavailable'];
-        }
 
-        $enrollment = $this->courseAccess->activeEnrollmentFor((int) $user->id, (int) $course->id);
+        $enrollment = $earnedRevision !== null
+            ? $earnedEnrollment
+            : $this->courseAccess->activeEnrollmentFor((int) $user->id, (int) $course->id);
         if (!$enrollment) return ['included' => true, 'available' => false, 'reason' => 'entitlement_inactive'];
         if ($enrollment->order_id && Order::query()
             ->whereKey($enrollment->order_id)
@@ -42,6 +56,16 @@ final readonly class CertificateEligibilityService
             ->where('unrecovered_coins', '>', 0)
             ->exists()) {
             return ['included' => true, 'available' => false, 'reason' => 'financial_review'];
+        }
+
+        // Completion is an earned fact about a published revision. Moving the
+        // course to draft to author its next revision, adding sections, or
+        // changing its hierarchy must not revoke that fact.
+        if ($earnedRevision !== null) {
+            return ['included' => true, 'available' => true, 'reason' => 'ready'];
+        }
+        if (!$course->isPublishedForLearning() || $course->isNestedCourse()) {
+            return ['included' => true, 'available' => false, 'reason' => 'course_unavailable'];
         }
 
         $sections = $this->sectionSequence->learning(

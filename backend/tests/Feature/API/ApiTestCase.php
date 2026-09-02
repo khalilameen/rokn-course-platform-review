@@ -92,6 +92,7 @@ abstract class ApiTestCase extends TestCase
             $table->string('second_name')->nullable();
             $table->string('last_name')->nullable();
             $table->string('email')->unique()->nullable();
+            $table->timestamp('email_verified_at')->nullable();
             $table->string('phone')->nullable()->unique();
             $table->string('parent_phone')->nullable();
             $table->string('parent_job')->nullable();
@@ -173,6 +174,9 @@ abstract class ApiTestCase extends TestCase
             $table->boolean('is_main_course')->default(true);
             $table->boolean('is_coming_soon')->default(false);
             $table->boolean('is_catalog_visible')->default(false);
+            $table->unsignedBigInteger('authoring_version')->default(1);
+            $table->unsignedBigInteger('last_published_authoring_version')->nullable();
+            $table->timestamp('published_at')->nullable();
             $table->integer('home_sort_order')->default(0);
             $table->string('course_type')->default('online');
             $table->float('rate')->default(5.0);
@@ -236,6 +240,8 @@ abstract class ApiTestCase extends TestCase
             $table->timestamp('access_granted_at')->nullable();
             $table->float('progress')->default(0);
             $table->timestamp('completed_at')->nullable();
+            $table->unsignedBigInteger('completed_curriculum_revision')->nullable();
+            $table->timestamp('curriculum_completed_at')->nullable();
             $table->timestamp('expires_at')->nullable();
             $table->timestamps();
         });

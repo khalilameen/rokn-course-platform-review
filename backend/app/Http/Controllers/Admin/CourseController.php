@@ -21,6 +21,7 @@ use App\Services\ArabicSearchNormalizer;
 use App\Services\CourseAuthoringConcurrencyService;
 use App\Services\CourseCommercialReportService;
 use App\Services\CourseDurationService;
+use App\Services\CourseHeroSelectionService;
 use App\Services\CourseLearningHealthService;
 use App\Services\CoursePublishingService;
 use App\Services\StoredFileDeletionService;
@@ -415,8 +416,11 @@ class CourseController extends Controller
         CourseAuthoringConcurrencyService $authoring
     )
     {
-        $accessPlanService->createDefaults($course);
-        $course->load(['classifications', 'teachers', 'accessPlans']);
+        $course->load(['classifications', 'teachers']);
+        $course->setRelation(
+            'accessPlans',
+            $accessPlanService->plansForEditor($course)
+        );
         $settings = Setting::first();
         $enableEnglish = $settings ? $settings->english_translation : false;
         $classifications = Classification::query()->orderBy('home_order')->orderBy('id')->get();
@@ -449,7 +453,8 @@ class CourseController extends Controller
         Course $course,
         CoursePublishingService $publishingService,
         CourseAccessPlanService $accessPlanService,
-        CourseAuthoringConcurrencyService $authoring
+        CourseAuthoringConcurrencyService $authoring,
+        CourseHeroSelectionService $heroSelection
     )
     {
         $previousClassificationIds = $course->classifications()->pluck('classifications.id')->all();
@@ -475,6 +480,7 @@ class CourseController extends Controller
         $storedImagePath = null;
         $oldPhotoIds = collect();
         $livePublishingIssues = [];
+        $ownedAuthoringVersion = null;
         try {
             if ($request->hasFile('image')) {
                 $storedImagePath = app(StoredFileDeletionService::class)
@@ -498,7 +504,8 @@ class CourseController extends Controller
                 $wasDraft,
                 $authoring,
                 $oldPhotoIds,
-                &$livePublishingIssues
+                &$livePublishingIssues,
+                &$ownedAuthoringVersion
             ): void {
                 $lockedCourse = $authoring->lock($request, $course);
                 $lockedCourse->update($courseData);
@@ -545,7 +552,7 @@ class CourseController extends Controller
                     }
                 }
 
-                $authoring->advance($lockedCourse);
+                $ownedAuthoringVersion = $authoring->advance($lockedCourse);
             }, 3);
         } catch (\Throwable $exception) {
             if ($storedImagePath) {
@@ -573,19 +580,18 @@ class CourseController extends Controller
         $course->refresh();
 
         if ($wasDraft && $publishingRequested) {
-            $expectedVersion = (int) $course->authoring_version;
             $publishingAudit = null;
             $publishedRevision = null;
             DB::transaction(function () use (
                 $course,
-                $expectedVersion,
                 $catalogAnnouncementRequested,
                 $publishingService,
                 $authoring,
                 &$publishingAudit,
-                &$publishedRevision
+                &$publishedRevision,
+                &$ownedAuthoringVersion
             ): void {
-                $lockedCourse = $authoring->lockExpected($course, $expectedVersion);
+                $lockedCourse = $authoring->lockExpected($course, (int) $ownedAuthoringVersion);
                 $publishingAudit = $publishingService->audit($lockedCourse->fresh());
                 if ($publishingAudit['ready']) {
                     $previousPublishedRevision = (int) ($lockedCourse->last_published_authoring_version ?? 0);
@@ -594,6 +600,7 @@ class CourseController extends Controller
                         'is_catalog_visible' => $catalogAnnouncementRequested,
                     ]);
                     $publishedRevision = $authoring->advance($lockedCourse);
+                    $ownedAuthoringVersion = $publishedRevision;
                     $lockedCourse->forceFill([
                         'last_published_authoring_version' => $publishedRevision,
                         'published_at' => now(),
@@ -627,20 +634,19 @@ class CourseController extends Controller
 
         $freshCourse = $course->fresh();
         if ($freshCourse->is_coming_soon && $catalogAnnouncementRequested) {
-            $expectedVersion = (int) $freshCourse->authoring_version;
             $catalogAudit = null;
             DB::transaction(function () use (
                 $freshCourse,
-                $expectedVersion,
                 $publishingService,
                 $authoring,
-                &$catalogAudit
+                &$catalogAudit,
+                &$ownedAuthoringVersion
             ): void {
-                $lockedCourse = $authoring->lockExpected($freshCourse, $expectedVersion);
+                $lockedCourse = $authoring->lockExpected($freshCourse, (int) $ownedAuthoringVersion);
                 $catalogAudit = $publishingService->auditCatalogCard($lockedCourse->fresh());
                 if ($catalogAudit['ready']) {
                     $lockedCourse->update(['is_catalog_visible' => true]);
-                    $authoring->advance($lockedCourse);
+                    $ownedAuthoringVersion = $authoring->advance($lockedCourse);
                 }
             }, 3);
             if (!$catalogAudit['ready']) {
@@ -650,40 +656,18 @@ class CourseController extends Controller
             }
         }
 
-        // Serialize hero updates and repair stale flags when the hero changes.
-        DB::transaction(function () use ($course, $request): void {
-            $rootCourses = Course::query()->whereNull('parent_id')->lockForUpdate()->get(['id', 'is_main_course']);
-            $fresh = $course->fresh();
-            $targetId = null;
-            if (
-                !$fresh->is_coming_soon
-                && $fresh->is_catalog_visible
-                && $request->boolean('is_main_course')
-            ) {
-                $targetId = $fresh->id;
-            } else {
-                $targetId = Course::query()
-                    ->whereNull('parent_id')
-                    ->where('is_coming_soon', false)
-                    ->where('is_catalog_visible', true)
-                    ->where('is_main_course', true)
-                    ->where('id', '!=', $fresh->is_coming_soon ? $fresh->id : 0)
-                    ->value('id');
-                $targetId ??= Course::query()
-                    ->whereNull('parent_id')
-                    ->where('is_coming_soon', false)
-                    ->where('is_catalog_visible', true)
-                    ->orderByDesc('id')
-                    ->value('id');
-            }
-
-            foreach ($rootCourses as $rootCourse) {
-                $shouldBeMain = $targetId !== null && (int) $rootCourse->id === (int) $targetId;
-                if ((bool) $rootCourse->is_main_course === $shouldBeMain) continue;
-                $rootCourse->forceFill(['is_main_course' => $shouldBeMain])->save();
-                $rootCourse->increment('authoring_version');
-            }
-        }, 3);
+        // The public hero is one aggregate, not an ordinary course field. It
+        // is applied only after the draft/publish decision and under the same
+        // locked, revision-checked operation for every root course.
+        $heroCourse = $course->fresh();
+        $heroRequestedMain = $request->has('is_main_course')
+            ? $request->boolean('is_main_course')
+            : (bool) $heroCourse->is_main_course;
+        $heroSelection->synchronize(
+            $course,
+            (int) $ownedAuthoringVersion,
+            $heroRequestedMain
+        );
 
         $this->forgetCatalogCache(
             $course->fresh(),
@@ -778,6 +762,7 @@ class CourseController extends Controller
             'authoring_request_id',
             'grant_chat_attachments_to_current_enrollments',
             'grant_project_followup_attachments_to_current_enrollments',
+            'is_main_course',
         ])->all();
     }
 

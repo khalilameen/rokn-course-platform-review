@@ -27,13 +27,11 @@ final class AcquisitionRewardTombstoneService
             return;
         }
 
-        $identities = DB::table('social_accounts')
-            ->where('user_id', $user->id)
-            ->get(['provider', 'provider_user_id']);
+        $identities = $this->rewardIdentities($user);
 
         foreach ($identities as $identity) {
-            $provider = strtolower(trim((string) $identity->provider));
-            $providerUserId = trim((string) $identity->provider_user_id);
+            $provider = $identity['provider'];
+            $providerUserId = $identity['identifier'];
             if ($provider === '' || $providerUserId === '') {
                 continue;
             }
@@ -74,12 +72,10 @@ final class AcquisitionRewardTombstoneService
             return [];
         }
 
-        $keys = DB::table('social_accounts')
-            ->where('user_id', $user->id)
-            ->get(['provider', 'provider_user_id'])
-            ->flatMap(function ($identity): array {
-                $provider = strtolower(trim((string) $identity->provider));
-                $providerUserId = trim((string) $identity->provider_user_id);
+        $keys = collect($this->rewardIdentities($user))
+            ->flatMap(function (array $identity): array {
+                $provider = $identity['provider'];
+                $providerUserId = $identity['identifier'];
                 if ($provider === '' || $providerUserId === '') {
                     return [];
                 }
@@ -98,6 +94,44 @@ final class AcquisitionRewardTombstoneService
 
         sort($keys, SORT_STRING);
         return $keys;
+    }
+
+    /**
+     * Provider ids stop one deleted identity from replaying an offer. The
+     * normalized email closes the same-person cross-provider path (for example
+     * Google first, then TikTok) without retaining the email itself.
+     *
+     * @return list<array{provider:string,identifier:string}>
+     */
+    private function rewardIdentities(User $user): array
+    {
+        $identities = DB::table('social_accounts')
+            ->where('user_id', $user->id)
+            ->get(['provider', 'provider_user_id'])
+            ->map(static fn ($identity): array => [
+                'provider' => strtolower(trim((string) $identity->provider)),
+                'identifier' => trim((string) $identity->provider_user_id),
+            ])
+            ->filter(static fn (array $identity): bool =>
+                $identity['provider'] !== '' && $identity['identifier'] !== ''
+            );
+
+        $email = mb_strtolower(trim((string) $user->email));
+        if ($user->email_verified_at && $email !== '' && str_contains($email, '@')) {
+            $identities->push([
+                // Tombstone namespace only; this is not an authentication
+                // provider and must never be exposed as a login method.
+                'provider' => 'email',
+                'identifier' => $email,
+            ]);
+        }
+
+        return $identities
+            ->unique(static fn (array $identity): string =>
+                $identity['provider'] . "\0" . $identity['identifier']
+            )
+            ->values()
+            ->all();
     }
 
     public function userHasConsumedMethod(User $user, CoinEarningMethod $method): bool

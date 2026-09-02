@@ -79,7 +79,7 @@ class CertificateService
             if (
                 !$enrollment
                 || $this->financialProvenance->enrollmentHasActiveHold($enrollment, ['course'])
-                || !$this->courseAccess->hasCertificateAccess((int) $user->id, (int) $course->id)
+                || !$this->courseAccess->enrollmentHasCertificateAccess($enrollment)
             ) {
                 return null;
             }
@@ -167,8 +167,6 @@ class CertificateService
                         ->first();
                     if (
                         !$lockedCourse
-                        || !$lockedCourse->isPublishedForLearning()
-                        || $lockedCourse->isNestedCourse()
                         || !$this->eligibility->for($lockedUser, $lockedCourse)['available']
                     ) {
                         return null;

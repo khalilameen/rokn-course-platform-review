@@ -21,6 +21,7 @@
                 </div>
                 <div class="form-body-modern">
                     {!! Form::model($user,['method' => 'PATCH', 'url' => route('admin.users.update', $user->id)]) !!}
+                        <input type="hidden" name="editor_version" value="{{ $editorVersion }}">
                         @include('admin.users._form')
                     {!! Form::close() !!}
                 </div>

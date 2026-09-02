@@ -88,6 +88,7 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
     const deferredPreloadFailureRef = useRef(false);
     const diagnosticRequestRef = useRef(0);
     const playbackLifecycleGenerationRef = useRef(0);
+    const activePlayerOwnerRef = useRef('');
     const previousVisibleRef = useRef(isVisible);
     const previousManifestIdentityRef = useRef(
       `${data.playbackSessionId || 'local'}:${
@@ -284,6 +285,7 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
         }
         diagnosticRequestRef.current += 1;
         playbackLifecycleGenerationRef.current += 1;
+        activePlayerOwnerRef.current = '';
       },
       [],
     );
@@ -314,6 +316,10 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
       ],
     );
     const sourceFailed = unsupportedSource || error;
+    const playerOwner = `${data.id}:${data.playbackSessionId || 'local'}:${
+      data.playbackManifestRevision || 0
+    }:${effectiveQuality}:${usingFallback ? 'fallback' : 'primary'}:${retryKey}`;
+    activePlayerOwnerRef.current = playerOwner;
     const selectedVideoTrack = useMemo(
       () =>
         !isVisible || effectiveQuality === 'auto'
@@ -651,6 +657,7 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
       longBufferTimer: longBufferTimerRef,
       onComplete,
       onProgressChange: onProgress,
+      ownsPlayback: () => activePlayerOwnerRef.current === playerOwner,
       pendingSeek: pendingSeekRef,
       publishRuntimeMetrics,
       recoverOrFail,
@@ -685,7 +692,9 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
           <Video
             key={`${data.id}-${data.playbackSessionId || 'local'}-${
               data.playbackManifestRevision || 0
-            }-${retryKey}`}
+            }-${effectiveQuality}-${usingFallback ? 'fallback' : 'primary'}-${
+              retryKey
+            }`}
             ref={videoRef}
             source={source}
             resizeMode="cover"

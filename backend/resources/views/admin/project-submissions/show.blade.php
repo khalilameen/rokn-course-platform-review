@@ -29,7 +29,14 @@
                 </div>
                 <div class="card-body">
                     <div class="row mb-4">
-                        <div class="col-md-6 mb-3"><div class="admin-detail-label">الطالب</div><div class="admin-detail-value">{{ optional($submission->user)->name ?: 'حساب محذوف' }}</div><small class="text-muted">{{ optional($submission->user)->email }}</small></div>
+                        <div class="col-md-6 mb-3">
+                            <div class="admin-detail-label">الطالب</div>
+                            @if($isAdministrator)
+                                <div class="admin-detail-value">{{ optional($submission->user)->name ?: 'حساب محذوف' }}</div><small class="text-muted">{{ optional($submission->user)->email }}</small>
+                            @else
+                                <div class="admin-detail-value">هوية مخفية</div>
+                            @endif
+                        </div>
                         <div class="col-md-6 mb-3"><div class="admin-detail-label">الكورس</div><div class="admin-detail-value">{{ optional($course)->title ?: 'غير متاح' }}</div></div>
                         <div class="col-md-6 mb-3"><div class="admin-detail-label">رقم المحاولة</div><div class="admin-detail-value admin-code">{{ $submission->public_id }}</div></div>
                         <div class="col-md-3 mb-3"><div class="admin-detail-label">حالة الجهد</div><div class="admin-detail-value">{{ $submission->effort_status }}</div></div>

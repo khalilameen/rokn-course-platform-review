@@ -104,7 +104,8 @@ class FcmNotificationService
 
         $attempted = false;
         $retryableFailure = false;
-        $staleTokenIds = [];
+        /** @var array<int, string> $staleTokens Sent values keyed by their mutable row ID. */
+        $staleTokens = [];
 
         foreach ($tokens as $tokenRecord) {
             $deviceToken = $tokenRecord->device_token;
@@ -143,7 +144,7 @@ class FcmNotificationService
                 $attempted = true;
                 self::recordSuccess();
             } catch (NotFound $e) {
-                $staleTokenIds[] = $tokenRecord->id;
+                $staleTokens[(int) $tokenRecord->id] = (string) $deviceToken;
             } catch (MessagingException $e) {
                 $retryableFailure = true;
                 self::recordFailure('messaging');
@@ -161,8 +162,14 @@ class FcmNotificationService
             }
         }
 
-        if (!empty($staleTokenIds)) {
-            UserDeviceToken::whereIn('id', $staleTokenIds)->delete();
+        foreach ($staleTokens as $tokenId => $sentValue) {
+            // The row can be rotated while FCM is processing the old value.
+            // Delete only the exact value the provider rejected.
+            UserDeviceToken::query()
+                ->whereKey($tokenId)
+                ->where('user_id', $user->id)
+                ->where('device_token', $sentValue)
+                ->delete();
         }
 
         return [

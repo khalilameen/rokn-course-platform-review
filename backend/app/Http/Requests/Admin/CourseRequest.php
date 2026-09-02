@@ -2,12 +2,23 @@
 
 namespace App\Http\Requests\Admin;
 
+use App\Models\Course;
+use App\Services\CourseAccessPlanService;
 use App\Support\UnicodeText;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class CourseRequest extends FormRequest
 {
+    private const ADMIN_PLAN_COST_FIELDS = [
+        'ai_budget_usd',
+        'request_reserve_usd',
+        'project_feedback_budget_usd',
+        'project_feedback_reserve_usd',
+        'project_followup_budget_usd',
+        'project_followup_reserve_usd',
+    ];
+
     protected function prepareForValidation(): void
     {
         $singleLine = [
@@ -32,6 +43,25 @@ class CourseRequest extends FormRequest
         }
         $plans = $this->input('access_plans');
         if (is_array($plans)) {
+            // Content moderators choose learner-facing tiers and token/message
+            // capabilities. Provider dollar ceilings are an administrator
+            // control: never trust a hidden/crafted moderator field, and never
+            // make an ordinary content save erase the existing ceilings.
+            if (strtolower(trim((string) $this->user()?->role)) === 'moderator') {
+                $course = $this->route('course');
+                if ($course instanceof Course) {
+                    $protectedPlans = app(CourseAccessPlanService::class)
+                        ->plansForEditor($course)
+                        ->keyBy('code');
+                    foreach (['basic', 'guided', 'mentor'] as $code) {
+                        $protected = $protectedPlans->get($code);
+                        if (!$protected || !is_array($plans[$code] ?? null)) continue;
+                        foreach (self::ADMIN_PLAN_COST_FIELDS as $field) {
+                            $plans[$code][$field] = $protected->getAttribute($field);
+                        }
+                    }
+                }
+            }
             foreach (['basic', 'guided', 'mentor'] as $code) {
                 if (!is_array($plans[$code] ?? null)) continue;
                 foreach (['name_ar', 'name_en'] as $field) {

@@ -29,6 +29,7 @@ use App\Models\WebhookDelivery;
 use App\Jobs\DeliverOutboxEvent;
 use App\Services\ProductionCapabilityService;
 use App\Support\BusinessClock;
+use App\Support\AdminSingletonLock;
 use App\Services\OperationsReadinessService;
 use App\Services\PlaybackOperationsService;
 use App\Services\ProductFeatureFlagService;
@@ -40,6 +41,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class ProductOperationsController extends Controller
@@ -353,7 +355,11 @@ class ProductOperationsController extends Controller
         return back()->with('success', 'أُغلقت المهمة الفاشلة بعد مراجعتها دون إعادة تنفيذها');
     }
 
-    public function updateFeature(Request $request, string $feature): RedirectResponse
+    public function updateFeature(
+        Request $request,
+        string $feature,
+        ProductFeatureFlagService $featureFlags
+    ): RedirectResponse
     {
         $definitions = config('product_features.definitions', []);
         abort_unless(array_key_exists($feature, $definitions), 404);
@@ -363,6 +369,7 @@ class ProductOperationsController extends Controller
             'rollout_percentage' => ['required', 'integer', 'min:0', 'max:100'],
             'reason' => ['required', 'string', 'min:8', 'max:255'],
             'expires_at' => ['nullable', 'date'],
+            'editor_version' => ['required', 'string', 'size:64'],
         ]);
         $administrator = $request->user();
         $expiresAt = BusinessClock::localInputToUtc($validated['expires_at'] ?? null);
@@ -372,16 +379,33 @@ class ProductOperationsController extends Controller
         $owner = $administrator?->email
             ?: 'admin:'.(string) ($administrator?->getAuthIdentifier() ?? 'unknown');
 
-        ProductFeatureFlag::query()->updateOrCreate(
-            ['key' => $feature],
-            [
+        DB::transaction(function () use (
+            $feature,
+            $validated,
+            $owner,
+            $expiresAt,
+            $featureFlags
+        ): void {
+            AdminSingletonLock::acquire('product-feature:'.$feature);
+            $flag = ProductFeatureFlag::query()->where('key', $feature)
+                ->lockForUpdate()->first();
+            if (!hash_equals(
+                $featureFlags->editorVersion($feature, $flag),
+                (string) $validated['editor_version']
+            )) {
+                throw ValidationException::withMessages([
+                    'editor_version' => ['تغيّر قرار تشغيل الميزة منذ فتح الصفحة\nأعد تحميلها قبل الحفظ'],
+                ]);
+            }
+
+            ProductFeatureFlag::query()->updateOrCreate(['key' => $feature], [
                 'enabled' => (bool) $validated['enabled'],
                 'rollout_percentage' => (int) $validated['rollout_percentage'],
                 'owner' => $owner,
                 'reason' => trim((string) $validated['reason']),
                 'expires_at' => $expiresAt,
-            ]
-        );
+            ]);
+        }, 3);
 
         return back()->with('success', 'تم تحديث بوابة الميزة مع حفظ المسؤول والسبب.');
     }

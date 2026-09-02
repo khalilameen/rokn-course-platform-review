@@ -53,6 +53,22 @@ final class SocialOAuthAttemptService
         }, 3);
     }
 
+    /**
+     * A provider outage before an authorization code is exchanged is
+     * retryable. Release only the exact claimed attempt and only while no
+     * completion has been issued, so a late failure can never reopen a state
+     * that already produced mobile credentials.
+     */
+    public function releaseState(SocialOAuthAttempt $attempt): void
+    {
+        SocialOAuthAttempt::query()
+            ->whereKey($attempt->id)
+            ->whereNotNull('state_consumed_at')
+            ->whereNull('completion_hash')
+            ->where('state_expires_at', '>', now())
+            ->update(['state_consumed_at' => null]);
+    }
+
     public function issueCompletion(
         SocialOAuthAttempt $attempt,
         string $completionCode,

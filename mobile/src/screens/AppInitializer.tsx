@@ -49,6 +49,7 @@ import {
 import {flushProductEvents} from '../services/productAnalytics';
 import {flushPendingAccountWrites} from '../services/pendingAccountWrites';
 import {flushOperationalTelemetry} from '../services/operationalTelemetry';
+import {replayPendingPortfolioMediaUploads} from '../services/portfolioMediaReplay';
 
 type DeadlineResult<T> =
   | {settled: true; value: T}
@@ -296,6 +297,11 @@ const AppInitializer: FC = () => {
   }, [storedUser]);
 
   useEffect(() => {
+    if (!sessionReady || !storedUser) return;
+    void replayPendingPortfolioMediaUploads().catch(() => undefined);
+  }, [sessionReady, storedUser]);
+
+  useEffect(() => {
     let active = true;
     let learningReconcileFlight: Promise<unknown> | null = null;
     let foregroundSessionFlight: Promise<void> | null = null;
@@ -415,6 +421,9 @@ const AppInitializer: FC = () => {
       if (state === 'active') {
         reconcileLearning();
         reconcileStorePurchases();
+        if (storedUser) {
+          void replayPendingPortfolioMediaUploads().catch(() => undefined);
+        }
         void reconcilePushRegistration();
         void flushProductEvents().catch(() => undefined);
         void flushOperationalTelemetry().catch(() => undefined);

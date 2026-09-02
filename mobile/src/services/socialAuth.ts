@@ -543,6 +543,69 @@ const normalizeSocialAuthMethods = (value: unknown): SocialAuthMethods => {
   };
 };
 
+const declaredSocialProviders = (value: unknown): SocialProvider[] => {
+  const envelope = asRecord(value) ?? {};
+  const methods = asRecord(envelope.data) ?? envelope;
+  return Array.isArray(methods.providers)
+    ? Array.from(
+        new Set(methods.providers.map(String).filter(isSocialProvider)),
+      )
+    : [];
+};
+
+const recoverIncompleteSocialAuthMethods = async (
+  value: unknown,
+  normalized: SocialAuthMethods,
+) => {
+  const envelope = asRecord(value) ?? {};
+  const methods = asRecord(envelope.data) ?? envelope;
+  const declared = declaredSocialProviders(value);
+  const rawUrls = asRecord(
+    methods.authorization_urls ?? methods.authorizationUrls,
+  );
+  const missing = declared.filter(
+    provider => provider !== 'apple' && !nonEmptyString(rawUrls?.[provider]),
+  );
+  const explicitlyUnsafe = declared.some(provider => {
+    if (provider === 'apple') return false;
+    const rawUrl = nonEmptyString(rawUrls?.[provider]);
+    return Boolean(rawUrl && !normalized.authorizationUrls[provider]);
+  });
+
+  // An explicit empty provider list is authoritative. An explicit but unsafe
+  // URL is also never replaced from storage: doing so could conceal a bad
+  // deployment or a host-injection attempt. Only a structurally incomplete
+  // 200 response may borrow the missing entries from the last known-good
+  // discovery contract.
+  if (!missing.length || explicitlyUnsafe) return normalized;
+  const cached = await readCachedSocialAuthMethods();
+  if (!cached) return normalized;
+
+  const recoveredAuthorizationUrls = {...normalized.authorizationUrls};
+  missing.forEach(provider => {
+    const cachedUrl = cached.authorizationUrls[provider];
+    if (cached.providers.includes(provider) && cachedUrl) {
+      recoveredAuthorizationUrls[provider] = cachedUrl;
+    }
+  });
+  const providers = declared.filter(
+    provider =>
+      provider === 'apple' || Boolean(recoveredAuthorizationUrls[provider]),
+  );
+  const recommendedProvider =
+    normalized.recommendedProvider &&
+    providers.includes(normalized.recommendedProvider)
+      ? normalized.recommendedProvider
+      : providers[0] ?? null;
+
+  return {
+    ...normalized,
+    providers,
+    authorizationUrls: recoveredAuthorizationUrls,
+    recommendedProvider,
+  };
+};
+
 const readCachedSocialAuthMethods = async () => {
   try {
     const raw = await AsyncStorage.getItem(SOCIAL_AUTH_METHODS_CACHE_KEY);
@@ -568,7 +631,10 @@ export const getSocialAuthMethods = async (): Promise<SocialAuthMethods> => {
     const methodsResponse = await publicRequest.get<unknown>('auth-methods', {
       skipAuthorization: true,
     } as RoknRequestConfig);
-    const methods = normalizeSocialAuthMethods(methodsResponse.data);
+    const methods = await recoverIncompleteSocialAuthMethods(
+      methodsResponse.data,
+      normalizeSocialAuthMethods(methodsResponse.data),
+    );
     if (methods.providers.length) {
       void AsyncStorage.setItem(
         SOCIAL_AUTH_METHODS_CACHE_KEY,

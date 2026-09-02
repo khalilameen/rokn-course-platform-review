@@ -712,12 +712,73 @@ class KashierPaymentTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('package.id', $this->package->id);
-        self::assertSame(Order::STATUS_PENDING, $pending->fresh()->status);
+        self::assertSame(Order::STATUS_CANCELLED, $pending->fresh()->status);
         self::assertNotSame($pending->order_ref, $response->json('order_ref'));
         self::assertSame(2, Order::query()->where('user_id', $this->user->id)->count());
     }
 
-    public function test_an_expired_same_package_checkout_is_preserved_while_a_fresh_one_starts(): void
+    public function test_an_expired_authorized_checkout_blocks_a_second_chargeable_attempt(): void
+    {
+        $pending = $this->createPendingOrder('PKG-PROVIDER-AUTHORIZED');
+        $pending->forceFill([
+            'checkout_request_key' => 'server-original-checkout-key',
+            'checkout_expires_at' => now()->subMinute(),
+        ])->save();
+        Http::fake([
+            'https://test-api.kashier.io/*' => Http::response([
+                'response' => [
+                    'status' => 'AUTHORIZED',
+                    'merchantOrderId' => $pending->order_ref,
+                ],
+            ], 200),
+        ]);
+
+        $this->actingAs($this->user, 'api')
+            ->withHeader('Idempotency-Key', '96e07193-d6a9-4b62-9976-b652b4e4f8a7')
+            ->postJson('/api/v1/payment/initiate', [
+                'package_id' => $this->package->id,
+                'idempotency_key' => '96e07193-d6a9-4b62-9976-b652b4e4f8a7',
+            ])
+            ->assertStatus(409)
+            ->assertJsonPath('code', 'pending_checkout_exists')
+            ->assertJsonPath('order_ref', $pending->order_ref);
+
+        self::assertSame(Order::STATUS_PENDING, $pending->fresh()->status);
+        self::assertSame(1, Order::query()->where('user_id', $this->user->id)->count());
+    }
+
+    public function test_expired_authorized_checkout_replay_keeps_the_original_attempt_open(): void
+    {
+        $key = 'server-original-checkout-key';
+        $pending = $this->createPendingOrder('PKG-AUTHORIZED-REPLAY');
+        $pending->forceFill([
+            'checkout_request_key' => $key,
+            'checkout_expires_at' => now()->subMinute(),
+        ])->save();
+        Http::fake([
+            'https://test-api.kashier.io/*' => Http::response([
+                'response' => [
+                    'status' => 'AUTHORIZED',
+                    'merchantOrderId' => $pending->order_ref,
+                ],
+            ], 200),
+        ]);
+
+        $this->actingAs($this->user, 'api')
+            ->withHeader('Idempotency-Key', $key)
+            ->postJson('/api/v1/payment/initiate', [
+                'package_id' => $this->package->id,
+                'idempotency_key' => $key,
+            ])
+            ->assertStatus(409)
+            ->assertJsonPath('code', 'pending_checkout_exists')
+            ->assertJsonPath('order_ref', $pending->order_ref);
+
+        self::assertSame(Order::STATUS_PENDING, $pending->fresh()->status);
+        self::assertSame(1, Order::query()->where('user_id', $this->user->id)->count());
+    }
+
+    public function test_an_expired_same_package_checkout_absent_at_provider_is_closed_before_retry(): void
     {
         $pending = $this->createPendingOrder('PKG-SAME-PACKAGE-ABANDONED');
         $pending->forceFill([
@@ -737,7 +798,7 @@ class KashierPaymentTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('package.id', $this->package->id);
-        self::assertSame(Order::STATUS_PENDING, $pending->fresh()->status);
+        self::assertSame(Order::STATUS_CANCELLED, $pending->fresh()->status);
         self::assertNotSame($pending->order_ref, $response->json('order_ref'));
         self::assertSame(2, Order::query()->where('user_id', $this->user->id)->count());
     }

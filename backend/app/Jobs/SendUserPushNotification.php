@@ -407,7 +407,13 @@ final class SendUserPushNotification implements ShouldQueue, ShouldBeUnique
                 'updated_at' => now(),
             ]);
             if ($result['failure_code'] === 'token_unregistered') {
-                $user->deviceTokens()->whereKey($token->id)->delete();
+                // FCM rejected the value that was sent, not the mutable token
+                // row. An installation can rotate that row while the request
+                // is in flight; never delete its new valid value by stale ID.
+                $user->deviceTokens()
+                    ->whereKey($token->id)
+                    ->where('device_token', (string) $token->device_token)
+                    ->delete();
             }
         }
 

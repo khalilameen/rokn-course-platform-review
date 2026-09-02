@@ -19,6 +19,11 @@ use Illuminate\Support\Facades\Log;
  */
 final class InternalSignalService
 {
+    public function __construct(
+        private readonly CurriculumCompletionService $curriculumCompletion
+    ) {
+    }
+
     public function record(
         string $type,
         string $identity,
@@ -30,6 +35,27 @@ final class InternalSignalService
         $identity = trim($identity);
         if ($type === '' || $identity === '') {
             throw new \InvalidArgumentException('Internal signals require a type and stable identity.');
+        }
+
+        if ($type === 'course.completed') {
+            $userId = (int) ($payload['user_id'] ?? 0);
+            $courseId = (int) ($payload['course_id'] ?? 0);
+            if ($userId > 0 && $courseId > 0) {
+                $revision = $this->curriculumCompletion->markCompleted(
+                    $userId,
+                    $courseId,
+                    isset($payload['curriculum_revision'])
+                        ? (int) $payload['curriculum_revision']
+                        : null
+                );
+                if ($revision !== null) {
+                    $payload['curriculum_revision'] = $revision;
+                    // The first earned revision is grandfathered forever. A
+                    // caller replaying after a later publication therefore
+                    // resolves to the original completion identity.
+                    $identity = "user:{$userId}:course:{$courseId}:revision:{$revision}";
+                }
+            }
         }
 
         $normalizedPayload = $this->normalize($payload);

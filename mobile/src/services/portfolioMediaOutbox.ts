@@ -12,6 +12,7 @@ import {
   removeLearnerDraftFile,
   retainLearnerDraftFiles,
 } from './learnerDraftFiles';
+import {readJsonOrQuarantine} from './recoverableJsonStorage';
 
 export type PortfolioMediaOutboxEntry = {
   projectId: string;
@@ -47,18 +48,19 @@ const validEntry = (value: unknown): value is PortfolioMediaOutboxEntry => {
   );
 };
 
+export const decodePortfolioMediaOutboxEntries = (
+  value: unknown,
+): PortfolioMediaOutboxEntry[] | null =>
+  Array.isArray(value) && value.every(validEntry) ? value : null;
+
 const readStored = async (
   key: string,
-): Promise<PortfolioMediaOutboxEntry[]> => {
-  const raw = await AsyncStorage.getItem(key);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? parsed.filter(validEntry) : [];
-  } catch {
-    return [];
-  }
-};
+): Promise<PortfolioMediaOutboxEntry[]> =>
+  readJsonOrQuarantine(
+    key,
+    () => [],
+    decodePortfolioMediaOutboxEntries,
+  );
 
 const writeStored = async (
   key: string,

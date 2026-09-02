@@ -7,12 +7,15 @@
 @endsection
 
 @section('content')
+@php($canManageLevels = strtolower(trim((string) optional(auth()->user())->role)) === 'admin')
 <div class="admin-page levels-page card">
     <div class="card-header">
         <strong class="card-title">قائمة المستويات</strong>
+        @if($canManageLevels)
         <a href="{{ route('admin.levels.create') }}" class="btn btn-primary float-left">
             <i class="fa fa-plus"></i> إضافة مستوى
         </a>
+        @endif
     </div>
     <div class="card-body">
         <table class="table table-striped">
@@ -24,7 +27,9 @@
                     <th>الاسم (EN)</th>
                     <th>الترتيب</th>
                     <th>تاريخ الإنشاء</th>
-                    <th>العمليات</th>
+                    @if($canManageLevels)
+                        <th>العمليات</th>
+                    @endif
                 </tr>
             </thead>
             <tbody>
@@ -42,6 +47,7 @@
                     <td>{{ $level->name_en }}</td>
                     <td>{{ $level->order }}</td>
                     <td>{{ $level->created_at->format('Y-m-d') }}</td>
+                    @if($canManageLevels)
                     <td>
                         <a href="{{ route('admin.levels.edit', $level->id) }}" class="btn btn-warning btn-sm">
                             <i class="fa fa-edit"></i>
@@ -54,10 +60,11 @@
                             </button>
                         </form>
                     </td>
+                    @endif
                 </tr>
                 @empty
                 <tr>
-                    <td colspan="7" class="text-center">لا توجد مستويات حالياً</td>
+                    <td colspan="{{ $canManageLevels ? 7 : 6 }}" class="text-center">لا توجد مستويات حالياً</td>
                 </tr>
                 @endforelse
             </tbody>

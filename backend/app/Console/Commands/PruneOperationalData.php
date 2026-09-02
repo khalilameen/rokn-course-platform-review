@@ -196,6 +196,9 @@ final class PruneOperationalData extends Command
                 $query->where(function (Builder $ready): void {
                     $ready->where('status', AiInputAttachment::READY)
                         ->where('created_at', '<=', now()->subDay());
+                })->orWhere(function (Builder $allocating): void {
+                    $allocating->where('status', AiInputAttachment::ALLOCATING)
+                        ->where('updated_at', '<=', now()->subMinutes(15));
                 })->orWhere(function (Builder $stuck): void {
                     $stuck->where('status', AiInputAttachment::DELETING)
                         ->where('updated_at', '<=', now()->subMinutes(15));
@@ -214,10 +217,16 @@ final class PruneOperationalData extends Command
                     if (!$candidate) return null;
                     $recovering = $candidate->status === AiInputAttachment::DELETING
                         && $candidate->updated_at?->lte(now()->subMinutes(15));
-                    if (!$recovering && (
-                        $candidate->status !== AiInputAttachment::READY
-                        || $candidate->created_at?->gt(now()->subDay())
-                    )) return null;
+                    $abandonedAllocation = $candidate->status === AiInputAttachment::ALLOCATING
+                        && $candidate->updated_at?->lte(now()->subMinutes(15));
+                    if (
+                        !$recovering
+                        && !$abandonedAllocation
+                        && (
+                            $candidate->status !== AiInputAttachment::READY
+                            || $candidate->created_at?->gt(now()->subDay())
+                        )
+                    ) return null;
 
                     $ownerExists = match ((string) $candidate->owner_type) {
                         'course_chat_turn' => DB::table('course_chat_turns')->where('id', $candidate->owner_id)->exists(),

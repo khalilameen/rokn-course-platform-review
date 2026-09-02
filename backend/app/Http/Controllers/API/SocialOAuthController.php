@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Throwable;
 
 final class SocialOAuthController extends Controller
 {
@@ -115,6 +116,13 @@ final class SocialOAuthController extends Controller
             );
         } catch (\Throwable $exception) {
             report($exception);
+            if ($this->isTransientProviderFailure($exception)) {
+                // State is an ownership credential, not a success marker.
+                // A provider timeout/429/5xx did not exchange the code, so
+                // keeping the state terminal would turn a brief outage into a
+                // false "login expired" on the browser's safe retry.
+                $this->attempts->releaseState($claimedState);
+            }
             return $this->redirectToApp(
                 $returnTo,
                 $this->callbackPayload($claimedState, ['error' => 'provider_unavailable'])
@@ -440,6 +448,37 @@ final class SocialOAuthController extends Controller
     private function requestTimeout(): int
     {
         return max(3, (int) config('social_auth.timeout_seconds', 10));
+    }
+
+    private function isTransientProviderFailure(Throwable $exception): bool
+    {
+        for ($current = $exception; $current; $current = $current->getPrevious()) {
+            if (
+                $current instanceof \Illuminate\Http\Client\ConnectionException
+                || $current instanceof \GuzzleHttp\Exception\ConnectException
+                || $current instanceof \GuzzleHttp\Exception\ServerException
+            ) {
+                return true;
+            }
+
+            if ($current instanceof \Illuminate\Http\Client\RequestException) {
+                $status = $current->response->status();
+                if ($status === 429 || $status >= 500) {
+                    return true;
+                }
+            }
+
+            if (
+                $current instanceof \GuzzleHttp\Exception\RequestException
+                && (!$current->hasResponse()
+                    || ($current->getResponse()?->getStatusCode() ?? 0) === 429
+                    || ($current->getResponse()?->getStatusCode() ?? 0) >= 500)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function provider(string $provider): string

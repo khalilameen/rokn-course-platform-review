@@ -21,13 +21,17 @@ class CourseEnrollment extends Model
         'enrolled_at',
         'expires_at',
         'is_active',
-        'access_granted_at'
+        'access_granted_at',
+        'completed_curriculum_revision',
+        'curriculum_completed_at',
     ];
 
     protected $casts = [
         'enrolled_at' => 'datetime',
         'expires_at' => 'datetime',
         'access_granted_at' => 'datetime',
+        'curriculum_completed_at' => 'immutable_datetime',
+        'completed_curriculum_revision' => 'integer',
         'is_active' => 'boolean',
         'access_plan_snapshot' => 'array',
         'access_plan_order_id' => 'integer',
@@ -88,6 +92,17 @@ class CourseEnrollment extends Model
     protected static function booted(): void
     {
         static::saving(function (CourseEnrollment $enrollment): void {
+            if (
+                $enrollment->exists
+                && $enrollment->getOriginal('completed_curriculum_revision') !== null
+                && $enrollment->isDirty([
+                    'completed_curriculum_revision',
+                    'curriculum_completed_at',
+                ])
+            ) {
+                throw new \LogicException('Earned curriculum completion is immutable.');
+            }
+
             if (
                 !$enrollment->exists
                 || $enrollment->isDirty(['access_plan_id', 'access_plan_snapshot'])

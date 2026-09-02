@@ -7,6 +7,7 @@ namespace App\Jobs;
 use App\Exceptions\AiPlanLimitReachedException;
 use App\Exceptions\AiProviderUnavailableException;
 use App\Models\AiUsageEvent;
+use App\Models\Course;
 use App\Models\CourseSection;
 use App\Models\Project;
 use App\Models\ProjectSubmission;
@@ -20,6 +21,7 @@ use App\Services\CourseChatAccessService;
 use App\Services\OpenRouterService;
 use App\Services\ProjectFeedbackThreadService;
 use App\Services\PaidAiCallExecutionService;
+use App\Support\ProjectSubmissionEvaluationSnapshot;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -72,23 +74,58 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
         if (!$submission || $submission->review_status !== ProjectSubmission::STATUS_PASSED) return;
         if (!User::query()->whereKey($submission->user_id)->where('active', true)->exists()) return;
 
-        $section = CourseSection::query()
-            ->where('sectionable_type', Project::class)
-            ->where('sectionable_id', $submission->project_id)
-            ->with('course')
-            ->first();
-        if (!$section?->course) {
+        $evaluationSnapshot = ProjectSubmissionEvaluationSnapshot::fromSubmission($submission);
+        $section = $evaluationSnapshot ? null : CourseSection::query()
+                ->where('sectionable_type', Project::class)
+                ->where('sectionable_id', $submission->project_id)
+                ->with('course')
+                ->first();
+        $courseId = $evaluationSnapshot
+            ? (int) $evaluationSnapshot['course_id']
+            : (int) ($section?->course_id ?? 0);
+        $course = $evaluationSnapshot
+            ? Course::query()->find($courseId)
+            : $section?->course;
+        if (!$course || $courseId <= 0) {
             $this->markUnavailable($submission->id, 'project_context_missing');
             return;
         }
 
-        $enrollment = $access->activeEnrollmentFor((int) $submission->user_id, (int) $section->course_id);
-        $terms = $enrollment ? $plans->termsForEnrollment($enrollment) : null;
-        $contract = $plans->publicPayloadFromTerms($terms ?? []);
-        if (!$enrollment || !$terms || !(bool) $contract['project_report_enabled']) {
+        $enrollment = $evaluationSnapshot
+            ? $access->activeCapturedEnrollmentFor(
+                (int) $submission->user_id,
+                $courseId,
+                (int) data_get($evaluationSnapshot, 'access.enrollment_id')
+            )
+            : $access->activeEnrollmentFor((int) $submission->user_id, $courseId);
+        $currentTerms = $enrollment ? $plans->termsForEnrollment($enrollment) : null;
+        $currentContract = $plans->publicPayloadFromTerms($currentTerms ?? []);
+        $evaluationTerms = $evaluationSnapshot
+            ? data_get($evaluationSnapshot, 'access.terms')
+            : $currentTerms;
+        $evaluationTerms = is_array($evaluationTerms) ? $evaluationTerms : null;
+        $contract = $plans->publicPayloadFromTerms($evaluationTerms ?? []);
+        if (
+            !$enrollment
+            || !$currentTerms
+            || !$evaluationTerms
+            || !(bool) $currentContract['project_report_enabled']
+            || !(bool) $contract['project_report_enabled']
+        ) {
             $this->markUnavailable($submission->id, 'report_not_included');
             return;
         }
+        // Rows created before evaluation snapshots keep their old behavior,
+        // but every new row reads only the immutable project policy below.
+        $projectPolicy = $evaluationSnapshot
+            ? (array) $evaluationSnapshot['project']
+            : (array) ProjectSubmissionEvaluationSnapshot::capture(
+                $submission->project,
+                $section,
+                $enrollment,
+                $currentTerms
+            )['project'];
+        $snapshotFingerprint = (string) ($evaluationSnapshot['fingerprint'] ?? 'legacy-current-context');
 
         $metadata = is_array($submission->submission_metadata) ? $submission->submission_metadata : [];
         // A worker may die after marking the submission as processing. Let the
@@ -96,7 +133,7 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
         if (data_get($metadata, 'ai_feedback.status') === 'ready') {
             $report = trim((string) $submission->feedback);
             if ($report !== '') {
-                $threads->storeInitialReport($submission, $enrollment, (int) $section->course_id, $terms, $report);
+                $threads->storeInitialReport($submission, $enrollment, $courseId, $evaluationTerms, $report);
                 $event = AiUsageEvent::query()
                     ->where('request_id', $submission->public_id)
                     ->where('feature', 'project_feedback')
@@ -119,8 +156,8 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
             $threads->storeInitialReport(
                 $submission,
                 $enrollment,
-                (int) $section->course_id,
-                $terms,
+                $courseId,
+                $evaluationTerms,
                 trim((string) ($submission->feedback ?: 'تم اعتماد المحاولة وفتح المحتوى التالي'))
             );
             return;
@@ -156,23 +193,23 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
         if (!$claimed) return;
 
         $allowed = array_values(array_filter(config('openrouter.allowed_models', [])));
-        $model = trim((string) (($terms['model_override'] ?? null) ?: $submission->project?->ai_model_type ?: config('openrouter.default_model')));
+        $model = trim((string) (($evaluationTerms['model_override'] ?? null) ?: ($projectPolicy['ai_model_type'] ?? null) ?: config('openrouter.default_model')));
         if (!in_array($model, $allowed, true)) $model = (string) config('openrouter.default_model');
         $maxTokens = min(
             (int) config('openrouter.max_tokens', 500),
-            (int) (($terms['max_output_tokens'] ?? null) ?: 320),
-            (int) ($submission->project?->tokens_number ?: 500)
+            (int) (($evaluationTerms['max_output_tokens'] ?? null) ?: 320),
+            (int) ($projectPolicy['tokens_number'] ?? 500)
         );
         $requirements = UnicodeText::limit(
-            UnicodeText::clean(strip_tags((string) ($submission->project?->requirements_text ?? ''))),
+            UnicodeText::clean(strip_tags((string) ($projectPolicy['requirements_text'] ?? ''))),
             6000
         );
         $moderatorDirection = UnicodeText::limit(
-            UnicodeText::clean(strip_tags((string) ($submission->project?->ai_prompt ?? ''))),
+            UnicodeText::clean(strip_tags((string) ($projectPolicy['ai_prompt'] ?? ''))),
             2000
         );
         $promptVersion = sha1(implode('|', [
-            (string) $submission->project?->updated_at,
+            $snapshotFingerprint,
             $moderatorDirection,
             $requirements,
             (string) $contract['project_feedback_level'],
@@ -239,8 +276,8 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
             $reportMessage = $threads->beginInitialReport(
                 $submission,
                 $enrollment,
-                (int) $section->course_id,
-                $terms
+                $courseId,
+                $evaluationTerms
             );
 
             $callState = $paidCalls->beginForActiveUser(
@@ -267,7 +304,7 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
                 $result = $openRouter->chat(
                     $model,
                     $messages,
-                    (float) ($submission->project?->temperature ?? .35),
+                    (float) ($projectPolicy['temperature'] ?? .35),
                     $maxTokens,
                     (string) $reservation->request_id,
                     function (array $providerResult) use (
@@ -347,8 +384,8 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
             $threads->storeInitialReport(
                 $submission,
                 $enrollment,
-                (int) $section->course_id,
-                $terms,
+                $courseId,
+                $evaluationTerms,
                 trim((string) $result['message'])
             );
             $paidCalls->markPresented($reservation?->fresh());

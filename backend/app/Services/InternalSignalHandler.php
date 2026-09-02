@@ -22,7 +22,8 @@ final readonly class InternalSignalHandler
         private AwardCourseCompletionReward $rewards,
         private LearningRewardService $learningRewards,
         private AiPlatformUsageMonitor $aiUsage,
-        private InternalSignalService $internalSignals
+        private InternalSignalService $internalSignals,
+        private CurriculumCompletionService $curriculumCompletion
     ) {
     }
 
@@ -81,11 +82,26 @@ final readonly class InternalSignalHandler
     {
         $userId = (int) ($payload['user_id'] ?? 0);
         $courseId = (int) ($payload['course_id'] ?? 0);
+        $revision = max(0, (int) ($payload['curriculum_revision'] ?? 0));
+        if ($revision === 0) {
+            $revision = (int) ($this->curriculumCompletion->markCompleted(
+                $userId,
+                $courseId
+            ) ?? 0);
+            if ($revision === 0) {
+                return;
+            }
+        }
+        $revisionIdentity = $revision > 0 ? ":revision:{$revision}" : '';
+        $effectPayload = ['user_id' => $userId, 'course_id' => $courseId];
+        if ($revision > 0) {
+            $effectPayload['curriculum_revision'] = $revision;
+        }
         foreach (['badge', 'certificate', 'reward'] as $effect) {
             $this->internalSignals->record(
                 'course.completed.' . $effect,
-                "user:{$userId}:course:{$courseId}:effect:{$effect}",
-                ['user_id' => $userId, 'course_id' => $courseId],
+                "user:{$userId}:course:{$courseId}{$revisionIdentity}:effect:{$effect}",
+                $effectPayload,
                 'course_enrollment',
                 "{$userId}:{$courseId}"
             );
@@ -96,7 +112,10 @@ final readonly class InternalSignalHandler
     {
         return new CourseCompleted(
             (int) ($payload['user_id'] ?? 0),
-            (int) ($payload['course_id'] ?? 0)
+            (int) ($payload['course_id'] ?? 0),
+            isset($payload['curriculum_revision'])
+                ? (int) $payload['curriculum_revision']
+                : null
         );
     }
 

@@ -24,6 +24,7 @@ final class UserDeactivationSecurityTest extends TestCase
             $table->string('password')->nullable();
             $table->string('role')->default('client');
             $table->boolean('active')->default(true);
+            $table->unsignedBigInteger('profile_revision')->default(0);
             $table->string('api_token')->nullable();
             $table->timestamps();
             $table->softDeletes();
@@ -63,12 +64,16 @@ final class UserDeactivationSecurityTest extends TestCase
         $user->generateApiToken();
         $user->generateApiToken();
         self::assertSame(2, $user->apiTokens()->count());
+        $user->refresh();
 
         app(UsersController::class)->deactive(
             Request::create('/dashboard/users/'.$user->id.'/deactive', 'POST', [
                 'expected_active' => true,
+                'state_version' => app(\App\Services\StudentAccountStateService::class)
+                    ->editorVersion($user),
             ]),
-            $user
+            $user,
+            app(\App\Services\StudentAccountStateService::class)
         );
 
         $user->refresh();

@@ -12,16 +12,23 @@ use App\Listeners\AwardLevelBadge;
 use App\Models\Course;
 use App\Models\CourseAccessPlan;
 use App\Models\CourseCode;
+use App\Models\AiUsageEvent;
+use App\Models\AiInputAttachment;
 use App\Models\Contact;
 use App\Models\Order;
 use App\Models\Project;
 use App\Models\ProjectSubmission;
+use App\Models\ProjectSubmissionReviewDecision;
 use App\Models\User;
 use App\Models\WalletTransaction;
 use App\Services\ProjectSubmissionService;
+use App\Services\AiEntitlementBudgetService;
+use App\Services\AiInputAttachmentService;
 use App\Services\CourseChatAccessService;
 use App\Services\CourseChatTurnService;
+use App\Services\PaidAiCallExecutionService;
 use App\Services\WalletService;
+use App\Support\ProjectSubmissionEvaluationSnapshot;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\UploadedFile;
@@ -44,7 +51,8 @@ final class BackendHardeningTest extends TestCase
         'internal_signals', 'ai_input_attachments', 'account_file_deletions',
         'social_oauth_attempts',
         'product_feature_flags',
-        'contacts', 'user_level', 'levels', 'user_project_evaluations', 'project_submissions',
+        'contacts', 'user_level', 'levels', 'user_project_evaluations',
+        'project_submission_review_decisions', 'project_submissions',
         'course_code_usages', 'course_codes',
         'projects', 'wallet_transactions', 'ai_usage_events', 'ai_entitlement_usages',
         'course_enrollments', 'orders', 'course_access_plans',
@@ -278,6 +286,196 @@ final class BackendHardeningTest extends TestCase
         );
     }
 
+    public function test_project_submission_freezes_the_review_policy_before_later_edits(): void
+    {
+        $user = $this->user();
+        $project = Project::query()->create([
+            'requirements_text' => 'نفذ النسخة الأصلية',
+            'ai_prompt' => 'قيّم المتطلبات الأصلية فقط',
+            'ai_model_type' => 'openai/original-model',
+            'temperature' => .2,
+            'tokens_number' => 240,
+            'passing_score' => 65,
+            'fallback_review_delay_seconds' => 30,
+            'is_graduation_project' => false,
+        ]);
+        $submission = app(ProjectSubmissionService::class)->submit(
+            $user,
+            $project,
+            'هذه محاولة حقيقية مرتبطة بالمتطلبات الأصلية',
+            null,
+            'frozen-project-review-policy'
+        );
+
+        $project->forceFill([
+            'requirements_text' => 'متطلبات جديدة لا تخص هذه المحاولة',
+            'ai_prompt' => 'تعليمات جديدة',
+            'ai_model_type' => 'openai/new-model',
+            'temperature' => .9,
+            'tokens_number' => 900,
+            'passing_score' => 90,
+        ])->save();
+
+        $snapshot = ProjectSubmissionEvaluationSnapshot::fromSubmission($submission->fresh());
+        self::assertNotNull($snapshot);
+        self::assertSame('نفذ النسخة الأصلية', data_get($snapshot, 'project.requirements_text'));
+        self::assertSame('قيّم المتطلبات الأصلية فقط', data_get($snapshot, 'project.ai_prompt'));
+        self::assertSame('openai/original-model', data_get($snapshot, 'project.ai_model_type'));
+        self::assertSame(240, data_get($snapshot, 'project.tokens_number'));
+        self::assertSame(65, data_get($snapshot, 'project.passing_score'));
+    }
+
+    public function test_project_submission_service_rechecks_course_access_inside_its_transaction(): void
+    {
+        $user = $this->user();
+        $course = $this->course();
+        $project = Project::query()->create([
+            'requirements_text' => 'مشروع داخل كورس لا يملكه الطالب',
+            'passing_score' => 50,
+            'fallback_review_delay_seconds' => 30,
+            'is_graduation_project' => false,
+        ]);
+        DB::table('course_sections')->insert([
+            'course_id' => $course->id,
+            'sectionable_type' => Project::class,
+            'sectionable_id' => $project->id,
+            'section_type' => 'project',
+            'title_ar' => 'مشروع محمي',
+            'order' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        try {
+            app(ProjectSubmissionService::class)->submit(
+                $user,
+                $project,
+                'محاولة لا ينبغي قبولها بلا فئة نشطة',
+                null,
+                'missing-course-entitlement'
+            );
+            self::fail('The service accepted a course project without an active enrollment.');
+        } catch (AuthorizationException) {
+            self::assertSame(0, ProjectSubmission::query()->count());
+        }
+    }
+
+    public function test_effort_guard_decision_is_append_only_and_drives_the_current_summary(): void
+    {
+        $user = $this->user();
+        $project = Project::query()->create([
+            'requirements_text' => 'نفذ المشروع',
+            'passing_score' => 50,
+            'fallback_review_delay_seconds' => 30,
+            'is_graduation_project' => false,
+        ]);
+        $submission = app(ProjectSubmissionService::class)->submit(
+            $user,
+            $project,
+            'قصير',
+            null,
+            'effort-guard-audit'
+        );
+        $decision = $submission->reviewDecisions()->sole();
+
+        self::assertSame(ProjectSubmission::STATUS_NEEDS_RESUBMISSION, $decision->status);
+        self::assertSame('effort_guard', $decision->source);
+        self::assertSame($decision->status, $submission->review_status);
+        self::assertSame($decision->score, $submission->score);
+        self::assertSame($decision->feedback, $submission->feedback);
+        self::assertTrue($decision->decided_at->equalTo($submission->reviewed_at));
+    }
+
+    public function test_submission_copies_the_access_plan_receipt_instead_of_following_later_changes(): void
+    {
+        $user = $this->user();
+        $course = $this->course();
+        $plan = $this->paidPlanTerms($course);
+        $enrollment = \App\Models\CourseEnrollment::query()->create([
+            'user_id' => $user->id,
+            'course_id' => $course->id,
+            'access_plan_id' => $plan['id'],
+            'access_plan_snapshot' => $plan['snapshot'],
+            'is_active' => true,
+            'enrolled_at' => now(),
+        ]);
+        $project = Project::query()->create([
+            'requirements_text' => 'مشروع له فئة ثابتة وقت التسليم',
+            'passing_score' => 50,
+            'fallback_review_delay_seconds' => 30,
+            'is_graduation_project' => false,
+        ]);
+        $sectionId = DB::table('course_sections')->insertGetId([
+            'course_id' => $course->id,
+            'sectionable_type' => Project::class,
+            'sectionable_id' => $project->id,
+            'section_type' => 'project',
+            'title_ar' => 'مشروع التطبيق',
+            'order' => 2,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $submission = app(ProjectSubmissionService::class)->submit(
+            $user,
+            $project,
+            'تسليم واضح تحت الفئة التي اشتريتها',
+            null,
+            'frozen-access-plan-review-policy'
+        );
+        $changedTerms = $plan['snapshot'];
+        $changedTerms['name_ar'] = 'اسم لاحق لا يخص التسليم';
+        $enrollment->forceFill(['access_plan_snapshot' => $changedTerms])->save();
+
+        $snapshot = ProjectSubmissionEvaluationSnapshot::fromSubmission($submission->fresh());
+        self::assertNotNull($snapshot);
+        self::assertSame($course->id, data_get($snapshot, 'course_id'));
+        self::assertSame($sectionId, data_get($snapshot, 'section_id'));
+        self::assertSame($enrollment->id, data_get($snapshot, 'access.enrollment_id'));
+        self::assertSame($plan['id'], data_get($snapshot, 'access.access_plan_id'));
+        self::assertSame(
+            $plan['snapshot']['name_ar'],
+            data_get($snapshot, 'access.terms.name_ar')
+        );
+    }
+
+    public function test_captured_project_entitlement_survives_drafting_the_next_course_revision(): void
+    {
+        $user = $this->user();
+        $course = $this->course();
+        $plan = $this->paidPlanTerms($course);
+        $enrollment = \App\Models\CourseEnrollment::query()->create([
+            'user_id' => $user->id,
+            'course_id' => $course->id,
+            'access_plan_id' => $plan['id'],
+            'access_plan_snapshot' => $plan['snapshot'],
+            'is_active' => true,
+            'enrolled_at' => now(),
+        ]);
+
+        // Authoring state controls discovery and new admissions. It must not
+        // erase an active paid contract captured by an accepted submission.
+        $course->forceFill(['is_coming_soon' => true])->save();
+        $access = app(\App\Services\CourseChatAccessService::class);
+
+        self::assertNull($access->activeEnrollmentFor($user->id, $course->id));
+        self::assertSame(
+            $enrollment->id,
+            $access->activeCapturedEnrollmentFor(
+                $user->id,
+                $course->id,
+                $enrollment->id
+            )?->id
+        );
+
+        $enrollment->forceFill(['is_active' => false])->save();
+        self::assertNull($access->activeCapturedEnrollmentFor(
+            $user->id,
+            $course->id,
+            $enrollment->id
+        ));
+    }
+
     public function test_admin_can_pass_project_submission_with_a_complete_audit_record(): void
     {
         $student = $this->user();
@@ -316,6 +514,15 @@ final class BackendHardeningTest extends TestCase
             $admin->id,
             data_get($submission->submission_metadata, 'review_history.0.reviewer_id')
         );
+        $decision = ProjectSubmissionReviewDecision::query()
+            ->where('submission_id', $submission->id)
+            ->sole();
+        self::assertSame(1, $decision->sequence);
+        self::assertSame('admin_manual', $decision->source);
+        self::assertSame(100, $decision->score);
+        self::assertSame('تنفيذ واضح ومستوفٍ للمتطلبات.', $decision->feedback);
+        self::assertSame($admin->id, $decision->reviewer_id);
+        self::assertNotNull($decision->decided_at);
         $this->assertDatabaseHas('user_project_evaluations', [
             'user_id' => $student->id,
             'project_id' => $project->id,
@@ -370,6 +577,19 @@ final class BackendHardeningTest extends TestCase
         self::assertSame('admin_manual', $submission->review_source);
         self::assertSame(100, $submission->score);
         self::assertTrue((bool) data_get($submission->submission_metadata, 'skill_verified'));
+        $decisions = ProjectSubmissionReviewDecision::query()
+            ->where('submission_id', $submission->id)
+            ->orderBy('sequence')
+            ->get();
+        self::assertCount(2, $decisions);
+        self::assertSame('graceful_fallback', $decisions[0]->source);
+        self::assertNull($decisions[0]->score);
+        self::assertSame('admin_manual', $decisions[1]->source);
+        self::assertSame(100, $decisions[1]->score);
+        self::assertNotSame($decisions[0]->decision_id, $decisions[1]->decision_id);
+
+        $this->expectException(\LogicException::class);
+        $decisions[0]->forceFill(['feedback' => 'محاولة محو القرار القديم'])->save();
     }
 
     public function test_client_duration_cannot_create_or_lower_the_completion_threshold(): void
@@ -1081,6 +1301,50 @@ final class BackendHardeningTest extends TestCase
         self::assertSame('streaming', $turn->fresh()->status);
     }
 
+    public function test_paid_ai_boundaries_reject_a_different_active_user(): void
+    {
+        $owner = $this->user();
+        $other = $this->user();
+        $course = $this->course();
+        $event = AiUsageEvent::query()->create([
+            'request_id' => (string) Str::uuid(),
+            'enrollment_id' => 9001,
+            'user_id' => $owner->id,
+            'course_id' => $course->id,
+            'feature' => 'course_chat',
+            'status' => 'reserved',
+            'reserved_tokens' => 100,
+            'reserved_cost_usd' => 0.01,
+            'reservation_expires_at' => now()->addMinute(),
+        ]);
+        $calls = app(PaidAiCallExecutionService::class);
+
+        self::assertSame(
+            PaidAiCallExecutionService::TERMINAL,
+            $calls->beginForActiveUser($event, 'misrouted-worker', (int) $other->id)
+        );
+        self::assertNull(data_get($event->fresh()->metadata, 'provider_call_state'));
+        self::assertSame(
+            PaidAiCallExecutionService::TERMINAL,
+            $calls->landSuccessfulResultForActiveUser(
+                $event,
+                'misrouted-worker',
+                (int) $other->id,
+                ['message' => 'must not land']
+            )
+        );
+        self::assertSame('reserved', $event->fresh()->status);
+        self::assertSame(
+            AiEntitlementBudgetService::SETTLEMENT_TERMINAL_CONFLICT,
+            app(AiEntitlementBudgetService::class)->settleForActiveUser(
+                $event,
+                ['message' => 'must not settle'],
+                (int) $other->id
+            )
+        );
+        self::assertSame('reserved', $event->fresh()->status);
+    }
+
     public function test_social_completion_rejects_untrusted_provider_and_consumes_code_once(): void
     {
         $code = str_repeat('a', 64);
@@ -1248,6 +1512,124 @@ final class BackendHardeningTest extends TestCase
 
         self::assertTrue($second->hasReachedInstitutionalGrantLimit($user->id));
         self::assertFalse($second->canBeUsedByUser($user->id));
+    }
+
+    public function test_ai_upload_staging_is_bounded_before_more_bytes_are_written(): void
+    {
+        Storage::fake('local');
+        config()->set('projects.submission_disk', 'local');
+        config()->set('openrouter.attachment_staging_max_files_per_user', 1);
+        config()->set('openrouter.attachment_staging_max_bytes_per_user', 1024 * 1024);
+        $user = $this->user();
+        $course = $this->course();
+        $service = app(AiInputAttachmentService::class);
+        $firstUploadId = (string) Str::uuid();
+
+        $first = $service->store(
+            $user,
+            $course,
+            UploadedFile::fake()->createWithContent('first.txt', 'first attachment'),
+            AiInputAttachment::PURPOSE_COURSE_CHAT,
+            $firstUploadId
+        );
+
+        self::assertSame(AiInputAttachment::READY, $first->status);
+        self::assertCount(1, Storage::disk('local')->allFiles('ai_inputs'));
+        $replay = $service->store(
+            $user,
+            $course,
+            UploadedFile::fake()->createWithContent('first.txt', 'first attachment'),
+            AiInputAttachment::PURPOSE_COURSE_CHAT,
+            $firstUploadId
+        );
+        self::assertSame($first->id, $replay->id);
+        self::assertCount(1, Storage::disk('local')->allFiles('ai_inputs'));
+
+        try {
+            $service->store(
+                $user,
+                $course,
+                UploadedFile::fake()->createWithContent('second.txt', 'second attachment'),
+                AiInputAttachment::PURPOSE_COURSE_CHAT,
+                (string) Str::uuid()
+            );
+            self::fail('A second unclaimed upload must be rejected before storage is written.');
+        } catch (\UnexpectedValueException $exception) {
+            self::assertSame('AI attachment staging limit reached.', $exception->getMessage());
+        }
+
+        self::assertSame(1, AiInputAttachment::query()->count());
+        self::assertCount(1, Storage::disk('local')->allFiles('ai_inputs'));
+    }
+
+    public function test_an_inflight_ai_upload_replay_never_becomes_a_second_writer(): void
+    {
+        Storage::fake('local');
+        config()->set('projects.submission_disk', 'local');
+        $user = $this->user();
+        $course = $this->course();
+        $uploadId = (string) Str::uuid();
+        $content = 'same inflight attachment';
+        AiInputAttachment::query()->create([
+            'public_id' => (string) Str::uuid(),
+            'user_id' => $user->id,
+            'course_id' => $course->id,
+            'client_upload_id' => $uploadId,
+            'purpose' => AiInputAttachment::PURPOSE_COURSE_CHAT,
+            'storage_disk' => 'local',
+            'storage_path' => 'ai_inputs/reserved.txt',
+            'original_file_name' => 'reserved.txt',
+            'mime_type' => 'text/plain',
+            'size_bytes' => strlen($content),
+            'sha256' => hash('sha256', $content),
+            'status' => AiInputAttachment::ALLOCATING,
+        ]);
+
+        try {
+            app(AiInputAttachmentService::class)->store(
+                $user,
+                $course,
+                UploadedFile::fake()->createWithContent('reserved.txt', $content),
+                AiInputAttachment::PURPOSE_COURSE_CHAT,
+                $uploadId
+            );
+            self::fail('An inflight idempotency key must not create another storage writer.');
+        } catch (\UnexpectedValueException $exception) {
+            self::assertSame('AI upload id was reused for different content.', $exception->getMessage());
+        }
+
+        self::assertSame(0, count(Storage::disk('local')->allFiles('ai_inputs')));
+        self::assertSame(AiInputAttachment::ALLOCATING, AiInputAttachment::query()->sole()->status);
+    }
+
+    public function test_abandoned_ai_upload_reservation_is_pruned_with_its_bytes(): void
+    {
+        Storage::fake('local');
+        $user = $this->user();
+        $course = $this->course();
+        $path = "ai_inputs/{$user->id}/{$course->id}/abandoned.txt";
+        Storage::disk('local')->put($path, 'abandoned');
+        AiInputAttachment::query()->create([
+            'public_id' => (string) Str::uuid(),
+            'user_id' => $user->id,
+            'course_id' => $course->id,
+            'client_upload_id' => (string) Str::uuid(),
+            'purpose' => AiInputAttachment::PURPOSE_COURSE_CHAT,
+            'storage_disk' => 'local',
+            'storage_path' => $path,
+            'original_file_name' => 'abandoned.txt',
+            'mime_type' => 'text/plain',
+            'size_bytes' => 9,
+            'sha256' => hash('sha256', 'abandoned'),
+            'status' => AiInputAttachment::ALLOCATING,
+            'created_at' => now()->subHour(),
+            'updated_at' => now()->subHour(),
+        ]);
+
+        $this->artisan('data:prune-operational', ['--limit' => 100])->assertSuccessful();
+
+        self::assertFalse(Storage::disk('local')->exists($path));
+        self::assertSame(0, AiInputAttachment::query()->count());
     }
 
     private function user(array $overrides = []): User
@@ -1743,6 +2125,10 @@ final class BackendHardeningTest extends TestCase
             $table->text('requirements_text')->nullable();
             $table->text('requirements_text_ar')->nullable();
             $table->text('requirements_text_en')->nullable();
+            $table->text('ai_prompt')->nullable();
+            $table->string('ai_model_type')->nullable();
+            $table->float('temperature')->nullable();
+            $table->unsignedInteger('tokens_number')->nullable();
             $table->unsignedInteger('passing_score')->default(50);
             $table->unsignedInteger('fallback_review_delay_seconds')->default(8);
             $table->boolean('is_graduation_project')->default(false);
@@ -1820,5 +2206,6 @@ final class BackendHardeningTest extends TestCase
         (require database_path('migrations/2026_09_01_000063_track_course_chat_admission_quota.php'))->up();
         (require database_path('migrations/2026_09_01_000066_create_ai_input_attachments.php'))->up();
         (require database_path('migrations/2026_09_01_000078_create_internal_signals_table.php'))->up();
+        (require database_path('migrations/2026_09_02_000001_snapshot_project_reviews.php'))->up();
     }
 }

@@ -8,6 +8,7 @@ use App\Models\Course;
 use App\Models\User;
 use App\Models\Grade;
 use App\Models\DesignSetting;
+use App\Services\StudentAccountStateService;
 use Illuminate\Http\Request;
 
 class UrgentTasksController extends Controller
@@ -23,7 +24,7 @@ class UrgentTasksController extends Controller
     /**
      * Display the urgent tasks dashboard.
      */
-    public function index()
+    public function index(StudentAccountStateService $accounts)
     {
         // Get pending orders
         $pendingOrders = Order::where('status', 'pending')
@@ -54,6 +55,9 @@ class UrgentTasksController extends Controller
                                      $stats['inactive_students_count'];
 
         $designSettings = $this->getDesignSettings();
+        $accountStateVersions = $inactiveStudents->mapWithKeys(
+            fn (User $user): array => [$user->id => $accounts->editorVersion($user)]
+        );
         
         return view('admin.urgent-tasks.index', compact(
             'pendingOrders',
@@ -61,7 +65,8 @@ class UrgentTasksController extends Controller
             'stats',
             'hasGrades',
             'hasCourses',
-            'designSettings'
+            'designSettings',
+            'accountStateVersions'
         ));
     }
 
@@ -82,7 +87,7 @@ class UrgentTasksController extends Controller
     /**
      * Show inactive students.
      */
-    public function inactiveStudents()
+    public function inactiveStudents(StudentAccountStateService $accounts)
     {
         $inactiveStudents = User::query()->students()
             ->where('active', false)
@@ -90,7 +95,12 @@ class UrgentTasksController extends Controller
             ->paginate(20);
 
         $designSettings = $this->getDesignSettings();
-        return view('admin.urgent-tasks.inactive-students', compact('inactiveStudents', 'designSettings'));
+        $accountStateVersions = $inactiveStudents->getCollection()->mapWithKeys(
+            fn (User $user): array => [$user->id => $accounts->editorVersion($user)]
+        );
+        return view('admin.urgent-tasks.inactive-students', compact(
+            'inactiveStudents', 'designSettings', 'accountStateVersions'
+        ));
     }
 
     /** Keep the legacy shortcut useful without treating optional quizzes as an incident. */
@@ -158,10 +168,23 @@ class UrgentTasksController extends Controller
     /**
      * Activate a student (user).
      */
-    public function activateStudent(Request $request, User $user)
+    public function activateStudent(
+        Request $request,
+        User $user,
+        StudentAccountStateService $accounts
+    )
     {
         abort_unless(strtolower((string) $user->role) === 'client', 404);
-        $user->forceFill(['active' => true])->save();
+        $validated = $request->validate([
+            'expected_active' => ['required', 'boolean'],
+            'state_version' => ['required', 'string', 'size:64'],
+        ]);
+        $accounts->setActive(
+            $user,
+            (bool) $validated['expected_active'],
+            (string) $validated['state_version'],
+            true
+        );
 
         // Redirect back to the referring page
         if (str_contains($request->headers->get('referer'), 'inactive-students')) {

@@ -167,13 +167,6 @@ final readonly class KashierCheckoutFlowService
                     ->where('package_id', $package->id)
                     ->where('payment_method', Order::PAYMENT_METHOD_KASHIER)
                     ->where('status', Order::STATUS_PENDING)
-                    ->where(function ($query): void {
-                        $query->where('checkout_expires_at', '>', now())
-                            ->orWhere(function ($legacy): void {
-                                $legacy->whereNull('checkout_expires_at')
-                                    ->where('created_at', '>', now()->subMinutes(30));
-                            });
-                    })
                     ->with('package')
                     ->latest('id')
                     ->first()
@@ -435,6 +428,16 @@ final readonly class KashierCheckoutFlowService
             return $order->fresh(['package']);
         }
         if ($this->payments->isProviderFailureStatus($providerStatus)) {
+            return $this->payments->cancelPendingOrder($order, $apiResponse);
+        }
+
+        if (
+            $order->isCheckoutExpired()
+            && !$this->payments->providerStatusMayCaptureWithoutLearner($providerStatus)
+        ) {
+            // Local expiry only releases an old intent after Kashier proves it
+            // is not authorized/processing. This keeps a stale PENDING link
+            // from blocking a retry without opening two chargeable attempts.
             return $this->payments->cancelPendingOrder($order, $apiResponse);
         }
 

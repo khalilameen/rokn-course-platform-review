@@ -610,10 +610,12 @@ class AuthEndpointTest extends ApiTestCase
     public function test_deleted_identity_cannot_repeat_welcome_or_one_time_task_rewards(): void
     {
         config(['social_auth.reward_tombstone_hmac_key' => 'unit-test-tombstone-key']);
+        $originalEmail = (string) $this->user->email;
         $providerId = 'raw-provider-id-must-not-be-stored';
         $this->user->forceFill([
             'social_provider' => 'facebook',
             'social_id' => $providerId,
+            'email_verified_at' => now(),
         ])->save();
         \App\Models\SocialAccount::query()->create([
             'user_id' => $this->user->id,
@@ -654,7 +656,10 @@ class AuthEndpointTest extends ApiTestCase
         $this->app['auth']->forgetGuards();
         $this->withToken($reauthToken)->postJson('/api/v1/delete-account')->assertOk();
 
-        $tombstone = \App\Models\DeletedSocialRewardTombstone::query()->sole();
+        $this->assertDatabaseCount('deleted_social_reward_tombstones', 2);
+        $tombstone = \App\Models\DeletedSocialRewardTombstone::query()
+            ->where('provider', 'facebook')
+            ->sole();
         $this->assertSame([
             'method:' . $anonymousMethodId,
             'task:instagram',
@@ -707,5 +712,33 @@ class AuthEndpointTest extends ApiTestCase
             ->assertOk()
             ->assertJsonPath('data.already_claimed', true)
             ->assertJsonPath('data.earned_amount', 0);
+
+        $crossProviderReplacement = \App\Models\User::query()->forceCreate([
+            'name' => 'Same email via another provider',
+            'email' => $originalEmail,
+            'password' => bcrypt('irrelevant'),
+            'role' => 'client',
+            'active' => true,
+            'email_verified_at' => now(),
+            'social_provider' => 'google',
+            'social_id' => 'new-google-provider-id',
+            'wallet_coins' => 0,
+            'wallet_reward_coins' => 0,
+        ]);
+        \App\Models\SocialAccount::query()->create([
+            'user_id' => $crossProviderReplacement->id,
+            'provider' => 'google',
+            'provider_user_id' => 'new-google-provider-id',
+            'last_verified_at' => now(),
+        ]);
+
+        $this->assertSame(
+            0,
+            \App\Services\StudentNotificationService::sendRegistrationBonus($crossProviderReplacement)
+        );
+        $this->assertDatabaseMissing('wallet_transactions', [
+            'user_id' => $crossProviderReplacement->id,
+            'category' => 'welcome_bonus',
+        ]);
     }
 }

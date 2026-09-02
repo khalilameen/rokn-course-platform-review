@@ -9,6 +9,7 @@ import {
 } from '../constants/helpers';
 import {publicRequest} from '../constants/api';
 import type {LearnerDraftFile} from './learnerDraftFiles';
+import {readJsonOrQuarantine} from './recoverableJsonStorage';
 
 type Authorization = {
   upload_endpoint?: string;
@@ -68,16 +69,15 @@ const withRecordsLock = <T>(callback: () => Promise<T>): Promise<T> => {
 
 const readRecordsUnlocked = async (
   key: string,
-): Promise<Record<string, UploadRecord>> => {
-  const raw = await AsyncStorage.getItem(key);
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-};
+): Promise<Record<string, UploadRecord>> =>
+  readJsonOrQuarantine(
+    key,
+    () => ({}),
+    parsed =>
+      parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, UploadRecord>)
+        : null,
+  );
 
 const readRecords = (key: string, boundary: AccountSessionBoundary) =>
   withRecordsLock(async () => {

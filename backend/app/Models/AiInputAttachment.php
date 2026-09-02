@@ -14,6 +14,7 @@ final class AiInputAttachment extends Model
     public const OWNER_COURSE_CHAT_TURN = 'course_chat_turn';
     public const OWNER_PROJECT_SUBMISSION = 'project_submission';
     public const OWNER_PROJECT_FEEDBACK_MESSAGE = 'project_feedback_message';
+    public const ALLOCATING = 'allocating';
     public const READY = 'ready';
     public const DELETING = 'deleting';
 

@@ -111,11 +111,6 @@ final class AdminPermissionMatrix
         'admin.paths.update' => ['PUT', 'PATCH'],
         'admin.paths.destroy' => ['DELETE'],
         'admin.levels.index' => ['GET'],
-        'admin.levels.create' => ['GET'],
-        'admin.levels.store' => ['POST'],
-        'admin.levels.edit' => ['GET'],
-        'admin.levels.update' => ['PUT', 'PATCH'],
-        'admin.levels.destroy' => ['DELETE'],
     ];
 
     public function allows(?string $role, ?string $routeName, string $method): bool

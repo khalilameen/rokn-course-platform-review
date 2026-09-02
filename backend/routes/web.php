@@ -250,11 +250,22 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
     Route::name('users.notes.store')->post('users/{user}/notes', 'UsersController@storeNote')->middleware('admin.only');
     Route::name('users.notes.delete')->delete('notes/{note}', 'UsersController@deleteNote')->middleware('admin.only');
 
-    Route::resource('users', 'UsersController')->middleware('admin.only');
+    // Account deletion is irreversible and must only be executed from the
+    // verified deletion-request workflow in ContactsController. Exposing the
+    // resource destroy action would bypass its identity checks and resolution
+    // evidence even though the dashboard does not render a delete button.
+    Route::resource('users', 'UsersController')->except(['destroy'])->middleware('admin.only');
     Route::resource('packages', 'PackageController')->middleware('admin.only');
     Route::resource('classifications', 'ClassificationController')->except(['show']);
     Route::resource('paths', 'PathController')->except(['show']);
-    Route::resource('levels', 'LevelController')->except(['show']);
+    // Moderators may use the shared level catalogue while authoring courses,
+    // but changing the platform-wide learner progression ladder is an
+    // administrator decision. Keep the reference list readable without
+    // granting create, rename, reorder or delete access.
+    Route::resource('levels', 'LevelController')
+        ->only(['create', 'store', 'edit', 'update', 'destroy'])
+        ->middleware('admin.only');
+    Route::resource('levels', 'LevelController')->only(['index']);
     Route::resource('coin-earning-methods', 'CoinEarningMethodController')
         ->except(['show'])
         ->middleware('admin.only');

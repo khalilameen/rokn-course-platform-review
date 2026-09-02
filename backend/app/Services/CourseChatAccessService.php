@@ -122,6 +122,40 @@ final class CourseChatAccessService
         return $this->entitlementFor($userId, $courseId)['certificate_available'];
     }
 
+    /**
+     * Resolve the certificate term from the immutable enrollment contract.
+     * Unlike the catalogue-facing entitlement resolver, this remains valid
+     * while a completed course is temporarily a draft for its next revision.
+     */
+    public function enrollmentHasCertificateAccess(CourseEnrollment $enrollment): bool
+    {
+        $relations = ['order.courseCode'];
+        if (Schema::hasColumn('course_enrollments', 'access_plan_order_id')) {
+            $relations[] = 'accessPlanOrder';
+        }
+        if (Schema::hasTable('course_access_plans')) {
+            $relations[] = 'accessPlan';
+        }
+        $enrollment->loadMissing($relations);
+
+        if ($this->provenance->enrollmentHasActiveHold($enrollment, ['course'])) {
+            return false;
+        }
+
+        $order = $enrollment->order;
+        $planOrder = $enrollment->accessPlanOrder;
+        $isCourseCode = $order && $order->payment_method === Order::PAYMENT_METHOD_COURSE_CODE;
+        $isGrant = $isCourseCode
+            && (!$order->courseCode || $order->courseCode->isInstitutionalGrant());
+        $isPaidPlanUpgrade = $this->isPaidPlanUpgrade($enrollment, $planOrder);
+        $terms = $this->plans->termsForEnrollment($enrollment);
+
+        return (!$isGrant || $isPaidPlanUpgrade)
+            && ($terms
+                ? (bool) ($terms['certificate_enabled'] ?? false)
+                : $enrollment->access_plan_id === null);
+    }
+
     public function hasLearningAccess(int $userId, int $courseId): bool
     {
         if (!$this->courseIsReady($courseId)) {
@@ -162,6 +196,29 @@ final class CourseChatAccessService
             ->first(fn (CourseEnrollment $candidate): bool =>
                 !$this->provenance->enrollmentHasActiveHold($candidate, ['course'])
             );
+    }
+
+    /**
+     * Re-check a captured enrollment without coupling delayed paid work to the
+     * course's current catalogue state. Drafting the next curriculum revision
+     * must not cancel an already-submitted report, while revocation, expiry,
+     * downgrade and financial holds remain authoritative.
+     */
+    public function activeCapturedEnrollmentFor(
+        int $userId,
+        int $courseId,
+        int $enrollmentId
+    ): ?CourseEnrollment {
+        $enrollment = $this->activeEnrollments($userId, $this->accessCourseIds($courseId))
+            ->whereKey($enrollmentId)
+            ->with($this->enrollmentRelations())
+            ->first();
+
+        if (!$enrollment || $this->provenance->enrollmentHasActiveHold($enrollment, ['course'])) {
+            return null;
+        }
+
+        return $enrollment;
     }
 
     private function activeEnrollments(int $userId, array $courseIds): Builder

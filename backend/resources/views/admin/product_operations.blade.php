@@ -278,6 +278,7 @@
                         <td>
                             <form method="POST" action="{{ route('admin.product-operations.features.update', $key) }}" onsubmit="return confirm('تطبيق هذا التغيير على المستخدمين؟')">
                                 @csrf
+                                <input type="hidden" name="editor_version" value="{{ $feature['editor_version'] }}">
                                 <div class="form-row align-items-end">
                                     <div class="col-md-3 mb-2">
                                         <label class="small">الحالة</label>

@@ -15,6 +15,7 @@ use App\Models\WalletCreditLot;
 use App\Models\WalletTransaction;
 use App\Services\CourseChatAccessService;
 use App\Services\FinancialProvenanceService;
+use App\Services\KashierPaymentService;
 use App\Services\OrderLifecycleService;
 use App\Services\WalletService;
 use Illuminate\Console\Command;
@@ -137,6 +138,56 @@ final class FinancialProvenanceTest extends ApiTestCase
         self::assertSame(WalletCreditLot::STATUS_FROZEN, $lot->status);
         self::assertSame(0, $lot->remaining_amount);
         self::assertSame(600, $lot->recovered_amount);
+    }
+
+    public function test_kashier_transaction_fallback_deduplicates_retries_without_merging_later_states(): void
+    {
+        $order = $this->paidPackage(500, true, [
+            'transaction_id' => 'TXN-REFUND-LIFECYCLE',
+        ]);
+        $payments = app(KashierPaymentService::class);
+
+        $payments->recordFinancialReversal(
+            $order,
+            Order::FINANCIAL_REFUNDED,
+            'REFUNDED',
+            'TXN-REFUND-LIFECYCLE',
+            [
+                'id' => 'payment-row-shared-across-states',
+                'transactionId' => 'TXN-REFUND-LIFECYCLE',
+            ]
+        );
+        $payments->recordFinancialReversal(
+            $order->fresh(),
+            Order::FINANCIAL_REFUNDED,
+            'REFUND',
+            'TXN-REFUND-LIFECYCLE',
+            [
+                'id' => 'payment-row-shared-across-states',
+                'transactionId' => 'TXN-REFUND-LIFECYCLE',
+            ]
+        );
+        $payments->recordFinancialReversal(
+            $order->fresh(),
+            Order::FINANCIAL_CHARGEBACK,
+            'CHARGEBACK',
+            'TXN-REFUND-LIFECYCLE',
+            [
+                'id' => 'payment-row-shared-across-states',
+                'transactionId' => 'TXN-REFUND-LIFECYCLE',
+            ]
+        );
+
+        $events = DB::table('order_financial_events')
+            ->where('order_id', $order->id)
+            ->orderBy('id')
+            ->get();
+
+        self::assertCount(2, $events);
+        self::assertSame('refunded', $events[0]->event_type);
+        self::assertSame('chargeback', $events[1]->event_type);
+        self::assertNotSame($events[0]->external_event_id, $events[1]->external_event_id);
+        self::assertSame(0, (int) $this->user->fresh()->wallet_purchased_coins);
     }
 
     public function test_fully_spent_package_holds_only_its_course_and_revokes_its_certificate(): void

@@ -6,6 +6,7 @@ import {
   assertAccountSessionBoundary,
   captureAccountSessionBoundary,
   getCurrentAccountStorageScope,
+  type AccountSessionBoundary,
 } from '../constants/helpers';
 import {secureRandomUuid} from '../utils/secureRandom';
 
@@ -353,6 +354,7 @@ export const cacheLearnerDraftFile = async (
   kind: 'avatar' | 'feedback' | 'portfolio' | 'project' | 'course_chat',
   source: LearnerDraftFile,
   maximumBytes: number,
+  ownerBoundary?: AccountSessionBoundary,
 ): Promise<LearnerDraftFile> => {
   if (!source.uri || maximumBytes <= 0) {
     throw new Error('LEARNER_FILE_UNAVAILABLE');
@@ -362,7 +364,7 @@ export const cacheLearnerDraftFile = async (
     throw new Error('LEARNER_FILE_TOO_LARGE');
   }
 
-  const boundary = await captureAccountSessionBoundary();
+  const boundary = ownerBoundary || (await captureAccountSessionBoundary());
   const scope = boundary.scope;
   const managedSourceScope = accountScopeFromPath(filePath(source.uri));
   if (managedSourceScope && managedSourceScope !== scope) {
@@ -420,7 +422,8 @@ export const cacheLearnerDraftFile = async (
       if (
         error instanceof Error &&
         (error.message.startsWith('LEARNER_FILE_') ||
-          error.message === 'LEARNER_DRAFT_STORAGE_FULL')
+          error.message === 'LEARNER_DRAFT_STORAGE_FULL' ||
+          error.message === 'ACCOUNT_CHANGED_DURING_REQUEST')
       ) {
         throw error;
       }

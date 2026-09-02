@@ -11,10 +11,11 @@ use App\Models\DesignSetting;
 use App\Models\User;
 use App\Models\UserNote;
 use App\Services\StudentNotificationService;
-use App\Services\AccountDeletionService;
 use App\Services\DeviceLoginService;
 use App\Services\StoredFileDeletionService;
 use App\Services\AdminAuthoringCreateIntentService;
+use App\Services\StudentAccountStateService;
+use App\Support\AdminEditorVersion;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -32,7 +33,7 @@ class UsersController extends Controller
     /**
      * @return \Illuminate\Contracts\View\Factory|\Illuminate\View\View
      */
-    public function index(Request $request)
+    public function index(Request $request, StudentAccountStateService $accounts)
     {
         $users = User::query()->students()
             ->with(['latestNote']);
@@ -57,11 +58,14 @@ class UsersController extends Controller
 
         // Add pagination
         $users = $users->orderByDesc('id')->paginate(10)->appends($request->query());
+        $accountStateVersions = $users->getCollection()->mapWithKeys(
+            fn (User $user): array => [$user->id => $accounts->editorVersion($user)]
+        );
 
         // Get design settings
         $designSettings = $this->getDesignSettings();
 
-        return view('admin.users.index', compact('users', 'designSettings'));
+        return view('admin.users.index', compact('users', 'designSettings', 'accountStateVersions'));
     }
 
 
@@ -141,7 +145,12 @@ class UsersController extends Controller
      * @param User $user
      * @return \Illuminate\Contracts\View\Factory|\Illuminate\View\View
      */
-    public function show(User $user, Request $request, DeviceLoginService $deviceLogin)
+    public function show(
+        User $user,
+        Request $request,
+        DeviceLoginService $deviceLogin,
+        StudentAccountStateService $accounts
+    )
     {
 
         $user->loadCount('deviceTokens')->load([
@@ -196,7 +205,11 @@ class UsersController extends Controller
         // Get design settings
         $designSettings = $this->getDesignSettings();
 
-        return view('admin.users.show', compact('user', 'orders', 'bills', 'notes', 'examResults', 'examStats', 'deviceLoginPolicy', 'designSettings'));
+        $accountStateVersion = $accounts->editorVersion($user);
+        return view('admin.users.show', compact(
+            'user', 'orders', 'bills', 'notes', 'examResults', 'examStats',
+            'deviceLoginPolicy', 'designSettings', 'accountStateVersion'
+        ));
     }
 
     /**
@@ -206,7 +219,8 @@ class UsersController extends Controller
     public function edit(User $user)
     {
         $designSettings = $this->getDesignSettings();
-        return view('admin.users.edit', compact('user', 'designSettings'));
+        $editorVersion = $this->editorVersion($user);
+        return view('admin.users.edit', compact('user', 'designSettings', 'editorVersion'));
     }
 
 
@@ -221,13 +235,31 @@ class UsersController extends Controller
         abort_if(in_array(strtolower((string) $user->role), ['admin', 'moderator', 'teacher'], true), 403);
 
         $validated = $request->validated();
-        $user->name = $validated['name'];
-        $user->email = strtolower(trim($validated['email']));
-        $user->phone = trim($validated['phone']);
-        if (!empty($validated['password'])) {
-            $user->password = bcrypt($validated['password']);
-        }
-        $user->save();
+        $editorVersion = (string) $validated['editor_version'];
+        DB::transaction(function () use ($user, $validated, $editorVersion): void {
+            $locked = User::query()->students()->whereKey($user->id)
+                ->lockForUpdate()->firstOrFail();
+            if (!hash_equals($this->editorVersion($locked), $editorVersion)) {
+                throw ValidationException::withMessages([
+                    'editor_version' => ['تغيّرت بيانات الطالب منذ فتح الصفحة\nأعد تحميلها قبل الحفظ'],
+                ]);
+            }
+
+            $email = strtolower(trim((string) $validated['email']));
+            $updates = [
+                'name' => $validated['name'],
+                'email' => $email,
+                'phone' => trim((string) $validated['phone']),
+                'profile_revision' => (int) $locked->profile_revision + 1,
+            ];
+            if (!hash_equals(strtolower(trim((string) $locked->email)), $email)) {
+                $updates['email_verified_at'] = null;
+            }
+            if (!empty($validated['password'])) {
+                $updates['password'] = bcrypt($validated['password']);
+            }
+            $locked->forceFill($updates)->save();
+        }, 3);
 
         return redirect()->route('admin.users.show', $user->id)->with('success', 'تم التعديل بنجاح');
     }
@@ -236,53 +268,32 @@ class UsersController extends Controller
     /**
      * @param User $user
      * @return \Illuminate\Http\RedirectResponse
-     * @throws \Exception
      */
-    public function destroy(User $user, AccountDeletionService $accounts)
+    public function deactive(
+        Request $request,
+        User $user,
+        StudentAccountStateService $accounts
+    )
     {
         abort_if(in_array(strtolower((string) $user->role), ['admin', 'moderator', 'teacher'], true), 403);
-
-        $accounts->delete($user);
-
-        return redirect()->route('admin.users.index')->with('success', 'تم حذف الحساب وبياناته الشخصية');
+        $validated = $request->validate([
+            'expected_active' => ['required', 'boolean'],
+            'state_version' => ['required', 'string', 'size:64'],
+        ]);
+        $user = $accounts->setActive(
+            $user,
+            (bool) $validated['expected_active'],
+            (string) $validated['state_version'],
+            !(bool) $validated['expected_active']
+        );
+        return redirect()->back()->with('success', $user->active ? 'تم التفعيل بنجاح' : 'تم التعطيل بنجاح');
     }
 
-    /**
-     * @param User $user
-     * @return \Illuminate\Http\RedirectResponse
-     */
-    public function deactive(Request $request, User $user)
+    private function editorVersion(User $user): string
     {
-        abort_if(in_array(strtolower((string) $user->role), ['admin', 'moderator', 'teacher'], true), 403);
-        $validated = $request->validate(['expected_active' => ['required', 'boolean']]);
-        DB::transaction(function () use ($user, $validated): void {
-            $locked = User::query()->lockForUpdate()->findOrFail($user->id);
-            if ((bool) $locked->active !== (bool) $validated['expected_active']) {
-                throw ValidationException::withMessages([
-                    'expected_active' => ['تغيّرت حالة الحساب بالفعل\nأعد تحميل الصفحة'],
-                ]);
-            }
-            $active = !(bool) $locked->active;
-            $locked->forceFill([
-                'active' => $active,
-                // Clear the retired single-token credential at the same time.
-                'api_token' => $active ? $locked->getRawOriginal('api_token') : null,
-            ])->save();
-
-            if (!$active) {
-                $locked->purgeApiTokens();
-                $locked->deviceTokens()->delete();
-            }
-
-            // The previous implementation inverted the just-saved value here,
-            // leaving a disabled learner's store active.
-            if ($locked->store) {
-                $locked->store->update(['active' => $active]);
-            }
-        }, 3);
-
-        $user->refresh();
-        return redirect()->back()->with('success', $user->active ? 'تم التفعيل بنجاح' : 'تم التعطيل بنجاح');
+        return AdminEditorVersion::for($user, [
+            'name', 'email', 'phone', 'password', 'profile_revision', 'email_verified_at',
+        ]);
     }
 
     public function sendNotification(Request $request, User $user)

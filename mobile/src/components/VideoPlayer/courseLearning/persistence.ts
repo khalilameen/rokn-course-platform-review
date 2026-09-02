@@ -37,6 +37,9 @@ const EMPTY_STATE: PersistedPlayerState = {
   activityDays: [],
 };
 
+const isAccountBoundaryError = (error: unknown) =>
+  error instanceof Error && error.message === 'ACCOUNT_CHANGED_DURING_REQUEST';
+
 const compactResumeState = (
   rawPositions: unknown,
   rawLastWatchedAt: unknown,
@@ -142,11 +145,19 @@ export const readPlayerState = async (
       asArray(parsed?.activityDays).length > state.activityDays.length
     ) {
       if (boundary) assertAccountSessionBoundary(boundary);
-      await AsyncStorage.setItem(storageKey, JSON.stringify(state));
+      // Compaction is maintenance, not the source of truth for this read. A
+      // transient storage write failure must not turn the valid snapshot we
+      // just parsed into an empty learning history for the current session.
+      try {
+        await AsyncStorage.setItem(storageKey, JSON.stringify(state));
+      } catch {
+        // Keep the valid in-memory state. A later write can compact it again.
+      }
       if (boundary) assertAccountSessionBoundary(boundary);
     }
     return state;
-  } catch {
+  } catch (error: unknown) {
+    if (isAccountBoundaryError(error)) throw error;
     return {...EMPTY_STATE};
   }
 };

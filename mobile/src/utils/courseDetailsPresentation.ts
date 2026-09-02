@@ -20,18 +20,24 @@ export const normalizeCourseDurationMinutes = (
     course?.metadata?.duration_minutes ?? course?.duration_minutes;
   const parsedExplicitMinutes = Number(explicitMinutes);
   const hours = Number(course?.metadata?.hours_count);
-  const sectionMinutes = (course?.modules ?? []).reduce(
+  const modules = Array.isArray(course?.modules) ? course.modules : [];
+  const sectionMinutes = modules.reduce(
     (courseTotal, module) =>
       courseTotal +
-      (module.sections ?? []).reduce((moduleTotal, section) => {
-        const minutes = Number(
-          section.content?.duration_minutes ??
-            section.sectionable?.duration_minutes ??
-            section.lesson?.duration_minutes,
-        );
-        return moduleTotal +
-          (Number.isFinite(minutes) && minutes > 0 ? minutes : 0);
-      }, 0),
+      (Array.isArray(module?.sections) ? module.sections : []).reduce(
+        (moduleTotal, section) => {
+          const minutes = Number(
+            section?.content?.duration_minutes ??
+              section?.sectionable?.duration_minutes ??
+              section?.lesson?.duration_minutes,
+          );
+          return (
+            moduleTotal +
+            (Number.isFinite(minutes) && minutes > 0 ? minutes : 0)
+          );
+        },
+        0,
+      ),
     0,
   );
   const rawMinutes =

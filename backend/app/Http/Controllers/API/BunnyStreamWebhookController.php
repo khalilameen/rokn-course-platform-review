@@ -52,7 +52,7 @@ final class BunnyStreamWebhookController extends Controller
             ->where('bunny_video_id', $videoGuid)
             ->whereHas('courseSection')
             ->pluck('id')
-            ->each(fn ($lessonId) => ProbeLessonMedia::dispatch((int) $lessonId));
+            ->each(fn ($lessonId) => ProbeLessonMedia::dispatch((int) $lessonId, $videoGuid));
 
         return response()->json(['accepted' => true], 202);
     }

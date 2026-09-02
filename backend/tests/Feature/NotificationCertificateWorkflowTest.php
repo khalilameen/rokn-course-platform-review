@@ -15,6 +15,7 @@ use App\Models\Course;
 use App\Models\StudentNotification;
 use App\Models\User;
 use App\Services\CertificateService;
+use App\Services\CertificateEligibilityService;
 use App\Services\CoursePublishingService;
 use App\Services\NotificationService;
 use App\Services\PublicPortfolioService;
@@ -401,6 +402,46 @@ final class NotificationCertificateWorkflowTest extends TestCase
         app(GenerateCourseCertificate::class)->handle(new CourseCompleted($user, $course));
     }
 
+    public function test_new_course_revision_cannot_revoke_earned_certificate_eligibility(): void
+    {
+        $user = $this->user('grandfathered-graduate@example.com');
+        $course = $this->course();
+        $course->forceFill([
+            'authoring_version' => 4,
+            'last_published_authoring_version' => 4,
+        ])->save();
+        DB::table('course_enrollments')->insert([
+            'user_id' => $user->id,
+            'course_id' => $course->id,
+            'is_active' => true,
+            'completed_curriculum_revision' => 4,
+            'curriculum_completed_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        // Revision 5 is being authored and contains a new unfinished section.
+        // The earned revision 4 remains the certificate contract.
+        $course->forceFill([
+            'is_coming_soon' => true,
+            'authoring_version' => 5,
+            'last_published_authoring_version' => 4,
+        ])->save();
+        DB::table('course_sections')->insert([
+            'course_id' => $course->id,
+            'section_type' => 'lesson',
+            'order' => 99,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $eligibility = app(CertificateEligibilityService::class)->for($user, $course->fresh());
+
+        self::assertTrue($eligibility['included']);
+        self::assertTrue($eligibility['available']);
+        self::assertSame('ready', $eligibility['reason']);
+    }
+
     public function test_pending_certificate_is_recovered_to_configured_shared_disk(): void
     {
         $this->certificateDiskRoot = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'rokn-certificate-' . uniqid('', true);
@@ -645,6 +686,9 @@ final class NotificationCertificateWorkflowTest extends TestCase
             $table->string('certificate_text_template_key', 32)->default('completion');
             $table->boolean('is_coming_soon')->default(false);
             $table->boolean('is_catalog_visible')->default(true);
+            $table->unsignedBigInteger('authoring_version')->default(1);
+            $table->unsignedBigInteger('last_published_authoring_version')->nullable();
+            $table->timestamp('published_at')->nullable();
             $table->unsignedBigInteger('parent_id')->nullable();
             $table->string('badge_track')->nullable();
             $table->timestamps();
@@ -674,6 +718,8 @@ final class NotificationCertificateWorkflowTest extends TestCase
             $table->unsignedBigInteger('order_id')->nullable();
             $table->boolean('is_active')->default(true);
             $table->timestamp('expires_at')->nullable();
+            $table->unsignedBigInteger('completed_curriculum_revision')->nullable();
+            $table->timestamp('curriculum_completed_at')->nullable();
             $table->timestamps();
         });
         Schema::create('certificates', function (Blueprint $table): void {

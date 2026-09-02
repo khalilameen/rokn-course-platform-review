@@ -42,4 +42,44 @@ describe('checkout return recovery', () => {
     expect(await claimPendingCheckoutReturn()).toBeUndefined();
     expect(saved?.receipt).toBe(claimed?.receipt);
   });
+
+  it('does not let an older acknowledgement delete a newer checkout return', async () => {
+    const older = await savePendingCheckoutReturn({name: 'Wallet'});
+    expect(older).toBeDefined();
+
+    const originalRemoveItem = AsyncStorage.removeItem.bind(AsyncStorage);
+    let releaseRemove!: () => void;
+    let markRemoveStarted!: () => void;
+    const removeStarted = new Promise<void>(resolve => {
+      markRemoveStarted = resolve;
+    });
+    const removeGate = new Promise<void>(resolve => {
+      releaseRemove = resolve;
+    });
+    const removeSpy = jest
+      .spyOn(AsyncStorage, 'removeItem')
+      .mockImplementationOnce(async key => {
+        markRemoveStarted();
+        await removeGate;
+        await originalRemoveItem(key);
+      });
+
+    const acknowledgeOlder = acknowledgePendingCheckoutReturn(older!);
+    await removeStarted;
+    const saveNewer = savePendingCheckoutReturn({
+      name: 'CourseDetails',
+      params: {courseId: '71', openPurchase: true},
+    });
+    releaseRemove();
+    await expect(acknowledgeOlder).resolves.toBe(true);
+    const newer = await saveNewer;
+    removeSpy.mockRestore();
+
+    const claimed = await claimPendingCheckoutReturn();
+    expect(claimed?.receipt).toBe(newer?.receipt);
+    expect(claimed?.returnTo).toMatchObject({
+      name: 'CourseDetails',
+      params: {courseId: '71', openPurchase: true},
+    });
+  });
 });

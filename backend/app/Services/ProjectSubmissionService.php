@@ -7,9 +7,11 @@ namespace App\Services;
 use App\Jobs\GenerateProjectFeedback;
 use App\Models\Project;
 use App\Models\ProjectSubmission;
+use App\Models\ProjectSubmissionReviewDecision;
 use App\Models\Certificate;
 use App\Models\CourseSection;
 use App\Models\Course;
+use App\Models\CourseEnrollment;
 use App\Models\AiInputAttachment;
 use App\Models\StudentSectionProgress;
 use App\Models\User;
@@ -22,6 +24,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use App\Support\DownloadFilename;
+use App\Support\ProjectSubmissionEvaluationSnapshot;
 use App\Support\UnicodeText;
 
 final class ProjectSubmissionService
@@ -30,7 +33,9 @@ final class ProjectSubmissionService
         private readonly CourseSectionSequenceService $sectionSequence,
         private readonly AiInputAttachmentService $attachments,
         private readonly StoredFileDeletionService $storedFiles,
-        private readonly InternalSignalService $internalSignals
+        private readonly InternalSignalService $internalSignals,
+        private readonly CourseChatAccessService $courseAccess,
+        private readonly CourseAccessPlanService $accessPlans
     ) {
     }
 
@@ -139,6 +144,7 @@ final class ProjectSubmissionService
                 // Different client retry keys are still serialized per learner,
                 // preventing two simultaneous uploads for the same project.
                 User::query()->where('active', true)->lockForUpdate()->findOrFail($user->id);
+                $lockedProject = Project::query()->lockForUpdate()->findOrFail($project->id);
 
                 $existing = ProjectSubmission::query()
                     ->where('user_id', $user->id)
@@ -165,6 +171,42 @@ final class ProjectSubmissionService
 
                 $primaryPath = $storedPaths[0] ?? null;
                 $primaryDescriptor = $fileDescriptors[0] ?? null;
+                $projectSection = CourseSection::query()
+                    ->where('sectionable_type', Project::class)
+                    ->where('sectionable_id', $lockedProject->id)
+                    ->lockForUpdate()
+                    ->first();
+                $enrollment = null;
+                $accessTerms = null;
+                if ($projectSection) {
+                    $selectedEnrollment = $this->courseAccess->activeEnrollmentFor(
+                        (int) $user->id,
+                        (int) $projectSection->course_id
+                    );
+                    if ($selectedEnrollment) {
+                        $enrollment = CourseEnrollment::query()
+                            ->whereKey($selectedEnrollment->id)
+                            ->where('user_id', $user->id)
+                            ->lockForUpdate()
+                            ->first();
+                        if ($enrollment?->isActive()) {
+                            $accessTerms = $this->accessPlans->termsForEnrollment($enrollment);
+                        } else {
+                            $enrollment = null;
+                        }
+                    }
+                    if (!$enrollment) {
+                        throw new AuthorizationException(
+                            'The learner no longer has an active enrollment for this project.'
+                        );
+                    }
+                }
+                $evaluationSnapshot = ProjectSubmissionEvaluationSnapshot::capture(
+                    $lockedProject,
+                    $projectSection,
+                    $enrollment,
+                    $accessTerms
+                );
 
                 $isInvalid = $effortStatus === ProjectSubmission::EFFORT_INVALID;
                 $reviewStatus = $isInvalid
@@ -197,6 +239,7 @@ final class ProjectSubmissionService
                         // created by an older web or queue node.
                         'storage_disk' => $submissionDisk,
                     ]),
+                    'evaluation_snapshot' => $evaluationSnapshot,
                     'effort_status' => $effortStatus,
                     // Empty/black/solid attempts are the only immediate stop.
                     // A sincere attempt keeps the short reviewing state and then passes.
@@ -208,17 +251,44 @@ final class ProjectSubmissionService
                     'auto_pass_at' => $isInvalid
                         ? null
                         : now()->addSeconds(max(1, (int) (
-                            $project->fallback_review_delay_seconds
+                            $lockedProject->fallback_review_delay_seconds
                             ?? config('projects.fallback_review_delay_seconds', 8)
                         ))),
                     'reviewed_at' => $isInvalid ? now() : null,
                 ]);
 
+                $decision = null;
+                if ($isInvalid) {
+                    $decision = $this->appendReviewDecision(
+                        $submission,
+                        $reviewStatus,
+                        0,
+                        (string) $feedback,
+                        'effort_guard',
+                        null,
+                        [
+                            'assessment_type' => 'effort_guard',
+                            'skill_verified' => false,
+                            'progression_credit' => false,
+                        ]
+                    );
+                    $submissionMetadata = (array) $submission->submission_metadata;
+                    $submissionMetadata['review_history'] = [
+                        $this->decisionHistoryEntry($decision),
+                    ];
+                    $submission->forceFill([
+                        'review_status' => $decision->status,
+                        'review_source' => $decision->source,
+                        'score' => $decision->score,
+                        'feedback' => $decision->feedback,
+                        'reviewed_at' => $decision->decided_at,
+                        'reviewed_by' => $decision->reviewer_id,
+                        'submission_metadata' => $submissionMetadata,
+                    ])->save();
+                }
+
                 if ($files !== []) {
-                    $courseId = CourseSection::query()
-                        ->where('sectionable_type', Project::class)
-                        ->where('sectionable_id', $project->id)
-                        ->value('course_id');
+                    $courseId = $projectSection?->course_id;
                     $course = $courseId ? Course::query()->find($courseId) : null;
                     if ($course) {
                         foreach ((array) data_get($submission->submission_metadata, 'files', []) as $index => $stored) {
@@ -228,7 +298,7 @@ final class ProjectSubmissionService
                                 (int) $stored['size_bytes'], (string) $stored['sha256'],
                                 $this->deterministicUploadId(
                                     implode('|', [
-                                        'project-ai-input', $user->id, $project->id,
+                                        'project-ai-input', $user->id, $lockedProject->id,
                                         strtolower($idempotencyKey), $index, (string) $stored['sha256'],
                                     ])
                                 ),
@@ -246,9 +316,12 @@ final class ProjectSubmissionService
                         'score' => 0,
                         'passed' => false,
                         'evaluation_data' => [
-                            'status' => $reviewStatus,
+                            'status' => $decision?->status ?? $reviewStatus,
                             'submission_id' => $submission->public_id,
-                            'source' => $isInvalid ? 'effort_guard' : 'server_review_policy',
+                            'source' => $decision?->source
+                                ?? ($isInvalid ? 'effort_guard' : 'server_review_policy'),
+                            'decision_id' => $decision?->decision_id,
+                            'decision_sequence' => $decision?->sequence,
                         ],
                         'submission_text' => $text,
                         'submission_file' => $primaryPath,
@@ -395,17 +468,6 @@ final class ProjectSubmissionService
         $metadata = is_array($locked->submission_metadata)
             ? $locked->submission_metadata
             : [];
-        $history = is_array($metadata['review_history'] ?? null)
-            ? $metadata['review_history']
-            : [];
-        $history[] = [
-            'status' => $status,
-            'source' => $source,
-            'reviewer_id' => $reviewer?->id,
-            'reviewer_role' => $reviewer?->role,
-            'reviewed_at' => $reviewedAt->toIso8601String(),
-        ];
-        $metadata['review_history'] = array_slice($history, -20);
         $metadata['assessment_type'] = $isParticipationAcceptance
             ? 'participation'
             : ($source === 'admin_manual' ? 'human_review' : 'effort_guard');
@@ -423,13 +485,36 @@ final class ProjectSubmissionService
             ];
         }
 
+        $decision = $this->appendReviewDecision(
+            $locked,
+            $status,
+            $score,
+            $feedback,
+            $source,
+            $reviewer,
+            [
+                'assessment_type' => $metadata['assessment_type'],
+                'skill_verified' => $metadata['skill_verified'],
+                'progression_credit' => $metadata['progression_credit'],
+                'effort_status' => $locked->effort_status,
+            ],
+            $reviewedAt
+        );
+        $history = is_array($metadata['review_history'] ?? null)
+            ? $metadata['review_history']
+            : [];
+        $history[] = $this->decisionHistoryEntry($decision);
+        // The dashboard compatibility summary stays small. The complete,
+        // immutable sequence lives in project_submission_review_decisions.
+        $metadata['review_history'] = array_slice($history, -20);
+
         $locked->update([
-            'review_status' => $status,
-            'review_source' => $source,
-            'score' => $score,
-            'feedback' => $feedback,
-            'reviewed_at' => $reviewedAt,
-            'reviewed_by' => $reviewer?->id,
+            'review_status' => $decision->status,
+            'review_source' => $decision->source,
+            'score' => $decision->score,
+            'feedback' => $decision->feedback,
+            'reviewed_at' => $decision->decided_at,
+            'reviewed_by' => $decision->reviewer_id,
             'submission_metadata' => $metadata,
         ]);
 
@@ -439,15 +524,17 @@ final class ProjectSubmissionService
                 // This legacy summary column is not nullable on older
                 // installations. Consumers must use assessment_type and
                 // skill_verified before presenting it as a graded score.
-                'score' => $score ?? 0,
-                'passed' => $passed,
+                'score' => $decision->score ?? 0,
+                'passed' => $decision->status === ProjectSubmission::STATUS_PASSED,
                 'evaluation_data' => [
-                    'status' => $status,
+                    'status' => $decision->status,
                     'submission_id' => $locked->public_id,
-                    'source' => $source,
+                    'source' => $decision->source,
                     'effort_status' => $locked->effort_status,
-                    'reviewer_id' => $reviewer?->id,
-                    'reviewer_role' => $reviewer?->role,
+                    'decision_id' => $decision->decision_id,
+                    'decision_sequence' => $decision->sequence,
+                    'reviewer_id' => $decision->reviewer_id,
+                    'reviewer_role' => $decision->reviewer_role,
                     'assessment_type' => $metadata['assessment_type'],
                     'skill_verified' => $metadata['skill_verified'],
                     'progression_credit' => $metadata['progression_credit'],
@@ -540,6 +627,57 @@ final class ProjectSubmissionService
         );
 
         return $locked->fresh();
+    }
+
+    /**
+     * The submission row is locked by every caller, so sequence allocation and
+     * the derived current summary commit atomically with this append-only row.
+     *
+     * @param array<string,mixed> $metadata
+     */
+    private function appendReviewDecision(
+        ProjectSubmission $submission,
+        string $status,
+        ?int $score,
+        string $feedback,
+        string $source,
+        ?User $reviewer,
+        array $metadata,
+        ?\Carbon\CarbonInterface $decidedAt = null
+    ): ProjectSubmissionReviewDecision {
+        $sequence = (int) ProjectSubmissionReviewDecision::query()
+            ->where('submission_id', $submission->id)
+            ->max('sequence') + 1;
+
+        return ProjectSubmissionReviewDecision::query()->create([
+            'decision_id' => (string) Str::uuid(),
+            'submission_id' => $submission->id,
+            'sequence' => $sequence,
+            'status' => $status,
+            'score' => $score,
+            'feedback' => $feedback,
+            'source' => $source,
+            'reviewer_id' => $reviewer?->id,
+            'reviewer_role' => $reviewer?->role,
+            'decided_at' => $decidedAt ?? now(),
+            'decision_metadata' => $metadata,
+        ]);
+    }
+
+    /** @return array<string,mixed> */
+    private function decisionHistoryEntry(ProjectSubmissionReviewDecision $decision): array
+    {
+        return [
+            'decision_id' => $decision->decision_id,
+            'sequence' => (int) $decision->sequence,
+            'status' => $decision->status,
+            'score' => $decision->score,
+            'feedback' => $decision->feedback,
+            'source' => $decision->source,
+            'reviewer_id' => $decision->reviewer_id,
+            'reviewer_role' => $decision->reviewer_role,
+            'reviewed_at' => $decision->decided_at?->toIso8601String(),
+        ];
     }
 
     public function finalizeDue(int $limit = 100): int

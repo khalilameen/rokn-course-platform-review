@@ -7,10 +7,12 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\AdminAuthoringCreateIntentService;
+use App\Support\AdminEditorVersion;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -65,25 +67,41 @@ final class ModeratorController extends Controller
     public function edit(User $moderator): View
     {
         $this->assertModerator($moderator);
+        $editorVersion = $this->editorVersion($moderator);
 
-        return view('admin.moderators.edit', compact('moderator'));
+        return view('admin.moderators.edit', compact('moderator', 'editorVersion'));
     }
 
     public function update(Request $request, User $moderator): RedirectResponse
     {
         $this->assertModerator($moderator);
         $data = $this->validated($request, $moderator);
-        $updates = [
-            'name_ar' => trim((string) $data['name_ar']),
-            'name_en' => filled($data['name_en'] ?? null) ? trim((string) $data['name_en']) : null,
-            'email' => strtolower(trim((string) $data['email'])),
-            'phone' => filled($data['phone'] ?? null) ? trim((string) $data['phone']) : null,
-            'active' => $request->boolean('active'),
-        ];
-        if (filled($data['password'] ?? null)) {
-            $updates['password'] = Hash::make((string) $data['password']);
-        }
-        $moderator->forceFill($updates)->save();
+        DB::transaction(function () use ($request, $moderator, $data): void {
+            $locked = User::query()->whereKey($moderator->id)->where('role', 'moderator')
+                ->lockForUpdate()->firstOrFail();
+            if (!hash_equals($this->editorVersion($locked), (string) $data['editor_version'])) {
+                throw ValidationException::withMessages([
+                    'editor_version' => ['تغيّرت بيانات مسؤول المحتوى منذ فتح الصفحة\nأعد تحميلها قبل الحفظ'],
+                ]);
+            }
+
+            $email = strtolower(trim((string) $data['email']));
+            $updates = [
+                'name_ar' => trim((string) $data['name_ar']),
+                'name_en' => filled($data['name_en'] ?? null) ? trim((string) $data['name_en']) : null,
+                'email' => $email,
+                'phone' => filled($data['phone'] ?? null) ? trim((string) $data['phone']) : null,
+                'active' => $request->boolean('active'),
+                'profile_revision' => (int) $locked->profile_revision + 1,
+            ];
+            if (!hash_equals(strtolower(trim((string) $locked->email)), $email)) {
+                $updates['email_verified_at'] = null;
+            }
+            if (filled($data['password'] ?? null)) {
+                $updates['password'] = Hash::make((string) $data['password']);
+            }
+            $locked->forceFill($updates)->save();
+        }, 3);
 
         return redirect()->route('admin.moderators.index')
             ->with('success', 'تم تحديث حساب مسؤول المحتوى.');
@@ -106,6 +124,15 @@ final class ModeratorController extends Controller
             'password' => [$moderator ? 'nullable' : 'required', 'string', 'min:10', 'confirmed'],
             'active' => ['nullable', 'boolean'],
             'authoring_request_id' => [$moderator ? 'nullable' : 'required', 'uuid'],
+            'editor_version' => [$moderator ? 'required' : 'nullable', 'string', 'size:64'],
+        ]);
+    }
+
+    private function editorVersion(User $moderator): string
+    {
+        return AdminEditorVersion::for($moderator, [
+            'name_ar', 'name_en', 'email', 'phone', 'password', 'active',
+            'profile_revision', 'email_verified_at',
         ]);
     }
 

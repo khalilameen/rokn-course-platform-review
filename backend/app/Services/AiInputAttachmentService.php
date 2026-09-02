@@ -16,6 +16,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Throwable;
 use UnexpectedValueException;
 use ZipArchive;
 
@@ -64,15 +65,17 @@ final class AiInputAttachmentService
             return $existing;
         }
         $disk = (string) config('projects.submission_disk', 'local');
-        $path = $this->storedFiles->storeTrackedUpload(
+        $directory = "ai_inputs/{$user->id}/{$course->id}";
+        $operationIdentity = implode('|', [
+            'ai-input', $user->id, $course->id, $purpose, strtolower($clientUploadId), $sha,
+        ]);
+        $path = $this->storedFiles->trackedUploadDestination(
             $file,
-            "ai_inputs/{$user->id}/{$course->id}",
+            $directory,
             $disk,
-            60,
-            implode('|', ['ai-input', $user->id, $course->id, $purpose, strtolower($clientUploadId), $sha])
+            $operationIdentity
         );
-
-        return DB::transaction(function () use (
+        $reservation = DB::transaction(function () use (
             $user, $course, $clientUploadId, $purpose, $disk, $path, $safeName, $mime, $sha, $size
         ): AiInputAttachment {
             User::query()->whereKey($user->id)->where('active', true)
@@ -85,15 +88,53 @@ final class AiInputAttachmentService
                 $this->assertReplay($existing, $course, $purpose, $sha, $size);
                 return $existing;
             }
+            $staged = AiInputAttachment::query()
+                ->where('user_id', $user->id)
+                ->whereNull('owner_id')
+                ->whereIn('status', [AiInputAttachment::ALLOCATING, AiInputAttachment::READY]);
+            $maxFiles = max(1, (int) config('openrouter.attachment_staging_max_files_per_user', 12));
+            $maxBytes = max(1, (int) config('openrouter.attachment_staging_max_bytes_per_user', 67108864));
+            if ((clone $staged)->count() >= $maxFiles
+                || (int) (clone $staged)->sum('size_bytes') + $size > $maxBytes) {
+                throw new UnexpectedValueException('AI attachment staging limit reached.');
+            }
             return AiInputAttachment::query()->create([
                 'public_id' => (string) Str::uuid(), 'user_id' => $user->id,
                 'course_id' => $course->id, 'client_upload_id' => $clientUploadId,
                 'purpose' => $purpose, 'storage_disk' => $disk, 'storage_path' => $path,
                 'original_file_name' => $safeName,
                 'mime_type' => $mime, 'size_bytes' => $size,
-                'sha256' => $sha, 'status' => AiInputAttachment::READY,
+                'sha256' => $sha, 'status' => AiInputAttachment::ALLOCATING,
             ]);
         }, 3);
+
+        // A completed idempotent replay does not rewrite provider storage.
+        if ($reservation->status === AiInputAttachment::READY) {
+            return $reservation;
+        }
+
+        try {
+            // The quota reservation is cheap and precedes the cleanup ledger,
+            // so rejected uploads cannot flood either storage or the ledger.
+            // The ledger still commits before the first byte is written.
+            $this->storedFiles->trackPotentialOrphan($disk, $path, 60);
+            $this->storedFiles->writeTrackedUpload($file, $path, $disk);
+            $updated = AiInputAttachment::query()
+                ->whereKey($reservation->id)
+                ->where('status', AiInputAttachment::ALLOCATING)
+                ->update(['status' => AiInputAttachment::READY, 'updated_at' => now()]);
+            if ($updated !== 1) {
+                throw new \RuntimeException('AI attachment reservation was lost.');
+            }
+            return $reservation->fresh();
+        } catch (Throwable $exception) {
+            AiInputAttachment::query()
+                ->whereKey($reservation->id)
+                ->where('status', AiInputAttachment::ALLOCATING)
+                ->delete();
+            $this->storedFiles->deleteOrQueue($disk, $path);
+            throw $exception;
+        }
     }
 
     /** Register a project file already stored once by ProjectSubmissionService. */

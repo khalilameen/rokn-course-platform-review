@@ -134,13 +134,6 @@ final readonly class KashierPaymentService
                 ->where('package_id', $package->id)
                 ->where('payment_method', Order::PAYMENT_METHOD_KASHIER)
                 ->where('status', Order::STATUS_PENDING)
-                ->where(function ($query): void {
-                    $query->where('checkout_expires_at', '>', now())
-                        ->orWhere(function ($legacy): void {
-                            $legacy->whereNull('checkout_expires_at')
-                                ->where('created_at', '>', now()->subMinutes(self::CHECKOUT_TTL_MINUTES));
-                        });
-                })
                 ->lockForUpdate()
                 ->latest('id')
                 ->first();
@@ -718,18 +711,32 @@ final readonly class KashierPaymentService
         array $params
     ): void {
         $normalizedStatus = strtoupper(trim($paymentStatus));
+        $eventStatus = in_array($normalizedStatus, [
+            'PARTIAL_REFUND',
+            'PARTIALLY_REFUNDED',
+        ], true) ? 'partial_refund' : $type;
         $reason = 'Kashier reported payment status ' . $normalizedStatus . '.';
-        $externalEventId = (string) (
+        $providerEventId = trim((string) (
             $params['eventId']
             ?? $params['event_id']
-            ?? $params['id']
-            ?? $transactionId
             ?? ''
-        );
-        $eventIdentity = $externalEventId !== ''
-            ? $externalEventId
-            : (string) $order->order_ref;
-        $eventKey = 'kashier:' . strtolower($normalizedStatus) . ':'
+        ));
+        $eventIdentity = $providerEventId !== ''
+            ? $providerEventId
+            : ($transactionId ?? (string) $order->order_ref);
+        // Kashier payloads do not always carry a unique event id. A payment
+        // transaction is stable across later refund/chargeback states, so it
+        // cannot be used raw as the provider-event uniqueness key. Derive one
+        // per normalized state while keeping exact retries idempotent.
+        $externalEventId = $providerEventId !== ''
+            ? $providerEventId
+            : ($transactionId !== null
+                ? 'transaction-status:' . hash(
+                    'sha256',
+                    $eventStatus . '|' . $transactionId
+                )
+                : null);
+        $eventKey = 'kashier:' . $eventStatus . ':'
             . hash('sha256', $eventIdentity);
 
         if (in_array($normalizedStatus, ['PARTIAL_REFUND', 'PARTIALLY_REFUNDED'], true)) {
@@ -739,7 +746,7 @@ final readonly class KashierPaymentService
                 $reason,
                 $eventKey,
                 'kashier',
-                $externalEventId !== '' ? $externalEventId : null,
+                $externalEventId,
                 $this->sanitizeGatewayResponse($params)
             );
 
@@ -777,7 +784,7 @@ final readonly class KashierPaymentService
                 $eventKey,
                 null,
                 'kashier',
-                $externalEventId !== '' ? $externalEventId : null,
+                $externalEventId,
                 $this->sanitizeGatewayResponse($params)
             );
         }, 3);

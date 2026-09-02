@@ -62,6 +62,7 @@
                             @csrf
                             @method('PATCH')
                             <input type="hidden" name="expected_active" value="{{ $user->active ? 1 : 0 }}">
+                            <input type="hidden" name="state_version" value="{{ $accountStateVersion }}">
                             <button type="submit" class="btn-action-modern btn-toggle {{ !$user->active ? 'activate' : '' }}">
                                 <i class="fa {{ $user->active ? 'fa-ban' : 'fa-check-circle' }}"></i>
                                 {{ $user->active ? 'تعطيل الحساب' : 'تفعيل الحساب' }}

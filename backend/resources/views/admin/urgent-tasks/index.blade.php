@@ -221,6 +221,8 @@
                                     <td>
                                         <form action="{{ route('admin.urgent-tasks.activate-student', $student->id) }}" method="POST" class="urgent-inline-form">
                                             @csrf
+                                            <input type="hidden" name="expected_active" value="0">
+                                            <input type="hidden" name="state_version" value="{{ $accountStateVersions[$student->id] }}">
                                             <button type="submit" class="action-btn btn-success-center">
                                                 <i class="fa fa-check"></i> تفعيل
                                             </button>

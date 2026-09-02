@@ -274,6 +274,42 @@ final readonly class CourseAccessPlanService
         }, 3);
     }
 
+    /**
+     * Plans shown by the authoring form. A GET must never create commercial
+     * contracts behind the editor's back: old courses without plan rows get
+     * unsaved defaults, which become real only through the revision-checked
+     * course update.
+     *
+     * @return Collection<int, CourseAccessPlan>
+     */
+    public function plansForEditor(Course $course): Collection
+    {
+        if (!Schema::hasTable('course_access_plans')) {
+            return collect();
+        }
+
+        $plans = $course->accessPlans()
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get();
+        if ($plans->isNotEmpty()) {
+            return $plans;
+        }
+
+        $base = max(0, (int) ($course->price ?? 0));
+        $round = static fn (float $value): int => (int) (ceil(max(0, $value) / 50) * 50);
+
+        return collect($this->defaultDefinitions($base, $round))
+            ->map(function (array $row) use ($course): CourseAccessPlan {
+                $plan = new CourseAccessPlan(array_merge($row, [
+                    'course_id' => (int) $course->getKey(),
+                ]));
+                $plan->setRelation('course', $course);
+
+                return $plan;
+            });
+    }
+
     /** Plan codes remain stable across dashboard updates. */
     public function syncAdminPlans(Course $course, array $input): void
     {

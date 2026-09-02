@@ -27,6 +27,7 @@ class ProjectSubmission extends Model
         'mime_type',
         'file_size',
         'submission_metadata',
+        'evaluation_snapshot',
         'effort_status',
         'review_status',
         'review_source',
@@ -40,6 +41,7 @@ class ProjectSubmission extends Model
 
     protected $casts = [
         'submission_metadata' => 'array',
+        'evaluation_snapshot' => 'array',
         'submitted_at' => 'datetime',
         'auto_pass_at' => 'datetime',
         'reviewed_at' => 'datetime',
@@ -65,6 +67,12 @@ class ProjectSubmission extends Model
     public function feedbackThread()
     {
         return $this->hasOne(ProjectFeedbackThread::class, 'submission_id');
+    }
+
+    public function reviewDecisions()
+    {
+        return $this->hasMany(ProjectSubmissionReviewDecision::class, 'submission_id')
+            ->orderBy('sequence');
     }
 
     public function aiInputAttachments()

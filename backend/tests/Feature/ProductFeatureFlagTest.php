@@ -99,12 +99,15 @@ final class ProductFeatureFlagTest extends TestCase
             'active' => true,
         ]);
         $this->withoutMiddleware(RequireAdminMfa::class);
+        $editorVersion = app(ProductFeatureFlagService::class)
+            ->operationalSnapshot()['ai_chat']['editor_version'];
 
         $this->actingAs($admin)
             ->post(route('admin.product-operations.features.update', 'ai_chat'), [
                 'enabled' => '0',
                 'rollout_percentage' => 100,
                 'reason' => 'OpenRouter provider incident INC-204',
+                'editor_version' => $editorVersion,
             ])
             ->assertRedirect();
 
@@ -112,6 +115,41 @@ final class ProductFeatureFlagTest extends TestCase
         self::assertFalse($flag->enabled);
         self::assertSame('operations@rokn.test', $flag->owner);
         self::assertSame('OpenRouter provider incident INC-204', $flag->reason);
+    }
+
+    public function test_stale_feature_gate_form_cannot_reverse_a_newer_operations_decision(): void
+    {
+        $admin = User::query()->forceCreate([
+            'name' => 'Operations Admin',
+            'email' => 'operations-stale@rokn.test',
+            'password' => Hash::make('not-used-in-this-test'),
+            'role' => 'admin',
+            'active' => true,
+        ]);
+        $this->withoutMiddleware(RequireAdminMfa::class);
+        $service = app(ProductFeatureFlagService::class);
+        $staleVersion = $service->operationalSnapshot()['checkout']['editor_version'];
+
+        $this->actingAs($admin)
+            ->post(route('admin.product-operations.features.update', 'checkout'), [
+                'enabled' => '0',
+                'rollout_percentage' => 0,
+                'reason' => 'Provider incident INC-301',
+                'editor_version' => $staleVersion,
+            ])
+            ->assertRedirect();
+
+        $this->post(route('admin.product-operations.features.update', 'checkout'), [
+            'enabled' => '1',
+            'rollout_percentage' => 100,
+            'reason' => 'Stale browser tab reversal',
+            'editor_version' => $staleVersion,
+        ])->assertSessionHasErrors('editor_version');
+
+        $flag = ProductFeatureFlag::query()->where('key', 'checkout')->firstOrFail();
+        self::assertFalse((bool) $flag->enabled);
+        self::assertSame(0, (int) $flag->rollout_percentage);
+        self::assertSame('Provider incident INC-301', $flag->reason);
     }
 
     public function test_mutating_product_routes_are_bound_to_their_server_kill_switches(): void

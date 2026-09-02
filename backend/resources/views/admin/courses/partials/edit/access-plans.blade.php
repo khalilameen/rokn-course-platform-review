@@ -1,5 +1,6 @@
             @if(in_array(strtolower((string) optional(auth()->user())->role), ['admin', 'moderator'], true))
             @php
+                $isAdministrator = strtolower((string) optional(auth()->user())->role) === 'admin';
                 $accessPlansByCode = $course->accessPlans->keyBy('code');
                 $planLabels = [
                     'basic' => ['التعلّم', 'الكورس والمشروعات والعبور من غير تكلفة ذكاء اصطناعي'],
@@ -13,9 +14,13 @@
                     خطط فتح الكورس
                 </h2>
                 <div class="form-help course-editor__section-help">
-                    السعر وما يفتحه كل اختيار هنا هو العقد الحقيقي للمشتريات الجديدة. الدولار والتوكنز حدود تكلفة داخلية ولا تظهر للطالب. المشتريات القديمة لا تتغير.
+                    @if($isAdministrator)
+                        السعر وما يفتحه كل اختيار هنا هو العقد الحقيقي للمشتريات الجديدة. الدولار والتوكنز حدود تكلفة داخلية ولا تظهر للطالب. المشتريات القديمة لا تتغير.
+                    @else
+                        السعر وما يفتحه كل اختيار هنا هو العقد الحقيقي للمشتريات الجديدة. المشتريات القديمة لا تتغير.
+                    @endif
                 </div>
-                @if(strtolower((string) optional(auth()->user())->role) === 'admin')
+                @if($isAdministrator)
                     <input type="hidden" name="grant_chat_attachments_to_current_enrollments" value="0">
                     <label class="course-editor__inline-check course-editor__inline-check--spaced">
                         <input type="checkbox" name="grant_chat_attachments_to_current_enrollments" value="1">
@@ -36,7 +41,7 @@
                         <div class="course-editor__plan-card">
                             <div class="course-editor__plan-title">{{ $label }}</div>
                             <div class="course-editor__plan-description">{{ $description }}</div>
-                            @if($plan && $code !== 'basic')
+                            @if($isAdministrator && $plan && $code !== 'basic')
                                 @php
                                     $planMaxCost = (float) $plan->ai_budget_usd
                                         + (float) $plan->project_feedback_budget_usd
@@ -49,7 +54,7 @@
                                     احتياطي AI المقترح فوق سعر المحتوى: <strong>{{ number_format($recommendedAiCoins) }} عملة</strong>
                                 </div>
                             @endif
-                            @if($plan && $planStats->has($code))
+                            @if($isAdministrator && $plan && $planStats->has($code))
                                 @php $stats = $planStats->get($code); @endphp
                                 <div class="course-editor__plan-stats">
                                     <span>عمليات الشراء: <strong>{{ number_format($stats['sales_count']) }}</strong></span>
@@ -114,16 +119,6 @@
                                         <input class="form-control-modern" type="number" min="100" name="access_plans[{{ $code }}][chat_token_budget]" value="{{ old("access_plans.$code.chat_token_budget", $plan?->chat_token_budget ?? 100) }}">
                                     </div>
                                     <div class="form-group-modern">
-                                        <label class="form-label-modern">حد تكلفة الخطة بالدولار</label>
-                                        <input class="form-control-modern" type="number" min="0.000001" step="0.000001" name="access_plans[{{ $code }}][ai_budget_usd]" value="{{ old("access_plans.$code.ai_budget_usd", $plan?->ai_budget_usd ?? .1) }}">
-                                    </div>
-                                </div>
-                                <div class="form-row">
-                                    <div class="form-group-modern">
-                                        <label class="form-label-modern">حجز آمن للطلب بالدولار</label>
-                                        <input class="form-control-modern" type="number" min="0.000001" step="0.000001" name="access_plans[{{ $code }}][request_reserve_usd]" value="{{ old("access_plans.$code.request_reserve_usd", $plan?->request_reserve_usd ?? .01) }}">
-                                    </div>
-                                    <div class="form-group-modern">
                                         <label class="form-label-modern">النموذج</label>
                                         <select class="form-control-modern" name="access_plans[{{ $code }}][model_override]">
                                             <option value="">نموذج الكورس</option>
@@ -133,6 +128,18 @@
                                         </select>
                                     </div>
                                 </div>
+                                @if($isAdministrator)
+                                    <div class="form-row">
+                                    <div class="form-group-modern">
+                                        <label class="form-label-modern">حد تكلفة الخطة بالدولار</label>
+                                        <input class="form-control-modern" type="number" min="0.000001" step="0.000001" name="access_plans[{{ $code }}][ai_budget_usd]" value="{{ old("access_plans.$code.ai_budget_usd", $plan?->ai_budget_usd ?? .1) }}">
+                                    </div>
+                                    <div class="form-group-modern">
+                                        <label class="form-label-modern">حجز آمن للطلب بالدولار</label>
+                                        <input class="form-control-modern" type="number" min="0.000001" step="0.000001" name="access_plans[{{ $code }}][request_reserve_usd]" value="{{ old("access_plans.$code.request_reserve_usd", $plan?->request_reserve_usd ?? .01) }}">
+                                    </div>
+                                    </div>
+                                @endif
                                 <input type="hidden" name="access_plans[{{ $code }}][chat_attachments_enabled]" value="0">
                                 <label class="course-editor__inline-check course-editor__inline-check--top">
                                     <input type="checkbox" name="access_plans[{{ $code }}][chat_attachments_enabled]" value="1" {{ old("access_plans.$code.chat_attachments_enabled", $plan?->chat_attachments_enabled) ? 'checked' : '' }}>
@@ -158,13 +165,17 @@
                                         <label class="form-label-modern">توكنز مراجعات المشاريع</label>
                                         <input class="form-control-modern" type="number" min="0" name="access_plans[{{ $code }}][project_feedback_token_budget]" value="{{ old("access_plans.$code.project_feedback_token_budget", $plan?->project_feedback_token_budget ?? 0) }}">
                                     </div>
-                                    <div class="form-group-modern">
-                                        <label class="form-label-modern">حد تكلفة المراجعات بالدولار</label>
-                                        <input class="form-control-modern" type="number" min="0" step="0.000001" name="access_plans[{{ $code }}][project_feedback_budget_usd]" value="{{ old("access_plans.$code.project_feedback_budget_usd", $plan?->project_feedback_budget_usd ?? 0) }}">
-                                    </div>
+                                    @if($isAdministrator)
+                                        <div class="form-group-modern">
+                                            <label class="form-label-modern">حد تكلفة المراجعات بالدولار</label>
+                                            <input class="form-control-modern" type="number" min="0" step="0.000001" name="access_plans[{{ $code }}][project_feedback_budget_usd]" value="{{ old("access_plans.$code.project_feedback_budget_usd", $plan?->project_feedback_budget_usd ?? 0) }}">
+                                        </div>
+                                    @endif
                                 </div>
-                                <label class="form-label-modern">حجز الطلب الواحد للمراجعة بالدولار</label>
-                                <input class="form-control-modern" type="number" min="0" step="0.000001" name="access_plans[{{ $code }}][project_feedback_reserve_usd]" value="{{ old("access_plans.$code.project_feedback_reserve_usd", $plan?->project_feedback_reserve_usd ?? 0) }}">
+                                @if($isAdministrator)
+                                    <label class="form-label-modern">حجز الطلب الواحد للمراجعة بالدولار</label>
+                                    <input class="form-control-modern" type="number" min="0" step="0.000001" name="access_plans[{{ $code }}][project_feedback_reserve_usd]" value="{{ old("access_plans.$code.project_feedback_reserve_usd", $plan?->project_feedback_reserve_usd ?? 0) }}">
+                                @endif
                                 <div class="form-row course-editor__form-row--top">
                                     <div class="form-group-modern">
                                         <label class="form-label-modern">رسائل متابعة التقرير</label>
@@ -175,16 +186,18 @@
                                         <input class="form-control-modern" type="number" min="0" name="access_plans[{{ $code }}][project_followup_token_budget]" value="{{ old("access_plans.$code.project_followup_token_budget", $plan?->project_followup_token_budget ?? 0) }}">
                                     </div>
                                 </div>
-                                <div class="form-row">
-                                    <div class="form-group-modern">
-                                        <label class="form-label-modern">حد تكلفة المتابعة بالدولار</label>
-                                        <input class="form-control-modern" type="number" min="0" step="0.000001" name="access_plans[{{ $code }}][project_followup_budget_usd]" value="{{ old("access_plans.$code.project_followup_budget_usd", $plan?->project_followup_budget_usd ?? 0) }}">
+                                @if($isAdministrator)
+                                    <div class="form-row">
+                                        <div class="form-group-modern">
+                                            <label class="form-label-modern">حد تكلفة المتابعة بالدولار</label>
+                                            <input class="form-control-modern" type="number" min="0" step="0.000001" name="access_plans[{{ $code }}][project_followup_budget_usd]" value="{{ old("access_plans.$code.project_followup_budget_usd", $plan?->project_followup_budget_usd ?? 0) }}">
+                                        </div>
+                                        <div class="form-group-modern">
+                                            <label class="form-label-modern">حجز رسالة المتابعة بالدولار</label>
+                                            <input class="form-control-modern" type="number" min="0" step="0.000001" name="access_plans[{{ $code }}][project_followup_reserve_usd]" value="{{ old("access_plans.$code.project_followup_reserve_usd", $plan?->project_followup_reserve_usd ?? 0) }}">
+                                        </div>
                                     </div>
-                                    <div class="form-group-modern">
-                                        <label class="form-label-modern">حجز رسالة المتابعة بالدولار</label>
-                                        <input class="form-control-modern" type="number" min="0" step="0.000001" name="access_plans[{{ $code }}][project_followup_reserve_usd]" value="{{ old("access_plans.$code.project_followup_reserve_usd", $plan?->project_followup_reserve_usd ?? 0) }}">
-                                    </div>
-                                </div>
+                                @endif
                                 <input type="hidden" name="access_plans[{{ $code }}][project_output_enabled]" value="0">
                                 <label class="course-editor__inline-check course-editor__inline-check--top">
                                     <input type="checkbox" name="access_plans[{{ $code }}][project_output_enabled]" value="1" {{ old("access_plans.$code.project_output_enabled", $plan?->project_output_enabled) ? 'checked' : '' }}>

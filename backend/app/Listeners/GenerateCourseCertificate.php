@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Services\CertificateService;
 use App\Services\CourseChatAccessService;
 use App\Services\CourseSectionSequenceService;
+use App\Services\CurriculumCompletionService;
 use App\Services\FinancialProvenanceService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
@@ -40,7 +41,8 @@ final class GenerateCourseCertificate implements ShouldQueue
         private readonly CertificateService $certificates,
         private readonly CourseChatAccessService $courseAccess,
         private readonly FinancialProvenanceService $financialProvenance,
-        private readonly CourseSectionSequenceService $sectionSequence
+        private readonly CourseSectionSequenceService $sectionSequence,
+        private readonly CurriculumCompletionService $curriculumCompletion
     ) {
     }
 
@@ -61,10 +63,7 @@ final class GenerateCourseCertificate implements ShouldQueue
             if (!$enrollment) {
                 return;
             }
-            if (!$this->courseAccess->hasCertificateAccess(
-                (int) $user->id,
-                (int) $course->id
-            )) {
+            if (!$this->courseAccess->enrollmentHasCertificateAccess($enrollment)) {
                 return;
             }
             if ($this->financialProvenance->enrollmentHasActiveHold($enrollment, ['course'])) {
@@ -81,27 +80,38 @@ final class GenerateCourseCertificate implements ShouldQueue
                 return;
             }
 
-            $sections = CourseSection::query()
-                ->where('course_id', $course->id)
-                ->get();
-            $sectionIds = $this->sectionSequence->learning($sections)->pluck('id');
+            $earnedRevision = $this->curriculumCompletion->earnedRevision($enrollment);
+            if ($earnedRevision === null) {
+                $sections = CourseSection::query()
+                    ->where('course_id', $course->id)
+                    ->get();
+                $sectionIds = $this->sectionSequence->learning($sections)->pluck('id');
 
-            if ($sectionIds->isEmpty()) {
-                return;
-            }
+                if ($sectionIds->isEmpty()) {
+                    return;
+                }
 
-            $completedSections = StudentSectionProgress::query()
-                ->where('user_id', $user->id)
-                ->whereIn('course_section_id', $sectionIds)
-                ->where('is_completed', true)
-                ->distinct('course_section_id')
-                ->count('course_section_id');
+                $completedSections = StudentSectionProgress::query()
+                    ->where('user_id', $user->id)
+                    ->whereIn('course_section_id', $sectionIds)
+                    ->where('is_completed', true)
+                    ->distinct('course_section_id')
+                    ->count('course_section_id');
 
-            // The event is only a signal; the listener remains the final
-            // authority so a misplaced project or duplicate client call can
-            // never issue a certificate before the whole course is complete.
-            if ($completedSections !== $sectionIds->count()) {
-                return;
+                // Rolling compatibility for a completion emitted before the
+                // revision marker existed. Only current, complete evidence may
+                // establish the one irreversible marker.
+                if ($completedSections !== $sectionIds->count()) {
+                    return;
+                }
+                $earnedRevision = $this->curriculumCompletion->markCompleted(
+                    (int) $user->id,
+                    (int) $course->id,
+                    $event->resolvedCurriculumRevision()
+                );
+                if ($earnedRevision === null) {
+                    return;
+                }
             }
 
             // Resolve the project through the course-section ownership record.

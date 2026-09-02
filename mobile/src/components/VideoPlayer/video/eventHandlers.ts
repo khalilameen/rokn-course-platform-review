@@ -53,6 +53,7 @@ type VideoEventContext = {
   longBufferTimer: MutableValue<ReturnType<typeof setTimeout> | null>;
   onComplete?: () => void;
   onProgressChange?: (currentTime: number, duration: number) => void;
+  ownsPlayback: () => boolean;
   pendingSeek: MutableValue<number | null>;
   publishRuntimeMetrics: (updates: Partial<PlaybackRuntimeMetrics>) => void;
   recoverOrFail: (reason: 'source' | 'timeout') => boolean;
@@ -90,6 +91,7 @@ export const createVideoEventHandlers = (
   context: VideoEventContext,
 ): VideoEventHandlers => ({
   onLoadStart: () => {
+    if (!context.ownsPlayback()) return;
     if (!context.hasStarted.current && context.loadStartedAt.current === null) {
       context.loadStartedAt.current = Date.now();
     }
@@ -97,6 +99,7 @@ export const createVideoEventHandlers = (
     context.setIsBuffering(true);
   },
   onLoad: event => {
+    if (!context.ownsPlayback()) return;
     if (context.longBufferTimer.current) {
       clearTimeout(context.longBufferTimer.current);
       context.longBufferTimer.current = null;
@@ -131,6 +134,7 @@ export const createVideoEventHandlers = (
     }
   },
   onProgress: event => {
+    if (!context.ownsPlayback()) return;
     const rawTime = Number(event.currentTime || 0);
     const nextTime = Number.isFinite(rawTime) ? Math.max(0, rawTime) : 0;
     const rawDuration =
@@ -158,6 +162,7 @@ export const createVideoEventHandlers = (
     context.onProgressChange?.(nextTime, nextDuration);
   },
   onSeek: event => {
+    if (!context.ownsPlayback()) return;
     const pendingTarget = context.pendingSeek.current;
     const acknowledgedTarget = Number(event.seekTime);
     if (
@@ -178,6 +183,7 @@ export const createVideoEventHandlers = (
     context.onProgressChange?.(nextTime, context.durationRef.current);
   },
   onBandwidthUpdate: event => {
+    if (!context.ownsPlayback()) return;
     const bitrate = Number(event.bitrate || 0);
     const trackHeightPx = Number(event.height || 0);
     const effectiveQuality = qualityForTrackHeight(trackHeightPx);
@@ -193,6 +199,7 @@ export const createVideoEventHandlers = (
     });
   },
   onVideoTracks: event => {
+    if (!context.ownsPlayback()) return;
     const selected = event.videoTracks.find(track => track.selected);
     if (!selected) return;
     const bitrate = Number(selected.bitrate || 0);
@@ -207,6 +214,7 @@ export const createVideoEventHandlers = (
     });
   },
   onPlaybackStateChanged: event => {
+    if (!context.ownsPlayback()) return;
     if (event.isPlaying && !context.isPlaying.current) {
       if (
         !context.hasStarted.current &&
@@ -229,6 +237,7 @@ export const createVideoEventHandlers = (
     context.isPlaying.current = event.isPlaying;
   },
   onBuffer: event => {
+    if (!context.ownsPlayback()) return;
     context.setIsBuffering(event.isBuffering);
     if (
       event.isBuffering &&
@@ -261,6 +270,7 @@ export const createVideoEventHandlers = (
     if (event.isBuffering && context.isVisible) {
       const timeoutMs = context.recoveryAttempts.current ? 7000 : 12_000;
       context.longBufferTimer.current = setTimeout(() => {
+        if (!context.ownsPlayback()) return;
         if (context.bufferingStartedAt.current !== null) {
           context.bufferDurationMs.current += Math.max(
             0,
@@ -293,6 +303,7 @@ export const createVideoEventHandlers = (
     }
   },
   onError: event => {
+    if (!context.ownsPlayback()) return;
     if (context.longBufferTimer.current) {
       clearTimeout(context.longBufferTimer.current);
       context.longBufferTimer.current = null;
@@ -338,6 +349,7 @@ export const createVideoEventHandlers = (
     });
   },
   onEnd: () => {
+    if (!context.ownsPlayback()) return;
     if (context.longBufferTimer.current) {
       clearTimeout(context.longBufferTimer.current);
       context.longBufferTimer.current = null;

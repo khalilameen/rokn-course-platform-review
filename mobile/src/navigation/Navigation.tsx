@@ -133,6 +133,15 @@ const linking: LinkingOptions<RootStackParamList> = {
       if (!destination) return;
       const destinationKey = roknDestinationKey(destination);
       const now = Date.now();
+      // Once navigation is ready, its destination-aware guard decides whether
+      // this is the duplicate native delivery of the route already on screen.
+      // A time-only guard here used to swallow a legitimate second tap after
+      // the learner had already left that destination.
+      if (openRoknDestination(destination)) {
+        lastDeliveredDestination = destinationKey;
+        lastDeliveredAt = now;
+        return;
+      }
       if (
         destinationKey === lastDeliveredDestination &&
         now - lastDeliveredAt >= 0 &&
@@ -142,7 +151,7 @@ const linking: LinkingOptions<RootStackParamList> = {
       }
       lastDeliveredDestination = destinationKey;
       lastDeliveredAt = now;
-      if (!openRoknDestination(destination)) listener(url);
+      listener(url);
     });
     return () => subscription.remove();
   },

@@ -49,4 +49,38 @@ describe('guest catalogue session boundary', () => {
       expect.objectContaining({optionalAuthorization: true}),
     );
   });
+
+  it('isolates malformed nested catalogue fields instead of losing valid courses', async () => {
+    mockGet.mockResolvedValue({
+      data: {
+        status: 200,
+        success: true,
+        data: {
+          courses: [
+            null,
+            {
+              id: 7,
+              title: 'كورس صالح',
+              tags: [null, {id: 3, name_ar: 'مهارة', show_on_home: true}],
+              modules: {invalid: true},
+            },
+          ],
+          catalogue_revision: 1,
+          pagination: {current_page: 1, last_page: 1, total: 1},
+        },
+      },
+    });
+
+    await expect(getPublishedCoursesPage()).resolves.toMatchObject({
+      courses: [
+        expect.objectContaining({
+          id: '7',
+          title: 'كورس صالح',
+          homeRows: [expect.objectContaining({id: '3', title: 'مهارة'})],
+        }),
+      ],
+      page: 1,
+      fromCache: false,
+    });
+  });
 });
