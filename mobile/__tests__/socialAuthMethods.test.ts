@@ -1,4 +1,11 @@
 const mockGet = jest.fn();
+const mockStorageGet = jest.fn();
+const mockStorageSet = jest.fn();
+
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  getItem: (...args: unknown[]) => mockStorageGet(...args),
+  setItem: (...args: unknown[]) => mockStorageSet(...args),
+}));
 
 jest.mock('react-native', () => ({
   Platform: {OS: 'android'},
@@ -20,11 +27,15 @@ jest.mock('expo-web-browser', () => ({
   openAuthSessionAsync: jest.fn(),
 }));
 jest.mock('../src/constants/api', () => ({
-  publicRequest: {get: (...args: unknown[]) => mockGet(...args), post: jest.fn()},
+  publicRequest: {
+    get: (...args: unknown[]) => mockGet(...args),
+    post: jest.fn(),
+  },
 }));
 jest.mock('../src/services/secureSession', () => ({
   loadPendingSocialAuthAttempt: jest.fn(),
   savePendingSocialAuthAttempt: jest.fn(),
+  replacePendingSocialAuthAttempt: jest.fn(),
   deletePendingSocialAuthAttempt: jest.fn(),
   saveSecureSession: jest.fn(),
 }));
@@ -32,7 +43,11 @@ jest.mock('../src/services/secureSession', () => ({
 import {getSocialAuthMethods} from '../src/services/socialAuth';
 
 describe('social auth discovery', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockStorageGet.mockResolvedValue(null);
+    mockStorageSet.mockResolvedValue(undefined);
+  });
 
   it('does not disguise an old mismatched host as a successful active-host configuration', async () => {
     mockGet.mockResolvedValue({
@@ -64,8 +79,7 @@ describe('social auth discovery', () => {
           providers: ['google'],
           authorization_api_url: 'https://identity.rokn.app/api/v1',
           authorization_urls: {
-            google:
-              'https://identity.rokn.app/api/v1/social-auth/google/start',
+            google: 'https://identity.rokn.app/api/v1/social-auth/google/start',
           },
         },
       },
@@ -78,5 +92,52 @@ describe('social auth discovery', () => {
         google: 'https://identity.rokn.app/api/v1/social-auth/google/start',
       },
     });
+    expect(mockStorageSet).toHaveBeenCalledWith(
+      '@rokn/social-auth-methods/v1',
+      expect.stringContaining('identity.rokn.app'),
+    );
+  });
+
+  it('keeps the last valid provider contract through a transient outage', async () => {
+    mockGet.mockRejectedValue(new Error('NETWORK_UNAVAILABLE'));
+    mockStorageGet.mockResolvedValue(
+      JSON.stringify({
+        savedAt: Date.now() - 60_000,
+        methods: {
+          providers: ['google'],
+          authorizationApiUrl: 'https://identity.rokn.app/api/v1',
+          authorizationUrls: {
+            google: 'https://identity.rokn.app/api/v1/social-auth/google/start',
+          },
+          recommendedProvider: 'google',
+          recommendationText: null,
+          welcomeBonus: 20,
+        },
+      }),
+    );
+
+    await expect(getSocialAuthMethods()).resolves.toMatchObject({
+      providers: ['google'],
+      recommendedProvider: 'google',
+      welcomeBonus: 20,
+    });
+  });
+
+  it('does not let an expired provider contract hide a real outage', async () => {
+    mockGet.mockRejectedValue(new Error('NETWORK_UNAVAILABLE'));
+    mockStorageGet.mockResolvedValue(
+      JSON.stringify({
+        savedAt: Date.now() - 25 * 60 * 60 * 1000,
+        methods: {
+          providers: ['google'],
+          authorizationApiUrl: 'https://identity.rokn.app/api/v1',
+          authorizationUrls: {
+            google: 'https://identity.rokn.app/api/v1/social-auth/google/start',
+          },
+        },
+      }),
+    );
+
+    await expect(getSocialAuthMethods()).rejects.toThrow('NETWORK_UNAVAILABLE');
   });
 });

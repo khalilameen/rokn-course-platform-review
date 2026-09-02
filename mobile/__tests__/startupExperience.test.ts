@@ -9,9 +9,9 @@ describe('first-launch experience', () => {
     const navigation = readSource('src/navigation/Navigation.tsx');
     const languageBootstrap = readSource('src/screens/LanguageSelect.tsx');
 
-    expect(fs.existsSync(path.resolve(__dirname, '../src/screens/Onboarding.tsx'))).toBe(
-      false,
-    );
+    expect(
+      fs.existsSync(path.resolve(__dirname, '../src/screens/Onboarding.tsx')),
+    ).toBe(false);
     expect(navigation).toContain(
       "const needsArabicBootstrap = languageCode === 'en' && !I18nManager.isRTL",
     );
@@ -37,5 +37,50 @@ describe('first-launch experience', () => {
       backgroundColor: '#080B12',
     });
     expect(appConfig.expo.android.splash).toEqual(appConfig.expo.splash);
+  });
+
+  it('keeps a pending payment recoverable while the app stays foregrounded', () => {
+    const initializer = readSource('src/screens/AppInitializer.tsx');
+    const wallet = readSource('src/screens/Wallet.tsx');
+
+    expect(initializer).toContain(
+      'const retryDelays = [4_000, 10_000, 20_000, 40_000, 60_000]',
+    );
+    expect(initializer).toContain(
+      'storeReconcileAttempt >= retryDelays.length',
+    );
+    expect(initializer).toContain("AppState.currentState !== 'active'");
+    expect(initializer).toContain('clearStoreReconcileTimer();');
+    expect(wallet).toContain('subscribeCoinCheckoutCredits(() =>');
+  });
+
+  it('adopts an Android OAuth callback even when the Custom Tab returns first', () => {
+    const initializer = readSource('src/screens/AppInitializer.tsx');
+    const androidSession = readSource('src/services/androidAuthSession.ts');
+
+    expect(initializer).toContain("Linking.addEventListener('url', ({url}) =>");
+    expect(initializer).toContain('androidAuthSessionOwnsCallback(url)');
+    expect(initializer).toContain('resumePendingSocialAuth(url)');
+    expect(initializer).toContain(
+      'const initialUrlFlight = Linking.getInitialURL()',
+    );
+    expect(initializer).toContain('void initialUrlFlight');
+    expect(androidSession).toContain('recoverable: true');
+    expect(androidSession).toContain("queryValue(candidate, 'attempt')");
+  });
+
+  it('serializes mutable settings so the last learner choice wins', () => {
+    const settings = readSource(
+      'src/screens/settings/useSettingsPreferences.ts',
+    );
+
+    expect(settings).toContain('settingsScopeWriteTails');
+    expect(settings).toContain('withSettingsScopeWrite');
+    expect(settings).toContain('preferenceRevisionRef');
+    expect(settings).toContain("isUnchanged('VIDEO_QUALITY')");
+    expect(settings).toContain('enqueuePreferenceWrite');
+    expect(settings).toContain(
+      'const boundaryFlight = captureAccountSessionBoundary()',
+    );
   });
 });

@@ -60,6 +60,7 @@ class CouponRequest extends FormRequest
             'active' => 'required|boolean',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:4096',
             'authoring_request_id' => [$this->isMethod('post') ? 'required' : 'nullable', 'uuid'],
+            'editor_version' => [$this->isMethod('put') || $this->isMethod('patch') ? 'required' : 'nullable', 'string', 'size:64'],
         ];
     }
 

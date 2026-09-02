@@ -10,7 +10,10 @@ use App\Jobs\SendStudentNotification;
 use App\Jobs\SendUserPushNotification;
 use App\Models\NotificationCampaign;
 use App\Services\NotificationCampaignService;
+use App\Services\StudentNotificationService;
+use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use ReflectionProperty;
@@ -18,6 +21,36 @@ use Tests\Feature\API\ApiTestCase;
 
 final class AdminNotificationParityTest extends ApiTestCase
 {
+    public function test_queue_outage_keeps_the_durable_inbox_notification(): void
+    {
+        $dispatcher = \Mockery::mock(Dispatcher::class);
+        $dispatcher->shouldReceive('dispatch')
+            ->once()
+            ->andThrow(new \RuntimeException('queue unavailable'));
+        $this->app->instance(Dispatcher::class, $dispatcher);
+
+        $notification = DB::transaction(fn () => StudentNotificationService::notifyUser(
+            $this->user,
+            'course_enrolled',
+            'الكورس جاهز',
+            'Course ready',
+            'ابدأ الآن',
+            'Start now',
+            null,
+            null,
+            null,
+            'queue-outage-durable-inbox'
+        ));
+
+        self::assertNotNull($notification);
+        $this->assertDatabaseHas('student_notifications', [
+            'id' => $notification->id,
+            'user_id' => $this->user->id,
+            'delivery_key' => 'queue-outage-durable-inbox',
+            'push_attempted_at' => null,
+        ]);
+    }
+
     public function test_direct_notification_persists_title_and_message_then_queues_push(): void
     {
         Queue::fake([SendUserPushNotification::class]);

@@ -1,0 +1,9 @@
+<resources>
+
+    <!-- API 27 introduced light-navigation-bar control. Keep the base theme
+         free of newer attributes so API 24-26 can resolve it cleanly. -->
+    <style name="AppTheme" parent="RoknBaseTheme">
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+
+</resources>

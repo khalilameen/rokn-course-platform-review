@@ -74,6 +74,7 @@
                         <td>
                             <form action="{{ route('admin.app-versions.toggle-active', $version->id) }}" method="POST">
                                 @csrf
+                                <input type="hidden" name="editor_version" value="{{ $editorVersions->get($version->id) }}">
                                 <button type="submit" class="btn btn-sm btn-{{ $version->is_active ? 'success' : 'secondary' }}">
                                     {{ $version->is_active ? 'نشط' : 'غير نشط' }}
                                 </button>
@@ -91,6 +92,7 @@
                             <form action="{{ route('admin.app-versions.destroy', $version->id) }}" method="POST" class="d-inline-block" onsubmit="return confirm('هل أنت متأكد؟');">
                                 @csrf
                                 @method('DELETE')
+                                <input type="hidden" name="editor_version" value="{{ $editorVersions->get($version->id) }}">
                                 <button type="submit" class="btn btn-danger btn-sm">
                                     <i class="fa fa-trash"></i>
                                 </button>

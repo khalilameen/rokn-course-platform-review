@@ -44,13 +44,14 @@ jest.mock('../src/constants/api', () => ({
 
 jest.mock('../src/services/secureSession', () => ({
   savePendingSocialAuthAttempt: jest.fn(async () => undefined),
+  replacePendingSocialAuthAttempt: jest.fn(async () => true),
   loadPendingSocialAuthAttempt: jest.fn(async () => ({
     provider: 'google',
     verifier:
       '1111111111114111811111111111111111111111111141118111111111111111',
     startedAt: new Date().toISOString(),
   })),
-  deletePendingSocialAuthAttempt: jest.fn(async () => undefined),
+  deletePendingSocialAuthAttempt: jest.fn(async () => true),
   saveSecureSession: jest.fn(async () => undefined),
 }));
 
@@ -58,8 +59,13 @@ import {signInWithSocialProvider} from '../src/services/socialAuth';
 
 describe('browser social auth launch', () => {
   it('opens a deterministic encoded PKCE request on Android', async () => {
-    mockOpenUrl.mockImplementation(async () => {
-      redirectHandler?.({url: 'rokn://auth?error=login_cancelled'});
+    mockOpenUrl.mockImplementation(async (url: string) => {
+      const attempt = new URL(url).searchParams.get('code_challenge');
+      redirectHandler?.({
+        url: `rokn://auth?attempt=${encodeURIComponent(
+          attempt || '',
+        )}&error=login_cancelled`,
+      });
     });
 
     await expect(

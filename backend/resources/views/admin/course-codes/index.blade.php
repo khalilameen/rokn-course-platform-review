@@ -119,6 +119,7 @@
                             <tr>
                                 <td>
                                     <input type="checkbox" name="selected_codes[]" value="{{ $code->id }}" class="code-checkbox">
+                                    <input type="hidden" name="editor_versions[{{ $code->id }}]" value="{{ $editorVersions->get($code->id) }}">
                                 </td>
                                 <td>
                                     <div class="course-code-value">

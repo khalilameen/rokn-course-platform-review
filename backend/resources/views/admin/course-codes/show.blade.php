@@ -205,6 +205,7 @@
                     <form method="POST" action="{{ route('admin.course-codes.destroy', $courseCode) }}" class="course-code-action-form">
                         @csrf
                         @method('DELETE')
+                        <input type="hidden" name="editor_version" value="{{ $editorVersion }}">
                         <button type="submit" class="btn action-btn course-code-action--danger" onclick="return confirm('هل أنت متأكد من حذف هذا الكود؟ لا يمكن التراجع عن هذا الإجراء.')">
                             <i class="fa fa-trash"></i> حذف الكود
                         </button>

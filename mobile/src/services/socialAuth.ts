@@ -1,4 +1,5 @@
 import {Platform} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
@@ -23,9 +24,11 @@ import {
   extractApiToken,
   loadSecureSession,
   loadPendingSocialAuthAttempt,
+  replacePendingSocialAuthAttempt,
   saveSecureSession,
   savePendingSocialAuthAttempt,
 } from './secureSession';
+import type {PendingSocialAuthAttempt} from './secureSession';
 
 export type SocialProvider = 'google' | 'tiktok' | 'facebook' | 'apple';
 
@@ -48,6 +51,9 @@ export type SocialAuthSession = Record<string, unknown> & {
 };
 
 WebBrowser.maybeCompleteAuthSession();
+
+const SOCIAL_AUTH_METHODS_CACHE_KEY = '@rokn/social-auth-methods/v1';
+const SOCIAL_AUTH_METHODS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 const queryValue = (url: string, key: string) => {
   const query = url.split('?')[1]?.split('#')[0] || '';
@@ -242,10 +248,7 @@ const completionIsTerminal = (error: unknown) => {
   );
 };
 
-const completeSocialAttempt = async (
-  code: string,
-  verifier: string,
-) => {
+const completeSocialAttempt = async (code: string, verifier: string) => {
   const installationId = await getInstallationId();
   const body = {
     code,
@@ -275,10 +278,7 @@ const completeSocialAttempt = async (
         status === 429 ||
         status >= 500 ||
         (status === 409 && responseCode(error) === 'SOCIAL_LOGIN_IN_PROGRESS');
-      if (
-        !retryable ||
-        retryDelay === retryDelays[retryDelays.length - 1]
-      ) {
+      if (!retryable || retryDelay === retryDelays[retryDelays.length - 1]) {
         throw error;
       }
     }
@@ -310,7 +310,7 @@ const exchangeNativeSocialToken = async (
       throw new Error('LOGIN_SESSION_INVALID');
     }
   } else {
-    await deletePendingSocialAuthAttempt();
+    await deletePendingSocialAuthAttempt(pending);
   }
   return session;
 };
@@ -340,10 +340,14 @@ const persistCompletedLogin = async (
   // not atomic. Persist the completed response in the encrypted attempt first;
   // a process death after backend completion can then finish locally instead
   // of replaying a consumed code or reporting a false login failure.
-  await savePendingSocialAuthAttempt({
+  const staged = await replacePendingSocialAuthAttempt(current!, {
     ...current!,
     completedSession: session,
   });
+  if (!staged) {
+    const committed = await loadSecureSession().catch(() => null);
+    return extractApiToken(committed) === session.api_token;
+  }
   await saveSecureSession(session);
   await savePendingWelcomeBonus(session.welcome_bonus_granted);
   // Keep the encrypted recovery copy until the normal token/profile pair and
@@ -356,7 +360,7 @@ const persistCompletedLogin = async (
     afterWrite.startedAt === pending.startedAt &&
     (afterWrite.purpose ?? 'login') === (pending.purpose ?? 'login')
   ) {
-    await deletePendingSocialAuthAttempt().catch(() => undefined);
+    await deletePendingSocialAuthAttempt(afterWrite).catch(() => undefined);
   }
   return true;
 };
@@ -385,7 +389,7 @@ export const resumePendingSocialAuth = async (
       completedAge < -60_000 ||
       completedAge > 24 * 60 * 60 * 1000
     ) {
-      await deletePendingSocialAuthAttempt();
+      await deletePendingSocialAuthAttempt(pending);
       return null;
     }
     const completed = normalizeSocialSession(
@@ -395,15 +399,19 @@ export const resumePendingSocialAuth = async (
     if (purpose === 'login') {
       if (!(await persistCompletedLogin(pending, completed))) return null;
     } else {
-      await deletePendingSocialAuthAttempt();
+      await deletePendingSocialAuthAttempt(pending);
     }
     return completed;
   }
 
   const startedAt = Date.parse(pending.startedAt);
   const elapsed = serverNowMs() - startedAt;
-  if (!Number.isFinite(startedAt) || elapsed < -60_000 || elapsed > 10 * 60 * 1000) {
-    await deletePendingSocialAuthAttempt();
+  if (
+    !Number.isFinite(startedAt) ||
+    elapsed < -60_000 ||
+    elapsed > 10 * 60 * 1000
+  ) {
+    await deletePendingSocialAuthAttempt(pending);
     return null;
   }
 
@@ -429,11 +437,15 @@ export const resumePendingSocialAuth = async (
   }
 
   if (pending.callbackUrl !== returnedUrl) {
-    await savePendingSocialAuthAttempt({...pending, callbackUrl: returnedUrl});
+    const updated = await replacePendingSocialAuthAttempt(pending, {
+      ...pending,
+      callbackUrl: returnedUrl,
+    });
+    if (!updated) return null;
   }
   const returnedError = queryValue(returnedUrl, 'error');
   if (returnedError) {
-    await deletePendingSocialAuthAttempt();
+    if (!(await deletePendingSocialAuthAttempt(pending))) return null;
     if (
       [
         'access_denied',
@@ -451,7 +463,7 @@ export const resumePendingSocialAuth = async (
   }
   const code = queryValue(returnedUrl, 'code');
   if (!code) {
-    await deletePendingSocialAuthAttempt();
+    if (!(await deletePendingSocialAuthAttempt(pending))) return null;
     throw new Error('LOGIN_CODE_MISSING');
   }
 
@@ -460,7 +472,7 @@ export const resumePendingSocialAuth = async (
     response = await completeSocialAttempt(code, pending.verifier);
   } catch (error) {
     if (completionIsTerminal(error)) {
-      await deletePendingSocialAuthAttempt();
+      await deletePendingSocialAuthAttempt(pending);
     }
     throw error;
   }
@@ -478,30 +490,25 @@ export const resumePendingSocialAuth = async (
       return null;
     }
   } else {
-    await deletePendingSocialAuthAttempt();
+    await deletePendingSocialAuthAttempt(pending);
   }
   return session;
 };
 
-export const getSocialAuthMethods = async (): Promise<SocialAuthMethods> => {
-  const methodsResponse = await publicRequest.get<unknown>('auth-methods', {
-    skipAuthorization: true,
-  } as RoknRequestConfig);
-  const envelope = asRecord(methodsResponse.data) ?? {};
+const normalizeSocialAuthMethods = (value: unknown): SocialAuthMethods => {
+  const envelope = asRecord(value) ?? {};
   const methods = asRecord(envelope.data) ?? envelope;
   const authorizationApiUrl =
-    nonEmptyString(methods.authorization_api_url) || roknApiUrl;
+    nonEmptyString(
+      methods.authorization_api_url ?? methods.authorizationApiUrl,
+    ) || roknApiUrl;
   const urls = authorizationUrls(
-    methods.authorization_urls,
+    methods.authorization_urls ?? methods.authorizationUrls,
     authorizationApiUrl,
   );
   const declaredProviders = Array.isArray(methods.providers)
     ? Array.from(
-        new Set(
-          methods.providers
-            .map(String)
-            .filter(isSocialProvider),
-        ),
+        new Set(methods.providers.map(String).filter(isSocialProvider)),
       )
     : ([] as SocialProvider[]);
   const configuredProviders = declaredProviders.filter(
@@ -516,20 +523,64 @@ export const getSocialAuthMethods = async (): Promise<SocialAuthMethods> => {
       ? requestedRecommendation
       : configuredProviders[0] ?? null;
   const recommendationText = nonEmptyString(
-    methods.recommendation_badge ?? methods.recommendation_text,
+    methods.recommendation_badge ??
+      methods.recommendation_text ??
+      methods.recommendationText,
+  );
+  const welcomeBonus = Number(
+    methods.welcome_bonus_coins ?? methods.welcomeBonus,
   );
   return {
     providers: configuredProviders,
     authorizationUrls: urls,
     authorizationApiUrl,
     welcomeBonus:
-      Number.isSafeInteger(Number(methods.welcome_bonus_coins)) &&
-      Number(methods.welcome_bonus_coins) > 0
-        ? Number(methods.welcome_bonus_coins)
+      Number.isSafeInteger(welcomeBonus) && welcomeBonus > 0
+        ? welcomeBonus
         : null,
     recommendedProvider,
     recommendationText: recommendationText || null,
   };
+};
+
+const readCachedSocialAuthMethods = async () => {
+  try {
+    const raw = await AsyncStorage.getItem(SOCIAL_AUTH_METHODS_CACHE_KEY);
+    const cached = raw ? asRecord(JSON.parse(raw)) : null;
+    const savedAt = Number(cached?.savedAt);
+    const age = Date.now() - savedAt;
+    if (
+      !Number.isFinite(savedAt) ||
+      age < -5 * 60 * 1000 ||
+      age > SOCIAL_AUTH_METHODS_CACHE_TTL_MS
+    ) {
+      return null;
+    }
+    const methods = normalizeSocialAuthMethods(cached?.methods);
+    return methods.providers.length ? methods : null;
+  } catch {
+    return null;
+  }
+};
+
+export const getSocialAuthMethods = async (): Promise<SocialAuthMethods> => {
+  try {
+    const methodsResponse = await publicRequest.get<unknown>('auth-methods', {
+      skipAuthorization: true,
+    } as RoknRequestConfig);
+    const methods = normalizeSocialAuthMethods(methodsResponse.data);
+    if (methods.providers.length) {
+      void AsyncStorage.setItem(
+        SOCIAL_AUTH_METHODS_CACHE_KEY,
+        JSON.stringify({savedAt: Date.now(), methods}),
+      ).catch(() => undefined);
+    }
+    return methods;
+  } catch (error) {
+    const cached = await readCachedSocialAuthMethods();
+    if (cached) return cached;
+    throw error;
+  }
 };
 
 export const signInWithSocialProvider = async (
@@ -550,18 +601,20 @@ export const signInWithSocialProvider = async (
       throw new Error('PROVIDER_NOT_CONFIGURED');
     }
 
+    let ownedAppleAttempt: PendingSocialAuthAttempt | null = null;
     try {
       // expo-apple-authentication forwards this value unchanged to Apple's
       // native request. Apple signs the digest into the ID token; the server
       // receives the unpredictable preimage and verifies that binding.
       const nonce = await createAppleNonce();
-      const appleAttempt = {
+      const appleAttempt: PendingSocialAuthAttempt = {
         provider: 'apple' as const,
         verifier: nonce.raw,
         flow: 'native' as const,
         startedAt: new Date(serverNowMs()).toISOString(),
         purpose: options.purpose ?? 'login',
       };
+      ownedAppleAttempt = appleAttempt;
       await savePendingSocialAuthAttempt(appleAttempt);
       const credential = await AppleAuthentication.signInAsync({
         requestedScopes: [
@@ -600,12 +653,16 @@ export const signInWithSocialProvider = async (
           throw new Error('LOGIN_SESSION_INVALID');
         }
       } else {
-        await deletePendingSocialAuthAttempt();
+        await deletePendingSocialAuthAttempt(appleAttempt);
       }
       return session;
     } catch (error: unknown) {
       if (asRecord(error)?.code === 'ERR_REQUEST_CANCELED') {
-        await deletePendingSocialAuthAttempt().catch(() => undefined);
+        if (ownedAppleAttempt) {
+          await deletePendingSocialAuthAttempt(ownedAppleAttempt).catch(
+            () => undefined,
+          );
+        }
         throw new Error('LOGIN_CANCELLED');
       }
       throw error;
@@ -622,7 +679,7 @@ export const signInWithSocialProvider = async (
     );
     const nativeResult = await signInWithNativeSocialProvider(provider);
     if (nativeResult.type === 'cancel') {
-      await deletePendingSocialAuthAttempt();
+      await deletePendingSocialAuthAttempt(nativeAttempt);
       throw new Error('LOGIN_CANCELLED');
     }
     if (nativeResult.type === 'success') {
@@ -646,7 +703,7 @@ export const signInWithSocialProvider = async (
     // Native configuration drift, an unavailable bridge, or an audience
     // mismatch must not strand the learner. Retire that durable attempt before
     // the normal PKCE path creates its own independently recoverable intent.
-    await deletePendingSocialAuthAttempt().catch(() => undefined);
+    await deletePendingSocialAuthAttempt(nativeAttempt).catch(() => undefined);
   }
 
   // The backend owns the canonical provider start route for the active
@@ -672,25 +729,36 @@ export const signInWithSocialProvider = async (
     code_challenge: pkce.challenge,
     code_challenge_method: 'S256',
   })}`;
-  await savePendingSocialAuthAttempt({
+  const browserAttempt = {
     provider,
     verifier: pkce.verifier,
     challenge: pkce.challenge,
     flow: 'browser',
     startedAt: serverNow().toISOString(),
     purpose: options.purpose ?? 'login',
-  });
+  } as const;
+  await savePendingSocialAuthAttempt(browserAttempt);
   const result =
     Platform.OS === 'android'
-      ? await openAndroidAuthSession(authorizationUrl, returnUrl)
+      ? await openAndroidAuthSession(
+          authorizationUrl,
+          returnUrl,
+          pkce.challenge,
+        )
       : await WebBrowser.openAuthSessionAsync(authorizationUrl, returnUrl);
 
   if (result.type === 'cancel' || result.type === 'dismiss') {
-    await deletePendingSocialAuthAttempt();
+    const recoverableAndroidReturn =
+      result.type === 'cancel' &&
+      'recoverable' in result &&
+      result.recoverable === true;
+    if (!recoverableAndroidReturn) {
+      await deletePendingSocialAuthAttempt(browserAttempt);
+    }
     throw new Error('LOGIN_CANCELLED');
   }
   if (result.type !== 'success') {
-    await deletePendingSocialAuthAttempt();
+    await deletePendingSocialAuthAttempt(browserAttempt);
     throw new Error('LOGIN_UNAVAILABLE');
   }
   return resumePendingSocialAuth(result.url, options).then(session => {

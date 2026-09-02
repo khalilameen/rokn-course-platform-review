@@ -44,7 +44,9 @@
     <div class="card admin-card mb-4"><div class="card-header"><strong>{{ $editPool ? 'تعديل فاتورة التشغيل' : 'إضافة فاتورة تشغيل' }}</strong></div><div class="card-body">
         <form method="POST" action="{{ $editPool ? route('admin.operating-costs.update', $editPool) : route('admin.operating-costs.store') }}">
             @csrf
+            <input type="hidden" name="editor_version" value="{{ $exchangeRateEditorVersion }}">
             @if($editPool) @method('PUT') @endif
+            @if($editPool)<input type="hidden" name="editor_version" value="{{ $editPoolEditorVersion }}">@endif
             @unless($editPool)<input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">@endunless
             <div class="form-row">
                 <div class="form-group col-md-4"><label>اسم الفاتورة</label><input name="name" class="form-control" required maxlength="160" value="{{ old('name', $editPool?->name) }}"></div>
@@ -76,7 +78,7 @@
             <td>{{ number_format((float) $pool->amount, 4) }} {{ $pool->currency }}@if($pool->currency === 'USD')<br><small>× {{ $pool->fx_rate_to_egp }}</small>@endif</td>
             <td>{{ \App\Models\OperatingCostPool::DRIVERS[$pool->allocation_driver] ?? $pool->allocation_driver }}</td>
             <td>{{ $pool->is_final ? 'نهائية' : 'تقديرية' }}</td>
-            <td><a class="btn btn-sm btn-outline-primary" href="{{ route('admin.operating-costs.index', ['edit_cost' => $pool->id]) }}">تعديل</a><form class="d-inline" method="POST" action="{{ route('admin.operating-costs.destroy', $pool) }}" onsubmit="return confirm('حذف بند التكلفة؟')">@csrf @method('DELETE')<button class="btn btn-sm btn-outline-danger">حذف</button></form></td>
+            <td><a class="btn btn-sm btn-outline-primary" href="{{ route('admin.operating-costs.index', ['edit_cost' => $pool->id]) }}">تعديل</a><form class="d-inline" method="POST" action="{{ route('admin.operating-costs.destroy', $pool) }}" onsubmit="return confirm('حذف بند التكلفة؟')">@csrf @method('DELETE')<input type="hidden" name="editor_version" value="{{ $poolEditorVersions->get($pool->id) }}"><button class="btn btn-sm btn-outline-danger">حذف</button></form></td>
         </tr>@empty<tr><td colspan="7" class="text-center text-muted py-4">لا توجد فواتير تشغيل بعد.</td></tr>@endforelse</tbody>
     </table></div>@if($pools->hasPages())<div class="card-footer">{{ $pools->links() }}</div>@endif</div>
 

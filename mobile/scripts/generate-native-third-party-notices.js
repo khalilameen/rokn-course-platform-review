@@ -172,7 +172,7 @@ const ANDROID_EXACT_LICENSE_SELECTIONS = new Map([
     },
   ],
   [
-    'commons-io:commons-io:1.4',
+    'commons-io:commons-io:2.6',
     {
       license: 'Apache-2.0',
       reason:
@@ -2324,24 +2324,9 @@ const renderAppData = (
 const renderAndroidAppData = (
   android,
   bundledFont = buildBundledFontInventory(),
+  pods = {dependencyCount: null, dependencies: []},
 ) => {
-  const summarize = dependency => ({
-    coordinate: dependency.coordinate,
-    licenses: dependency.selectedLicenses || [],
-    legalDocumentCount: (dependency.legalDocumentSha256s || []).length,
-  });
-  const value = {
-    schemaVersion: 1,
-    androidDependencyCount: android.dependencyCount,
-    androidProjectComponentCount: android.projectComponentCount,
-    podDependencyCount: null,
-    android: android.dependencies.map(summarize),
-    androidProjects: android.projectComponents.map(summarize),
-    pods: [],
-    bundledAssets: [summarizeBundledFont(bundledFont)],
-  };
-  value.inventoryHash = sha256Text(JSON.stringify(value));
-  return `${JSON.stringify(value, null, 2)}\n`;
+  return renderAppData(android, pods, bundledFont);
 };
 
 const writeOrCheck = (filePath, expected, check) => {
@@ -2403,9 +2388,12 @@ const main = async () => {
   writeOrCheck(ANDROID_MARKDOWN_PATH, androidMarkdown, check);
   writeOrCheck(ANDROID_NOTICE_PATH, androidMarkdown, check);
   if (androidOnly) {
+    const retainedPods = fs.existsSync(PODS_SNAPSHOT_PATH)
+      ? JSON.parse(fs.readFileSync(PODS_SNAPSHOT_PATH, 'utf8'))
+      : {dependencyCount: null, dependencies: []};
     writeOrCheck(
       APP_DATA_PATH,
-      renderAndroidAppData(android, bundledFont),
+      renderAndroidAppData(android, bundledFont, retainedPods),
       check,
     );
     console.log(

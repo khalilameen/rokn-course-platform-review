@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\DB;
 use App\Support\BusinessClock;
 use App\Support\CsvCell;
 use App\Support\UnicodeText;
+use App\Support\AdminEditorVersion;
+use Illuminate\Validation\ValidationException;
 
 class CourseCodeController extends Controller
 {
@@ -64,8 +66,13 @@ class CourseCodeController extends Controller
         $courses = Course::query()->orderBy('name_ar')->orderBy('id')->get();
         $lessons = Lesson::query()->orderBy('title_ar')->orderBy('id')->get();
         $designSettings = $this->getDesignSettings();
+        $editorVersions = $courseCodes->getCollection()->mapWithKeys(
+            fn (CourseCode $code): array => [$code->id => $this->editorVersion($code)]
+        );
 
-        return view('admin.course-codes.index', compact('courseCodes', 'courses', 'lessons', 'designSettings'));
+        return view('admin.course-codes.index', compact(
+            'courseCodes', 'courses', 'lessons', 'designSettings', 'editorVersions'
+        ));
     }
 
     /**
@@ -152,8 +159,9 @@ class CourseCodeController extends Controller
     {
         $courseCode->load(['course', 'lesson', 'usages.user']);
         $designSettings = $this->getDesignSettings();
+        $editorVersion = $this->editorVersion($courseCode);
 
-        return view('admin.course-codes.show', compact('courseCode', 'designSettings'));
+        return view('admin.course-codes.show', compact('courseCode', 'designSettings', 'editorVersion'));
     }
 
     /**
@@ -167,8 +175,9 @@ class CourseCodeController extends Controller
         $courses = Course::all();
         $lessons = Lesson::all();
         $designSettings = $this->getDesignSettings();
+        $editorVersion = $this->editorVersion($courseCode);
 
-        return view('admin.course-codes.edit', compact('courseCode', 'courses', 'lessons', 'designSettings'));
+        return view('admin.course-codes.edit', compact('courseCode', 'courses', 'lessons', 'designSettings', 'editorVersion'));
     }
 
     /**
@@ -184,7 +193,8 @@ class CourseCodeController extends Controller
             $data = $request->validated();
 
             // Remove fields that shouldn't be updated
-            unset($data['number_of_codes'], $data['authoring_request_id']);
+            $editorVersion = (string) $data['editor_version'];
+            unset($data['number_of_codes'], $data['authoring_request_id'], $data['editor_version']);
             $data['allowed_email_domains'] = $this->emailDomains(
                 $request->input('allowed_email_domains')
             );
@@ -195,11 +205,22 @@ class CourseCodeController extends Controller
                 }
             }
 
-            $courseCode->update($data);
+            DB::transaction(function () use ($courseCode, $data, $editorVersion): void {
+                $locked = CourseCode::query()->whereKey($courseCode->id)
+                    ->lockForUpdate()->firstOrFail();
+                if (!hash_equals($this->editorVersion($locked), $editorVersion)) {
+                    throw ValidationException::withMessages([
+                        'editor_version' => 'تغيّر كود الجهة منذ فتح الصفحة\nأعد تحميله قبل الحفظ',
+                    ]);
+                }
+                $locked->update($data);
+            }, 3);
 
             return redirect()->route('admin.course-codes.index')
                 ->with('success', 'تم تحديث الكود بنجاح');
 
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
             report($e);
             return back()->withInput()->with('error', 'تعذر تحديث الكود الآن');
@@ -212,22 +233,32 @@ class CourseCodeController extends Controller
      * @param  \App\Models\CourseCode  $courseCode
      * @return \Illuminate\Http\Response
      */
-    public function destroy(CourseCode $courseCode)
+    public function destroy(Request $request, CourseCode $courseCode)
     {
-        if ($courseCode->usages()->exists() || $courseCode->orders()->exists()) {
-            $courseCode->forceFill(['is_active' => false])->save();
+        $validated = $request->validate(['editor_version' => 'required|string|size:64']);
+        $deactivated = DB::transaction(function () use ($courseCode, $validated): bool {
+            $locked = CourseCode::query()->whereKey($courseCode->id)
+                ->lockForUpdate()->firstOrFail();
+            if (!hash_equals($this->editorVersion($locked), (string) $validated['editor_version'])) {
+                throw ValidationException::withMessages([
+                    'editor_version' => 'تغيّر كود الجهة منذ فتح الصفحة\nأعد تحميله قبل الحذف',
+                ]);
+            }
+            if ($locked->usages()->exists() || $locked->orders()->exists()) {
+                $locked->forceFill(['is_active' => false])->save();
+                return true;
+            }
+            $locked->delete();
+            return false;
+        }, 3);
 
+        if ($deactivated) {
             return redirect()->route('admin.course-codes.index')
                 ->with('success', 'تم إيقاف الكود مع الاحتفاظ بسجل استخدامه');
         }
-        try {
-            $courseCode->delete();
-            return redirect()->route('admin.course-codes.index')
-                ->with('success', 'تم حذف الكود بنجاح');
-        } catch (\Exception $e) {
-            report($e);
-            return back()->with('error', 'تعذر حذف الكود الآن');
-        }
+
+        return redirect()->route('admin.course-codes.index')
+            ->with('success', 'تم حذف الكود بنجاح');
     }
 
     private function emailDomains(?string $value): ?array
@@ -242,6 +273,15 @@ class CourseCodeController extends Controller
         return $domains ?: null;
     }
 
+    private function editorVersion(CourseCode $courseCode): string
+    {
+        return AdminEditorVersion::for($courseCode, [
+            'code', 'name', 'type', 'course_id', 'lesson_id', 'lesson_ids',
+            'start_date', 'expiry_date', 'max_uses', 'used_count', 'is_active',
+            'is_grant', 'description', 'allowed_email_domains',
+        ]);
+    }
+
     /**
      * Bulk actions for course codes
      *
@@ -253,49 +293,67 @@ class CourseCodeController extends Controller
         $request->validate([
             'action' => 'required|in:delete,activate,deactivate',
             'selected_codes' => 'required|array|min:1',
-            'selected_codes.*' => 'exists:course_codes,id'
+            'selected_codes.*' => 'integer|distinct|exists:course_codes,id',
+            'editor_versions' => 'required|array',
+            'editor_versions.*' => 'required|string|size:64',
         ]);
 
         try {
             $action = $request->input('action');
             $selectedCodes = $request->input('selected_codes');
 
-            switch ($action) {
-                case 'delete':
+            $versions = (array) $request->input('editor_versions', []);
+            $message = DB::transaction(function () use ($action, $selectedCodes, $versions): string {
+                $codes = CourseCode::query()->whereIn('id', $selectedCodes)
+                    ->orderBy('id')->lockForUpdate()->get();
+                if ($codes->count() !== count(array_unique(array_map('intval', $selectedCodes)))) {
+                    throw ValidationException::withMessages([
+                        'selected_codes' => 'تغيّرت قائمة الأكواد\nأعد تحميل الصفحة قبل المتابعة',
+                    ]);
+                }
+                foreach ($codes as $code) {
+                    $submitted = (string) ($versions[$code->id] ?? '');
+                    if ($submitted === '' || !hash_equals($this->editorVersion($code), $submitted)) {
+                        throw ValidationException::withMessages([
+                            'editor_versions' => 'تغيّر أحد الأكواد المحددة\nأعد تحميل الصفحة قبل المتابعة',
+                        ]);
+                    }
+                }
+
+                if ($action === 'delete') {
                     $deleted = 0;
                     $deactivated = 0;
-                    CourseCode::withCount(['usages', 'orders'])
-                        ->whereIn('id', $selectedCodes)
-                        ->get()
-                        ->each(function (CourseCode $code) use (&$deleted, &$deactivated): void {
-                            if ($code->usages_count > 0 || $code->orders_count > 0) {
-                                $code->forceFill(['is_active' => false])->save();
-                                $deactivated++;
-                                return;
-                            }
-
+                    foreach ($codes as $code) {
+                        if ($code->usages()->exists() || $code->orders()->exists()) {
+                            $code->forceFill(['is_active' => false])->save();
+                            $deactivated++;
+                        } else {
                             $code->delete();
                             $deleted++;
-                        });
-                    $message = "حُذف {$deleted} كود وأُوقف {$deactivated} كود مستخدم مع الاحتفاظ بسجله";
-                    break;
+                        }
+                    }
+                    return "حُذف {$deleted} كود وأُوقف {$deactivated} كود مستخدم مع الاحتفاظ بسجله";
+                }
 
-                case 'activate':
-                    $activated = CourseCode::whereIn('id', $selectedCodes)
-                        ->where('type', 'course')
-                        ->update(['is_active' => true]);
-                    $message = "تم تفعيل {$activated} كود صالح";
-                    break;
-
-                case 'deactivate':
-                    CourseCode::whereIn('id', $selectedCodes)->update(['is_active' => false]);
-                    $message = 'تم إلغاء تفعيل الأكواد المحددة بنجاح';
-                    break;
-            }
+                $changed = 0;
+                foreach ($codes as $code) {
+                    if ($action === 'activate' && $code->type !== 'course') continue;
+                    $target = $action === 'activate';
+                    if ((bool) $code->is_active !== $target) {
+                        $code->forceFill(['is_active' => $target])->save();
+                        $changed++;
+                    }
+                }
+                return $action === 'activate'
+                    ? "تم تفعيل {$changed} كود صالح"
+                    : 'تم إلغاء تفعيل الأكواد المحددة بنجاح';
+            }, 3);
 
             return redirect()->route('admin.course-codes.index')
                 ->with('success', $message);
 
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Exception $e) {
             report($e);
             return back()->with('error', 'تعذر تنفيذ العملية الآن');

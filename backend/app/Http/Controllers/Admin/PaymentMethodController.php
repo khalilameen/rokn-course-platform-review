@@ -7,6 +7,8 @@ use App\Http\Controllers\Controller;
 use App\Services\AdminAuthoringCreateIntentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+use App\Support\AdminEditorVersion;
 
 class PaymentMethodController extends Controller
 {
@@ -18,8 +20,11 @@ class PaymentMethodController extends Controller
     public function index()
     {
         $paymentMethods = PaymentMethod::get();
+        $editorVersions = $paymentMethods->mapWithKeys(fn (PaymentMethod $method): array => [
+            $method->id => $this->editorVersion($method),
+        ]);
 
-        return view('admin.payment-methods.index', compact('paymentMethods'));
+        return view('admin.payment-methods.index', compact('paymentMethods', 'editorVersions'));
     }
 
     /**
@@ -84,7 +89,8 @@ class PaymentMethodController extends Controller
      */
     public function edit(PaymentMethod $paymentMethod)
     {
-        return view('admin.payment-methods.edit', compact('paymentMethod'));
+        $editorVersion = $this->editorVersion($paymentMethod);
+        return view('admin.payment-methods.edit', compact('paymentMethod', 'editorVersion'));
     }
 
     /**
@@ -101,6 +107,7 @@ class PaymentMethodController extends Controller
             'account_details' => 'required|string',
             'description' => 'nullable|string',
             'is_active' => 'boolean',
+            'editor_version' => 'required|string|size:64',
         ]);
 
         $isDefaultMethod = $paymentMethod->is_default;
@@ -117,6 +124,7 @@ class PaymentMethodController extends Controller
 
         // For default methods, don't allow changing the name
         $data = $validated;
+        unset($data['editor_version']);
         if ($isDefaultMethod) {
             $data['name'] = $paymentMethod->name; // Keep the original name
         }
@@ -130,7 +138,19 @@ class PaymentMethodController extends Controller
                 ->with('new_account_details', $request->input('account_details'));
         }
 
-        $paymentMethod->update($data);
+        DB::transaction(function () use ($paymentMethod, $data, $request): void {
+            $locked = PaymentMethod::query()->whereKey($paymentMethod->id)
+                ->lockForUpdate()->firstOrFail();
+            if (!hash_equals($this->editorVersion($locked), (string) $request->input('editor_version'))) {
+                throw ValidationException::withMessages([
+                    'editor_version' => 'تغيّرت طريقة الدفع منذ فتح الصفحة\nأعد تحميلها قبل الحفظ',
+                ]);
+            }
+            if ($locked->is_default) {
+                $data['name'] = $locked->name;
+            }
+            $locked->update($data);
+        }, 3);
 
         return redirect()->route('admin.payment-methods.index')->with('success', 'تم التعديل بنجاح');
     }
@@ -141,16 +161,33 @@ class PaymentMethodController extends Controller
      * @param  \App\Models\PaymentMethod  $paymentMethod
      * @return \Illuminate\Http\Response
      */
-    public function destroy(PaymentMethod $paymentMethod)
+    public function destroy(Request $request, PaymentMethod $paymentMethod)
     {
-        // Don't allow deleting default payment methods
-        if ($paymentMethod->is_default) {
+        $validated = $request->validate(['editor_version' => 'required|string|size:64']);
+        $blocked = DB::transaction(function () use ($paymentMethod, $validated): bool {
+            $locked = PaymentMethod::query()->whereKey($paymentMethod->id)
+                ->lockForUpdate()->firstOrFail();
+            if (!hash_equals($this->editorVersion($locked), (string) $validated['editor_version'])) {
+                throw ValidationException::withMessages([
+                    'editor_version' => 'تغيّرت طريقة الدفع منذ فتح الصفحة\nأعد تحميلها قبل الحذف',
+                ]);
+            }
+            if ($locked->is_default) return true;
+            $locked->delete();
+            return false;
+        }, 3);
+        if ($blocked) {
             return redirect()->route('admin.payment-methods.index')
                 ->with('error', 'لا يمكن حذف طرق الدفع الافتراضية');
         }
 
-        $paymentMethod->delete();
-
         return redirect()->route('admin.payment-methods.index')->with('success', 'تم الحذف بنجاح');
+    }
+
+    private function editorVersion(PaymentMethod $method): string
+    {
+        return AdminEditorVersion::for($method, [
+            'name', 'account_details', 'description', 'is_active', 'is_default',
+        ]);
     }
 }

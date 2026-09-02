@@ -16,6 +16,7 @@
     <div class="row">
         <div class="col-md-12">
             {!! Form::model($about,['method' => 'PATCH', 'files' => true, 'url' => route('admin.abouts.update', $about->id)]) !!}
+            <input type="hidden" name="editor_version" value="{{ $editorVersion }}">
             <div class="card admin-card legal-editor__card">
                 <div class="card-header">
                     <i class="fa fa-file-text-o"></i><strong class="card-title pr-2"> سياسة الخصوصية بالعربية</strong>

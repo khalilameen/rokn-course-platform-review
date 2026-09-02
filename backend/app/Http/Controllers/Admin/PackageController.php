@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use App\Support\AdminEditorVersion;
 
 class PackageController extends Controller
 {
@@ -20,7 +21,10 @@ class PackageController extends Controller
     public function index()
     {
         $packages = Package::latest()->get();
-        return view('admin.packages.index', compact('packages'));
+        $editorVersions = $packages->mapWithKeys(fn (Package $package): array => [
+            $package->id => $this->editorVersion($package),
+        ]);
+        return view('admin.packages.index', compact('packages', 'editorVersions'));
     }
 
     /**
@@ -115,7 +119,8 @@ class PackageController extends Controller
      */
     public function edit(Package $package)
     {
-        return view('admin.packages.edit', compact('package'));
+        $editorVersion = $this->editorVersion($package);
+        return view('admin.packages.edit', compact('package', 'editorVersion'));
     }
 
     /**
@@ -127,10 +132,20 @@ class PackageController extends Controller
      */
     public function update(Request $request, Package $package)
     {
+        $request->validate(['editor_version' => 'required|string|size:64']);
+        $editorVersion = (string) $request->input('editor_version');
         $validated = $this->validated($request, $package);
 
         try {
-            $package->update($validated);
+            DB::transaction(function () use ($package, $validated, $editorVersion): void {
+                $locked = Package::query()->whereKey($package->id)->lockForUpdate()->firstOrFail();
+                if (!hash_equals($this->editorVersion($locked), $editorVersion)) {
+                    throw ValidationException::withMessages([
+                        'editor_version' => 'تغيّرت الباقة منذ فتح الصفحة\nأعد تحميلها قبل الحفظ',
+                    ]);
+                }
+                $locked->update($validated);
+            }, 3);
         } catch (\DomainException $exception) {
             throw ValidationException::withMessages([
                 'coins' => [$exception->getMessage()],
@@ -146,20 +161,37 @@ class PackageController extends Controller
      * @param  \App\Models\Package  $package
      * @return \Illuminate\Http\Response
      */
-    public function destroy(Package $package)
+    public function destroy(Request $request, Package $package)
     {
-        if (
-            $package->orders()->exists()
-            || $package->storePurchases()->exists()
-            || filled($package->google_product_id)
-            || filled($package->apple_product_id)
-        ) {
+        $validated = $request->validate(['editor_version' => 'required|string|size:64']);
+        $blocked = DB::transaction(function () use ($package, $validated): bool {
+            $locked = Package::query()->whereKey($package->id)->lockForUpdate()->firstOrFail();
+            if (!hash_equals($this->editorVersion($locked), (string) $validated['editor_version'])) {
+                throw ValidationException::withMessages([
+                    'editor_version' => 'تغيّرت الباقة منذ فتح الصفحة\nأعد تحميلها قبل الحذف',
+                ]);
+            }
+            if ($locked->orders()->exists() || $locked->storePurchases()->exists()
+                || filled($locked->google_product_id) || filled($locked->apple_product_id)) {
+                return true;
+            }
+            $locked->delete();
+            return false;
+        }, 3);
+        if ($blocked) {
             return redirect()->back()->with(
                 'error',
                 'لا يمكن حذف باقة دخلت دورة بيع. عطّل قنواتها مع الاحتفاظ بالسجل المالي.'
             );
         }
-        $package->delete();
         return redirect()->route('admin.packages.index')->with('success', 'تم حذف الباقة بنجاح');
+    }
+
+    private function editorVersion(Package $package): string
+    {
+        return AdminEditorVersion::for($package, [
+            'name_ar', 'name_en', 'price', 'coins', 'is_active', 'direct_enabled',
+            'google_product_id', 'apple_product_id', 'google_enabled', 'apple_enabled',
+        ]);
     }
 }

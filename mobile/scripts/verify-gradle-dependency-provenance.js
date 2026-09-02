@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const {execFileSync} = require('node:child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 
@@ -87,6 +88,68 @@ const validateLock = (text, label, requiredCoordinates = []) => {
   return lines.length;
 };
 
+const validateGradleDeclarations = (text, label) => {
+  const source = text
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/.*$/gm, '');
+  const coordinates = [...source.matchAll(/["']([^"'\r\n]+:[^"'\r\n]+:[^"'\r\n]+)["']/g)]
+    .map(match => match[1])
+    // Version-catalog expressions are resolved and checked in the generated
+    // lockfiles below. This gate owns only literal declarations.
+    .filter(coordinate => !coordinate.includes('${'));
+  for (const coordinate of coordinates) {
+    const version = coordinate.split(':').at(-1) || '';
+    if (/\+|snapshot|latest|[[(]/i.test(version)) {
+      throw new Error(
+        `${label} declares a dynamic dependency version: ${coordinate}.`,
+      );
+    }
+  }
+  return coordinates.length;
+};
+
+const resolveAutolinkedAndroidPublications = root => {
+  const packageJson = require.resolve('expo-modules-autolinking/package.json', {
+    paths: [root],
+  });
+  const manifest = JSON.parse(fs.readFileSync(packageJson, 'utf8'));
+  const executable = path.join(
+    path.dirname(packageJson),
+    manifest.bin['expo-modules-autolinking'],
+  );
+  return JSON.parse(
+    execFileSync(
+      process.execPath,
+      [executable, 'resolve', '--platform', 'android', '--json'],
+      {cwd: root, encoding: 'utf8'},
+    ),
+  );
+};
+
+const validateAutolinkedPublications = (lockText, resolution) => {
+  const lockedCoordinates = new Set(
+    lockText
+      .split(/\r?\n/)
+      .map(line => line.split('=')[0].trim())
+      .filter(Boolean),
+  );
+  const publications = new Set();
+  for (const module of resolution.modules || []) {
+    for (const project of module.projects || []) {
+      const publication = project.publication;
+      if (!publication) continue;
+      const coordinate = `${publication.groupId}:${publication.artifactId}:${publication.version}`;
+      publications.add(coordinate);
+      if (!lockedCoordinates.has(coordinate)) {
+        throw new Error(
+          `android/app/gradle.lockfile is stale for autolinked Android publication: ${coordinate}.`,
+        );
+      }
+    }
+  }
+  return publications.size;
+};
+
 const validateRoot = (root = ROOT) => {
   const read = relative => {
     const absolute = path.join(root, relative);
@@ -105,19 +168,33 @@ const validateRoot = (root = ROOT) => {
       'org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.20',
     ],
   );
+  const appLock = read('android/app/gradle.lockfile');
   const appCount = validateLock(
-    read('android/app/gradle.lockfile'),
+    appLock,
     'android/app/gradle.lockfile',
     [
       'com.facebook.react:react-android:0.83.10',
       'com.google.firebase:firebase-messaging:25.0.1',
     ],
   );
+  const autolinkedPublicationCount = validateAutolinkedPublications(
+    appLock,
+    resolveAutolinkedAndroidPublications(root),
+  );
   validateLock(
     read('android/settings-gradle.lockfile'),
     'android/settings-gradle.lockfile',
   );
   const buildGradle = read('android/build.gradle');
+  validateGradleDeclarations(buildGradle, 'android/build.gradle');
+  validateGradleDeclarations(
+    read('android/app/build.gradle'),
+    'android/app/build.gradle',
+  );
+  validateGradleDeclarations(
+    read('android/settings.gradle'),
+    'android/settings.gradle',
+  );
   if (
     !/activateDependencyLocking\(\)/.test(buildGradle) ||
     !/lockAllConfigurations\(\)/.test(buildGradle)
@@ -131,6 +208,7 @@ const validateRoot = (root = ROOT) => {
   return {
     ...metadata,
     appLockCount: appCount,
+    autolinkedPublicationCount,
     buildscriptLockCount: buildscriptCount,
   };
 };
@@ -139,7 +217,7 @@ if (require.main === module) {
   try {
     const result = validateRoot();
     console.log(
-      `Gradle dependency provenance gate passed for ${result.componentCount} verified components, ${result.artifactCount} artifacts, ${result.buildscriptLockCount} buildscript locks, and ${result.appLockCount} app locks.`,
+      `Gradle dependency provenance gate passed for ${result.componentCount} verified components, ${result.artifactCount} artifacts, ${result.buildscriptLockCount} buildscript locks, ${result.appLockCount} app locks, and ${result.autolinkedPublicationCount} autolinked Android publications.`,
     );
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
@@ -147,4 +225,10 @@ if (require.main === module) {
   }
 }
 
-module.exports = {validateLock, validateMetadata, validateRoot};
+module.exports = {
+  validateAutolinkedPublications,
+  validateGradleDeclarations,
+  validateLock,
+  validateMetadata,
+  validateRoot,
+};

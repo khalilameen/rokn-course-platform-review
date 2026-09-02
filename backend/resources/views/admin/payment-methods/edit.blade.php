@@ -42,7 +42,8 @@
 
             <form id="paymentMethodForm" action="{{ route('admin.payment-methods.update', $paymentMethod->id) }}" method="post" enctype="multipart/form-data">
                 @csrf
-                @method('PUT')
+            @method('PUT')
+            <input type="hidden" name="editor_version" value="{{ $editorVersion }}">
                 <input type="hidden" name="confirm_account_details" id="confirmAccountDetails" value="">
                 @include('admin.payment-methods._form')
             </form>

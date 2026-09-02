@@ -49,6 +49,7 @@
                         <form action="{{ route('admin.packages.destroy', $package->id) }}" method="POST" class="d-inline-block" onsubmit="return confirm('هل أنت متأكد؟');">
                             @csrf
                             @method('DELETE')
+                            <input type="hidden" name="editor_version" value="{{ $editorVersions->get($package->id) }}">
                             <button type="submit" class="btn btn-danger btn-sm">
                                 <i class="fa fa-trash"></i>
                             </button>

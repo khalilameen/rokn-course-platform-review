@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Arr;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use App\Support\AdminSingletonLock;
 
 class SettingsController extends Controller
 {
@@ -63,13 +64,15 @@ class SettingsController extends Controller
         } else {
             $cleanupFilter = 'verified';
         }
+        $editorVersion = $this->settingsEditorVersion($settings, $designSettings);
 
         return view('admin.settings.index', compact(
             'settings',
             'designSettings',
             'bunnyCleanupCandidates',
             'bunnyCleanupStats',
-            'cleanupFilter'
+            'cleanupFilter',
+            'editorVersion'
         ));
     }
 
@@ -204,6 +207,7 @@ class SettingsController extends Controller
             'ai_global_daily_token_budget' => 'sometimes|required|integer|min:1000|max:1000000000',
             'ai_global_monthly_token_budget' => 'sometimes|required|integer|min:1000|max:10000000000',
             'ai_answer_cache_minutes' => 'sometimes|required|integer|min:5|max:10080',
+            'editor_version' => 'required|string|size:64',
             ]);
         } catch (ValidationException $exception) {
             $this->forgetBunnySecretInputs($request);
@@ -219,6 +223,8 @@ class SettingsController extends Controller
         ];
         $designUpdates = Arr::only($validated, $designFields);
         $validated = Arr::except($validated, $designFields);
+        $editorVersion = (string) $validated['editor_version'];
+        unset($validated['editor_version']);
 
         foreach ($designUpdates as $field => $url) {
             if ($url === null || trim((string) $url) === '') {
@@ -258,8 +264,26 @@ class SettingsController extends Controller
             $validated['support_whatsapp_url'] = $normalizedWhatsAppUrl;
         }
 
-        DB::transaction(function () use ($validated, $secretUpdates, $designUpdates): void {
-            $settings = Setting::query()->firstOrCreate([]);
+        DB::transaction(function () use (
+            $validated,
+            $secretUpdates,
+            $designUpdates,
+            $editorVersion
+        ): void {
+            AdminSingletonLock::acquire('settings', 'design_settings');
+            $settings = Setting::query()->lockForUpdate()->first();
+            $design = DesignSetting::query()->lockForUpdate()->first();
+            $settingsSnapshot = $settings ?? new Setting();
+            $designSnapshot = $design ?? DesignSetting::getDefaultSettings();
+            if (!hash_equals(
+                $this->settingsEditorVersion($settingsSnapshot, $designSnapshot),
+                $editorVersion
+            )) {
+                throw ValidationException::withMessages([
+                    'editor_version' => 'تغيّرت إعدادات التطبيق منذ فتح الصفحة\nأعد تحميلها قبل الحفظ',
+                ]);
+            }
+            $settings ??= Setting::query()->create([]);
             $previousDevicePolicy = DeviceLoginService::normalizePolicy(
                 $settings->device_login_policy
             );
@@ -272,7 +296,7 @@ class SettingsController extends Controller
             ) {
                 User::query()->whereNotNull('locked_device_id')->update(['locked_device_id' => null]);
             }
-            $design = DesignSetting::query()->first() ?? DesignSetting::getDefaultSettings();
+            $design ??= DesignSetting::getDefaultSettings();
             $design->fill($designUpdates)->save();
         });
         return redirect()->route('admin.settings')->with('success', 'تم التحديث بنجاح');
@@ -283,6 +307,38 @@ class SettingsController extends Controller
         foreach (['bunny_api_key', 'bunny_storage_password', 'bunny_security_key', 'api_key'] as $field) {
             $request->request->remove($field);
         }
+    }
+
+    private function settingsEditorVersion(
+        Setting $settings,
+        DesignSetting $design
+    ): string {
+        $secretRevision = hash('sha256', json_encode([
+            (string) $settings->getRawOriginal('bunny_api_key_secret'),
+            (string) $settings->getRawOriginal('bunny_storage_password_secret'),
+            (string) $settings->getRawOriginal('bunny_security_key_secret'),
+        ], JSON_UNESCAPED_SLASHES));
+        $settingValues = Arr::except($settings->getAttributes(), [
+            'bunny_api_key_secret',
+            'bunny_storage_password_secret',
+            'bunny_security_key_secret',
+            'bunny_api_key',
+            'bunny_storage_password',
+            'created_at',
+            'updated_at',
+        ]);
+        $settingValues['bunny_secrets_revision'] = $secretRevision;
+        $designValues = Arr::except($design->getAttributes(), [
+            'created_at',
+            'updated_at',
+        ]);
+        ksort($settingValues);
+        ksort($designValues);
+
+        return hash('sha256', json_encode(
+            [$settingValues, $designValues],
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        ));
     }
 
     public function adminData()

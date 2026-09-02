@@ -1,5 +1,10 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {CommonActions, useFocusEffect, useNavigation, useRoute} from '@react-navigation/native';
+import {
+  CommonActions,
+  useFocusEffect,
+  useNavigation,
+  useRoute,
+} from '@react-navigation/native';
 import type {RootNavigation, RootRoute} from '../navigation/types';
 import {learnerErrorMessage} from '../utils/errorPayload';
 import {formatRoknRelativeDate} from '../utils/dateTime';
@@ -44,7 +49,10 @@ import {
   DemoExperienceState,
   subscribeDemoExperience,
 } from '../services/demoExperience';
-import {openCoinCheckout} from '../services/coinCheckout';
+import {
+  openCoinCheckout,
+  subscribeCoinCheckoutCredits,
+} from '../services/coinCheckout';
 import {openExternalUrlOnce} from '../services/systemActions';
 import {
   getCoinPackages,
@@ -160,6 +168,13 @@ export default function Wallet() {
       };
     }, [refreshWallet]),
   );
+
+  useEffect(() => {
+    const unsubscribe = subscribeCoinCheckoutCredits(() => {
+      void refreshWallet();
+    });
+    return unsubscribe;
+  }, [refreshWallet]);
 
   useEffect(() => {
     if (!CAN_START_NATIVE_CHECKOUT) return undefined;
@@ -283,7 +298,9 @@ export default function Wallet() {
       (isWhatsAppTask(task) || taskOpenRetryIds.includes(task.id))
     ) {
       try {
-        const resumed = task.url ? {status: 'started', url: task.url} : await startCoinTask(task);
+        const resumed = task.url
+          ? {status: 'started', url: task.url}
+          : await startCoinTask(task);
         const safeActionUrl = trustedExternalTaskUrl(resumed.url);
         if (!safeActionUrl) {
           Alert.alert('تعذّر فتح المهمة', 'رابط المهمة غير متاح');
@@ -448,10 +465,12 @@ export default function Wallet() {
           `أضفنا ${formatArabicNumber(result.coinsAdded)} عملة ركن إلى رصيدك`,
         );
         if (interruptedReturnTo) {
-          navigation.dispatch(CommonActions.navigate(
-            interruptedReturnTo.name,
-            interruptedReturnTo.params,
-          ));
+          navigation.dispatch(
+            CommonActions.navigate(
+              interruptedReturnTo.name,
+              interruptedReturnTo.params,
+            ),
+          );
         }
       } else if (result.cancelled) {
         if (result.pending) {

@@ -42,8 +42,9 @@ jest.mock('../src/services/secureSession', () => ({
   loadSecureSession: jest.fn(async () => ({api_token: 'rokn-session-token'})),
   saveSecureSession: jest.fn(async () => undefined),
   savePendingSocialAuthAttempt: jest.fn(async () => undefined),
+  replacePendingSocialAuthAttempt: jest.fn(async () => true),
   loadPendingSocialAuthAttempt: jest.fn(async () => null),
-  deletePendingSocialAuthAttempt: jest.fn(async () => undefined),
+  deletePendingSocialAuthAttempt: jest.fn(async () => true),
 }));
 
 import {signInWithSocialProvider} from '../src/services/socialAuth';

@@ -124,8 +124,8 @@ const normalizeCheckoutLedger = (
     value && Array.isArray((value as PersistedCheckoutLedger).attempts)
       ? (value as PersistedCheckoutLedger).attempts
       : value
-        ? [value as PersistedCheckoutAttempt]
-        : [];
+      ? [value as PersistedCheckoutAttempt]
+      : [];
   const byPackage = new Map<number, PersistedCheckoutAttempt>();
   rawAttempts.forEach(raw => {
     const attempt = normalizeCheckoutAttempt(raw);
@@ -172,7 +172,9 @@ const getOrCreateCheckoutAttempt = async (
     assertAccountSessionBoundary(boundary);
     const storageKey = await checkoutAttemptStorageKey(boundary);
     const attempts = normalizeCheckoutLedger(
-      await getItem<PersistedCheckoutAttempt | PersistedCheckoutLedger>(storageKey),
+      await getItem<PersistedCheckoutAttempt | PersistedCheckoutLedger>(
+        storageKey,
+      ),
     );
     const stored = attempts.find(attempt => attempt.packageId === packageId);
     if (stored) return stored;
@@ -185,7 +187,10 @@ const getOrCreateCheckoutAttempt = async (
       expectedCoins,
       createdAt: new Date().toISOString(),
     } satisfies PersistedCheckoutAttempt;
-    const persisted = await saveCheckoutAttempts(storageKey, [...attempts, attempt]);
+    const persisted = await saveCheckoutAttempts(storageKey, [
+      ...attempts,
+      attempt,
+    ]);
     if (!persisted) {
       // Starting without durable intent identity would make a timeout unsafe to
       // retry: the server may already have created a payable order.
@@ -204,14 +209,18 @@ const rememberCheckoutOrder = async (
     assertAccountSessionBoundary(boundary);
     const storageKey = await checkoutAttemptStorageKey(boundary);
     const attempts = normalizeCheckoutLedger(
-      await getItem<PersistedCheckoutAttempt | PersistedCheckoutLedger>(storageKey),
+      await getItem<PersistedCheckoutAttempt | PersistedCheckoutLedger>(
+        storageKey,
+      ),
     );
     const current = attempts.find(
       candidate => candidate.idempotencyKey === attempt.idempotencyKey,
     );
     if (!current) {
       return saveCheckoutAttempts(storageKey, [
-        ...attempts.filter(candidate => candidate.packageId !== attempt.packageId),
+        ...attempts.filter(
+          candidate => candidate.packageId !== attempt.packageId,
+        ),
         {...attempt, orderRef},
       ]);
     }
@@ -233,7 +242,9 @@ const clearCheckoutAttempt = async (
     assertAccountSessionBoundary(boundary);
     const storageKey = await checkoutAttemptStorageKey(boundary);
     const attempts = normalizeCheckoutLedger(
-      await getItem<PersistedCheckoutAttempt | PersistedCheckoutLedger>(storageKey),
+      await getItem<PersistedCheckoutAttempt | PersistedCheckoutLedger>(
+        storageKey,
+      ),
     );
     await saveCheckoutAttempts(
       storageKey,
@@ -433,7 +444,8 @@ const reconcileCheckoutAttempt = async (
           orderRef,
           boundary,
         );
-        if (!remembered) throw new Error('CHECKOUT_ORDER_REFERENCE_UNAVAILABLE');
+        if (!remembered)
+          throw new Error('CHECKOUT_ORDER_REFERENCE_UNAVAILABLE');
         return {
           success: false,
           pending: true,
@@ -456,7 +468,8 @@ const reconcileCheckoutAttempt = async (
           orderRef,
           boundary,
         );
-        if (!remembered) throw new Error('CHECKOUT_ORDER_REFERENCE_UNAVAILABLE');
+        if (!remembered)
+          throw new Error('CHECKOUT_ORDER_REFERENCE_UNAVAILABLE');
         return {
           success: false,
           pending: true,
@@ -492,9 +505,7 @@ const reconcileCheckoutAttempt = async (
 
 const reconcilePendingCoinCheckoutOnce = async (
   boundary: AccountSessionBoundary,
-): Promise<
-  CoinCheckoutResult | null
-> => {
+): Promise<CoinCheckoutResult | null> => {
   if (!CAN_START_EXTERNAL_CHECKOUT) return null;
   assertAccountSessionBoundary(boundary);
   const attempts = await readCheckoutAttempts(boundary);
@@ -509,55 +520,57 @@ const reconcilePendingCoinCheckoutOnce = async (
     else if (result.pending && !pending) pending = result;
   }
 
-  return approved ?? pending ?? {
-    success: false,
-    pending: false,
-    cancelled: false,
-    coinsAdded: 0,
-    demo: false,
-  };
+  return (
+    approved ??
+    pending ?? {
+      success: false,
+      pending: false,
+      cancelled: false,
+      coinsAdded: 0,
+      demo: false,
+    }
+  );
 };
 
-export const reconcilePendingCoinCheckout = async (): Promise<
-  CoinCheckoutResult | null
-> => {
-  const boundary = await captureAccountSessionBoundary();
-  const scope = await checkoutAttemptStorageKey(boundary);
-  const current = checkoutReconciliationFlights.get(scope);
-  if (current) return current;
+export const reconcilePendingCoinCheckout =
+  async (): Promise<CoinCheckoutResult | null> => {
+    const boundary = await captureAccountSessionBoundary();
+    const scope = await checkoutAttemptStorageKey(boundary);
+    const current = checkoutReconciliationFlights.get(scope);
+    if (current) return current;
 
-  const operation = reconcilePendingCoinCheckoutOnce(boundary)
-    .then(result => {
-      assertAccountSessionBoundary(boundary);
-      if (result?.success && result.orderRef) {
-        const creditKey = `${boundary.scope}:${result.orderRef}`;
-        if (!emittedCheckoutCredits.has(creditKey)) {
-          emittedCheckoutCredits.add(creditKey);
-          while (emittedCheckoutCredits.size > MAX_EMITTED_CHECKOUT_CREDITS) {
-            const oldest = emittedCheckoutCredits.values().next().value;
-            if (typeof oldest !== 'string') break;
-            emittedCheckoutCredits.delete(oldest);
-          }
-          checkoutCreditListeners.forEach(listener => {
-            try {
-              listener(result);
-            } catch {
-              // A screen observer cannot turn an authoritative reconciliation
-              // into a failed financial operation.
+    const operation = reconcilePendingCoinCheckoutOnce(boundary)
+      .then(result => {
+        assertAccountSessionBoundary(boundary);
+        if (result?.success && result.orderRef) {
+          const creditKey = `${boundary.scope}:${result.orderRef}`;
+          if (!emittedCheckoutCredits.has(creditKey)) {
+            emittedCheckoutCredits.add(creditKey);
+            while (emittedCheckoutCredits.size > MAX_EMITTED_CHECKOUT_CREDITS) {
+              const oldest = emittedCheckoutCredits.values().next().value;
+              if (typeof oldest !== 'string') break;
+              emittedCheckoutCredits.delete(oldest);
             }
-          });
+            checkoutCreditListeners.forEach(listener => {
+              try {
+                listener(result);
+              } catch {
+                // A screen observer cannot turn an authoritative reconciliation
+                // into a failed financial operation.
+              }
+            });
+          }
         }
-      }
-      return result;
-    })
-    .finally(() => {
-      if (checkoutReconciliationFlights.get(scope) === operation) {
-        checkoutReconciliationFlights.delete(scope);
-      }
-    });
-  checkoutReconciliationFlights.set(scope, operation);
-  return operation;
-};
+        return result;
+      })
+      .finally(() => {
+        if (checkoutReconciliationFlights.get(scope) === operation) {
+          checkoutReconciliationFlights.delete(scope);
+        }
+      });
+    checkoutReconciliationFlights.set(scope, operation);
+    return operation;
+  };
 
 const runCoinCheckout = async (
   coinPackage: DemoCoinPackage,
@@ -619,7 +632,8 @@ const runCoinCheckout = async (
       await clearCheckoutAttempt(attempt.idempotencyKey, boundary);
       attempt = null;
     } else if (
-      Date.now() - Date.parse(attempt.createdAt) >= CHECKOUT_ATTEMPT_TTL_MS
+      Date.now() - Date.parse(attempt.createdAt) >=
+      CHECKOUT_ATTEMPT_TTL_MS
     ) {
       // The provider may still settle the old order, so do not cancel it.
       // Stop making an abandoned local intent monopolize this package after
@@ -659,11 +673,7 @@ const runCoinCheckout = async (
     ) {
       throw new Error('PAYMENT_SESSION_UNAVAILABLE');
     }
-    const remembered = await rememberCheckoutOrder(
-      attempt,
-      orderRef,
-      boundary,
-    );
+    const remembered = await rememberCheckoutOrder(attempt, orderRef, boundary);
     if (!remembered) {
       // The server has created a payable order. Losing its reference here
       // would make a restart unsafe to reconcile.
@@ -805,7 +815,6 @@ const runCoinCheckout = async (
     );
     throw error;
   }
-
 };
 
 export const openCoinCheckout = async (
@@ -814,7 +823,9 @@ export const openCoinCheckout = async (
 ): Promise<CoinCheckoutResult> => {
   const boundary = await captureAccountSessionBoundary();
   const scope = await checkoutAttemptStorageKey(boundary);
-  const flightKey = `${scope}:${String(coinPackage.id)}:${coinPackage.price}:${coinPackage.coins}`;
+  const flightKey = `${scope}:${String(coinPackage.id)}:${coinPackage.price}:${
+    coinPackage.coins
+  }`;
   const current = checkoutFlights.get(flightKey);
   if (current) return current;
 
@@ -849,5 +860,7 @@ export const subscribeCoinCheckoutCredits = (
   listener: (result: CoinCheckoutResult) => void,
 ) => {
   checkoutCreditListeners.add(listener);
-  return () => checkoutCreditListeners.delete(listener);
+  return () => {
+    checkoutCreditListeners.delete(listener);
+  };
 };

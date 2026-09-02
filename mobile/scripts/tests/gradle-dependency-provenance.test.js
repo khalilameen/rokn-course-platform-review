@@ -7,6 +7,8 @@ const test = require('node:test');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const {
+  validateAutolinkedPublications,
+  validateGradleDeclarations,
   validateLock,
   validateMetadata,
   validateRoot,
@@ -19,6 +21,7 @@ test('Gradle plugins and release dependencies are hash-verified and locked', () 
   assert.ok(result.checksumCount >= result.artifactCount);
   assert.ok(result.buildscriptLockCount > 100);
   assert.ok(result.appLockCount > 150);
+  assert.ok(result.autolinkedPublicationCount > 5);
 });
 
 test('Gradle provenance gate rejects missing hashes and dynamic lock versions', () => {
@@ -40,5 +43,32 @@ test('Gradle provenance gate rejects missing hashes and dynamic lock versions', 
         'fixture.lockfile',
       ),
     /dynamic dependency version/,
+  );
+  assert.throws(
+    () =>
+      validateGradleDeclarations(
+        "dependencies { implementation('example:unsafe:1.+') }",
+        'fixture.gradle',
+      ),
+    /declares a dynamic dependency version/,
+  );
+  assert.throws(
+    () =>
+      validateAutolinkedPublications('', {
+        modules: [
+          {
+            projects: [
+              {
+                publication: {
+                  artifactId: 'expo.modules.fixture',
+                  groupId: 'host.exp.exponent',
+                  version: '55.0.99',
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    /lockfile is stale for autolinked Android publication/,
   );
 });

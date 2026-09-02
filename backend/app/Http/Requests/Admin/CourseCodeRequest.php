@@ -64,6 +64,7 @@ class CourseCodeRequest extends FormRequest
         // Add is_active for update
         if ($isUpdating) {
             $rules['is_active'] = 'nullable|boolean';
+            $rules['editor_version'] = 'required|string|size:64';
         }
 
         $rules['course_id'] = 'required|exists:courses,id';

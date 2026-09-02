@@ -10,6 +10,7 @@ use App\Services\AdminAuthoringCreateIntentService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use App\Support\AdminEditorVersion;
 
 class AppVersionController extends Controller
 {
@@ -26,8 +27,11 @@ class AppVersionController extends Controller
     {
         $versions = AppVersion::orderBy('id', 'desc')->paginate(10);
         $releaseReadiness = $this->releasePolicy->launchReadiness();
+        $editorVersions = $versions->getCollection()->mapWithKeys(
+            fn (AppVersion $version): array => [$version->id => $this->editorVersion($version)]
+        );
 
-        return view('admin.app-versions.index', compact('versions', 'releaseReadiness'));
+        return view('admin.app-versions.index', compact('versions', 'releaseReadiness', 'editorVersions'));
     }
 
     /**
@@ -110,7 +114,8 @@ class AppVersionController extends Controller
                 'هذا سجل قديم بلا قناة محددة ويمكن إيقافه فقط. أنشئ إصدارًا جديدًا للقناة الصحيحة.'
             );
         }
-        return view('admin.app-versions.edit', compact('version'));
+        $editorVersion = $this->editorVersion($version);
+        return view('admin.app-versions.edit', compact('version', 'editorVersion'));
     }
 
     /**
@@ -123,9 +128,16 @@ class AppVersionController extends Controller
     public function update(Request $request, $id)
     {
         $version = AppVersion::findOrFail($id);
+        $editorVersion = (string) $request->validate([
+            'editor_version' => 'required|string|size:64',
+        ])['editor_version'];
         $data = $this->validatedPayload($request, $version);
 
-        $version->update($data);
+        DB::transaction(function () use ($version, $data, $editorVersion): void {
+            $locked = AppVersion::query()->whereKey($version->id)->lockForUpdate()->firstOrFail();
+            $this->assertCurrentVersion($locked, $editorVersion);
+            $locked->update($data);
+        }, 3);
 
         return redirect()->route('admin.app-versions.index')->with('success', 'تم تحديث الإصدار بنجاح');
     }
@@ -136,16 +148,25 @@ class AppVersionController extends Controller
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
         $version = AppVersion::findOrFail($id);
-        if ($version->is_active) {
+        $editorVersion = (string) $request->validate([
+            'editor_version' => 'required|string|size:64',
+        ])['editor_version'];
+        $blocked = DB::transaction(function () use ($version, $editorVersion): bool {
+            $locked = AppVersion::query()->whereKey($version->id)->lockForUpdate()->firstOrFail();
+            $this->assertCurrentVersion($locked, $editorVersion);
+            if ($locked->is_active) return true;
+            $locked->delete();
+            return false;
+        }, 3);
+        if ($blocked) {
             return redirect()->back()->with(
                 'error',
                 'أوقف الإصدار أولًا حتى لا يختفي رابط التحميل أو التحديث أثناء الحذف'
             );
         }
-        $version->delete();
 
         return redirect()->route('admin.app-versions.index')->with('success', 'تم حذف الإصدار بنجاح');
     }
@@ -156,21 +177,47 @@ class AppVersionController extends Controller
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
-    public function toggleActive($id)
+    public function toggleActive(Request $request, $id)
     {
         $version = AppVersion::findOrFail($id);
+        $editorVersion = (string) $request->validate([
+            'editor_version' => 'required|string|size:64',
+        ])['editor_version'];
 
-        if (!$version->is_active && !$this->isActivatable($version)) {
+        $blocked = DB::transaction(function () use ($version, $editorVersion): bool {
+            $locked = AppVersion::query()->whereKey($version->id)->lockForUpdate()->firstOrFail();
+            $this->assertCurrentVersion($locked, $editorVersion);
+            if (!$locked->is_active && !$this->isActivatable($locked)) return true;
+            $locked->is_active = !$locked->is_active;
+            $locked->save();
+            return false;
+        }, 3);
+        if ($blocked) {
             return redirect()->back()->with(
                 'error',
                 'أكمل قناة التوزيع والرقم الداخلي ورابط التحديث الرسمي قبل تفعيل الإصدار.',
             );
         }
 
-        $version->is_active = !$version->is_active;
-        $version->save();
-
         return redirect()->back()->with('success', 'تم تغيير الحالة بنجاح');
+    }
+
+    private function assertCurrentVersion(AppVersion $version, string $editorVersion): void
+    {
+        if (!hash_equals($this->editorVersion($version), $editorVersion)) {
+            throw ValidationException::withMessages([
+                'editor_version' => 'تغيّر إصدار التطبيق منذ فتح الصفحة\nأعد تحميلها قبل المتابعة',
+            ]);
+        }
+    }
+
+    private function editorVersion(AppVersion $version): string
+    {
+        return AdminEditorVersion::for($version, [
+            'platform', 'distribution_channel', 'version_name', 'version_code',
+            'build_number', 'is_force_update', 'is_active', 'update_message_ar',
+            'update_message_en', 'download_url', 'release_notes_ar', 'release_notes_en',
+        ]);
     }
 
     /**

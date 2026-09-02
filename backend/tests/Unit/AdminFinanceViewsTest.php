@@ -116,6 +116,8 @@ final class AdminFinanceViewsTest extends TestCase
         }
 
         self::assertStringContainsString('name="confirm_account_details"', $edit);
+        self::assertStringContainsString('name="editor_version"', $edit);
+        self::assertStringContainsString('name="editor_version"', $index);
         self::assertStringContainsString('preview.textContent = newAccountDetails', $edit);
         self::assertStringNotContainsString('<strong>${newAccountDetails}</strong>', $edit);
     }

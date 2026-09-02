@@ -15,6 +15,7 @@ use App\Services\PublicAppSettingsService;
 use App\Services\StoredFileDeletionService;
 use App\Services\AdminAuthoringCreateIntentService;
 use Illuminate\Validation\ValidationException;
+use App\Support\AdminSingletonLock;
 
 final class DesignSettingController extends Controller
 {
@@ -123,6 +124,7 @@ final class DesignSettingController extends Controller
                 $request,
                 $createIntents
             ): void {
+                AdminSingletonLock::acquire('design_settings');
                 $locked = DesignSetting::query()->lockForUpdate()->first();
                 $current = $locked ?: DesignSetting::getDefaultSettings();
                 if (!hash_equals($this->editorVersion($current), $submittedEditorVersion)) {

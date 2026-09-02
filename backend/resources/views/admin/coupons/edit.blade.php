@@ -10,6 +10,7 @@
                 </div>
                 <div class="card-body card-block">
                     {!! Form::model($coupon,['method' => 'PATCH', 'files' => true, 'url' => route('admin.coupons.update', $coupon->id)]) !!}
+                        <input type="hidden" name="editor_version" value="{{ $editorVersion }}">
                         @include('admin.coupons._form')
                     {!! Form::close() !!}
                 </div>

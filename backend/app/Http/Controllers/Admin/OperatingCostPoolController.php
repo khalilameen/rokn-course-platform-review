@@ -18,6 +18,8 @@ use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 use App\Support\CsvCell;
+use App\Support\AdminEditorVersion;
+use Illuminate\Validation\ValidationException;
 
 final class OperatingCostPoolController extends Controller
 {
@@ -46,6 +48,14 @@ final class OperatingCostPoolController extends Controller
         $editPool = $request->filled('edit_cost')
             ? OperatingCostPool::query()->findOrFail((int) $request->input('edit_cost'))
             : null;
+        $poolEditorVersions = $pools->getCollection()->mapWithKeys(
+            fn (OperatingCostPool $pool): array => [$pool->id => $this->editorVersion($pool)]
+        );
+        $editPoolEditorVersion = $editPool ? $this->editorVersion($editPool) : null;
+        $exchangeRateEditorVersion = AdminEditorVersion::for(
+            $settings,
+            ['openrouter_usd_to_egp_rate']
+        );
 
         $totals = [
             'actual_egp' => round((float) $matchingPools->where('is_final', true)->sum(fn (OperatingCostPool $pool) => $pool->amountEgp() ?? 0), 2),
@@ -58,7 +68,8 @@ final class OperatingCostPoolController extends Controller
         ]);
 
         return view('admin.operating-costs.index', compact(
-            'pools', 'courses', 'settings', 'editPool', 'filters', 'totals', 'serviceSummary'
+            'pools', 'courses', 'settings', 'editPool', 'filters', 'totals', 'serviceSummary',
+            'poolEditorVersions', 'editPoolEditorVersion', 'exchangeRateEditorVersion'
         ));
     }
 
@@ -75,14 +86,35 @@ final class OperatingCostPoolController extends Controller
 
     public function update(Request $request, OperatingCostPool $operatingCost): RedirectResponse
     {
-        $operatingCost->update($this->validated($request));
+        $request->validate(['editor_version' => 'required|string|size:64']);
+        $data = $this->validated($request);
+        DB::transaction(function () use ($request, $operatingCost, $data): void {
+            $locked = OperatingCostPool::query()->whereKey($operatingCost->id)
+                ->lockForUpdate()->firstOrFail();
+            if (!hash_equals($this->editorVersion($locked), (string) $request->input('editor_version'))) {
+                throw ValidationException::withMessages([
+                    'editor_version' => 'تغيّرت فاتورة التشغيل منذ فتح الصفحة\nأعد تحميلها قبل الحفظ',
+                ]);
+            }
+            $locked->update($data);
+        }, 3);
 
         return back()->with('success', 'تم تحديث تكلفة التشغيل.');
     }
 
-    public function destroy(OperatingCostPool $operatingCost): RedirectResponse
+    public function destroy(Request $request, OperatingCostPool $operatingCost): RedirectResponse
     {
-        $operatingCost->delete();
+        $validated = $request->validate(['editor_version' => 'required|string|size:64']);
+        DB::transaction(function () use ($operatingCost, $validated): void {
+            $locked = OperatingCostPool::query()->whereKey($operatingCost->id)
+                ->lockForUpdate()->firstOrFail();
+            if (!hash_equals($this->editorVersion($locked), (string) $validated['editor_version'])) {
+                throw ValidationException::withMessages([
+                    'editor_version' => 'تغيّرت فاتورة التشغيل منذ فتح الصفحة\nأعد تحميلها قبل الحذف',
+                ]);
+            }
+            $locked->delete();
+        }, 3);
 
         return back()->with('success', 'تم حذف بند التكلفة.');
     }
@@ -91,8 +123,22 @@ final class OperatingCostPoolController extends Controller
     {
         $data = $request->validate([
             'openrouter_usd_to_egp_rate' => ['required', 'numeric', 'min:0.0001', 'max:10000'],
+            'editor_version' => ['required', 'string', 'size:64'],
         ]);
-        Setting::query()->firstOrCreate([])->update($data);
+        $editorVersion = (string) $data['editor_version'];
+        unset($data['editor_version']);
+        DB::transaction(function () use ($data, $editorVersion): void {
+            $setting = Setting::query()->lockForUpdate()->firstOrFail();
+            if (!hash_equals(
+                AdminEditorVersion::for($setting, ['openrouter_usd_to_egp_rate']),
+                $editorVersion
+            )) {
+                throw ValidationException::withMessages([
+                    'editor_version' => 'تغيّر سعر التحويل منذ فتح الصفحة\nأعد تحميلها قبل الحفظ',
+                ]);
+            }
+            $setting->update($data);
+        }, 3);
 
         return back()->with('success', 'تم تحديث سعر تحويل تكلفة OpenRouter للتقارير الجديدة.');
     }
@@ -209,6 +255,15 @@ final class OperatingCostPoolController extends Controller
             ])],
             'q' => ['nullable', 'string', 'max:160'],
             'per_page' => ['nullable', Rule::in([20, 30, 50, 100])],
+        ]);
+    }
+
+    private function editorVersion(OperatingCostPool $pool): string
+    {
+        return AdminEditorVersion::for($pool, [
+            'name', 'service_key', 'course_id', 'period_start', 'period_end',
+            'amount', 'currency', 'fx_rate_to_egp', 'allocation_driver',
+            'is_final', 'notes',
         ]);
     }
 

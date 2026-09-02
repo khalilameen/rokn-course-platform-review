@@ -14,7 +14,12 @@ import {
   cancelCourseAssistantTurn,
 } from '../courseLearningApi';
 import {isGrantCourseAccess} from '../courseEntitlements';
-import type {ChatAttachmentDraft, ChatMessage, CourseLearningData, CourseReel} from '../types';
+import type {
+  ChatAttachmentDraft,
+  ChatMessage,
+  CourseLearningData,
+  CourseReel,
+} from '../types';
 import {courseChatErrorCode} from './policy';
 import {secureRandomUuid} from '../../../utils/secureRandom';
 import {cleanUnicodeText} from '../../../utils/unicodeText';
@@ -105,7 +110,11 @@ export const useCourseChat = ({
   const messagesRef = useRef(messages);
   const attachmentsRef = useRef(attachments);
   const runTurnRef = useRef<
-    (clientRequestId?: string, message?: string, files?: ChatAttachmentDraft[]) => Promise<void>
+    (
+      clientRequestId?: string,
+      message?: string,
+      files?: ChatAttachmentDraft[],
+    ) => Promise<void>
   >(async () => undefined);
   activeCourseIdRef.current = courseId;
   activeConversationRef.current = conversationScope;
@@ -162,27 +171,35 @@ export const useCourseChat = ({
       setMessages(initialMessages);
 
       try {
-        const remoteHistory = await loadCourseAssistantHistory(courseId, lessonId);
+        const remoteHistory = await loadCourseAssistantHistory(
+          courseId,
+          lessonId,
+        );
         const currentAccountScope = await getCurrentAccountStorageScope();
         if (
           conversationGeneration !== conversationGenerationRef.current ||
           activeConversationRef.current !== conversationScope ||
           currentAccountScope !== accountScope
-        ) return;
+        )
+          return;
         const renderedLocalHistory = messagesRef.current.filter(
           message => !message.id.startsWith('welcome-'),
         );
         const currentLocalHistory =
-          renderedLocalHistory.length > 0
-            ? renderedLocalHistory
-            : localHistory;
+          renderedLocalHistory.length > 0 ? renderedLocalHistory : localHistory;
         const remoteKeys = new Set(
-          remoteHistory.map(message => `${message.role}:${message.clientRequestId || message.id}`),
+          remoteHistory.map(
+            message =>
+              `${message.role}:${message.clientRequestId || message.id}`,
+          ),
         );
         const history = [
           ...remoteHistory,
-          ...currentLocalHistory.filter(message =>
-            !remoteKeys.has(`${message.role}:${message.clientRequestId || message.id}`),
+          ...currentLocalHistory.filter(
+            message =>
+              !remoteKeys.has(
+                `${message.role}:${message.clientRequestId || message.id}`,
+              ),
           ),
         ];
         const reconciled = [
@@ -231,7 +248,9 @@ export const useCourseChat = ({
 
   useEffect(() => {
     if (hydratedConversationRef.current !== conversationScope) return;
-    void saveCourseChatHistory(courseId, messages, lessonId).catch(() => undefined);
+    void saveCourseChatHistory(courseId, messages, lessonId).catch(
+      () => undefined,
+    );
   }, [conversationScope, courseId, lessonId, messages]);
 
   useEffect(() => {
@@ -374,14 +393,15 @@ export const useCourseChat = ({
             (await uploadCourseAssistantAttachment({courseId, file})),
         })),
       );
-      const uploadedAttachments = uploadedWithLocalFiles.map(file => ({...file, uri: ''}));
+      const uploadedAttachments = uploadedWithLocalFiles.map(file => ({
+        ...file,
+        uri: '',
+      }));
       queuedMessages = queuedMessages.map(item =>
         item.id === userMessage.id
           ? {...item, attachments: uploadedAttachments}
           : item,
       );
-      messagesRef.current = queuedMessages;
-      setMessages(queuedMessages);
       // The upload mapping is the recovery source of truth. Commit it before
       // removing app-owned files; a crash can then resume with the same server
       // ids and immutable client request id.
@@ -391,6 +411,13 @@ export const useCourseChat = ({
           .filter(file => file.uri && !file.serverId)
           .map(removeLearnerDraftFile),
       );
+      if (
+        conversationGeneration !== conversationGenerationRef.current ||
+        sendGeneration !== sendGenerationRef.current
+      )
+        return;
+      messagesRef.current = queuedMessages;
+      setMessages(queuedMessages);
       let response = await askCourseAssistant({
         course: upgraded
           ? {...course, accessType: 'paid', chatAvailable: true}
@@ -402,6 +429,11 @@ export const useCourseChat = ({
           .map(file => file.serverId)
           .filter((id): id is string => Boolean(id)),
       });
+      if (
+        conversationGeneration !== conversationGenerationRef.current ||
+        sendGeneration !== sendGenerationRef.current
+      )
+        return;
 
       // A failed server turn cannot reuse its immutable usage id. First ask
       // for the old id to recover a response lost after completion, then move
@@ -461,13 +493,21 @@ export const useCourseChat = ({
           (sum, character) => sum + character.charCodeAt(0),
           0,
         );
-        const waitMs = Math.round(
-          backoffMs * (0.85 + (jitterSeed % 31) / 100),
-        );
+        const waitMs = Math.round(backoffMs * (0.85 + (jitterSeed % 31) / 100));
         await new Promise<void>(resolve => setTimeout(resolve, waitMs));
         recoveryAttempts += 1;
-        if (!visibleRef.current) break;
+        if (
+          !visibleRef.current ||
+          sendGeneration !== sendGenerationRef.current ||
+          conversationGeneration !== conversationGenerationRef.current
+        )
+          break;
         response = await pollCourseAssistantTurn(clientRequestId);
+        if (
+          sendGeneration !== sendGenerationRef.current ||
+          conversationGeneration !== conversationGenerationRef.current
+        )
+          return;
         if (response.partial && response.text) {
           const partialLength = response.text.length;
           if (partialLength > observedPartialLength) {
@@ -491,15 +531,19 @@ export const useCourseChat = ({
       if (response.code === 'chat_answer_in_progress') {
         response = {
           ...response,
-          text: response.partial && response.text
-            ? response.text
-            : 'الرد قيد التجهيز\nاستعده عند فتح الشات',
+          text:
+            response.partial && response.text
+              ? response.text
+              : 'الرد قيد التجهيز\nاستعده عند فتح الشات',
           unavailable: true,
           turnStatus: 'queued',
         };
       }
-      if (conversationGeneration !== conversationGenerationRef.current
-        || sendGeneration !== sendGenerationRef.current) return;
+      if (
+        conversationGeneration !== conversationGenerationRef.current ||
+        sendGeneration !== sendGenerationRef.current
+      )
+        return;
       if (
         response.blocked &&
         ['chat_upgrade_required', 'chat_plan_limit_reached'].includes(
@@ -540,7 +584,11 @@ export const useCourseChat = ({
         }),
       );
     } catch {
-      if (conversationGeneration !== conversationGenerationRef.current) return;
+      if (
+        conversationGeneration !== conversationGenerationRef.current ||
+        sendGeneration !== sendGenerationRef.current
+      )
+        return;
       setMessages(current =>
         current.map(item =>
           item.id === userMessage.id
@@ -580,25 +628,70 @@ export const useCourseChat = ({
   };
 
   const stop = async () => {
-    const pending = [...messagesRef.current].reverse().find(
-      item => item.role === 'assistant' && item.clientRequestId
-        && ['queued', 'sent', 'streaming'].includes(String(item.deliveryStatus || '')),
-    );
+    const pending = [...messagesRef.current]
+      .reverse()
+      .find(
+        item =>
+          item.role === 'assistant' &&
+          item.clientRequestId &&
+          ['queued', 'sent', 'streaming'].includes(
+            String(item.deliveryStatus || ''),
+          ),
+      );
     if (!pending?.clientRequestId) return;
-    const cancelledAtServer = await cancelCourseAssistantTurn(pending.clientRequestId);
+    const stoppedRequestId = pending.clientRequestId;
+    const stopConversationGeneration = conversationGenerationRef.current;
+    // Stop the local polling loop immediately. The cancellation request may
+    // itself wait on a weak connection; keeping the composer frozen until its
+    // timeout makes a working chat look hung.
     sendGenerationRef.current += 1;
-    setMessages(current => current.map(item =>
-      item.clientRequestId === pending.clientRequestId
-        ? cancelledAtServer
-          ? {...item, pending: false, deliveryStatus: 'cancelled', errorCode: 'learner_cancelled'}
-          : item.role === 'assistant'
-          ? {...item, text: 'الرد قيد التجهيز\nسيظهر عند فتح الشات', pending: false,
-              deliveryStatus: 'queued', errorCode: 'chat_answer_in_progress'}
-          : {...item, deliveryStatus: 'sent', contextEligible: false}
-        : item,
-    ));
     sendFlightRef.current = null;
     setSending(false);
+    setMessages(current =>
+      current.map(item =>
+        item.clientRequestId === stoppedRequestId && item.role === 'assistant'
+          ? {
+              ...item,
+              text: 'جارٍ إيقاف الرد',
+              pending: false,
+              deliveryStatus: 'queued',
+              errorCode: 'chat_answer_in_progress',
+              contextEligible: false,
+            }
+          : item,
+      ),
+    );
+    const cancelledAtServer = await cancelCourseAssistantTurn(stoppedRequestId);
+    if (
+      stopConversationGeneration !== conversationGenerationRef.current ||
+      activeConversationRef.current !== conversationScope
+    ) {
+      return;
+    }
+    setMessages(current =>
+      current.map(item =>
+        item.clientRequestId === stoppedRequestId
+          ? cancelledAtServer
+            ? {
+                ...item,
+                text: item.role === 'assistant' ? 'تم إيقاف الرد' : item.text,
+                pending: false,
+                deliveryStatus: 'cancelled',
+                errorCode: 'learner_cancelled',
+                contextEligible: false,
+              }
+            : item.role === 'assistant'
+            ? {
+                ...item,
+                text: 'الرد قيد التجهيز\nسيظهر عند فتح الشات',
+                pending: false,
+                deliveryStatus: 'queued',
+                errorCode: 'chat_answer_in_progress',
+              }
+            : {...item, deliveryStatus: 'sent', contextEligible: false}
+          : item,
+      ),
+    );
   };
 
   runTurnRef.current = runTurn;
@@ -608,11 +701,7 @@ export const useCourseChat = ({
       if (sendFlightRef.current) resumeInterruptedTurnRef.current = true;
       return;
     }
-    if (
-      !resumeInterruptedTurnRef.current ||
-      sending ||
-      sendFlightRef.current
-    ) {
+    if (!resumeInterruptedTurnRef.current || sending || sendFlightRef.current) {
       return;
     }
 
@@ -762,7 +851,14 @@ export const useCourseChat = ({
             : 'لم تكتمل العملية\nحاول مرة أخرى',
         );
       } catch {
-        setUpgradeError('تعذّر تأكيد النتيجة\nحدّث الصفحة قبل المحاولة مرة أخرى');
+        if (
+          activeCourseIdRef.current !== courseId ||
+          upgradeGenerationRef.current !== upgradeGeneration
+        )
+          return;
+        setUpgradeError(
+          'تعذّر تأكيد النتيجة\nحدّث الصفحة قبل المحاولة مرة أخرى',
+        );
       }
     } finally {
       if (

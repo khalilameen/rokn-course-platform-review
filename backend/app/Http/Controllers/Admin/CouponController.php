@@ -10,6 +10,9 @@ use App\Services\AdminAuthoringCreateIntentService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use App\Support\BusinessClock;
+use App\Support\AdminEditorVersion;
+use Illuminate\Http\Request;
+use App\Services\StoredFileDeletionService;
 
 class CouponController extends Controller
 {
@@ -25,8 +28,11 @@ class CouponController extends Controller
             ->withCount('redemptions')
             ->latest()
             ->get();
+        $editorVersions = $coupons->mapWithKeys(fn (Coupon $coupon): array => [
+            $coupon->id => $this->editorVersion($coupon),
+        ]);
 
-        return view('admin.coupons.index', compact('coupons'));
+        return view('admin.coupons.index', compact('coupons', 'editorVersions'));
     }
 
     /**
@@ -101,7 +107,8 @@ class CouponController extends Controller
     public function edit(Coupon $coupon)
     {
          $courses = Course::query()->orderBy('name_ar')->get(['id', 'name_ar']);
-         return view('admin.coupons.edit', compact('coupon', 'courses'));
+         $editorVersion = $this->editorVersion($coupon);
+         return view('admin.coupons.edit', compact('coupon', 'courses', 'editorVersion'));
     }
 
     /**
@@ -111,20 +118,64 @@ class CouponController extends Controller
      * @param  \App\Coupon  $coupon
      * @return \Illuminate\Http\Response
      */
-    public function update(CouponRequest $request, Coupon $coupon)
+    public function update(
+        CouponRequest $request,
+        Coupon $coupon,
+        StoredFileDeletionService $storedFiles
+    )
     {
+        $storedImagePath = null;
+        if ($request->hasFile('image')) {
+            $image = $request->file('image');
+            $storedImagePath = $storedFiles->storeTrackedUpload(
+                $image,
+                'coupons',
+                'public',
+                60,
+                implode('|', [
+                    'admin-coupon-update',
+                    $coupon->id,
+                    (string) $request->input('editor_version'),
+                    hash_file('sha256', $image->getRealPath()),
+                ])
+            );
+        }
+        $committed = false;
         try {
-            $payload = $request->safe()->except(['image', 'authoring_request_id']);
+            $payload = $request->safe()->except(['image', 'authoring_request_id', 'editor_version']);
             $payload['starts_at'] = BusinessClock::localInputToUtc($payload['starts_at'] ?? null);
-            $coupon->update($payload);
+            DB::transaction(function () use (
+                $request,
+                $coupon,
+                $payload,
+                $storedImagePath
+            ): void {
+                $locked = Coupon::query()->whereKey($coupon->id)->lockForUpdate()->firstOrFail();
+                if (!hash_equals($this->editorVersion($locked), (string) $request->input('editor_version'))) {
+                    throw ValidationException::withMessages([
+                        'editor_version' => 'تغيّر كود الخصم منذ فتح الصفحة\nأعد تحميله قبل الحفظ',
+                    ]);
+                }
+                $locked->update($payload);
+                if (is_string($storedImagePath) && $storedImagePath !== '') {
+                    $oldPhotos = $locked->allPhotos()->where('type', 'featured')
+                        ->lockForUpdate()->get();
+                    $newPhoto = $locked->allPhotos()->firstOrCreate([
+                        'path' => $storedImagePath,
+                        'type' => 'featured',
+                    ]);
+                    $oldPhotos->where('id', '!=', $newPhoto->id)->each->delete();
+                }
+            }, 3);
+            $committed = true;
         } catch (\DomainException $exception) {
             throw ValidationException::withMessages([
                 'code' => [$exception->getMessage()],
             ]);
-        }
-        if ($request->hasFile('image')) {
-            $file = $request->file('image');
-            $coupon->replaceImage($file, 'coupons', 'featured');
+        } finally {
+            if (!$committed && is_string($storedImagePath) && $storedImagePath !== '') {
+                $storedFiles->deleteOrQueue('public', $storedImagePath);
+            }
         }
 
         return redirect()->route('admin.coupons.index')->with('success', 'تم التعديل بنجاح');
@@ -136,10 +187,31 @@ class CouponController extends Controller
      * @param  \App\Coupon  $coupon
      * @return \Illuminate\Http\Response
      */
-    public function destroy(Coupon $coupon)
+    public function destroy(Request $request, Coupon $coupon)
     {
-        $coupon->delete();
+        $validated = $request->validate(['editor_version' => 'required|string|size:64']);
+        DB::transaction(function () use ($coupon, $validated): void {
+            $locked = Coupon::query()->whereKey($coupon->id)->lockForUpdate()->firstOrFail();
+            if (!hash_equals($this->editorVersion($locked), (string) $validated['editor_version'])) {
+                throw ValidationException::withMessages([
+                    'editor_version' => 'تغيّر كود الخصم منذ فتح الصفحة\nأعد تحميله قبل الحذف',
+                ]);
+            }
+            $locked->delete();
+        }, 3);
 
         return redirect()->route('admin.coupons.index')->with('success', 'تم الحذف بنجاح ');
+    }
+
+    private function editorVersion(Coupon $coupon): string
+    {
+        $coupon->loadMissing('photo');
+        return hash('sha256', json_encode([
+            AdminEditorVersion::for($coupon, [
+            'name_ar', 'name_en', 'code', 'course_id', 'starts_at', 'balance',
+            'max_redemptions', 'expiry_date', 'active',
+            ]),
+            (string) ($coupon->photo?->path ?? ''),
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     }
 }

@@ -166,11 +166,56 @@ export type PendingSocialAuthAttempt = {
   completedSession?: unknown;
 };
 
+const samePendingSocialAuthAttempt = (
+  current: Partial<PendingSocialAuthAttempt> | null,
+  expected: PendingSocialAuthAttempt,
+) =>
+  Boolean(
+    current &&
+      current.provider === expected.provider &&
+      current.verifier === expected.verifier &&
+      current.startedAt === expected.startedAt &&
+      (current.purpose ?? 'login') === (expected.purpose ?? 'login'),
+  );
+
+const readPendingSocialAuthAttemptForMutation = async () => {
+  const value = await secureGetItem(PENDING_SOCIAL_AUTH_KEY);
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as Partial<PendingSocialAuthAttempt>;
+  } catch {
+    return null;
+  }
+};
+
+const deletePendingSocialAuthValueIfCurrent = (expectedValue: string) =>
+  serializeSessionMutation(async () => {
+    if ((await secureGetItem(PENDING_SOCIAL_AUTH_KEY)) !== expectedValue) {
+      return false;
+    }
+    await secureDeleteItem(PENDING_SOCIAL_AUTH_KEY);
+    return true;
+  });
+
 export const savePendingSocialAuthAttempt = async (
   attempt: PendingSocialAuthAttempt,
 ) => {
-  await secureSetItem(PENDING_SOCIAL_AUTH_KEY, JSON.stringify(attempt));
+  await serializeSessionMutation(() =>
+    secureSetItem(PENDING_SOCIAL_AUTH_KEY, JSON.stringify(attempt)),
+  );
 };
+
+/** Replace only the OAuth attempt the caller originally observed. */
+export const replacePendingSocialAuthAttempt = (
+  expected: PendingSocialAuthAttempt,
+  replacement: PendingSocialAuthAttempt,
+) =>
+  serializeSessionMutation(async () => {
+    const current = await readPendingSocialAuthAttemptForMutation();
+    if (!samePendingSocialAuthAttempt(current, expected)) return false;
+    await secureSetItem(PENDING_SOCIAL_AUTH_KEY, JSON.stringify(replacement));
+    return true;
+  });
 
 export const loadPendingSocialAuthAttempt = async () => {
   const value = await secureGetItem(PENDING_SOCIAL_AUTH_KEY);
@@ -178,7 +223,9 @@ export const loadPendingSocialAuthAttempt = async () => {
   try {
     const attempt = JSON.parse(value) as Partial<PendingSocialAuthAttempt>;
     if (
-      !['google', 'tiktok', 'facebook', 'apple'].includes(String(attempt.provider)) ||
+      !['google', 'tiktok', 'facebook', 'apple'].includes(
+        String(attempt.provider),
+      ) ||
       typeof attempt.verifier !== 'string' ||
       !/^[A-Za-z0-9._~-]{43,128}$/.test(attempt.verifier) ||
       (attempt.challenge !== undefined &&
@@ -189,18 +236,27 @@ export const loadPendingSocialAuthAttempt = async () => {
       (attempt.purpose !== undefined &&
         !['login', 'reauth'].includes(attempt.purpose))
     ) {
-      await secureDeleteItem(PENDING_SOCIAL_AUTH_KEY);
+      await deletePendingSocialAuthValueIfCurrent(value);
       return null;
     }
     return attempt as PendingSocialAuthAttempt;
   } catch {
-    await secureDeleteItem(PENDING_SOCIAL_AUTH_KEY);
+    await deletePendingSocialAuthValueIfCurrent(value);
     return null;
   }
 };
 
-export const deletePendingSocialAuthAttempt = () =>
-  secureDeleteItem(PENDING_SOCIAL_AUTH_KEY);
+export const deletePendingSocialAuthAttempt = (
+  expected?: PendingSocialAuthAttempt,
+) =>
+  serializeSessionMutation(async () => {
+    if (expected) {
+      const current = await readPendingSocialAuthAttemptForMutation();
+      if (!samePendingSocialAuthAttempt(current, expected)) return false;
+    }
+    await secureDeleteItem(PENDING_SOCIAL_AUTH_KEY);
+    return true;
+  });
 
 const SENSITIVE_SESSION_KEYS = new Set([
   'api_token',
@@ -607,7 +663,7 @@ export const loadSecureSession = async () => {
   }
 
   const loadEpoch = sessionCacheEpoch;
-  const load = (async () => {
+  const load = async () => {
     await migrateLegacySession();
     const [rawProfile, apiToken] = await Promise.all([
       AsyncStorage.getItem(USER_DATA_KEY),
@@ -651,7 +707,7 @@ export const loadSecureSession = async () => {
     sessionCacheReady = true;
     sessionCacheEpoch += 1;
     return restoredSession;
-  });
+  };
   let trackedLoad: Promise<unknown>;
   trackedLoad = load().finally(() => {
     if (sessionLoadPromise === trackedLoad) sessionLoadPromise = null;

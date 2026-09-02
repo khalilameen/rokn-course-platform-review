@@ -109,6 +109,7 @@
                                 <form class="payment-method-delete-form" id="deleteForm{{$paymentMethod->id}}" action="{{ route('admin.payment-methods.destroy', $paymentMethod->id) }}" method="post">
                                     <input name="_method" type="hidden" value="DELETE">
                                     @csrf
+                                    <input type="hidden" name="editor_version" value="{{ $editorVersions->get($paymentMethod->id) }}">
                                 </form>
                             @endif
                         </div>

@@ -112,54 +112,112 @@ final readonly class WalletService
         ?Model $source = null,
         array $metadata = []
     ): WalletTransaction {
-        if (
-            (int) $originalDebit->user_id !== $userId
-            || $originalDebit->direction !== WalletTransaction::DIRECTION_DEBIT
-            || $amount > (int) $originalDebit->amount
-        ) {
+        if ($amount < 0) {
             throw new \InvalidArgumentException('Invalid wallet debit refund.');
         }
 
-        $previousRefunds = WalletTransaction::query()
-            ->where('user_id', $userId)
-            ->where('direction', WalletTransaction::DIRECTION_CREDIT)
-            ->where('metadata->refunded_transaction_id', $originalDebit->public_id)
-            ->get(['paid_amount', 'reward_amount']);
-        $remainingReward = max(
-            0,
-            (int) $originalDebit->reward_amount - (int) $previousRefunds->sum('reward_amount')
-        );
-        $remainingPaid = max(
-            0,
-            (int) $originalDebit->paid_amount - (int) $previousRefunds->sum('paid_amount')
-        );
-        if ($amount > $remainingReward + $remainingPaid) {
-            throw new \InvalidArgumentException('Wallet debit refund exceeds the remaining allocation.');
-        }
-
-        $rewardAmount = min($amount, $remainingReward);
-        $paidAmount = min(
-            $amount - $rewardAmount,
-            $remainingPaid
-        );
-
-        // Unattributed legacy value remains reward value.
-        $rewardAmount += max(0, $amount - $rewardAmount - $paidAmount);
-
-        return $this->recordTransaction(
+        return DB::transaction(function () use (
             $userId,
             $amount,
-            WalletTransaction::DIRECTION_CREDIT,
             $category,
             $idempotencyKey,
-            $source ?? $originalDebit,
-            $metadata + ['refunded_transaction_id' => $originalDebit->public_id],
-            $paidAmount > 0 && $rewardAmount > 0
-                ? WalletTransaction::BUCKET_MIXED
-                : ($paidAmount > 0 ? WalletTransaction::BUCKET_PAID : WalletTransaction::BUCKET_REWARD),
-            $paidAmount,
-            $rewardAmount
-        );
+            $originalDebit,
+            $source,
+            $metadata
+        ): WalletTransaction {
+            // Every wallet mutation serializes on the user aggregate. Keep the
+            // remaining refundable allocation behind the same lock, otherwise
+            // two distinct refund requests can both observe the full remainder.
+            User::withTrashed()->whereKey($userId)->lockForUpdate()->firstOrFail();
+
+            $lockedDebit = WalletTransaction::query()
+                ->whereKey($originalDebit->getKey())
+                ->where('user_id', $userId)
+                ->where('direction', WalletTransaction::DIRECTION_DEBIT)
+                ->lockForUpdate()
+                ->first();
+            if (!$lockedDebit || $amount > (int) $lockedDebit->amount) {
+                throw new \InvalidArgumentException('Invalid wallet debit refund.');
+            }
+            $refundSource = $source ?? $lockedDebit;
+
+            $existing = WalletTransaction::query()
+                ->where('user_id', $userId)
+                ->where('idempotency_key', $idempotencyKey)
+                ->first();
+            if ($existing) {
+                $this->assertRefundReplay(
+                    $existing,
+                    $amount,
+                    $category,
+                    $refundSource,
+                    (string) $lockedDebit->public_id
+                );
+                return $existing;
+            }
+
+            $previousRefunds = WalletTransaction::query()
+                ->where('user_id', $userId)
+                ->where('direction', WalletTransaction::DIRECTION_CREDIT)
+                ->where('metadata->refunded_transaction_id', $lockedDebit->public_id)
+                ->get(['paid_amount', 'reward_amount']);
+            $remainingReward = max(
+                0,
+                (int) $lockedDebit->reward_amount - (int) $previousRefunds->sum('reward_amount')
+            );
+            $remainingPaid = max(
+                0,
+                (int) $lockedDebit->paid_amount - (int) $previousRefunds->sum('paid_amount')
+            );
+            if ($amount > $remainingReward + $remainingPaid) {
+                throw new \InvalidArgumentException('Wallet debit refund exceeds the remaining allocation.');
+            }
+
+            $rewardAmount = min($amount, $remainingReward);
+            $paidAmount = min($amount - $rewardAmount, $remainingPaid);
+
+            // Unattributed legacy value remains reward value.
+            $rewardAmount += max(0, $amount - $rewardAmount - $paidAmount);
+
+            return $this->recordTransaction(
+                $userId,
+                $amount,
+                WalletTransaction::DIRECTION_CREDIT,
+                $category,
+                $idempotencyKey,
+                $refundSource,
+                $metadata + ['refunded_transaction_id' => $lockedDebit->public_id],
+                $paidAmount > 0 && $rewardAmount > 0
+                    ? WalletTransaction::BUCKET_MIXED
+                    : ($paidAmount > 0 ? WalletTransaction::BUCKET_PAID : WalletTransaction::BUCKET_REWARD),
+                $paidAmount,
+                $rewardAmount
+            );
+        }, 3);
+    }
+
+    private function assertRefundReplay(
+        WalletTransaction $existing,
+        int $amount,
+        string $category,
+        Model $source,
+        string $originalPublicId
+    ): void {
+        if (
+            $existing->direction !== WalletTransaction::DIRECTION_CREDIT
+            || (int) $existing->amount !== $amount
+            || !hash_equals((string) $existing->category, $category)
+            || (string) $existing->source_type !== get_class($source)
+            || (string) ($existing->source_id ?? '') !== (string) $source->getKey()
+            || !hash_equals(
+                (string) data_get($existing->metadata, 'refunded_transaction_id', ''),
+                $originalPublicId
+            )
+        ) {
+            throw new \UnexpectedValueException(
+                'Wallet refund idempotency key was reused for a different operation.'
+            );
+        }
     }
 
     private function recordTransaction(

@@ -6,10 +6,10 @@
 
 This file retains the legal documents published with every production package, including NOTICE files. An exact name/version/integrity-bound review record is used only when an npm package publishes no standalone legal file.
 
-- Unique packages: 719
-- Resolved production package paths: 817
-- Exact package-root legal documents: 594
-- Reviewed legal-file absence records: 125
+- Unique packages: 711
+- Resolved production package paths: 792
+- Exact package-root legal documents: 595
+- Reviewed legal-file absence records: 116
 
 ## Explicit license choices
 
@@ -29,7 +29,7 @@ This file retains the legal documents published with every production package, i
 | CC-BY-4.0 | 1 |
 | CC0-1.0 | 1 |
 | ISC | 38 |
-| MIT | 555 |
+| MIT | 547 |
 | MPL-2.0 | 12 |
 | Python-2.0 | 1 |
 | Unlicense | 2 |
@@ -3587,24 +3587,24 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### @expo/cli@55.0.34
+### @expo/cli@55.0.36
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/%40expo%2Fcli/v/55.0.34)
-- Integrity: `sha512-b+PnIWiIUxXmSi09hmbzeBNlygP/W1uuRQU6cm6ke9P5sBEknbZ4cpBY0Xz4L1L3Pr6u/BUbIW0KXJBOppzAww==`
+- Exact source: [npm](https://www.npmjs.com/package/%40expo%2Fcli/v/55.0.36)
+- Integrity: `sha512-jVMEXmxeUKXAzJdRWQer7fyogjPMYiTbrGOrlioJlwMuFqKfao3FeFInmATMNGLhNN01aBs/s6pnJKqiAdlUQg==`
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `fb52c003269873271a24faa2f14662f5ca4e4583b896ec1830e2862b79bab988`
+SHA-256: `461ca4f115eb936b97ffe46c922137e7c82e04c324d7c0407612b1d86db05e3e`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
 
-Package: @expo/cli@55.0.34
-Exact npm tarball: https://registry.npmjs.org/@expo/cli/-/cli-55.0.34.tgz
-Tarball integrity: sha512-b+PnIWiIUxXmSi09hmbzeBNlygP/W1uuRQU6cm6ke9P5sBEknbZ4cpBY0Xz4L1L3Pr6u/BUbIW0KXJBOppzAww==
+Package: @expo/cli@55.0.36
+Exact npm tarball: https://registry.npmjs.org/@expo/cli/-/cli-55.0.36.tgz
+Tarball integrity: sha512-jVMEXmxeUKXAzJdRWQer7fyogjPMYiTbrGOrlioJlwMuFqKfao3FeFInmATMNGLhNN01aBs/s6pnJKqiAdlUQg==
 Declared license: MIT
 Selected license: MIT
 Author metadata: Expo
@@ -3751,13 +3751,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### @expo/config@55.0.19
+### @expo/config@55.0.21
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `package-root`
-- Exact source: [npm](https://www.npmjs.com/package/%40expo%2Fconfig/v/55.0.19)
-- Integrity: `sha512-MahrCR6LsElK/1r/C/zfEZ5Pdgmo88Gtd4CCnASv/rC2pUIB+ENt2oKRHAPIWi7McTeoqDPb9KwCkQBpNMOjrg==`
+- Exact source: [npm](https://www.npmjs.com/package/%40expo%2Fconfig/v/55.0.21)
+- Integrity: `sha512-yHmSSnBrm2ecB1DNsCrZZrScVnvXrtg3+PAMwI3ocxEtD9YK8yX5xV2xi2pmor9TYitAO+udFWxo+XDEGibznw==`
 
 #### LICENSE
 
@@ -4043,13 +4043,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### @expo/image-utils@0.8.15
+### @expo/image-utils@0.8.17
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `package-root`
-- Exact source: [npm](https://www.npmjs.com/package/%40expo%2Fimage-utils/v/0.8.15)
-- Integrity: `sha512-3f5CgKJnJ8m4mp8VTcAFQqLrxof99RDr77Aa+7hgzDPg3ZotjLnofl77hf+COQRYi/kuqRYdYFgPIqOIOIdWJA==`
+- Exact source: [npm](https://www.npmjs.com/package/%40expo%2Fimage-utils/v/0.8.17)
+- Integrity: `sha512-1eVrX6FFkPNl9DJNiw3Gjsf6PtG7HttbapEVvcROVrA9PCMikujOJWWHDYKGptmKoVIIVajFZE8UHGHUb3mPug==`
 
 #### LICENSE
 
@@ -4187,13 +4187,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### @expo/local-build-cache-provider@55.0.15
+### @expo/local-build-cache-provider@55.0.16
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `package-root`
-- Exact source: [npm](https://www.npmjs.com/package/%40expo%2Flocal-build-cache-provider/v/55.0.15)
-- Integrity: `sha512-coFNPt2gGmWtTJwqHlvx/Us9/VWK+pTHuP4jv/NM5jaHZuN0FhX7m2FvwthbluHUGpaVBc8+AxEDmDVqTfKtHg==`
+- Exact source: [npm](https://www.npmjs.com/package/%40expo%2Flocal-build-cache-provider/v/55.0.16)
+- Integrity: `sha512-/m2kb/+G2ryZ60FPZcuiLXzXp55p/X8QPXuU5CV/il0sSJcY0sQFICfM9ApokzHtzNQ0nDQOBUoQY3weilgP2g==`
 
 #### LICENSE
 
@@ -4279,13 +4279,13 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### @expo/metro-config@55.0.25
+### @expo/metro-config@55.0.27
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `package-root`
-- Exact source: [npm](https://www.npmjs.com/package/%40expo%2Fmetro-config/v/55.0.25)
-- Integrity: `sha512-3KXVaIdawin16YXXDK4P3HGYjnlNqq/34dqb0kvoTM9RBDWbuq+zYkanLRHKLrDkDLODv7vSvbQNAATt76my0Q==`
+- Exact source: [npm](https://www.npmjs.com/package/%40expo%2Fmetro-config/v/55.0.27)
+- Integrity: `sha512-oikn1NPFpQgNqL/HTqA6oAG2Af/BwldIezlecTidc8D+fkFgLFKkZHUq1Hh1g/vuCPGTQNWDlHla13dAgYwRvg==`
 
 #### LICENSE
 
@@ -4315,13 +4315,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### @expo/metro@55.1.1
+### @expo/metro@55.1.2
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `package-root`
-- Exact source: [npm](https://www.npmjs.com/package/%40expo%2Fmetro/v/55.1.1)
-- Integrity: `sha512-/wfXo5hTuAVpVLG/4hzlmD9NBGJkzkmBEMm/4VICajYRbj7y8OmqqPWbbymzHiBiHB6tI9BnsyXpQM6zVZEECg==`
+- Exact source: [npm](https://www.npmjs.com/package/%40expo%2Fmetro/v/55.1.2)
+- Integrity: `sha512-EOBoqqX4jD7JvHBHKDoek8SmWyAFPuJePyDSqIAhIjOCPAM67fVxd4+pCXJ6SDK1P9so55v2iTFBwCoeCmEj4Q==`
 
 #### LICENSE
 
@@ -4480,13 +4480,13 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### @expo/prebuild-config@55.0.20
+### @expo/prebuild-config@55.0.22
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `package-root`
-- Exact source: [npm](https://www.npmjs.com/package/%40expo%2Fprebuild-config/v/55.0.20)
-- Integrity: `sha512-Cy9xnwK0f3aG0TbKkBFuVQCtd6rj22muYfj7o1iCAE0NOUy5ks1k2vcmlKD1g48wzcWw0hFySiwtaGsB9qeVRQ==`
+- Exact source: [npm](https://www.npmjs.com/package/%40expo%2Fprebuild-config/v/55.0.22)
+- Integrity: `sha512-2p1lE2hOCy9HUV9qxbEqmetxUgcBnVY8jR+j/SYRXgaBeHalyQ5d09Ol5XL36/HO2fViK8VmSnTbS7C3t8eFGg==`
 
 #### LICENSE
 
@@ -4516,13 +4516,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### @expo/require-utils@55.0.6
+### @expo/require-utils@55.0.8
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `package-root`
-- Exact source: [npm](https://www.npmjs.com/package/%40expo%2Frequire-utils/v/55.0.6)
-- Integrity: `sha512-IqsRGPdGbF0lAIrg3XQ+GzcITYcsskvIRmFAjw2kBnr8RgSrRhFAJY1bKksukEUsuZy0knhTCVIIUce7hocqeA==`
+- Exact source: [npm](https://www.npmjs.com/package/%40expo%2Frequire-utils/v/55.0.8)
+- Integrity: `sha512-DDS5R67iz2SJwncbpcUMHtnsq31dSfllhaEncKxGlK0/ewgc2CaXUCkDA2AumfT7ubnSXiPkU9Gn8v2xCrvj+A==`
 
 #### LICENSE
 
@@ -4552,24 +4552,24 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### @expo/router-server@55.0.18
+### @expo/router-server@55.0.19
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/%40expo%2Frouter-server/v/55.0.18)
-- Integrity: `sha512-W0VsvIiR48OvdlAOUlag4qspGYT/DV4srfYowlbYxwZh5Qw0MjiZAID4Zt7F0qynGZZxx8OZPpFhIX7XsqtRmg==`
+- Exact source: [npm](https://www.npmjs.com/package/%40expo%2Frouter-server/v/55.0.19)
+- Integrity: `sha512-bm2CFp9eI9biqZXz7Vkske0LXHZaLyonWV6sTEWUaR8zJ0NdVnUxb1Vd0iCdhW8GtweOUfMK4z7gojd0kydxjA==`
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `94d8e65158712208f218c5870bafad6ed3d1fd60e765a13cd95101404353aa7c`
+SHA-256: `4466d938727c653c29d3d6ee338c94a2b72eaef0d764294d5f7c8ac54da4d60f`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
 
-Package: @expo/router-server@55.0.18
-Exact npm tarball: https://registry.npmjs.org/@expo/router-server/-/router-server-55.0.18.tgz
-Tarball integrity: sha512-W0VsvIiR48OvdlAOUlag4qspGYT/DV4srfYowlbYxwZh5Qw0MjiZAID4Zt7F0qynGZZxx8OZPpFhIX7XsqtRmg==
+Package: @expo/router-server@55.0.19
+Exact npm tarball: https://registry.npmjs.org/@expo/router-server/-/router-server-55.0.19.tgz
+Tarball integrity: sha512-bm2CFp9eI9biqZXz7Vkske0LXHZaLyonWV6sTEWUaR8zJ0NdVnUxb1Vd0iCdhW8GtweOUfMK4z7gojd0kydxjA==
 Declared license: MIT
 Selected license: MIT
 Author metadata: 650 Industries, Inc.
@@ -19242,6 +19242,42 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
+### agent-cli-detector@0.1.7
+
+- Selected license: `MIT`
+- Declared license: `MIT`
+- Legal source: `package-root`
+- Exact source: [npm](https://www.npmjs.com/package/agent-cli-detector/v/0.1.7)
+- Integrity: `sha512-d8OWDVdZMgjhLUT9ZPgSv/BdFFF9pVuscC0JdUSz3bjwE15gcp6u/o0/JooM2yyAWC49KThFhXlgTXRa9B7yng==`
+
+#### LICENSE
+
+SHA-256: `8b26e7095f4280b20b5f15bcf433d0506efbc8fac90b12d5dec8b717ab731e71`
+
+```text
+MIT License
+
+Copyright (c) 2026 David Mokos
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ### anser@1.4.10
 
 - Selected license: `MIT`
@@ -20311,24 +20347,24 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### babel-preset-expo@55.0.24
+### babel-preset-expo@55.0.25
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/babel-preset-expo/v/55.0.24)
-- Integrity: `sha512-dzjg70cq3Ls5msL79GSktjqtbjzXh/r5errxz8aD97S180pkXrMga22ozrcNhHddMBtZGDKN2jBK1FS1RLkfBQ==`
+- Exact source: [npm](https://www.npmjs.com/package/babel-preset-expo/v/55.0.25)
+- Integrity: `sha512-P/CaG4kvSzd8Pb1CiS8m6C9XCwuLptaaw+F/GfDNGUkuF3/DlYCkdj4Ogq1mJ5OJ80qdlaY9TzxB28CrL/dIqg==`
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `0b514cf6e26c43570a19d5e4e1b46dc80fe9eab69094ff2672c08c3ab2339f6e`
+SHA-256: `319784c2d56d5f69907d1e17ab9012f85f5f8b521079e3a0b32f91baae9f665e`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
 
-Package: babel-preset-expo@55.0.24
-Exact npm tarball: https://registry.npmjs.org/babel-preset-expo/-/babel-preset-expo-55.0.24.tgz
-Tarball integrity: sha512-dzjg70cq3Ls5msL79GSktjqtbjzXh/r5errxz8aD97S180pkXrMga22ozrcNhHddMBtZGDKN2jBK1FS1RLkfBQ==
+Package: babel-preset-expo@55.0.25
+Exact npm tarball: https://registry.npmjs.org/babel-preset-expo/-/babel-preset-expo-55.0.25.tgz
+Tarball integrity: sha512-P/CaG4kvSzd8Pb1CiS8m6C9XCwuLptaaw+F/GfDNGUkuF3/DlYCkdj4Ogq1mJ5OJ80qdlaY9TzxB28CrL/dIqg==
 Declared license: MIT
 Selected license: MIT
 Author metadata: Expo <support@expo.dev>
@@ -24668,24 +24704,24 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### expo-apple-authentication@55.0.15
+### expo-apple-authentication@55.0.17
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/expo-apple-authentication/v/55.0.15)
-- Integrity: `sha512-wfl/qsJZwI3N19hftmu53VFeGiRO5K1Rkf0csuoCmqiCmVfonFgg5ONPA2JeuEuryqeLpbCcoDg1t6mdGpvxMQ==`
+- Exact source: [npm](https://www.npmjs.com/package/expo-apple-authentication/v/55.0.17)
+- Integrity: `sha512-ErPcEyLGsrXDOXdIuCc2MZNf/YZB2NZGBb/I9XtUYEsoO8cwWIfDE9AiLpSOxhv9p59gMtFRzdE1UR8jTBAhYA==`
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `40baafdf6cd46785f4d0db9a3bf969104efd14f8177011f7d9cf26ea72de96e1`
+SHA-256: `78be24144b6c11d3d6230a95114ea442fc63a15225608460b282c30d809161e3`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
 
-Package: expo-apple-authentication@55.0.15
-Exact npm tarball: https://registry.npmjs.org/expo-apple-authentication/-/expo-apple-authentication-55.0.15.tgz
-Tarball integrity: sha512-wfl/qsJZwI3N19hftmu53VFeGiRO5K1Rkf0csuoCmqiCmVfonFgg5ONPA2JeuEuryqeLpbCcoDg1t6mdGpvxMQ==
+Package: expo-apple-authentication@55.0.17
+Exact npm tarball: https://registry.npmjs.org/expo-apple-authentication/-/expo-apple-authentication-55.0.17.tgz
+Tarball integrity: sha512-ErPcEyLGsrXDOXdIuCc2MZNf/YZB2NZGBb/I9XtUYEsoO8cwWIfDE9AiLpSOxhv9p59gMtFRzdE1UR8jTBAhYA==
 Declared license: MIT
 Selected license: MIT
 Author metadata: 650 Industries, Inc.
@@ -24724,24 +24760,24 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### expo-application@55.0.17
+### expo-application@55.0.19
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/expo-application/v/55.0.17)
-- Integrity: `sha512-ASuZe+Sl8ax+0pQOjd8L5cz5xpxW0F1VSorRKFr9LHxDSQwH929nYjbMrvW6KlRIIWZBIAQQsYqWiowytCLMRA==`
+- Exact source: [npm](https://www.npmjs.com/package/expo-application/v/55.0.19)
+- Integrity: `sha512-RFer4T46/OaIkNQEweA9PQj6xlXKor71IPNydWxlupx/XG05Yv/269HJJ3Q9zejdY9M7R3jTeTlAYYmXwbLBgA==`
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `8949416d7f7588601552af5732cb26cd970275cbc68650ab0d8256eb14324adc`
+SHA-256: `854fbda289bb633ece39020e2265c44d22da71903d0ec8162589b8c2125e10c5`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
 
-Package: expo-application@55.0.17
-Exact npm tarball: https://registry.npmjs.org/expo-application/-/expo-application-55.0.17.tgz
-Tarball integrity: sha512-ASuZe+Sl8ax+0pQOjd8L5cz5xpxW0F1VSorRKFr9LHxDSQwH929nYjbMrvW6KlRIIWZBIAQQsYqWiowytCLMRA==
+Package: expo-application@55.0.19
+Exact npm tarball: https://registry.npmjs.org/expo-application/-/expo-application-55.0.19.tgz
+Tarball integrity: sha512-RFer4T46/OaIkNQEweA9PQj6xlXKor71IPNydWxlupx/XG05Yv/269HJJ3Q9zejdY9M7R3jTeTlAYYmXwbLBgA==
 Declared license: MIT
 Selected license: MIT
 Author metadata: 650 Industries, Inc.
@@ -24780,24 +24816,24 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### expo-asset@55.0.18
+### expo-asset@55.0.20
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/expo-asset/v/55.0.18)
-- Integrity: `sha512-dbNMcBE0AaFbdxjBSRgDLdtOi8PHt9CQOg+J3EdeXNPKZCDO88kvaHcXaYUMmkbN2KJYQlfu1GxfUVAIoi7iVQ==`
+- Exact source: [npm](https://www.npmjs.com/package/expo-asset/v/55.0.20)
+- Integrity: `sha512-BpybBESZj8WxW/WXuQhiY8D1azkJtxLuteIfprokJw0uU5r/g7cD+vzrzKJSlE4hhUlKeUGsoKzSK0nSJJ2sMQ==`
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `dd06b66033eec9790efe536439a9b7af738ec05a3d57775ad14f3bc3cf4cdebc`
+SHA-256: `07d7d2d57cefbd9955c3f7ecb18fe562bbcc1908f7ccf81919c13de31d1fdd7b`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
 
-Package: expo-asset@55.0.18
-Exact npm tarball: https://registry.npmjs.org/expo-asset/-/expo-asset-55.0.18.tgz
-Tarball integrity: sha512-dbNMcBE0AaFbdxjBSRgDLdtOi8PHt9CQOg+J3EdeXNPKZCDO88kvaHcXaYUMmkbN2KJYQlfu1GxfUVAIoi7iVQ==
+Package: expo-asset@55.0.20
+Exact npm tarball: https://registry.npmjs.org/expo-asset/-/expo-asset-55.0.20.tgz
+Tarball integrity: sha512-BpybBESZj8WxW/WXuQhiY8D1azkJtxLuteIfprokJw0uU5r/g7cD+vzrzKJSlE4hhUlKeUGsoKzSK0nSJJ2sMQ==
 Declared license: MIT
 Selected license: MIT
 Author metadata: 650 Industries, Inc.
@@ -24892,24 +24928,24 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### expo-crypto@55.0.17
+### expo-crypto@55.0.19
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/expo-crypto/v/55.0.17)
-- Integrity: `sha512-MWe1IsAzPzKGfTqoOKDef5vFvTj2uke6FzcrtbNsy5I9Kvj3JH+DNxEDcVO/wc9gMO5AEUMWK/LC0J5+NkQsEw==`
+- Exact source: [npm](https://www.npmjs.com/package/expo-crypto/v/55.0.19)
+- Integrity: `sha512-Ip1jQ5GphvrC4Ls5osAmIapi+JZXOqRJYaaMxTFWpkhssNUq88oP45pWGv2uU2K/Ci6j7iLDJzU8eN3v+B7jrA==`
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `84be5ad6f38bca6fc8c3b0a7f2e60fd7230fc892625f69b386376efaecebab6c`
+SHA-256: `a77057d136b35146bf1050fea27526bcfface0a587eebe597997fcba0cf267b7`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
 
-Package: expo-crypto@55.0.17
-Exact npm tarball: https://registry.npmjs.org/expo-crypto/-/expo-crypto-55.0.17.tgz
-Tarball integrity: sha512-MWe1IsAzPzKGfTqoOKDef5vFvTj2uke6FzcrtbNsy5I9Kvj3JH+DNxEDcVO/wc9gMO5AEUMWK/LC0J5+NkQsEw==
+Package: expo-crypto@55.0.19
+Exact npm tarball: https://registry.npmjs.org/expo-crypto/-/expo-crypto-55.0.19.tgz
+Tarball integrity: sha512-Ip1jQ5GphvrC4Ls5osAmIapi+JZXOqRJYaaMxTFWpkhssNUq88oP45pWGv2uU2K/Ci6j7iLDJzU8eN3v+B7jrA==
 Declared license: MIT
 Selected license: MIT
 Author metadata: 650 Industries, Inc.
@@ -25004,24 +25040,24 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### expo-file-system@55.0.24
+### expo-file-system@55.0.26
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/expo-file-system/v/55.0.24)
-- Integrity: `sha512-7/HJdvaaf3kP5T3atd+6Q0/QexrGio4Fs2GVtp7G8d/xQCSu01yeGReu7tGQo9VAM67Snq+ujGlL8q2wbMXLkQ==`
+- Exact source: [npm](https://www.npmjs.com/package/expo-file-system/v/55.0.26)
+- Integrity: `sha512-KBOQWqxumCxJBN29Lu13QpccwAhcjsgDYCJSVVjfGydaK/UbEkH/1rT/WZmdfoZ4G8mUJlfRbWfnJtfHUXxsdw==`
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `d4ba9af7ad9b3a0a441ca3458fdd2ab351a5be1e2f8bada45981ca560ef2735f`
+SHA-256: `34492a35d93fdd179f268b3558657649d9f80c74cea7a6f8d910e1068df5d08c`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
 
-Package: expo-file-system@55.0.24
-Exact npm tarball: https://registry.npmjs.org/expo-file-system/-/expo-file-system-55.0.24.tgz
-Tarball integrity: sha512-7/HJdvaaf3kP5T3atd+6Q0/QexrGio4Fs2GVtp7G8d/xQCSu01yeGReu7tGQo9VAM67Snq+ujGlL8q2wbMXLkQ==
+Package: expo-file-system@55.0.26
+Exact npm tarball: https://registry.npmjs.org/expo-file-system/-/expo-file-system-55.0.26.tgz
+Tarball integrity: sha512-KBOQWqxumCxJBN29Lu13QpccwAhcjsgDYCJSVVjfGydaK/UbEkH/1rT/WZmdfoZ4G8mUJlfRbWfnJtfHUXxsdw==
 Declared license: MIT
 Selected license: MIT
 Author metadata: 650 Industries, Inc.
@@ -25208,24 +25244,24 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### expo-modules-autolinking@55.0.25
+### expo-modules-autolinking@55.0.27
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/expo-modules-autolinking/v/55.0.25)
-- Integrity: `sha512-qO8se6zTxfdCGeuwc0dCTmnstW5r1tKSr9SoWtZn0mhlr5Qe5RSJa0vhzQ32eIwgMd77GJrc1yJtkktgN817vg==`
+- Exact source: [npm](https://www.npmjs.com/package/expo-modules-autolinking/v/55.0.27)
+- Integrity: `sha512-gBRONXQT41PwfsQgeZfFlaeK+zrYMYjRMgxocecnQuSXEm7wCTqD8SsTJmWAf3SDayMQGDZFBlMODeVEnv8FmA==`
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `d467574a1e8483d413941e0771d057abd99784b6202d9be00c727af964584f22`
+SHA-256: `6b5abec391780ecf6cc32fb977b8d0cf86a5a963596da13d30132b1988e64c07`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
 
-Package: expo-modules-autolinking@55.0.25
-Exact npm tarball: https://registry.npmjs.org/expo-modules-autolinking/-/expo-modules-autolinking-55.0.25.tgz
-Tarball integrity: sha512-qO8se6zTxfdCGeuwc0dCTmnstW5r1tKSr9SoWtZn0mhlr5Qe5RSJa0vhzQ32eIwgMd77GJrc1yJtkktgN817vg==
+Package: expo-modules-autolinking@55.0.27
+Exact npm tarball: https://registry.npmjs.org/expo-modules-autolinking/-/expo-modules-autolinking-55.0.27.tgz
+Tarball integrity: sha512-gBRONXQT41PwfsQgeZfFlaeK+zrYMYjRMgxocecnQuSXEm7wCTqD8SsTJmWAf3SDayMQGDZFBlMODeVEnv8FmA==
 Declared license: MIT
 Selected license: MIT
 Author metadata: 650 Industries, Inc.
@@ -25264,24 +25300,24 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### expo-modules-core@55.0.25
+### expo-modules-core@55.0.26
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/expo-modules-core/v/55.0.25)
-- Integrity: `sha512-yXpfg7aHLbuqoXocK34Vua6Aey5SCyqLygAsXAMbul9P8vfBjLpaOPiTJ5cLVF7Drfq8ownqVJO6qpGEtZ6GOw==`
+- Exact source: [npm](https://www.npmjs.com/package/expo-modules-core/v/55.0.26)
+- Integrity: `sha512-nyQMIlNuAEif2kZEjaRiWxZsGyT8/pFm7VPwlYI92a0hyRxXrw3jG04I1OgfKy6oDFqMLn17D5C2zIGPP/fPLQ==`
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `d8abd6e0405a48bbfa7bfa647d03221e11c1b507cb7417b8bd5d9d7a63ab9a1c`
+SHA-256: `793c021ae26b09f1162e3f3362b770da29c20cc6888158598a38fc63b1f32fa3`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
 
-Package: expo-modules-core@55.0.25
-Exact npm tarball: https://registry.npmjs.org/expo-modules-core/-/expo-modules-core-55.0.25.tgz
-Tarball integrity: sha512-yXpfg7aHLbuqoXocK34Vua6Aey5SCyqLygAsXAMbul9P8vfBjLpaOPiTJ5cLVF7Drfq8ownqVJO6qpGEtZ6GOw==
+Package: expo-modules-core@55.0.26
+Exact npm tarball: https://registry.npmjs.org/expo-modules-core/-/expo-modules-core-55.0.26.tgz
+Tarball integrity: sha512-nyQMIlNuAEif2kZEjaRiWxZsGyT8/pFm7VPwlYI92a0hyRxXrw3jG04I1OgfKy6oDFqMLn17D5C2zIGPP/fPLQ==
 Declared license: MIT
 Selected license: MIT
 Author metadata: 650 Industries, Inc.
@@ -25320,24 +25356,24 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### expo-notifications@55.0.25
+### expo-notifications@55.0.27
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/expo-notifications/v/55.0.25)
-- Integrity: `sha512-yCbZElqHLvGommwMXJn0ZS/8kJ8wbf7Ujn5or4lVGthRUhaRZfTrN/UJlc9FnQmuKJ35I4rSzo1fqeQjxb+XOw==`
+- Exact source: [npm](https://www.npmjs.com/package/expo-notifications/v/55.0.27)
+- Integrity: `sha512-Qquo8zytHPR4Rj819KwghUqvdf2RJG8+S8Y3DQ+4wUZgRFdWqNnh8IX9IhcdITTGr/Ei0I9LzI0BKG4qyO9ubw==`
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `b1da335f38947c64949ef81200b6d681a07b19804152eb08cbb02154d8d15045`
+SHA-256: `6e74525ce867efa19a56a669b8fc4a14734ee1b42b15363ecdeaf6e719f1485b`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
 
-Package: expo-notifications@55.0.25
-Exact npm tarball: https://registry.npmjs.org/expo-notifications/-/expo-notifications-55.0.25.tgz
-Tarball integrity: sha512-yCbZElqHLvGommwMXJn0ZS/8kJ8wbf7Ujn5or4lVGthRUhaRZfTrN/UJlc9FnQmuKJ35I4rSzo1fqeQjxb+XOw==
+Package: expo-notifications@55.0.27
+Exact npm tarball: https://registry.npmjs.org/expo-notifications/-/expo-notifications-55.0.27.tgz
+Tarball integrity: sha512-Qquo8zytHPR4Rj819KwghUqvdf2RJG8+S8Y3DQ+4wUZgRFdWqNnh8IX9IhcdITTGr/Ei0I9LzI0BKG4qyO9ubw==
 Declared license: MIT
 Selected license: MIT
 Author metadata: 650 Industries, Inc.
@@ -25376,24 +25412,24 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### expo-secure-store@55.0.16
+### expo-secure-store@55.0.18
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/expo-secure-store/v/55.0.16)
-- Integrity: `sha512-4DkdluBLJnqndKMpvg4bTVoyi1D5p3V7nxyYvlzLvuqMVrUzXPTGTyIw347H3wVU1jp+sfGNX5xqtpQCY3hF+A==`
+- Exact source: [npm](https://www.npmjs.com/package/expo-secure-store/v/55.0.18)
+- Integrity: `sha512-shKZYQf7/KA45Z3oEIXUkXdrfRNFxsc+fJC182bbpuKqS4nLPZslsJUqruQ937Zkkbev126N/QJv+zmd6FpZjA==`
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `0692b8f5cf24a865d2847cb50ddaebbf87cc0bbe86f4d978f09553de93c06dc6`
+SHA-256: `457336bfcee7e0d56b0f93bc6bcec697ea1d8e89d228474f0005203c3b8aaa71`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
 
-Package: expo-secure-store@55.0.16
-Exact npm tarball: https://registry.npmjs.org/expo-secure-store/-/expo-secure-store-55.0.16.tgz
-Tarball integrity: sha512-4DkdluBLJnqndKMpvg4bTVoyi1D5p3V7nxyYvlzLvuqMVrUzXPTGTyIw347H3wVU1jp+sfGNX5xqtpQCY3hF+A==
+Package: expo-secure-store@55.0.18
+Exact npm tarball: https://registry.npmjs.org/expo-secure-store/-/expo-secure-store-55.0.18.tgz
+Tarball integrity: sha512-shKZYQf7/KA45Z3oEIXUkXdrfRNFxsc+fJC182bbpuKqS4nLPZslsJUqruQ937Zkkbev126N/QJv+zmd6FpZjA==
 Declared license: MIT
 Selected license: MIT
 Author metadata: 650 Industries, Inc.
@@ -25432,24 +25468,24 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### expo-server@55.0.11
+### expo-server@55.0.12
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/expo-server/v/55.0.11)
-- Integrity: `sha512-AxRdHqcv0H1g4s923vu+5n1Nrhne23bjXbP+Vl7+Lwfpe7MG9PuU1IS95IJK6a+7BVV1mRN6QlZvs8Yv7EEXNQ==`
+- Exact source: [npm](https://www.npmjs.com/package/expo-server/v/55.0.12)
+- Integrity: `sha512-yuNHbxobUKCXWn9Z/H+lgYk6heXEFub6q1h8Yo9kCLxgL2afluWZ/YylbtxgHgmFwDVUmi6milQYfL+wwQMlzw==`
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `14577968b1256aa1eb35abad05d8ebb6472276d002e52073c378fdb3b9a6a48c`
+SHA-256: `e6b0533517f795d4f97c942418b9fe877cbeb0212f98fee927c9a7aff31e64a5`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
 
-Package: expo-server@55.0.11
-Exact npm tarball: https://registry.npmjs.org/expo-server/-/expo-server-55.0.11.tgz
-Tarball integrity: sha512-AxRdHqcv0H1g4s923vu+5n1Nrhne23bjXbP+Vl7+Lwfpe7MG9PuU1IS95IJK6a+7BVV1mRN6QlZvs8Yv7EEXNQ==
+Package: expo-server@55.0.12
+Exact npm tarball: https://registry.npmjs.org/expo-server/-/expo-server-55.0.12.tgz
+Tarball integrity: sha512-yuNHbxobUKCXWn9Z/H+lgYk6heXEFub6q1h8Yo9kCLxgL2afluWZ/YylbtxgHgmFwDVUmi6milQYfL+wwQMlzw==
 Declared license: MIT
 Selected license: MIT
 Author metadata: <not published>
@@ -25488,24 +25524,24 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### expo-web-browser@55.0.18
+### expo-web-browser@55.0.20
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/expo-web-browser/v/55.0.18)
-- Integrity: `sha512-7b6N47OZ/TEArHAoSeq86pWzZvqdITlf9Zd+e520bKUXVRd1WxkyskZekJbcwusBpyhSqgWRupITZeF+adlddQ==`
+- Exact source: [npm](https://www.npmjs.com/package/expo-web-browser/v/55.0.20)
+- Integrity: `sha512-masGrfbi/jqMezm/8cHHZ8chW+ifxumzt7QOCPiL+9aix0BSwuwDIBryEm2QPVmqJX51jckS0n245vWhwheQuQ==`
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `e6a27f55121c87912ee051e2482fe6452834827b8c57aedd533c46ed5ac8db23`
+SHA-256: `8e12eea63900ad4631373bcd1968246a0ce51e4a906c8de01dffa2cf4ebae9c5`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
 
-Package: expo-web-browser@55.0.18
-Exact npm tarball: https://registry.npmjs.org/expo-web-browser/-/expo-web-browser-55.0.18.tgz
-Tarball integrity: sha512-7b6N47OZ/TEArHAoSeq86pWzZvqdITlf9Zd+e520bKUXVRd1WxkyskZekJbcwusBpyhSqgWRupITZeF+adlddQ==
+Package: expo-web-browser@55.0.20
+Exact npm tarball: https://registry.npmjs.org/expo-web-browser/-/expo-web-browser-55.0.20.tgz
+Tarball integrity: sha512-masGrfbi/jqMezm/8cHHZ8chW+ifxumzt7QOCPiL+9aix0BSwuwDIBryEm2QPVmqJX51jckS0n245vWhwheQuQ==
 Declared license: MIT
 Selected license: MIT
 Author metadata: 650 Industries, Inc.
@@ -25544,24 +25580,24 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### expo@55.0.28
+### expo@55.0.31
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/expo/v/55.0.28)
-- Integrity: `sha512-rKWG+gjM4e+nJ6UUXn+jhs1+2lkzwLHjUZL9U4ejN3mLtqU9sOYvX925tOaD/lu3847LoZ8i5GJiyqu3tmK7Lg==`
+- Exact source: [npm](https://www.npmjs.com/package/expo/v/55.0.31)
+- Integrity: `sha512-ZqV6jniU7twd18ADh1xP7moVrgP/BO1OTJwF2OzYnfJI9ak5cXDk+8DrV2jlgj33pMrLKqlnUvNz11zxyhwo7w==`
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `44ab9d6b6033c33dd068029bbbd0cf0feb98b52282bb0e2dbbd93066ea57b39c`
+SHA-256: `dff11ff1a545f399a2b03fc7c027cd547ba193843f809b4004845a06c9896c6d`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
 
-Package: expo@55.0.28
-Exact npm tarball: https://registry.npmjs.org/expo/-/expo-55.0.28.tgz
-Tarball integrity: sha512-rKWG+gjM4e+nJ6UUXn+jhs1+2lkzwLHjUZL9U4ejN3mLtqU9sOYvX925tOaD/lu3847LoZ8i5GJiyqu3tmK7Lg==
+Package: expo@55.0.31
+Exact npm tarball: https://registry.npmjs.org/expo/-/expo-55.0.31.tgz
+Tarball integrity: sha512-ZqV6jniU7twd18ADh1xP7moVrgP/BO1OTJwF2OzYnfJI9ak5cXDk+8DrV2jlgj33pMrLKqlnUvNz11zxyhwo7w==
 Declared license: MIT
 Selected license: MIT
 Author metadata: Expo
@@ -35374,62 +35410,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### metro-babel-transformer@0.83.7
-
-- Selected license: `MIT`
-- Declared license: `MIT`
-- Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/metro-babel-transformer/v/0.83.7)
-- Integrity: `sha512-sBqBkt6kNut/88bv+Ucvm4yqdPetbvAEsHzi3MAgJEifOSYYzX5Z5Kgw3TFOrwf/mHJTOBG2ONlaMHoyfP15TA==`
-
-#### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
-
-SHA-256: `153f187416ba618fffa8584ef48ac8f553aba96f8297b79c1842210455fffb03`
-
-```text
-UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
-
-Package: metro-babel-transformer@0.83.7
-Exact npm tarball: https://registry.npmjs.org/metro-babel-transformer/-/metro-babel-transformer-0.83.7.tgz
-Tarball integrity: sha512-sBqBkt6kNut/88bv+Ucvm4yqdPetbvAEsHzi3MAgJEifOSYYzX5Z5Kgw3TFOrwf/mHJTOBG2ONlaMHoyfP15TA==
-Declared license: MIT
-Selected license: MIT
-Author metadata: <not published>
-Repository metadata: git+https://github.com/facebook/metro.git
-Homepage metadata: <not published>
-
-The exact npm package root was inspected and did not publish a standalone
-LICENSE, LICENCE, COPYING, NOTICE, or COPYRIGHT file. This coordinate is
-therefore covered by an exact, reviewed absence exception. The package
-metadata above and the selected standard license terms are retained here;
-the exception does not apply to any other name or version.
-
-Standard terms source: @babel/code-frame@7.29.7/LICENSE
-
-MIT License
-
-Copyright (c) 2014-present Sebastian McKenzie and other contributors
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
 ### metro-babel-transformer@0.83.8
 
 - Selected license: `MIT`
@@ -35486,62 +35466,6 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### metro-cache-key@0.83.7
-
-- Selected license: `MIT`
-- Declared license: `MIT`
-- Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/metro-cache-key/v/0.83.7)
-- Integrity: `sha512-W1c2Nmx8MiJTJt+eWhMO08z9VKi3kZOaz99IYGdqeqDgY9j+yZjXl62rUav4Di0heZfh4/n2s722PqRL1OODeg==`
-
-#### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
-
-SHA-256: `6f2c7a964967b91fe1cbce0ec675bf0bc19c8d23a387fad3d041cbe86d57f5ce`
-
-```text
-UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
-
-Package: metro-cache-key@0.83.7
-Exact npm tarball: https://registry.npmjs.org/metro-cache-key/-/metro-cache-key-0.83.7.tgz
-Tarball integrity: sha512-W1c2Nmx8MiJTJt+eWhMO08z9VKi3kZOaz99IYGdqeqDgY9j+yZjXl62rUav4Di0heZfh4/n2s722PqRL1OODeg==
-Declared license: MIT
-Selected license: MIT
-Author metadata: <not published>
-Repository metadata: git+https://github.com/facebook/metro.git
-Homepage metadata: <not published>
-
-The exact npm package root was inspected and did not publish a standalone
-LICENSE, LICENCE, COPYING, NOTICE, or COPYRIGHT file. This coordinate is
-therefore covered by an exact, reviewed absence exception. The package
-metadata above and the selected standard license terms are retained here;
-the exception does not apply to any other name or version.
-
-Standard terms source: @babel/code-frame@7.29.7/LICENSE
-
-MIT License
-
-Copyright (c) 2014-present Sebastian McKenzie and other contributors
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
 ### metro-cache-key@0.83.8
 
 - Selected license: `MIT`
@@ -35564,62 +35488,6 @@ Declared license: MIT
 Selected license: MIT
 Author metadata: <not published>
 Repository metadata: git+https://github.com/react/metro.git
-Homepage metadata: <not published>
-
-The exact npm package root was inspected and did not publish a standalone
-LICENSE, LICENCE, COPYING, NOTICE, or COPYRIGHT file. This coordinate is
-therefore covered by an exact, reviewed absence exception. The package
-metadata above and the selected standard license terms are retained here;
-the exception does not apply to any other name or version.
-
-Standard terms source: @babel/code-frame@7.29.7/LICENSE
-
-MIT License
-
-Copyright (c) 2014-present Sebastian McKenzie and other contributors
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
-### metro-cache@0.83.7
-
-- Selected license: `MIT`
-- Declared license: `MIT`
-- Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/metro-cache/v/0.83.7)
-- Integrity: `sha512-E9SRePXQ1Zvlj79VcOk57q7VC7rMHMFQ+jhmPHBiq+dJ0bJB5BL87lWZF6oh5X76Cci5tpDuQNaDwwuSCToEeg==`
-
-#### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
-
-SHA-256: `9b1f5fd0befbebf3b59227e002aa15722ade4c0461865f8314c613a4b09d5495`
-
-```text
-UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
-
-Package: metro-cache@0.83.7
-Exact npm tarball: https://registry.npmjs.org/metro-cache/-/metro-cache-0.83.7.tgz
-Tarball integrity: sha512-E9SRePXQ1Zvlj79VcOk57q7VC7rMHMFQ+jhmPHBiq+dJ0bJB5BL87lWZF6oh5X76Cci5tpDuQNaDwwuSCToEeg==
-Declared license: MIT
-Selected license: MIT
-Author metadata: <not published>
-Repository metadata: git+https://github.com/facebook/metro.git
 Homepage metadata: <not published>
 
 The exact npm package root was inspected and did not publish a standalone
@@ -35766,62 +35634,6 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### metro-core@0.83.7
-
-- Selected license: `MIT`
-- Declared license: `MIT`
-- Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/metro-core/v/0.83.7)
-- Integrity: `sha512-6yn3w1wnltT6RQl7p7YES2l95ArC+mWrOssEiH8p5/DDrJS65/szf9LsC9JrBv8c5DdvSY3V3f0GRYg0Ox7hCg==`
-
-#### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
-
-SHA-256: `adbbdfc7a2652a05315219aee35e1a08d48ab60f76c3477f8dea940a283bdb10`
-
-```text
-UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
-
-Package: metro-core@0.83.7
-Exact npm tarball: https://registry.npmjs.org/metro-core/-/metro-core-0.83.7.tgz
-Tarball integrity: sha512-6yn3w1wnltT6RQl7p7YES2l95ArC+mWrOssEiH8p5/DDrJS65/szf9LsC9JrBv8c5DdvSY3V3f0GRYg0Ox7hCg==
-Declared license: MIT
-Selected license: MIT
-Author metadata: <not published>
-Repository metadata: git+https://github.com/facebook/metro.git
-Homepage metadata: <not published>
-
-The exact npm package root was inspected and did not publish a standalone
-LICENSE, LICENCE, COPYING, NOTICE, or COPYRIGHT file. This coordinate is
-therefore covered by an exact, reviewed absence exception. The package
-metadata above and the selected standard license terms are retained here;
-the exception does not apply to any other name or version.
-
-Standard terms source: @babel/code-frame@7.29.7/LICENSE
-
-MIT License
-
-Copyright (c) 2014-present Sebastian McKenzie and other contributors
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
 ### metro-core@0.83.8
 
 - Selected license: `MIT`
@@ -35844,62 +35656,6 @@ Declared license: MIT
 Selected license: MIT
 Author metadata: <not published>
 Repository metadata: git+https://github.com/react/metro.git
-Homepage metadata: <not published>
-
-The exact npm package root was inspected and did not publish a standalone
-LICENSE, LICENCE, COPYING, NOTICE, or COPYRIGHT file. This coordinate is
-therefore covered by an exact, reviewed absence exception. The package
-metadata above and the selected standard license terms are retained here;
-the exception does not apply to any other name or version.
-
-Standard terms source: @babel/code-frame@7.29.7/LICENSE
-
-MIT License
-
-Copyright (c) 2014-present Sebastian McKenzie and other contributors
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
-### metro-file-map@0.83.7
-
-- Selected license: `MIT`
-- Declared license: `MIT`
-- Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/metro-file-map/v/0.83.7)
-- Integrity: `sha512-+j0F1m+FQYVAQ6syf+mwhIPV5GoFQrkInX8bppuc50IzNsZbMrp8R5H/Sx/K2daQ3YEa9F/XwkeZT8gzJfgeCw==`
-
-#### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
-
-SHA-256: `af401c8f6d73ae73e542463da5e79462b1fc3e6a3d2604eae7a0344ee016ea19`
-
-```text
-UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
-
-Package: metro-file-map@0.83.7
-Exact npm tarball: https://registry.npmjs.org/metro-file-map/-/metro-file-map-0.83.7.tgz
-Tarball integrity: sha512-+j0F1m+FQYVAQ6syf+mwhIPV5GoFQrkInX8bppuc50IzNsZbMrp8R5H/Sx/K2daQ3YEa9F/XwkeZT8gzJfgeCw==
-Declared license: MIT
-Selected license: MIT
-Author metadata: <not published>
-Repository metadata: git+https://github.com/facebook/metro.git
 Homepage metadata: <not published>
 
 The exact npm package root was inspected and did not publish a standalone
@@ -35990,62 +35746,6 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### metro-minify-terser@0.83.7
-
-- Selected license: `MIT`
-- Declared license: `MIT`
-- Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/metro-minify-terser/v/0.83.7)
-- Integrity: `sha512-MfJar2IS4tBRuLb9svwb0Gu5l9BsH+pcRm8eGcEi/wy8MzZinfinh5dFLt2nWkocnulIgtGB5NkFDdbXqMXKhQ==`
-
-#### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
-
-SHA-256: `cd673063de52be1f9fccd2f78a561a610e55666e27b5abf87571b3f194af1071`
-
-```text
-UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
-
-Package: metro-minify-terser@0.83.7
-Exact npm tarball: https://registry.npmjs.org/metro-minify-terser/-/metro-minify-terser-0.83.7.tgz
-Tarball integrity: sha512-MfJar2IS4tBRuLb9svwb0Gu5l9BsH+pcRm8eGcEi/wy8MzZinfinh5dFLt2nWkocnulIgtGB5NkFDdbXqMXKhQ==
-Declared license: MIT
-Selected license: MIT
-Author metadata: <not published>
-Repository metadata: git+https://github.com/facebook/metro.git
-Homepage metadata: <not published>
-
-The exact npm package root was inspected and did not publish a standalone
-LICENSE, LICENCE, COPYING, NOTICE, or COPYRIGHT file. This coordinate is
-therefore covered by an exact, reviewed absence exception. The package
-metadata above and the selected standard license terms are retained here;
-the exception does not apply to any other name or version.
-
-Standard terms source: @babel/code-frame@7.29.7/LICENSE
-
-MIT License
-
-Copyright (c) 2014-present Sebastian McKenzie and other contributors
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
 ### metro-minify-terser@0.83.8
 
 - Selected license: `MIT`
@@ -36102,62 +35802,6 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### metro-resolver@0.83.7
-
-- Selected license: `MIT`
-- Declared license: `MIT`
-- Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/metro-resolver/v/0.83.7)
-- Integrity: `sha512-WSJIENlMcoSsuz66IfBHOkgfp3KJt2UW2TnEHPf1b8pIG2eEXNOVmo2+03A0H17WY2XGXWgxL0CG7FAopqgB1A==`
-
-#### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
-
-SHA-256: `ad3f5928302ab45318a193dd9322651872ab6aeedb230eade86104d1366a8370`
-
-```text
-UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
-
-Package: metro-resolver@0.83.7
-Exact npm tarball: https://registry.npmjs.org/metro-resolver/-/metro-resolver-0.83.7.tgz
-Tarball integrity: sha512-WSJIENlMcoSsuz66IfBHOkgfp3KJt2UW2TnEHPf1b8pIG2eEXNOVmo2+03A0H17WY2XGXWgxL0CG7FAopqgB1A==
-Declared license: MIT
-Selected license: MIT
-Author metadata: <not published>
-Repository metadata: git+https://github.com/facebook/metro.git
-Homepage metadata: <not published>
-
-The exact npm package root was inspected and did not publish a standalone
-LICENSE, LICENCE, COPYING, NOTICE, or COPYRIGHT file. This coordinate is
-therefore covered by an exact, reviewed absence exception. The package
-metadata above and the selected standard license terms are retained here;
-the exception does not apply to any other name or version.
-
-Standard terms source: @babel/code-frame@7.29.7/LICENSE
-
-MIT License
-
-Copyright (c) 2014-present Sebastian McKenzie and other contributors
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
 ### metro-resolver@0.83.8
 
 - Selected license: `MIT`
@@ -36180,62 +35824,6 @@ Declared license: MIT
 Selected license: MIT
 Author metadata: <not published>
 Repository metadata: git+https://github.com/react/metro.git
-Homepage metadata: <not published>
-
-The exact npm package root was inspected and did not publish a standalone
-LICENSE, LICENCE, COPYING, NOTICE, or COPYRIGHT file. This coordinate is
-therefore covered by an exact, reviewed absence exception. The package
-metadata above and the selected standard license terms are retained here;
-the exception does not apply to any other name or version.
-
-Standard terms source: @babel/code-frame@7.29.7/LICENSE
-
-MIT License
-
-Copyright (c) 2014-present Sebastian McKenzie and other contributors
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
-### metro-runtime@0.83.7
-
-- Selected license: `MIT`
-- Declared license: `MIT`
-- Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/metro-runtime/v/0.83.7)
-- Integrity: `sha512-9GKkJURaB2iyYoEExKnedzAHzxmKtSi+k0tsZUvMoU27tBZJElchYt7JH/Ai/XzYAI9lCAaV7u5HZSI8J5Z+wQ==`
-
-#### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
-
-SHA-256: `0829a2a3ec142de84184318ee9f1a436a2d46fcadd2e18cc0f9b396283ce9d3b`
-
-```text
-UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
-
-Package: metro-runtime@0.83.7
-Exact npm tarball: https://registry.npmjs.org/metro-runtime/-/metro-runtime-0.83.7.tgz
-Tarball integrity: sha512-9GKkJURaB2iyYoEExKnedzAHzxmKtSi+k0tsZUvMoU27tBZJElchYt7JH/Ai/XzYAI9lCAaV7u5HZSI8J5Z+wQ==
-Declared license: MIT
-Selected license: MIT
-Author metadata: <not published>
-Repository metadata: git+https://github.com/facebook/metro.git
 Homepage metadata: <not published>
 
 The exact npm package root was inspected and did not publish a standalone
@@ -36516,62 +36104,6 @@ Declared license: MIT
 Selected license: MIT
 Author metadata: <not published>
 Repository metadata: git+https://github.com/react/metro.git
-Homepage metadata: <not published>
-
-The exact npm package root was inspected and did not publish a standalone
-LICENSE, LICENCE, COPYING, NOTICE, or COPYRIGHT file. This coordinate is
-therefore covered by an exact, reviewed absence exception. The package
-metadata above and the selected standard license terms are retained here;
-the exception does not apply to any other name or version.
-
-Standard terms source: @babel/code-frame@7.29.7/LICENSE
-
-MIT License
-
-Copyright (c) 2014-present Sebastian McKenzie and other contributors
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
-### metro-transform-plugins@0.83.7
-
-- Selected license: `MIT`
-- Declared license: `MIT`
-- Legal source: `reviewed-metadata-fallback`
-- Exact source: [npm](https://www.npmjs.com/package/metro-transform-plugins/v/0.83.7)
-- Integrity: `sha512-Ss0FpBiZDjX2kwhukMDl5sNdYK8T/06IPqxNE4H6PTlRlfs9q11cef13c/xESY/Pm4VCkp1yJUZO3kXzvMxQFA==`
-
-#### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
-
-SHA-256: `a3b79d1a60271d6fe1c49c1c8912c9d282da8d6bcc83b4e2c33e2aa534c12bfe`
-
-```text
-UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
-
-Package: metro-transform-plugins@0.83.7
-Exact npm tarball: https://registry.npmjs.org/metro-transform-plugins/-/metro-transform-plugins-0.83.7.tgz
-Tarball integrity: sha512-Ss0FpBiZDjX2kwhukMDl5sNdYK8T/06IPqxNE4H6PTlRlfs9q11cef13c/xESY/Pm4VCkp1yJUZO3kXzvMxQFA==
-Declared license: MIT
-Selected license: MIT
-Author metadata: <not published>
-Repository metadata: git+https://github.com/facebook/metro.git
 Homepage metadata: <not published>
 
 The exact npm package root was inspected and did not publish a standalone
@@ -37300,13 +36832,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### multitars@1.0.0
+### multitars@1.0.2
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `package-root`
-- Exact source: [npm](https://www.npmjs.com/package/multitars/v/1.0.0)
-- Integrity: `sha512-H/J4fMLedtudftaYMOg7ajzLYgT3/rwbWVJbqr/iUgB8DQztn38ys5HOqI1CzSxx8QhXXwOOnnBvd4v3jG5+Mg==`
+- Exact source: [npm](https://www.npmjs.com/package/multitars/v/1.0.2)
+- Integrity: `sha512-6GwVw5eLi9sThdtlS4PKwC7yRLaf45pYhIEzKBHdKxi+YOXGKFX8acIniH+Uh/+k9mS2lQOupTccjoe5r0/1IQ==`
 
 #### LICENSE.md
 
@@ -38772,13 +38304,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### picomatch@4.0.5
+### picomatch@4.0.7
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `package-root`
-- Exact source: [npm](https://www.npmjs.com/package/picomatch/v/4.0.5)
-- Integrity: `sha512-RvwwcruNjI1ncT5xRakeyS9Lf8lcItv34KD+aif+VH9kduAyfYBipGh12274xtenIPZ119/R9BdTBa8gAwSh0A==`
+- Exact source: [npm](https://www.npmjs.com/package/picomatch/v/4.0.7)
+- Integrity: `sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==`
 
 #### LICENSE
 
@@ -38918,13 +38450,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### postcss@8.5.25
+### postcss@8.5.26
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `package-root`
-- Exact source: [npm](https://www.npmjs.com/package/postcss/v/8.5.25)
-- Integrity: `sha512-DTPx3RWSSnWyzLxQnlH0rJP+EW5ekl16ZU4/psbIhA0e53kJfdgaN5vKM+xP7yJtXVu+nfdVFmlgFDEKAe4Pyw==`
+- Exact source: [npm](https://www.npmjs.com/package/postcss/v/8.5.26)
+- Integrity: `sha512-u82N74LFzG8ca+dD8puPnplTXoGH4fTPpVGuIbt36G3qvNlkvfD0lEAZSxaly3KX8TS/L1A1gsCEmvKmBcVbkQ==`
 
 #### LICENSE
 
@@ -43758,13 +43290,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### ws@8.21.2
+### ws@8.21.3
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `package-root`
-- Exact source: [npm](https://www.npmjs.com/package/ws/v/8.21.2)
-- Integrity: `sha512-54dMVAo4WIe6SKy3vBgN+9bJZqqQ8IMRevAkOLQALhi49qkkQDQfWdAZ8KQlXiEabw88ARXXdUrlvtbKQX+aKw==`
+- Exact source: [npm](https://www.npmjs.com/package/ws/v/8.21.3)
+- Integrity: `sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw==`
 
 #### LICENSE
 

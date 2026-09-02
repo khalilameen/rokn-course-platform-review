@@ -1,0 +1,10 @@
+<resources>
+
+    <!-- A more-specific resource is selected as a complete style, so retain
+         the API 27 navigation setting alongside the API 28 cutout policy. -->
+    <style name="AppTheme" parent="RoknBaseTheme">
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+
+</resources>

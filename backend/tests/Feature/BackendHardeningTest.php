@@ -136,6 +136,101 @@ final class BackendHardeningTest extends TestCase
         self::assertSame(60, $transaction->reward_balance_after);
     }
 
+    public function test_wallet_refund_replay_returns_the_original_credit_after_allocation_is_consumed(): void
+    {
+        $user = $this->user([
+            'wallet_coins' => 100,
+            'wallet_purchased_coins' => 40,
+            'wallet_reward_coins' => 60,
+        ]);
+        $wallet = app(WalletService::class);
+        $debit = $wallet->debit(
+            $user->id,
+            100,
+            'course_purchase',
+            'wallet-refund-original-debit'
+        );
+
+        $refund = $wallet->refundDebit(
+            $user->id,
+            100,
+            'course_purchase_refund',
+            'wallet-refund-replay',
+            $debit
+        );
+        $replay = $wallet->refundDebit(
+            $user->id,
+            100,
+            'course_purchase_refund',
+            'wallet-refund-replay',
+            $debit
+        );
+
+        self::assertSame($refund->id, $replay->id);
+        self::assertSame(60, (int) $refund->reward_amount);
+        self::assertSame(40, (int) $refund->paid_amount);
+        self::assertSame(100, (int) $user->fresh()->wallet_coins);
+        self::assertSame(2, WalletTransaction::query()->count());
+    }
+
+    public function test_wallet_refund_cannot_exceed_the_unrefunded_debit_allocation(): void
+    {
+        $user = $this->user([
+            'wallet_coins' => 100,
+            'wallet_purchased_coins' => 40,
+            'wallet_reward_coins' => 60,
+        ]);
+        $wallet = app(WalletService::class);
+        $debit = $wallet->debit(
+            $user->id,
+            100,
+            'course_purchase',
+            'wallet-refund-partial-debit'
+        );
+        $wallet->refundDebit(
+            $user->id,
+            70,
+            'course_purchase_refund',
+            'wallet-refund-partial-first',
+            $debit
+        );
+
+        $this->expectException(\InvalidArgumentException::class);
+        $wallet->refundDebit(
+            $user->id,
+            31,
+            'course_purchase_refund',
+            'wallet-refund-partial-overrun',
+            $debit
+        );
+    }
+
+    public function test_wallet_refund_requires_a_persisted_original_debit(): void
+    {
+        $user = $this->user([
+            'wallet_coins' => 0,
+            'wallet_purchased_coins' => 0,
+            'wallet_reward_coins' => 0,
+        ]);
+        $forgedDebit = new WalletTransaction([
+            'public_id' => (string) Str::uuid(),
+            'user_id' => $user->id,
+            'direction' => WalletTransaction::DIRECTION_DEBIT,
+            'amount' => 100,
+            'paid_amount' => 100,
+            'reward_amount' => 0,
+        ]);
+
+        $this->expectException(\InvalidArgumentException::class);
+        app(WalletService::class)->refundDebit(
+            $user->id,
+            100,
+            'course_purchase_refund',
+            'wallet-refund-forged-debit',
+            $forgedDebit
+        );
+    }
+
     public function test_project_pending_is_authoritative_and_idempotency_cannot_change_content(): void
     {
         $user = $this->user();

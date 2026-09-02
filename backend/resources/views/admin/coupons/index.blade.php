@@ -40,6 +40,7 @@
                             <form class="d-none" id="deleteForm{{$coupon->id}}" action="{{ route('admin.coupons.destroy', $coupon->id) }}" method="post">
                                 <input name="_method" type="hidden" value="DELETE">
                                 @csrf
+                                <input type="hidden" name="editor_version" value="{{ $editorVersions->get($coupon->id) }}">
                             </form>
                     </div>
                     @endforeach

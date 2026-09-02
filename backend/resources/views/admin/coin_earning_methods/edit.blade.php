@@ -15,6 +15,7 @@
         <form action="{{ route('admin.coin-earning-methods.update', $coinEarningMethod->id) }}" method="POST">
             @csrf
             @method('PUT')
+            <input type="hidden" name="editor_version" value="{{ $editorVersion }}">
             <div class="row">
                 <div class="col-md-6 mb-3">
                     <label class="form-label">العنوان (بالعربية)</label>

@@ -1,4 +1,5 @@
 @php($current = $admin_notification ?? null)
+@if($current)<input name="editor_version" type="hidden" value="{{ $editorVersion }}">@endif
 <div class="alert alert-info">
     اكتب كأنك تكلم طالبًا واحدًا. المتغيرات المتاحة: <code>{coins}</code> لعدد العملات،
     <code>{course}</code> للكورس، <code>{task}</code> للمهمة،

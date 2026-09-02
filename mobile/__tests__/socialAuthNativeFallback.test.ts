@@ -57,12 +57,24 @@ jest.mock('../src/services/secureSession', () => ({
     value?.api_token || null,
   loadSecureSession: jest.fn(async () => null),
   saveSecureSession: (...args: unknown[]) => mockSaveSession(...args),
-  savePendingSocialAuthAttempt: jest.fn(async (attempt: Record<string, unknown>) => {
-    mockPendingAttempt = attempt;
-  }),
+  savePendingSocialAuthAttempt: jest.fn(
+    async (attempt: Record<string, unknown>) => {
+      mockPendingAttempt = attempt;
+    },
+  ),
+  replacePendingSocialAuthAttempt: jest.fn(
+    async (
+      _expected: Record<string, unknown>,
+      replacement: Record<string, unknown>,
+    ) => {
+      mockPendingAttempt = replacement;
+      return true;
+    },
+  ),
   loadPendingSocialAuthAttempt: jest.fn(async () => mockPendingAttempt),
   deletePendingSocialAuthAttempt: jest.fn(async () => {
     mockPendingAttempt = null;
+    return true;
   }),
 }));
 
@@ -131,17 +143,36 @@ describe('native social transport with browser fallback', () => {
     mockNativeSignIn.mockResolvedValue({type: 'fallback'});
     mockOpenAndroidAuthSession.mockResolvedValue({type: 'cancel'});
 
-    await expect(
-      signInWithSocialProvider('google', methods),
-    ).rejects.toThrow('LOGIN_CANCELLED');
+    await expect(signInWithSocialProvider('google', methods)).rejects.toThrow(
+      'LOGIN_CANCELLED',
+    );
 
     expect(mockOpenAndroidAuthSession).toHaveBeenCalledWith(
       expect.stringMatching(
         /^https:\/\/rokn\.app\/api\/v1\/social-auth\/google\/start\?return_to=rokn%3A%2F%2Fauth&code_challenge=[A-Za-z0-9_-]{43}&code_challenge_method=S256$/,
       ),
       'rokn://auth',
+      expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
     );
     expect(mockPost).not.toHaveBeenCalled();
     expect(mockSaveSession).not.toHaveBeenCalled();
+  });
+
+  it('keeps browser PKCE recoverable when Android delivers its callback late', async () => {
+    mockNativeSignIn.mockResolvedValue({type: 'fallback'});
+    mockOpenAndroidAuthSession.mockResolvedValue({
+      type: 'cancel',
+      recoverable: true,
+    });
+
+    await expect(signInWithSocialProvider('google', methods)).rejects.toThrow(
+      'LOGIN_CANCELLED',
+    );
+
+    expect(mockPendingAttempt).toMatchObject({
+      provider: 'google',
+      purpose: 'login',
+      flow: 'browser',
+    });
   });
 });

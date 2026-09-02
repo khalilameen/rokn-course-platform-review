@@ -73,6 +73,7 @@ class AdminNotificationRequest extends FormRequest
             'image' => 'nullable|image|max:4096',
             'remove_image' => 'nullable|boolean',
             'authoring_request_id' => [$this->isMethod('post') ? 'required' : 'nullable', 'uuid'],
+            'editor_version' => [$this->isMethod('put') || $this->isMethod('patch') ? 'required' : 'nullable', 'string', 'size:64'],
         ];
     }
 

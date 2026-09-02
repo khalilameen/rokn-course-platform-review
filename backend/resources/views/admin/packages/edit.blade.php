@@ -11,6 +11,7 @@
         <form action="{{ route('admin.packages.update', $package->id) }}" method="post" class="form-horizontal">
             @csrf
             @method('PUT')
+            <input type="hidden" name="editor_version" value="{{ $editorVersion }}">
             <div class="row form-group">
                 <div class="col col-md-3"><label for="name_ar" class=" form-control-label">الاسم (AR)</label></div>
                 <div class="col-12 col-md-9">

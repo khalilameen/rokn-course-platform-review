@@ -1,5 +1,5 @@
 import React, {FC, useCallback, useEffect, useRef, useState} from 'react';
-import {AppState, Linking} from 'react-native';
+import {AppState, Linking, Platform} from 'react-native';
 import {useDispatch, useSelector} from 'react-redux';
 import Navigation from '../navigation/Navigation';
 import {initializApp} from '../store/actions/settings';
@@ -38,6 +38,7 @@ import type {AppUpdateNotice} from '../services/appVersionPolicy';
 import AppUpdateGate from '../components/AppUpdateGate';
 import type {AppDispatch, RootState} from '../store/store';
 import {resumePendingSocialAuth} from '../services/socialAuth';
+import {androidAuthSessionOwnsCallback} from '../services/androidAuthSession';
 import {resumePendingGuestAccountMigration} from '../services/guestAccountMigration';
 import {CAN_START_NATIVE_CHECKOUT} from '../constants/distribution';
 import {reconcilePendingCoinCheckout} from '../services/coinCheckout';
@@ -146,13 +147,42 @@ const AppInitializer: FC = () => {
       try {
         const deviceUpgrade = runDeviceStorageUpgrade().catch(() => undefined);
         void deviceUpgrade;
-        const initialUrlResult = await settleWithin(
-          Linking.getInitialURL().catch(() => null),
-          1_000,
-        );
+        const adoptPendingSession = async (session: unknown) => {
+          if (!active || !session) return;
+          const profile = extractUserProfile(session);
+          if (
+            profile?.id === 'demo-student-1' ||
+            String(profile?.email || '').endsWith('@example.com')
+          ) {
+            await Promise.allSettled([
+              removeItem(AsyncKeys.IS_LOGIN),
+              removeItem(AsyncKeys.USER_DATA),
+            ]);
+            if (active) dispatch(LogOut());
+            return;
+          }
+          await settleWithin(saveItem(AsyncKeys.IS_LOGIN, true), 1_000);
+          if (!active) return;
+          dispatch(saveLoginData(session));
+          void runAuthenticatedStorageUpgrade()
+            .then(() => resumePendingGuestAccountMigration(false))
+            .then(() => resumePendingGuestAccountMigration(true))
+            .catch(() => undefined);
+        };
+        const initialUrlFlight = Linking.getInitialURL().catch(() => null);
+        const initialUrlResult = await settleWithin(initialUrlFlight, 1_000);
         const initialUrl = initialUrlResult.settled
           ? initialUrlResult.value
           : null;
+        if (!initialUrlResult.settled) {
+          // Opening the guest shell has a deadline; ownership of an OAuth deep
+          // link does not. Android does not emit a second `url` event for a
+          // delayed cold-start result, so finish consuming this same promise.
+          void initialUrlFlight
+            .then(url => (url ? resumePendingSocialAuth(url) : null))
+            .then(adoptPendingSession)
+            .catch(() => undefined);
+        }
         // A transient provider or network failure must not skip restoration of
         // an already valid session. The pending OAuth record remains durable
         // and is retried when the app becomes active again.
@@ -160,22 +190,13 @@ const AppInitializer: FC = () => {
           () => null,
         );
         const quickResume = await settleWithin(pendingResume, 2_000);
-        if (!quickResume.settled) {
+        if (quickResume.settled) {
+          await adoptPendingSession(quickResume.value);
+        } else {
           // A cold OAuth callback may still be completing on a weak network.
           // Let the learner reach the app, then adopt only the session that
           // still owns the durable pending attempt when it finishes.
-          void pendingResume
-            .then(async session => {
-              if (!active || !session) return;
-              await settleWithin(saveItem(AsyncKeys.IS_LOGIN, true), 1_000);
-              if (!active) return;
-              dispatch(saveLoginData(session));
-              void runAuthenticatedStorageUpgrade()
-                .then(() => resumePendingGuestAccountMigration(false))
-                .then(() => resumePendingGuestAccountMigration(true))
-                .catch(() => undefined);
-            })
-            .catch(() => undefined);
+          void pendingResume.then(adoptPendingSession).catch(() => undefined);
         }
         const adoptRestoredState = async ({
           session,
@@ -275,8 +296,12 @@ const AppInitializer: FC = () => {
   }, [storedUser]);
 
   useEffect(() => {
+    let active = true;
     let learningReconcileFlight: Promise<unknown> | null = null;
     let foregroundSessionFlight: Promise<void> | null = null;
+    let storeReconcileFlight: Promise<void> | null = null;
+    let storeReconcileTimer: ReturnType<typeof setTimeout> | null = null;
+    let storeReconcileAttempt = 0;
     let lastLearningReconcileAt = 0;
     const reconcileLearning = (force = false) => {
       const now = Date.now();
@@ -290,14 +315,50 @@ const AppInitializer: FC = () => {
         learningReconcileFlight = null;
       });
     };
+    const clearStoreReconcileTimer = () => {
+      if (storeReconcileTimer) clearTimeout(storeReconcileTimer);
+      storeReconcileTimer = null;
+    };
     const reconcileStorePurchases = () => {
-      if (!storedUser) return;
-      void reconcilePendingCoinCheckout().catch(() => undefined);
-      if (CAN_START_NATIVE_CHECKOUT) {
-        void import('../services/nativeStoreBilling')
-          .then(store => store.reconcileNativeStorePurchases())
-          .catch(() => undefined);
-      }
+      if (!storedUser || storeReconcileFlight) return;
+      const external = reconcilePendingCoinCheckout();
+      const native = CAN_START_NATIVE_CHECKOUT
+        ? import('../services/nativeStoreBilling').then(store =>
+            store.reconcileNativeStorePurchases(),
+          )
+        : Promise.resolve(null);
+      storeReconcileFlight = Promise.allSettled([external, native])
+        .then(results => {
+          if (!active) return;
+          const pending = results.some(
+            result =>
+              result.status === 'rejected' ||
+              Boolean(result.status === 'fulfilled' && result.value?.pending),
+          );
+          clearStoreReconcileTimer();
+          if (!pending || AppState.currentState !== 'active') {
+            storeReconcileAttempt = 0;
+            return;
+          }
+          // Payment providers can confirm after the browser has already
+          // returned. Keep reconciling the durable receipt while the app is
+          // visible instead of requiring another foreground transition.
+          const retryDelays = [4_000, 10_000, 20_000, 40_000, 60_000];
+          // A permanent account/storage/configuration failure is not a pending
+          // payment. Bound this foreground burst; the next foreground event
+          // starts another authoritative reconciliation without creating one
+          // endless timer per signed-in learner.
+          if (storeReconcileAttempt >= retryDelays.length) return;
+          const delay = retryDelays[storeReconcileAttempt];
+          storeReconcileAttempt += 1;
+          storeReconcileTimer = setTimeout(() => {
+            storeReconcileTimer = null;
+            reconcileStorePurchases();
+          }, delay);
+        })
+        .finally(() => {
+          storeReconcileFlight = null;
+        });
     };
     const adoptForegroundSession = async (session: unknown) => {
       const profile = extractUserProfile(session);
@@ -324,7 +385,8 @@ const AppInitializer: FC = () => {
       abandonPendingSecureSessionRestore();
       foregroundSessionFlight = restoreSecureAuthState()
         .then(result => {
-          if (result.isAuthenticated) return adoptForegroundSession(result.session);
+          if (result.isAuthenticated)
+            return adoptForegroundSession(result.session);
           return undefined;
         })
         .catch(() => undefined)
@@ -332,6 +394,21 @@ const AppInitializer: FC = () => {
           foregroundSessionFlight = null;
         });
     };
+    const socialAuthLinkSubscription =
+      Platform.OS === 'android'
+        ? Linking.addEventListener('url', ({url}) => {
+            // The live Custom Tab session owns its callback while it is open.
+            // Once Android has returned without delivering the deep link, this
+            // durable listener adopts a late callback instead of losing it.
+            if (androidAuthSessionOwnsCallback(url)) return;
+            void resumePendingSocialAuth(url)
+              .then(session => {
+                if (!session) return;
+                return adoptForegroundSession(session);
+              })
+              .catch(() => undefined);
+          })
+        : null;
     reconcileLearning(true);
     reconcileStorePurchases();
     const subscription = AppState.addEventListener('change', state => {
@@ -351,9 +428,16 @@ const AppInitializer: FC = () => {
             return adoptForegroundSession(session);
           })
           .catch(() => undefined);
+      } else {
+        clearStoreReconcileTimer();
       }
     });
-    return () => subscription.remove();
+    return () => {
+      active = false;
+      clearStoreReconcileTimer();
+      socialAuthLinkSubscription?.remove();
+      subscription.remove();
+    };
   }, [dispatch, refreshUpdateNotice, storedUser]);
 
   const dismissUpdateNotice = () => {

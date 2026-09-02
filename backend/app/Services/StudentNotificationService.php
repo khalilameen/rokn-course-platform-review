@@ -122,7 +122,7 @@ class StudentNotificationService
 
         // Persist first so the in-app inbox is authoritative. Push delivery is
         // an after-commit side effect and can scale independently on workers.
-        SendUserPushNotification::dispatch((int) $notification->id)->afterCommit();
+        self::enqueuePushAfterCommit((int) $notification->id);
 
         return $notification;
     }
@@ -285,7 +285,23 @@ class StudentNotificationService
             return;
         }
 
-        SendUserPushNotification::dispatch((int) $notification->id)->afterCommit();
+        self::enqueuePushAfterCommit((int) $notification->id);
+    }
+
+    private static function enqueuePushAfterCommit(int $notificationId): void
+    {
+        // Catch inside the commit callback, not only around its registration.
+        // Queue connections fail when the callback actually runs; allowing that
+        // exception out can make a completed purchase or reward look failed.
+        DB::afterCommit(static function () use ($notificationId): void {
+            try {
+                SendUserPushNotification::dispatch($notificationId);
+            } catch (\Throwable $exception) {
+                // The inbox row is durable and RetryStalledNotificationPushes
+                // will enqueue it after the queue connection returns.
+                report($exception);
+            }
+        });
     }
 
     private static function arabicDigits(int $value): string

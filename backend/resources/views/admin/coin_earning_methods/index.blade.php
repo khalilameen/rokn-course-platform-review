@@ -18,6 +18,7 @@
         <div class="card-body p-4">
             <form action="{{ route('admin.coin-earning-methods.update-settings') }}" method="POST">
                 @csrf
+                <input type="hidden" name="editor_version" value="{{ $settingsEditorVersion }}">
                 <div class="row">
                     <div class="col-md-6 mb-3">
                         <label class="form-label font-weight-bold">بالعربية</label>
@@ -134,6 +135,7 @@
                         <form action="{{ route('admin.reward-rules.update', $rule) }}" method="POST" class="border rounded p-3 h-100">
                             @csrf
                             @method('PUT')
+                            <input type="hidden" name="editor_version" value="{{ $rewardRuleEditorVersions->get($rule->id) }}">
                             <input type="hidden" name="event_key" value="{{ $rule->event_key }}">
                             <div class="d-flex justify-content-between align-items-center mb-3">
                                 <strong>{{ $rewardEvents[$rule->event_key] ?? $rule->event_key }}</strong>
@@ -153,6 +155,7 @@
                         <form action="{{ route('admin.reward-rules.destroy', $rule) }}" method="POST" class="mt-2" onsubmit="return confirm('حذف القاعدة سيوقف هذه المكافأة فورًا. هل أنت متأكد؟')">
                             @csrf
                             @method('DELETE')
+                            <input type="hidden" name="editor_version" value="{{ $rewardRuleEditorVersions->get($rule->id) }}">
                             <button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash ml-1"></i> حذف القاعدة</button>
                         </form>
                     </div>
@@ -211,6 +214,7 @@
                             <form action="{{ route('admin.coin-earning-methods.destroy', $method->id) }}" method="POST" onsubmit="return confirm('هل أنت متأكد من الحذف؟')">
                                 @csrf
                                 @method('DELETE')
+                                <input type="hidden" name="editor_version" value="{{ $methodEditorVersions->get($method->id) }}">
                                 <button type="submit" class="btn btn-sm btn-outline-danger">
                                     <i class="fa fa-trash"></i>
                                 </button>

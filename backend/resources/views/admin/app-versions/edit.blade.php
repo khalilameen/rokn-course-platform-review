@@ -15,6 +15,7 @@
         <form action="{{ route('admin.app-versions.update', $version->id) }}" method="POST">
             @csrf
             @method('PUT')
+            <input type="hidden" name="editor_version" value="{{ $editorVersion }}">
             <div class="row">
                 <div class="col-md-4">
                     <div class="form-group">

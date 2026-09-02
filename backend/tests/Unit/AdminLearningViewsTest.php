@@ -215,6 +215,8 @@ final class AdminLearningViewsTest extends TestCase
         self::assertStringContainsString("@method('DELETE')", $index);
         self::assertStringContainsString("@method('PUT')", $edit);
         self::assertStringContainsString("rel=\"noopener noreferrer\"", $index);
+        self::assertStringContainsString('name="editor_version"', $index);
+        self::assertStringContainsString('name="editor_version"', $edit);
     }
 
     public function test_contact_routes_workflow_fields_and_delete_guard_are_preserved(): void
@@ -257,6 +259,8 @@ final class AdminLearningViewsTest extends TestCase
         self::assertStringContainsString('name="privacy_en"', $privacy);
         self::assertStringContainsString('name="policy_ar"', $policy);
         self::assertStringContainsString('name="policy_en"', $policy);
+        self::assertStringContainsString('name="editor_version"', $privacy);
+        self::assertStringContainsString('name="editor_version"', $policy);
 
         self::assertStringContainsString('json_encode($providers)', $online);
         self::assertStringContainsString('function initMap()', $online);

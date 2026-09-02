@@ -25,6 +25,7 @@
                 <form method="POST" action="{{ route('admin.course-codes.update', $courseCode) }}" id="edit-code-form">
                             @csrf
                             @method('PUT')
+                            <input type="hidden" name="editor_version" value="{{ $editorVersion }}">
 
                             <div class="row">
                                 <div class="col-md-6">

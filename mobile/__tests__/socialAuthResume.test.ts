@@ -2,6 +2,7 @@ const mockPost = jest.fn();
 const mockLoad = jest.fn();
 const mockSave = jest.fn();
 const mockDelete = jest.fn();
+const mockReplace = jest.fn();
 
 jest.mock('react-native', () => ({Platform: {OS: 'android'}}));
 jest.mock('expo-crypto', () => ({
@@ -18,11 +19,15 @@ jest.mock('expo-web-browser', () => ({
 }));
 jest.mock('../src/constants/api', () => ({
   mainUrl: 'https://rokn.app/api/v1/',
-  publicRequest: {get: jest.fn(), post: (...args: unknown[]) => mockPost(...args)},
+  publicRequest: {
+    get: jest.fn(),
+    post: (...args: unknown[]) => mockPost(...args),
+  },
 }));
 jest.mock('../src/services/secureSession', () => ({
   loadPendingSocialAuthAttempt: (...args: unknown[]) => mockLoad(...args),
   savePendingSocialAuthAttempt: (...args: unknown[]) => mockSave(...args),
+  replacePendingSocialAuthAttempt: (...args: unknown[]) => mockReplace(...args),
   deletePendingSocialAuthAttempt: (...args: unknown[]) => mockDelete(...args),
   saveSecureSession: jest.fn(async () => undefined),
 }));
@@ -52,7 +57,11 @@ describe('social auth cold-start recovery', () => {
     jest.clearAllMocks();
     mockLoad.mockResolvedValue(pending);
     mockSave.mockResolvedValue(undefined);
-    mockDelete.mockResolvedValue(undefined);
+    mockReplace.mockImplementation(async (_expected, replacement) => {
+      mockSave(replacement);
+      return true;
+    });
+    mockDelete.mockResolvedValue(true);
   });
 
   it('completes the initial deep link with the durable PKCE verifier', async () => {
@@ -151,6 +160,19 @@ describe('social auth cold-start recovery', () => {
 
     expect(mockPost).not.toHaveBeenCalled();
     expect(mockSave).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  it('does not overwrite an attempt replaced after the callback was read', async () => {
+    mockReplace.mockResolvedValueOnce(false);
+
+    await expect(
+      resumePendingSocialAuth(
+        `rokn://auth?code=old-code&attempt=${pending.challenge}`,
+      ),
+    ).resolves.toBeNull();
+
+    expect(mockPost).not.toHaveBeenCalled();
     expect(mockDelete).not.toHaveBeenCalled();
   });
 });

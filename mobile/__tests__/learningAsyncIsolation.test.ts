@@ -6,9 +6,7 @@ const source = (relativePath: string) =>
 
 describe('learning async ownership contracts', () => {
   it('does not let a previous project operation update the active project', () => {
-    const project = source(
-      'src/components/VideoPlayer/ProjectTransition.tsx',
-    );
+    const project = source('src/components/VideoPlayer/ProjectTransition.tsx');
     expect(project).toContain('projectGenerationRef.current += 1');
     expect(project).toContain(
       'if (!ownsProject(projectId, projectGeneration)) return;',
@@ -29,13 +27,45 @@ describe('learning async ownership contracts', () => {
       'src/components/VideoPlayer/courseChat/useCourseChat.ts',
     );
     const notifications = source('src/screens/Notifications.tsx');
-    expect(chat).toContain('upgradeGenerationRef.current !== upgradeGeneration');
+    expect(chat).toContain(
+      'upgradeGenerationRef.current !== upgradeGeneration',
+    );
     expect(chat).toContain(
       '[accountEpoch, course.accessType, course.chatAvailable, courseId]',
     );
+    expect(chat).toContain(
+      'stopConversationGeneration !== conversationGenerationRef.current',
+    );
+    expect(chat).toMatch(
+      /sendGenerationRef\.current \+= 1;[\s\S]*setSending\(false\);[\s\S]*await cancelCourseAssistantTurn/,
+    );
+    expect(chat).toMatch(
+      /await pollCourseAssistantTurn\(clientRequestId\);[\s\S]*sendGeneration !== sendGenerationRef\.current/,
+    );
+    const chatOverlay = source(
+      'src/components/VideoPlayer/CourseChatOverlay.tsx',
+    );
+    expect(chatOverlay).toContain('attachmentPickerGenerationRef.current += 1');
+    expect(chatOverlay).toContain('if (!ownsPicker())');
     expect(notifications).toContain('new Map<string, symbol>()');
     expect(notifications).toContain(
       'readFlightsRef.current.get(item.id) === flight',
+    );
+  });
+
+  it('does not let a completed course transaction mutate the next course route', () => {
+    const details = source('src/screens/CourseDetails/index.tsx');
+
+    expect(details).toContain('courseOperationGenerationRef.current += 1;');
+    expect(details).toContain('activeCourseIdRef.current === expectedCourseId');
+    expect(details).toMatch(
+      /const result = await purchaseCourse\([\s\S]*if \(!ownsCourseOperation\(operationCourseId, operationGeneration\)\)/,
+    );
+    expect(details).toMatch(
+      /const result = await openCoinCheckout\([\s\S]*if \(!ownsCourseOperation\(operationCourseId, operationGeneration\)\)/,
+    );
+    expect(details).toMatch(
+      /finally \{\s*if \(ownsCourseOperation\(operationCourseId, operationGeneration\)\)/,
     );
   });
 

@@ -140,7 +140,10 @@ const CourseChatOverlay = ({
   const [copiedMessageId, setCopiedMessageId] = useState<string>();
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attachmentPickerFlightRef = useRef(false);
+  const attachmentPickerGenerationRef = useRef(0);
+  const activeAttachmentCourseRef = useRef(String(course.id));
   const upgradeAutoLoadCourseRef = useRef<string | undefined>(undefined);
+  activeAttachmentCourseRef.current = String(course.id);
   const {
     assistantPresence,
     assistantIncluded,
@@ -179,8 +182,19 @@ const CourseChatOverlay = ({
       });
     },
   });
-  const hasSendableInput = cleanUnicodeText(input).length > 0 || attachments.length > 0;
+  const hasSendableInput =
+    cleanUnicodeText(input).length > 0 || attachments.length > 0;
   const attachmentLimit = Math.max(0, course.chatAttachmentMaxFiles || 0);
+
+  useEffect(() => {
+    attachmentPickerGenerationRef.current += 1;
+    attachmentPickerFlightRef.current = false;
+    setCopiedMessageId(undefined);
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    return () => {
+      attachmentPickerGenerationRef.current += 1;
+    };
+  }, [course.id]);
 
   useEffect(() => {
     if (upgradeAutoLoadCourseRef.current !== String(course.id)) {
@@ -208,14 +222,27 @@ const CourseChatOverlay = ({
   ]);
 
   const pickAttachments = async () => {
-    if (!course.chatAttachmentsEnabled || attachments.length >= attachmentLimit
-      || attachmentPickerFlightRef.current) return;
+    if (
+      !course.chatAttachmentsEnabled ||
+      attachments.length >= attachmentLimit ||
+      attachmentPickerFlightRef.current
+    )
+      return;
+    const pickerCourseId = String(course.id);
+    const pickerGeneration = attachmentPickerGenerationRef.current;
+    const ownsPicker = () =>
+      activeAttachmentCourseRef.current === pickerCourseId &&
+      attachmentPickerGenerationRef.current === pickerGeneration;
     attachmentPickerFlightRef.current = true;
     const selected: import('./types').ChatAttachmentDraft[] = [];
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: [
-          'image/jpeg', 'image/png', 'image/webp', 'application/pdf', 'text/plain',
+          'image/jpeg',
+          'image/png',
+          'image/webp',
+          'application/pdf',
+          'text/plain',
           'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
           'application/vnd.openxmlformats-officedocument.presentationml.presentation',
         ],
@@ -223,14 +250,19 @@ const CourseChatOverlay = ({
         copyToCacheDirectory: true,
       });
       if (result.canceled) return;
+      if (!ownsPicker()) return;
       const remaining = Math.max(0, attachmentLimit - attachments.length);
       for (const asset of result.assets.slice(0, remaining)) {
-        const cached = await cacheLearnerDraftFile('course_chat', {
-          uri: asset.uri,
-          fileName: asset.name,
-          type: asset.mimeType || 'application/octet-stream',
-          size: asset.size,
-        }, 8 * 1024 * 1024);
+        const cached = await cacheLearnerDraftFile(
+          'course_chat',
+          {
+            uri: asset.uri,
+            fileName: asset.name,
+            type: asset.mimeType || 'application/octet-stream',
+            size: asset.size,
+          },
+          8 * 1024 * 1024,
+        );
         selected.push({
           uri: cached.uri,
           name: cached.fileName || asset.name,
@@ -238,23 +270,36 @@ const CourseChatOverlay = ({
           size: cached.size,
           uploadId: secureRandomUuid(),
         });
+        if (!ownsPicker()) {
+          await Promise.all(selected.map(removeLearnerDraftFile));
+          return;
+        }
+      }
+      if (!ownsPicker()) {
+        await Promise.all(selected.map(removeLearnerDraftFile));
+        return;
       }
       setAttachments(current => {
         const combined = [...current, ...selected];
         const kept = combined.slice(0, attachmentLimit);
         const keptIds = new Set(kept.map(file => file.uploadId));
-        void Promise.all(selected.filter(file => !keptIds.has(file.uploadId)).map(removeLearnerDraftFile));
+        void Promise.all(
+          selected
+            .filter(file => !keptIds.has(file.uploadId))
+            .map(removeLearnerDraftFile),
+        );
         return kept;
       });
     } catch (error: unknown) {
       await Promise.all(selected.map(removeLearnerDraftFile));
+      if (!ownsPicker()) return;
       showMediaPickerFailure(
         error instanceof Error && error.message === 'LEARNER_DRAFT_STORAGE_FULL'
           ? error.message
           : 'document_picker_failed',
       );
     } finally {
-      attachmentPickerFlightRef.current = false;
+      if (ownsPicker()) attachmentPickerFlightRef.current = false;
     }
   };
 
@@ -450,9 +495,18 @@ const CourseChatOverlay = ({
                           <Pressable
                             key={file.serverId || file.uploadId}
                             disabled={!file.serverId && !file.downloadUrl}
-                            onPress={() => void openCourseAssistantAttachment(file).catch(() =>
-                              Alert.alert('تعذّر فتح الملف', 'حاول مرة أخرى'))}>
-                            <Text numberOfLines={1} style={styles.messageAttachment}>
+                            onPress={() =>
+                              void openCourseAssistantAttachment(file).catch(
+                                () =>
+                                  Alert.alert(
+                                    'تعذّر فتح الملف',
+                                    'حاول مرة أخرى',
+                                  ),
+                              )
+                            }>
+                            <Text
+                              numberOfLines={1}
+                              style={styles.messageAttachment}>
                               {file.name}
                             </Text>
                           </Pressable>
@@ -496,18 +550,30 @@ const CourseChatOverlay = ({
               </ScrollView>
 
               {attachments.length > 0 && (
-                <ScrollView horizontal style={styles.attachmentStrip} showsHorizontalScrollIndicator={false}>
+                <ScrollView
+                  horizontal
+                  style={styles.attachmentStrip}
+                  showsHorizontalScrollIndicator={false}>
                   {attachments.map(file => (
                     <View key={file.uploadId} style={styles.attachmentChip}>
                       {file.type.startsWith('image/') && file.uri !== '' && (
-                        <Image source={{uri: file.uri}} style={styles.attachmentPreview} />
+                        <Image
+                          source={{uri: file.uri}}
+                          style={styles.attachmentPreview}
+                        />
                       )}
-                      <Text numberOfLines={1} style={styles.attachmentName}>{file.name}</Text>
+                      <Text numberOfLines={1} style={styles.attachmentName}>
+                        {file.name}
+                      </Text>
                       <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={`حذف ${file.name}`}
                         onPress={() => {
-                          setAttachments(current => current.filter(item => item.uploadId !== file.uploadId));
+                          setAttachments(current =>
+                            current.filter(
+                              item => item.uploadId !== file.uploadId,
+                            ),
+                          );
                           void removeLearnerDraftFile(file);
                         }}>
                         <Text style={styles.attachmentRemove}>×</Text>
@@ -517,7 +583,10 @@ const CourseChatOverlay = ({
                 </ScrollView>
               )}
               {sending && (
-                <Pressable accessibilityRole="button" style={styles.stopButton} onPress={() => void stop()}>
+                <Pressable
+                  accessibilityRole="button"
+                  style={styles.stopButton}
+                  onPress={() => void stop()}>
                   <Text style={styles.stopButtonText}>إيقاف</Text>
                 </Pressable>
               )}

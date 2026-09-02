@@ -123,6 +123,7 @@ class AdminIdentityViewsTest extends TestCase
         ] as $field) {
             self::assertStringContainsString($field, $source, $field);
         }
+        self::assertStringContainsString('name="editor_version"', $source);
 
         foreach ([
             'function toggleAccordion',

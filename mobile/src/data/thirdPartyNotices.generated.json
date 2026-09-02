@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "package-lock.json production dependency closure",
-  "packageCount": 719,
-  "packagePathCount": 817,
-  "inventoryHash": "3fcac47d087d7af5db1509e01b381e5727bcab0ec6c81936f233ea10eb6f6c0a",
+  "packageCount": 711,
+  "packagePathCount": 792,
+  "inventoryHash": "bc324887f1a575034ab744d44527b0c506042855a00219304e20a5cb6f80437f",
   "packages": [
     {
       "name": "@babel/code-frame",
@@ -967,10 +967,10 @@
     },
     {
       "name": "@expo/cli",
-      "version": "55.0.34",
+      "version": "55.0.36",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/%40expo%2Fcli/v/55.0.34",
+      "sourceUrl": "https://www.npmjs.com/package/%40expo%2Fcli/v/55.0.36",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -1007,10 +1007,10 @@
     },
     {
       "name": "@expo/config",
-      "version": "55.0.19",
+      "version": "55.0.21",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/%40expo%2Fconfig/v/55.0.19",
+      "sourceUrl": "https://www.npmjs.com/package/%40expo%2Fconfig/v/55.0.21",
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -1077,10 +1077,10 @@
     },
     {
       "name": "@expo/image-utils",
-      "version": "0.8.15",
+      "version": "0.8.17",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/%40expo%2Fimage-utils/v/0.8.15",
+      "sourceUrl": "https://www.npmjs.com/package/%40expo%2Fimage-utils/v/0.8.17",
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -1117,10 +1117,10 @@
     },
     {
       "name": "@expo/local-build-cache-provider",
-      "version": "55.0.15",
+      "version": "55.0.16",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/%40expo%2Flocal-build-cache-provider/v/55.0.15",
+      "sourceUrl": "https://www.npmjs.com/package/%40expo%2Flocal-build-cache-provider/v/55.0.16",
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -1137,20 +1137,20 @@
     },
     {
       "name": "@expo/metro-config",
-      "version": "55.0.25",
+      "version": "55.0.27",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/%40expo%2Fmetro-config/v/55.0.25",
+      "sourceUrl": "https://www.npmjs.com/package/%40expo%2Fmetro-config/v/55.0.27",
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
     },
     {
       "name": "@expo/metro",
-      "version": "55.1.1",
+      "version": "55.1.2",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/%40expo%2Fmetro/v/55.1.1",
+      "sourceUrl": "https://www.npmjs.com/package/%40expo%2Fmetro/v/55.1.2",
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -1187,30 +1187,30 @@
     },
     {
       "name": "@expo/prebuild-config",
-      "version": "55.0.20",
+      "version": "55.0.22",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/%40expo%2Fprebuild-config/v/55.0.20",
+      "sourceUrl": "https://www.npmjs.com/package/%40expo%2Fprebuild-config/v/55.0.22",
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
     },
     {
       "name": "@expo/require-utils",
-      "version": "55.0.6",
+      "version": "55.0.8",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/%40expo%2Frequire-utils/v/55.0.6",
+      "sourceUrl": "https://www.npmjs.com/package/%40expo%2Frequire-utils/v/55.0.8",
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
     },
     {
       "name": "@expo/router-server",
-      "version": "55.0.18",
+      "version": "55.0.19",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/%40expo%2Frouter-server/v/55.0.18",
+      "sourceUrl": "https://www.npmjs.com/package/%40expo%2Frouter-server/v/55.0.19",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -2516,6 +2516,16 @@
       "apacheNotice": null
     },
     {
+      "name": "agent-cli-detector",
+      "version": "0.1.7",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/agent-cli-detector/v/0.1.7",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
       "name": "anser",
       "version": "1.4.10",
       "license": "MIT",
@@ -2767,10 +2777,10 @@
     },
     {
       "name": "babel-preset-expo",
-      "version": "55.0.24",
+      "version": "55.0.25",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/babel-preset-expo/v/55.0.24",
+      "sourceUrl": "https://www.npmjs.com/package/babel-preset-expo/v/55.0.25",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -3667,30 +3677,30 @@
     },
     {
       "name": "expo-apple-authentication",
-      "version": "55.0.15",
+      "version": "55.0.17",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/expo-apple-authentication/v/55.0.15",
+      "sourceUrl": "https://www.npmjs.com/package/expo-apple-authentication/v/55.0.17",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
     },
     {
       "name": "expo-application",
-      "version": "55.0.17",
+      "version": "55.0.19",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/expo-application/v/55.0.17",
+      "sourceUrl": "https://www.npmjs.com/package/expo-application/v/55.0.19",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
     },
     {
       "name": "expo-asset",
-      "version": "55.0.18",
+      "version": "55.0.20",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/expo-asset/v/55.0.18",
+      "sourceUrl": "https://www.npmjs.com/package/expo-asset/v/55.0.20",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -3707,10 +3717,10 @@
     },
     {
       "name": "expo-crypto",
-      "version": "55.0.17",
+      "version": "55.0.19",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/expo-crypto/v/55.0.17",
+      "sourceUrl": "https://www.npmjs.com/package/expo-crypto/v/55.0.19",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -3727,10 +3737,10 @@
     },
     {
       "name": "expo-file-system",
-      "version": "55.0.24",
+      "version": "55.0.26",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/expo-file-system/v/55.0.24",
+      "sourceUrl": "https://www.npmjs.com/package/expo-file-system/v/55.0.26",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -3767,70 +3777,70 @@
     },
     {
       "name": "expo-modules-autolinking",
-      "version": "55.0.25",
+      "version": "55.0.27",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/expo-modules-autolinking/v/55.0.25",
+      "sourceUrl": "https://www.npmjs.com/package/expo-modules-autolinking/v/55.0.27",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
     },
     {
       "name": "expo-modules-core",
-      "version": "55.0.25",
+      "version": "55.0.26",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/expo-modules-core/v/55.0.25",
+      "sourceUrl": "https://www.npmjs.com/package/expo-modules-core/v/55.0.26",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
     },
     {
       "name": "expo-notifications",
-      "version": "55.0.25",
+      "version": "55.0.27",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/expo-notifications/v/55.0.25",
+      "sourceUrl": "https://www.npmjs.com/package/expo-notifications/v/55.0.27",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
     },
     {
       "name": "expo-secure-store",
-      "version": "55.0.16",
+      "version": "55.0.18",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/expo-secure-store/v/55.0.16",
+      "sourceUrl": "https://www.npmjs.com/package/expo-secure-store/v/55.0.18",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
     },
     {
       "name": "expo-server",
-      "version": "55.0.11",
+      "version": "55.0.12",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/expo-server/v/55.0.11",
+      "sourceUrl": "https://www.npmjs.com/package/expo-server/v/55.0.12",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
     },
     {
       "name": "expo-web-browser",
-      "version": "55.0.18",
+      "version": "55.0.20",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/expo-web-browser/v/55.0.18",
+      "sourceUrl": "https://www.npmjs.com/package/expo-web-browser/v/55.0.20",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
     },
     {
       "name": "expo",
-      "version": "55.0.28",
+      "version": "55.0.31",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/expo/v/55.0.28",
+      "sourceUrl": "https://www.npmjs.com/package/expo/v/55.0.31",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -4987,16 +4997,6 @@
     },
     {
       "name": "metro-babel-transformer",
-      "version": "0.83.7",
-      "license": "MIT",
-      "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/metro-babel-transformer/v/0.83.7",
-      "legalSource": "reviewed-metadata-fallback",
-      "legalFileCount": 1,
-      "apacheNotice": null
-    },
-    {
-      "name": "metro-babel-transformer",
       "version": "0.83.8",
       "license": "MIT",
       "declaredLicense": "MIT",
@@ -5007,30 +5007,10 @@
     },
     {
       "name": "metro-cache-key",
-      "version": "0.83.7",
-      "license": "MIT",
-      "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/metro-cache-key/v/0.83.7",
-      "legalSource": "reviewed-metadata-fallback",
-      "legalFileCount": 1,
-      "apacheNotice": null
-    },
-    {
-      "name": "metro-cache-key",
       "version": "0.83.8",
       "license": "MIT",
       "declaredLicense": "MIT",
       "sourceUrl": "https://www.npmjs.com/package/metro-cache-key/v/0.83.8",
-      "legalSource": "reviewed-metadata-fallback",
-      "legalFileCount": 1,
-      "apacheNotice": null
-    },
-    {
-      "name": "metro-cache",
-      "version": "0.83.7",
-      "license": "MIT",
-      "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/metro-cache/v/0.83.7",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -5057,30 +5037,10 @@
     },
     {
       "name": "metro-core",
-      "version": "0.83.7",
-      "license": "MIT",
-      "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/metro-core/v/0.83.7",
-      "legalSource": "reviewed-metadata-fallback",
-      "legalFileCount": 1,
-      "apacheNotice": null
-    },
-    {
-      "name": "metro-core",
       "version": "0.83.8",
       "license": "MIT",
       "declaredLicense": "MIT",
       "sourceUrl": "https://www.npmjs.com/package/metro-core/v/0.83.8",
-      "legalSource": "reviewed-metadata-fallback",
-      "legalFileCount": 1,
-      "apacheNotice": null
-    },
-    {
-      "name": "metro-file-map",
-      "version": "0.83.7",
-      "license": "MIT",
-      "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/metro-file-map/v/0.83.7",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -5097,16 +5057,6 @@
     },
     {
       "name": "metro-minify-terser",
-      "version": "0.83.7",
-      "license": "MIT",
-      "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/metro-minify-terser/v/0.83.7",
-      "legalSource": "reviewed-metadata-fallback",
-      "legalFileCount": 1,
-      "apacheNotice": null
-    },
-    {
-      "name": "metro-minify-terser",
       "version": "0.83.8",
       "license": "MIT",
       "declaredLicense": "MIT",
@@ -5117,30 +5067,10 @@
     },
     {
       "name": "metro-resolver",
-      "version": "0.83.7",
-      "license": "MIT",
-      "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/metro-resolver/v/0.83.7",
-      "legalSource": "reviewed-metadata-fallback",
-      "legalFileCount": 1,
-      "apacheNotice": null
-    },
-    {
-      "name": "metro-resolver",
       "version": "0.83.8",
       "license": "MIT",
       "declaredLicense": "MIT",
       "sourceUrl": "https://www.npmjs.com/package/metro-resolver/v/0.83.8",
-      "legalSource": "reviewed-metadata-fallback",
-      "legalFileCount": 1,
-      "apacheNotice": null
-    },
-    {
-      "name": "metro-runtime",
-      "version": "0.83.7",
-      "license": "MIT",
-      "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/metro-runtime/v/0.83.7",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -5191,16 +5121,6 @@
       "license": "MIT",
       "declaredLicense": "MIT",
       "sourceUrl": "https://www.npmjs.com/package/metro-symbolicate/v/0.83.8",
-      "legalSource": "reviewed-metadata-fallback",
-      "legalFileCount": 1,
-      "apacheNotice": null
-    },
-    {
-      "name": "metro-transform-plugins",
-      "version": "0.83.7",
-      "license": "MIT",
-      "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/metro-transform-plugins/v/0.83.7",
       "legalSource": "reviewed-metadata-fallback",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -5367,10 +5287,10 @@
     },
     {
       "name": "multitars",
-      "version": "1.0.0",
+      "version": "1.0.2",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/multitars/v/1.0.0",
+      "sourceUrl": "https://www.npmjs.com/package/multitars/v/1.0.2",
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -5707,10 +5627,10 @@
     },
     {
       "name": "picomatch",
-      "version": "4.0.5",
+      "version": "4.0.7",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/picomatch/v/4.0.5",
+      "sourceUrl": "https://www.npmjs.com/package/picomatch/v/4.0.7",
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -5747,10 +5667,10 @@
     },
     {
       "name": "postcss",
-      "version": "8.5.25",
+      "version": "8.5.26",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/postcss/v/8.5.25",
+      "sourceUrl": "https://www.npmjs.com/package/postcss/v/8.5.26",
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -7087,10 +7007,10 @@
     },
     {
       "name": "ws",
-      "version": "8.21.2",
+      "version": "8.21.3",
       "license": "MIT",
       "declaredLicense": "MIT",
-      "sourceUrl": "https://www.npmjs.com/package/ws/v/8.21.2",
+      "sourceUrl": "https://www.npmjs.com/package/ws/v/8.21.3",
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null

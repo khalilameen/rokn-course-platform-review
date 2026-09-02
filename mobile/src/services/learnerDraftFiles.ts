@@ -21,7 +21,11 @@ const MAX_ACCOUNT_CACHE_BYTES = 192 * 1024 * 1024;
 const MAX_CACHE_AGE_MS = 31 * 24 * 60 * 60 * 1000;
 const REFERENCE_WRITE_GRACE_MS = 5 * 60 * 1000;
 const accountFileOperations = new Map<string, Promise<void>>();
-type DraftReferenceRegistry = Record<string, {paths: string[]; updatedAt: number}>;
+const provisionalDraftFiles = new Map<string, Map<string, number>>();
+type DraftReferenceRegistry = Record<
+  string,
+  {paths: string[]; updatedAt: number}
+>;
 const filePath = (uri?: string) =>
   String(uri || '')
     .replace(/^file:\/\//, '')
@@ -69,6 +73,30 @@ const accountScopeFromPath = (path: string): string | undefined => {
 const registryPath = (accountScope: string) =>
   `${CACHE_ROOT}/${accountScope}/.references.json`;
 
+const provisionalPathsFor = (accountScope: string): Set<string> => {
+  const entries = provisionalDraftFiles.get(accountScope);
+  if (!entries) return new Set();
+  const now = Date.now();
+  for (const [path, expiresAt] of entries) {
+    if (expiresAt <= now) entries.delete(path);
+  }
+  if (!entries.size) provisionalDraftFiles.delete(accountScope);
+  return new Set(entries.keys());
+};
+
+const protectProvisionalPath = (accountScope: string, path: string) => {
+  const entries = provisionalDraftFiles.get(accountScope) ?? new Map();
+  entries.set(path, Date.now() + REFERENCE_WRITE_GRACE_MS);
+  provisionalDraftFiles.set(accountScope, entries);
+};
+
+const releaseProvisionalPath = (accountScope: string, path: string) => {
+  const entries = provisionalDraftFiles.get(accountScope);
+  if (!entries) return;
+  entries.delete(path);
+  if (!entries.size) provisionalDraftFiles.delete(accountScope);
+};
+
 const readReferenceRegistry = async (
   accountScope: string,
 ): Promise<DraftReferenceRegistry> => {
@@ -77,14 +105,33 @@ const readReferenceRegistry = async (
     try {
       const raw = await RNFS.readFile(candidate, 'utf8');
       const parsed = JSON.parse(raw) as DraftReferenceRegistry;
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
-      return Object.fromEntries(Object.entries(parsed).flatMap(([owner, value]) => {
-        if (!value || !Array.isArray(value.paths) || !Number.isFinite(value.updatedAt)) return [];
-        const paths = value.paths.map(filePath).filter(
-          path => isManagedPath(path) && accountScopeFromPath(path) === accountScope,
-        );
-        return paths.length ? [[owner.slice(0, 180), {paths, updatedAt: Number(value.updatedAt)}]] : [];
-      }));
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+        continue;
+      return Object.fromEntries(
+        Object.entries(parsed).flatMap(([owner, value]) => {
+          if (
+            !value ||
+            !Array.isArray(value.paths) ||
+            !Number.isFinite(value.updatedAt)
+          )
+            return [];
+          const paths = value.paths
+            .map(filePath)
+            .filter(
+              path =>
+                isManagedPath(path) &&
+                accountScopeFromPath(path) === accountScope,
+            );
+          return paths.length
+            ? [
+                [
+                  owner.slice(0, 180),
+                  {paths, updatedAt: Number(value.updatedAt)},
+                ],
+              ]
+            : [];
+        }),
+      );
     } catch {}
   }
   return {};
@@ -108,8 +155,10 @@ const writeReferenceRegistry = async (
     await RNFS.moveFile(temporary, target);
     await RNFS.unlink(backup).catch(() => undefined);
   } catch (error) {
-    if (!(await RNFS.exists(target).catch(() => false))
-      && await RNFS.exists(backup).catch(() => false)) {
+    if (
+      !(await RNFS.exists(target).catch(() => false)) &&
+      (await RNFS.exists(backup).catch(() => false))
+    ) {
       await RNFS.moveFile(backup, target).catch(() => undefined);
     }
     throw error;
@@ -166,8 +215,9 @@ const reconcileReferenceRegistry = async (
   registry: DraftReferenceRegistry,
 ): Promise<DraftReferenceRegistry> => {
   const now = Date.now();
-  const keys = (await AsyncStorage.getAllKeys().catch(() => []))
-    .filter(key => key.includes(`:${accountScope}`));
+  const keys = (await AsyncStorage.getAllKeys().catch(() => [])).filter(key =>
+    key.includes(`:${accountScope}`),
+  );
   const referencedByDurableState = new Set<string>();
   const values = keys.length
     ? await AsyncStorage.multiGet(keys).catch(() => [])
@@ -206,8 +256,12 @@ const trimAccountDraftFiles = async (
     )
   )
     .flat()
-    .filter(item => item.isFile() && !item.name.startsWith('.references')
-      && isManagedPath(filePath(item.path)))
+    .filter(
+      item =>
+        item.isFile() &&
+        !item.name.startsWith('.references') &&
+        isManagedPath(filePath(item.path)),
+    )
     .map(item => ({
       modifiedAt: item.mtime?.getTime() || 0,
       path: filePath(item.path),
@@ -217,16 +271,21 @@ const trimAccountDraftFiles = async (
 
   const now = Date.now();
   const registry = await readReferenceRegistry(accountScope);
-  const activeRegistry = await reconcileReferenceRegistry(accountScope, registry);
+  const activeRegistry = await reconcileReferenceRegistry(
+    accountScope,
+    registry,
+  );
   if (JSON.stringify(activeRegistry) !== JSON.stringify(registry)) {
     await writeReferenceRegistry(accountScope, activeRegistry);
   }
   const referencedPaths = new Set(
     Object.values(activeRegistry).flatMap(value => value.paths),
   );
+  provisionalPathsFor(accountScope).forEach(path => referencedPaths.add(path));
   let retainedBytes = 0;
   for (const file of files) {
-    const isProtected = file.path === protectedPath || referencedPaths.has(file.path);
+    const isProtected =
+      file.path === protectedPath || referencedPaths.has(file.path);
     const expired =
       !isProtected &&
       (!file.modifiedAt || now - file.modifiedAt > MAX_CACHE_AGE_MS);
@@ -254,8 +313,10 @@ export const removeLearnerDraftFile = async (
   const scope = accountScopeFromPath(path);
   if (!scope) return;
   await withAccountFileLock(scope, async () => {
+    releaseProvisionalPath(scope, path);
     const registry = await readReferenceRegistry(scope);
-    if (Object.values(registry).some(value => value.paths.includes(path))) return;
+    if (Object.values(registry).some(value => value.paths.includes(path)))
+      return;
     await RNFS.unlink(path).catch(() => undefined);
   });
 };
@@ -268,10 +329,15 @@ export const retainLearnerDraftFiles = async (
 ): Promise<void> => {
   const safeOwner = owner.trim().slice(0, 180);
   if (!safeOwner) throw new Error('INVALID_DRAFT_REFERENCE_OWNER');
-  const paths = Array.from(new Set(files.map(file => filePath(file.uri)).filter(isManagedPath)));
-  const scope = accountScope || paths.map(accountScopeFromPath).find(Boolean)
-    || await getCurrentAccountStorageScope();
-  if (!/^[a-z0-9_-]+$/i.test(scope)) throw new Error('INVALID_ACCOUNT_STORAGE_SCOPE');
+  const paths = Array.from(
+    new Set(files.map(file => filePath(file.uri)).filter(isManagedPath)),
+  );
+  const scope =
+    accountScope ||
+    paths.map(accountScopeFromPath).find(Boolean) ||
+    (await getCurrentAccountStorageScope());
+  if (!/^[a-z0-9_-]+$/i.test(scope))
+    throw new Error('INVALID_ACCOUNT_STORAGE_SCOPE');
   if (paths.some(path => accountScopeFromPath(path) !== scope)) {
     throw new Error('DRAFT_REFERENCE_ACCOUNT_MISMATCH');
   }
@@ -335,6 +401,12 @@ export const cacheLearnerDraftFile = async (
         );
       }
 
+      // A multi-select caller cannot commit its durable draft/outbox until the
+      // whole batch has been copied. Keep every successful copy owned during
+      // that short gap so a later file cannot evict an earlier one silently.
+      // Durable registries take over after the caller commits; abandoned
+      // picks lose this in-memory grace automatically and remain reclaimable.
+      protectProvisionalPath(scope, destination);
       await trimAccountDraftFiles(scope, destination);
       assertAccountSessionBoundary(boundary);
       return {
@@ -343,11 +415,12 @@ export const cacheLearnerDraftFile = async (
         uri: Platform.OS === 'ios' ? destination : `file://${destination}`,
       };
     } catch (error) {
+      releaseProvisionalPath(scope, destination);
       await RNFS.unlink(destination).catch(() => undefined);
       if (
-        error instanceof Error
-        && (error.message.startsWith('LEARNER_FILE_')
-          || error.message === 'LEARNER_DRAFT_STORAGE_FULL')
+        error instanceof Error &&
+        (error.message.startsWith('LEARNER_FILE_') ||
+          error.message === 'LEARNER_DRAFT_STORAGE_FULL')
       ) {
         throw error;
       }
@@ -376,6 +449,7 @@ export const clearAccountLearnerDraftFiles = async (
   }
   const directory = `${CACHE_ROOT}/${accountScope}`;
   await withAccountFileLock(accountScope, async () => {
+    provisionalDraftFiles.delete(accountScope);
     if (await RNFS.exists(directory).catch(() => false)) {
       await RNFS.unlink(directory).catch(() => undefined);
     }

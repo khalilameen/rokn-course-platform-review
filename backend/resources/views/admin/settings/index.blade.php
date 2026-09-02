@@ -41,6 +41,7 @@
 
             <div class="settings-content">
                 {!! Form::model($settings, ['method' => 'POST', 'url' => route('admin.settings.update')]) !!}
+                <input type="hidden" name="editor_version" value="{{ $editorVersion }}">
 
                 <!-- General Settings Tab -->
                 <div class="tab-pane active" id="general">

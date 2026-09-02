@@ -258,7 +258,6 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
     Route::resource('coin-earning-methods', 'CoinEarningMethodController')
         ->except(['show'])
         ->middleware('admin.only');
-    Route::post('coin-earning-methods/{coinEarningMethod}/toggle-status', 'CoinEarningMethodController@toggleStatus')->middleware('admin.only')->name('coin-earning-methods.toggle-status');
     Route::post('coin-earning-methods-settings', 'CoinEarningMethodController@updateSettings')->middleware('admin.only')->name('coin-earning-methods.update-settings');
     Route::post('reward-rules', 'CoinEarningMethodController@storeRewardRule')->middleware('admin.only')->name('reward-rules.store');
     Route::put('reward-rules/{rewardRule}', 'CoinEarningMethodController@updateRewardRule')->middleware('admin.only')->name('reward-rules.update');

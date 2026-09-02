@@ -10,8 +10,12 @@ import {
   peekSecureSession,
   resetSecureSessionMigrationForTests,
   restoreSecureAuthState,
+  savePendingSocialAuthAttempt,
   sanitizeSessionForStorage,
   saveSecureSession,
+  loadPendingSocialAuthAttempt,
+  replacePendingSocialAuthAttempt,
+  deletePendingSocialAuthAttempt,
   secureStoreOptionsForPlatform,
 } from '../src/services/secureSession';
 
@@ -53,13 +57,45 @@ describe('secure mobile session persistence', () => {
   });
 
   it('proves secure storage can round-trip before opening a social provider', async () => {
-    await expect(assertSecureSessionStorageAvailable()).resolves.toBeUndefined();
+    await expect(
+      assertSecureSessionStorageAvailable(),
+    ).resolves.toBeUndefined();
     expect(secureSet).toHaveBeenCalledWith(
       'rokn.auth.storage-probe.v1',
       expect.stringMatching(/^rokn-\d+$/),
       expect.any(Object),
     );
     expect(secureValues.has('rokn.auth.storage-probe.v1')).toBe(false);
+  });
+
+  it('does not let an old social result replace or delete a newer attempt', async () => {
+    const oldAttempt = {
+      provider: 'google' as const,
+      verifier: 'A'.repeat(64),
+      challenge: 'B'.repeat(43),
+      flow: 'browser' as const,
+      startedAt: '2026-09-02T08:00:00.000Z',
+      purpose: 'login' as const,
+    };
+    const newerAttempt = {
+      ...oldAttempt,
+      verifier: 'C'.repeat(64),
+      challenge: 'D'.repeat(43),
+      startedAt: '2026-09-02T08:01:00.000Z',
+    };
+    await savePendingSocialAuthAttempt(oldAttempt);
+    await savePendingSocialAuthAttempt(newerAttempt);
+
+    await expect(
+      replacePendingSocialAuthAttempt(oldAttempt, {
+        ...oldAttempt,
+        callbackUrl: 'rokn://auth?code=old',
+      }),
+    ).resolves.toBe(false);
+    await expect(deletePendingSocialAuthAttempt(oldAttempt)).resolves.toBe(
+      false,
+    );
+    await expect(loadPendingSocialAuthAttempt()).resolves.toEqual(newerAttempt);
   });
 
   it('uses the Rokn Android Keystore bridge on Android releases', async () => {
@@ -74,7 +110,10 @@ describe('secure mobile session persistence', () => {
         androidValues.delete(key);
       }),
     };
-    Object.defineProperty(Platform, 'OS', {value: 'android', configurable: true});
+    Object.defineProperty(Platform, 'OS', {
+      value: 'android',
+      configurable: true,
+    });
     NativeModules.RoknSecureSession = nativeModule;
     resetSecureSessionMigrationForTests();
 
@@ -211,9 +250,7 @@ describe('secure mobile session persistence', () => {
       api_token: 'secure-api-token',
       user: {id: 8, name: 'Learner'},
     });
-    expect(secureValues.get('rokn.auth.api-token.v2')).toBe(
-      'secure-api-token',
-    );
+    expect(secureValues.get('rokn.auth.api-token.v2')).toBe('secure-api-token');
     expect(await AsyncStorage.getItem('USER_DATA')).toBe(
       JSON.stringify({user: {id: 8, name: 'Learner'}}),
     );
@@ -247,7 +284,11 @@ describe('secure mobile session persistence', () => {
   });
 
   it('lets public journeys inspect bootstrap without starting a keychain read', async () => {
-    expect(peekSecureSession()).toEqual({ready: false, session: null, epoch: 0});
+    expect(peekSecureSession()).toEqual({
+      ready: false,
+      session: null,
+      epoch: 0,
+    });
     expect(secureGet).not.toHaveBeenCalled();
 
     await saveSecureSession({api_token: 'ready-token', user: {id: 21}});

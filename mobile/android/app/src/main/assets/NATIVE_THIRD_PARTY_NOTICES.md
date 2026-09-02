@@ -6,9 +6,9 @@
 
 This file is bound to the resolved Gradle releaseRuntimeClasspath and retains package-specific LICENSE and NOTICE documents from the distributed artifacts.
 
-- Dependencies: 233
-- npm source-project components: 21
-- Retained unique legal texts: 22
+- Dependencies: 234
+- npm source-project components: 22
+- Retained unique legal texts: 23
 
 ### androidx.activity:activity-ktx:1.9.3
 
@@ -1429,20 +1429,20 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - Exact license review: The exact Commons Codec JAR contains Apache-2.0 LICENSE and NOTICE files while its child POM omits inherited metadata.
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`, `a02b83f426215f484df5ac16f1185d5171133b956d7b0a8fec77965c9f699990`
 
-### commons-io:commons-io:1.4
+### commons-io:commons-io:2.6
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `2dae496a19c82b8e9985a1246aa80cf98082b1ae2217cf4b2d4d5ff13a365af2`
+- POM SHA-256: `0c23863893a2291f5a7afdbd8d15923b3948afd87e563fa341cdcf6eae338a60`
 - Exact license review: The exact Commons IO JAR contains Apache-2.0 LICENSE and NOTICE files while its child POM omits inherited metadata.
-- Retained legal document(s): `2180a3969e69f9e931d8e58da7bae5e604d6bec34fc5a4f40535505eed37c61e`, `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
+- Retained legal document(s): `04caed11bcb1929847055fe6868c38489bd0b6d95957704d2a3aef4b56c0df7c`, `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### expo.modules.asset:expo.modules.asset:55.0.18
+### expo.modules.asset:expo.modules.asset:55.0.20
 
 - Platform: Android
 - Selected license(s): MIT
-- POM SHA-256: `09c9efb69fa15979eea2098eddbc01e2f17a01e54c92b8f4201aa2260fa8d0ea`
-- Owning npm source: `expo-asset@55.0.18`
+- POM SHA-256: `5ff2f83c1e10658f95079e04e7666224cdac588604d786d4524dc4df3c1e43b9`
+- Owning npm source: `expo-asset@55.0.20`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
 ### expo.modules.webview:expo.modules.webview:55.0.6
@@ -1453,28 +1453,36 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - Owning npm source: `@expo/dom-webview@55.0.6`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
-### host.exp.exponent:expo.modules.application:55.0.17
+### host.exp.exponent:expo.modules.application:55.0.19
 
 - Platform: Android
 - Selected license(s): MIT
-- POM SHA-256: `076fd8b1367dd265ccad9fd4499a275ba910f94e02b17fcbc1b1499dd25d6483`
-- Owning npm source: `expo-application@55.0.17`
+- POM SHA-256: `d03c3e55d67831cd5cbe96b47162872d376a7bed2bd2048782e5f01ed5396136`
+- Owning npm source: `expo-application@55.0.19`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
-### host.exp.exponent:expo.modules.crypto:55.0.17
+### host.exp.exponent:expo.modules.crypto:55.0.19
 
 - Platform: Android
 - Selected license(s): MIT
-- POM SHA-256: `93db5411ebcac602e23eba40bc0597f4b210ce290f59184d045573cfd576e4e1`
-- Owning npm source: `expo-crypto@55.0.17`
+- POM SHA-256: `cbec96c4ad1d7c1bc5888b892c0505414dda5813d08c5e2bd8ef6bd629ecd119`
+- Owning npm source: `expo-crypto@55.0.19`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
-### host.exp.exponent:expo.modules.filesystem:55.0.24
+### host.exp.exponent:expo.modules.documentpicker:55.0.17
 
 - Platform: Android
 - Selected license(s): MIT
-- POM SHA-256: `716a3e2957a8ee861b4ff3d0782d5890f2205d7c9c6708fe698679a67703065b`
-- Owning npm source: `expo-file-system@55.0.24`
+- POM SHA-256: `e8f3771339b2875d31e5ed4bfcd28779d77d9f3a0efa7f9b96f27c2f248ebceb`
+- Owning npm source: `expo-document-picker@55.0.17`
+- Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
+
+### host.exp.exponent:expo.modules.filesystem:55.0.26
+
+- Platform: Android
+- Selected license(s): MIT
+- POM SHA-256: `2c0361883d0eaa1cd28a419e90bc95595b34dfb7f3079ea91294ce0ad1f2df6d`
+- Owning npm source: `expo-file-system@55.0.26`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
 ### host.exp.exponent:expo.modules.font:55.0.8
@@ -1493,28 +1501,28 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - Owning npm source: `expo-keep-awake@55.0.8`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
-### host.exp.exponent:expo.modules.notifications:55.0.25
+### host.exp.exponent:expo.modules.notifications:55.0.27
 
 - Platform: Android
 - Selected license(s): MIT
-- POM SHA-256: `d35e1f71377a6c87c43547b21401f96bcd4cb7012788384bcf13ed3dedb30396`
-- Owning npm source: `expo-notifications@55.0.25`
+- POM SHA-256: `f919ebaa74955b87eb8b05fb3c94b424c409cab27dd646e99fb663bb4d498bdb`
+- Owning npm source: `expo-notifications@55.0.27`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
-### host.exp.exponent:expo.modules.securestore:55.0.16
+### host.exp.exponent:expo.modules.securestore:55.0.18
 
 - Platform: Android
 - Selected license(s): MIT
-- POM SHA-256: `6861d1b0f11b1b325baee46798c8c62892690db33f9eb5825979733c80e11b95`
-- Owning npm source: `expo-secure-store@55.0.16`
+- POM SHA-256: `15cca07640efaaea790f33c616299cdba6f5addfaae0ed1fc7047f8d0f335a49`
+- Owning npm source: `expo-secure-store@55.0.18`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
-### host.exp.exponent:expo.modules.webbrowser:55.0.18
+### host.exp.exponent:expo.modules.webbrowser:55.0.20
 
 - Platform: Android
 - Selected license(s): MIT
-- POM SHA-256: `227b53ad4572193199ee83a4ca129e633830b9fca4074b51a7b2b48000fe4949`
-- Owning npm source: `expo-web-browser@55.0.18`
+- POM SHA-256: `eecc9d5d4f38f27a39d0007b60ad92fc972e3f980c0ef3f295d9a972e67c3b97`
+- Owning npm source: `expo-web-browser@55.0.20`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
 ### io.github.hyochan.openiap:openiap-google:3.4.0
@@ -1675,7 +1683,7 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 
 - Platform: Android project
 - Selected license(s): MIT
-- Classified npm production source: `expo@55.0.28`
+- Classified npm production source: `expo@55.0.31`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
 ### gradle-project:::expo-constants
@@ -1703,7 +1711,7 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 
 - Platform: Android project
 - Selected license(s): MIT
-- Classified npm production source: `expo-modules-core@55.0.25`
+- Classified npm production source: `expo-modules-core@55.0.26`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
 ### gradle-project:::react-native-async-storage_async-storage
@@ -1747,6 +1755,13 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - Selected license(s): MIT
 - Classified npm production source: `react-native-gesture-handler@2.30.0`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `cf926c5c74ae12435b1cbe9be06ddf6cb10a0db5d9c03b089041bb30aae945f6`
+
+### gradle-project:::react-native-google-signin_google-signin
+
+- Platform: Android project
+- Selected license(s): MIT
+- Classified npm production source: `@react-native-google-signin/google-signin@16.1.2`
+- Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `f1a3c53ad33fb021326fcb7764df848688bd93f1a4d9e415d9d4ff01f4ca1b32`
 
 ### gradle-project:::react-native-image-picker
 
@@ -1820,6 +1835,18 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 
 ## Retained legal document catalog
 
+### 04caed11bcb1929847055fe6868c38489bd0b6d95957704d2a3aef4b56c0df7c
+
+Source(s): `commons-io:commons-io:2.6/commons-io-2.6.jar/META-INF/NOTICE.txt`
+
+```text
+Apache Commons IO
+Copyright 2002-2017 The Apache Software Foundation
+
+This product includes software developed at
+The Apache Software Foundation (http://www.apache.org/).
+```
+
 ### 212dbf14b113759356207347826f21ac3c81151943fdb89ce25da5dc6214831c
 
 Source(s): `npm:@react-native-async-storage/async-storage@2.2.0/LICENSE`, `npm:@react-native-clipboard/clipboard@1.16.3/LICENSE`, `npm:react-native-image-picker@8.2.1/LICENSE.md`
@@ -1846,18 +1873,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
-
-### 2180a3969e69f9e931d8e58da7bae5e604d6bec34fc5a4f40535505eed37c61e
-
-Source(s): `commons-io:commons-io:1.4/commons-io-1.4.jar/META-INF/NOTICE.txt`
-
-```text
-Apache Commons IO
-Copyright 2001-2008 The Apache Software Foundation
-
-This product includes software developed by
-The Apache Software Foundation (http://www.apache.org/).
 ```
 
 ### 219baa0f0ec67b168492214cafd8fb602c82d690105278b603f5c4568e20be00
@@ -1890,7 +1905,7 @@ SOFTWARE.
 
 ### 283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b
 
-Source(s): `canonical:Apache-2.0/node_modules/baseline-browser-mapping/LICENSE.txt`, `commons-codec:commons-codec:1.10/commons-codec-1.10.jar/META-INF/LICENSE.txt`, `commons-io:commons-io:1.4/commons-io-1.4.jar/META-INF/LICENSE.txt`
+Source(s): `canonical:Apache-2.0/node_modules/baseline-browser-mapping/LICENSE.txt`, `commons-codec:commons-codec:1.10/commons-codec-1.10.jar/META-INF/LICENSE.txt`, `commons-io:commons-io:2.6/commons-io-2.6.jar/META-INF/LICENSE.txt`
 
 ```text
 Apache License
@@ -2905,6 +2920,34 @@ Source(s): `npm:react-native-worklets@0.7.4/LICENSE`
 MIT License
 
 Copyright (c) 2024 nobody
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### f1a3c53ad33fb021326fcb7764df848688bd93f1a4d9e415d9d4ff01f4ca1b32
+
+Source(s): `npm:@react-native-google-signin/google-signin@16.1.2/LICENSE`
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2015 Apptailor
+
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
