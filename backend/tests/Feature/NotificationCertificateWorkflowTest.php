@@ -493,6 +493,81 @@ final class NotificationCertificateWorkflowTest extends TestCase
         );
     }
 
+    public function test_new_certificate_snapshots_the_locked_course_revision_not_a_stale_model(): void
+    {
+        $this->certificateDiskRoot = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'rokn-certificate-' . uniqid('', true);
+        File::ensureDirectoryExists($this->certificateDiskRoot);
+        config()->set('filesystems.disks.certificate-test', [
+            'driver' => 'local',
+            'root' => $this->certificateDiskRoot,
+            'url' => 'https://cdn.example.test/certificates',
+            'visibility' => 'public',
+        ]);
+        Storage::forgetDisk('certificate-test');
+        config()->set('certificate.disk', 'certificate-test');
+        config()->set('certificate.font_regular', resource_path('fonts/Cairo.ttf'));
+        config()->set('certificate.font_bold', resource_path('fonts/Cairo.ttf'));
+
+        $user = $this->user('certificate-revision@example.com');
+        $course = $this->course();
+        $projectId = DB::table('projects')->insertGetId([
+            'is_graduation_project' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $sectionId = (int) DB::table('course_sections')
+            ->where('course_id', $course->id)
+            ->value('id');
+        DB::table('course_sections')->where('id', $sectionId)->update([
+            'section_type' => 'project',
+            'sectionable_type' => \App\Models\Project::class,
+            'sectionable_id' => $projectId,
+        ]);
+        DB::table('course_enrollments')->insert([
+            'user_id' => $user->id,
+            'course_id' => $course->id,
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('student_section_progress')->insert([
+            'user_id' => $user->id,
+            'course_section_id' => $sectionId,
+            'is_completed' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('user_project_evaluations')->insert([
+            'user_id' => $user->id,
+            'project_id' => $projectId,
+            'passed' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        // This model still carries the old selection while the committed
+        // course revision has moved to the projects wording.
+        self::assertSame('completion', $course->certificate_text_template_key);
+        DB::table('courses')->where('id', $course->id)->update([
+            'certificate_text_template_key' => 'projects',
+            'updated_at' => now(),
+        ]);
+
+        $certificate = app(CertificateService::class)->generate(
+            $user,
+            $course,
+            \App\Models\Project::query()->findOrFail($projectId),
+            'طالب ركن'
+        );
+
+        self::assertNotNull($certificate);
+        self::assertSame('projects', $certificate->certificate_text_template_key);
+        self::assertSame(
+            'تقديرًا لإنجاز مشروعات كورس',
+            $certificate->certificate_text
+        );
+    }
+
     private function user(string $email): User
     {
         $id = DB::table('users')->insertGetId([
@@ -663,6 +738,7 @@ final class NotificationCertificateWorkflowTest extends TestCase
         Schema::create('course_sections', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('course_id');
+            $table->unsignedBigInteger('module_id')->nullable();
             $table->string('sectionable_type')->nullable();
             $table->unsignedBigInteger('sectionable_id')->nullable();
             $table->string('section_type')->nullable();

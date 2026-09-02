@@ -134,34 +134,24 @@ class CertificateService
 
         if (!$certificate) {
             // Create the DB record first so the public credential ID is stable
-            // across retries. The user row serializes this with account
-            // deletion, so an old request cannot create a credential after
-            // the account has been withdrawn.
+            // across retries. Lock the course before taking its editorial
+            // snapshot: a moderator may move it to draft or change the
+            // certificate wording while this request is waiting. The fresh,
+            // locked aggregate is the only version that may create a new
+            // credential. Lock the user first so issuance follows the same
+            // boundary as account deletion and financial reversal, then lock
+            // the editorial aggregate before reading its snapshot.
             try {
-                $createAttributes = [
-                    'public_id'    => (string) Str::uuid(),
-                    'user_id'      => $user->id,
-                    'course_id'    => $course->id,
-                    'project_id'   => $project?->id,
-                    'image_path'   => 'pending',
-                    'generated_at' => now(),
-                    'status'       => 'active',
-                ];
-                if ($supportsIdentitySnapshots) {
-                    $createAttributes['holder_name'] = $requestedHolderName;
-                    $createAttributes['course_name'] = $this->courseName($course);
-                }
-                if ($supportsVerificationLevel) {
-                    $createAttributes['verification_level'] = $verificationLevel;
-                }
-                if ($supportsTextSnapshots) {
-                    $createAttributes['certificate_text_template_key'] = $textTemplate['key'];
-                    $createAttributes['certificate_text'] = $textTemplate['text'];
-                }
                 $certificate = DB::transaction(function () use (
                     $user,
-                    $course,
-                    $createAttributes
+                    &$course,
+                    $project,
+                    $requestedHolderName,
+                    $supportsIdentitySnapshots,
+                    $supportsVerificationLevel,
+                    $supportsTextSnapshots,
+                    &$verificationLevel,
+                    &$textTemplate
                 ): ?Certificate {
                     $lockedUser = User::query()
                         ->whereKey($user->id)
@@ -171,9 +161,46 @@ class CertificateService
                         return null;
                     }
 
+                    $lockedCourse = Course::query()
+                        ->whereKey($course->id)
+                        ->lockForUpdate()
+                        ->first();
+                    if (
+                        !$lockedCourse
+                        || !$lockedCourse->isPublishedForLearning()
+                        || $lockedCourse->isNestedCourse()
+                        || !$this->eligibility->for($lockedUser, $lockedCourse)['available']
+                    ) {
+                        return null;
+                    }
+
+                    $course = $lockedCourse;
+                    $verificationLevel = $this->verificationLevel($lockedUser, $lockedCourse);
+                    $textTemplate = $this->textTemplateForCourse($lockedCourse);
+                    $createAttributes = [
+                        'public_id'    => (string) Str::uuid(),
+                        'user_id'      => $lockedUser->id,
+                        'course_id'    => $lockedCourse->id,
+                        'project_id'   => $project?->id,
+                        'image_path'   => 'pending',
+                        'generated_at' => now(),
+                        'status'       => 'active',
+                    ];
+                    if ($supportsIdentitySnapshots) {
+                        $createAttributes['holder_name'] = $requestedHolderName;
+                        $createAttributes['course_name'] = $this->courseName($lockedCourse);
+                    }
+                    if ($supportsVerificationLevel) {
+                        $createAttributes['verification_level'] = $verificationLevel;
+                    }
+                    if ($supportsTextSnapshots) {
+                        $createAttributes['certificate_text_template_key'] = $textTemplate['key'];
+                        $createAttributes['certificate_text'] = $textTemplate['text'];
+                    }
+
                     return Certificate::query()
                         ->where('user_id', $lockedUser->id)
-                        ->where('course_id', $course->id)
+                        ->where('course_id', $lockedCourse->id)
                         ->first()
                         ?: Certificate::create($createAttributes);
                 }, 3);
