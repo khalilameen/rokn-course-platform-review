@@ -178,15 +178,15 @@
                         </h6>
                         <div class="amount-row">
                             <span class="amount-label">المبلغ الأساسي:</span>
-                            <span class="amount-value">{{ number_format($bill->amount, 2) }} جنيه</span>
+                            <span class="amount-value">{{ number_format($bill->amount, $bill->isCoinDenominated() ? 0 : 2) }} {{ $bill->amountUnitLabel() }}</span>
                         </div>
                         <div class="amount-row">
                             <span class="amount-label">مبلغ الضريبة:</span>
-                            <span class="amount-value">{{ number_format($bill->tax_amount, 2) }} جنيه</span>
+                            <span class="amount-value">{{ number_format($bill->tax_amount, $bill->isCoinDenominated() ? 0 : 2) }} {{ $bill->amountUnitLabel() }}</span>
                         </div>
                         <div class="amount-row total">
                             <span class="amount-label">المجموع الإجمالي:</span>
-                            <span class="amount-value">{{ number_format($bill->total_amount, 2) }} جنيه</span>
+                            <span class="amount-value">{{ number_format($bill->total_amount, $bill->isCoinDenominated() ? 0 : 2) }} {{ $bill->amountUnitLabel() }}</span>
                         </div>
                     </div>
                 </div>

@@ -62,9 +62,10 @@ final class PublicPortfolioService
             return null;
         }
         if ($this->isRevoked($certificate)) {
-            return $certificate->user
-                ? $this->limitedVerificationPayload($certificate)
-                : null;
+            // A deleted account removes the holder identity and artifact, but
+            // the random credential URL must continue to say “revoked” rather
+            // than becoming indistinguishable from an unknown/forged ID.
+            return $this->limitedVerificationPayload($certificate);
         }
         if (
             !$this->isActive($certificate)
@@ -99,16 +100,13 @@ final class PublicPortfolioService
         if (
             $slug === ''
             || strlen($slug) > 100
-            || !preg_match('/^[a-z0-9-]+$/', $slug)
+            || !$this->shareIdentity->isValidUnlistedSlug($slug)
         ) {
             return null;
         }
 
         $user = User::query()->where('portfolio_slug', $slug)->first();
-        if (
-            !$user
-            || $this->shareIdentity->isPredictableLegacySlug($slug, (int) $user->id)
-        ) {
+        if (!$user) {
             return null;
         }
 
@@ -362,7 +360,7 @@ final class PublicPortfolioService
             'certificates' => [],
             'highlighted_certificate' => [
                 'id' => null,
-                'certificate_id' => null,
+                'certificate_id' => (string) $certificate->public_id,
                 'public_id' => (string) $certificate->public_id,
                 'holder_name' => $holderName,
                 'course_name' => $courseName,

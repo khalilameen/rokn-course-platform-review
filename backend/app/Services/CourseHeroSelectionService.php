@@ -21,6 +21,10 @@ final class CourseHeroSelectionService
             /** @var Collection<int, Course> $rootCourses */
             $rootCourses = Course::query()
                 ->whereNull('parent_id')
+                // Drafts and retained archives are implementation copies, not
+                // public hero candidates. Touching one here would silently
+                // overwrite an unrelated moderator's pending selection.
+                ->whereNotIn('id', CourseAuthoringRevision::query()->select('revision_course_id'))
                 ->orderBy('id')
                 ->lockForUpdate()
                 ->get([

@@ -24,6 +24,7 @@
     @unless($contact->read)
         <form method="POST" action="{{ route('admin.contacts.read', $contact) }}" class="mb-3">
             @csrf
+            <input type="hidden" name="editor_version" value="{{ $editorVersion }}">
             <button class="btn-rokn btn-muted-rokn" type="submit">تحديد كمقروءة</button>
         </form>
     @endunless
@@ -88,6 +89,7 @@
                         <p>سجّل أن أحد أفراد الفريق استلم الطلب وبدأ التحقق منه.</p>
                         <form method="POST" action="{{ route('admin.contacts.processing', $contact) }}">
                             @csrf
+                            <input type="hidden" name="editor_version" value="{{ $editorVersion }}">
                             <button class="btn-rokn btn-primary-rokn" type="submit" {{ $contact->isProcessing() ? 'disabled' : '' }}>
                                 {{ $contact->isProcessing() ? 'الطلب قيد المعالجة' : 'بدء المعالجة' }}
                             </button>
@@ -99,6 +101,7 @@
                             <p>استخدم هذا المسار فقط إذا تعذر على صاحب الحساب الدخول إلى التطبيق وتم التحقق من هويته.</p>
                             <form method="POST" action="{{ route('admin.contacts.execute-account-deletion', $contact) }}">
                                 @csrf
+                                <input type="hidden" name="editor_version" value="{{ $editorVersion }}">
                                 <input name="account_email" type="email" dir="ltr" autocomplete="off" placeholder="اكتب بريد الحساب للتأكيد" required>
                                 <textarea name="verification_note" minlength="8" maxlength="500" placeholder="كيف تحققت من صاحب الحساب؟" required>{{ old('verification_note') }}</textarea>
                                 <label class="confirm-row"><input type="checkbox" name="confirm_identity" value="1" required><span>تحققت من أن مقدم الطلب هو صاحب الحساب</span></label>
@@ -111,6 +114,7 @@
                         <h3>إغلاق الطلب بعد المراجعة</h3>
                         <form method="POST" action="{{ route('admin.contacts.close-deletion-request', $contact) }}">
                             @csrf
+                            <input type="hidden" name="editor_version" value="{{ $editorVersion }}">
                             <select name="outcome" required>
                                 <option value="">اختر النتيجة</option>
                                 @foreach($outcomeLabels as $value => $label)<option value="{{ $value }}" {{ old('outcome') === $value ? 'selected' : '' }}>{{ $label }}</option>@endforeach
@@ -131,6 +135,7 @@
                 <a class="btn-rokn btn-primary-rokn" href="mailto:{{ $contact->email }}">الرد عبر البريد</a>
                 <form method="POST" action="{{ route('admin.contacts.destroy', $contact) }}" onsubmit="return confirm('هل تريد حذف هذه الرسالة؟')">
                     @csrf @method('DELETE')
+                    <input type="hidden" name="editor_version" value="{{ $editorVersion }}">
                     <button class="btn-rokn btn-danger-rokn" type="submit">حذف الرسالة</button>
                 </form>
             </div>

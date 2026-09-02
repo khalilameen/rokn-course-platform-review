@@ -148,34 +148,37 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
         ->middleware('admin.only')->name('courses.commercial-report.export');
     Route::post('courses/{courseId}/restore', 'CourseController@restore')
         ->whereNumber('courseId')->middleware('admin.only')->name('courses.restore');
+    Route::resource('courses', 'CourseController')->only(['create', 'store']);
     Route::resource('courses', 'CourseController')
-        ->only(['create', 'store', 'edit', 'update']);
+        ->only(['edit', 'update'])->middleware('course.draft');
     Route::resource('courses', 'CourseController')
         ->only(['destroy'])
         ->middleware('admin.only');
     Route::resource('courses', 'CourseController')->only(['index', 'show']);
+    Route::get('courses/{course}/student-preview', 'CourseController@studentPreview')
+        ->middleware('course.draft')->name('courses.student-preview');
     Route::post('courses/{course}/media-health/probe', 'MediaHealthController@probeCourse')
-        ->name('courses.media-health.probe');
+        ->middleware('course.draft')->name('courses.media-health.probe');
 
     // Course Sections routes
-    Route::post('courses/{course}/sections/reorder', 'CourseSectionController@reorder')->name('courses.sections.reorder');
+    Route::post('courses/{course}/sections/reorder', 'CourseSectionController@reorder')->middleware('course.draft')->name('courses.sections.reorder');
     Route::post('courses/{course}/sections/video-uploads', 'CourseSectionVideoUploadController@store')
-        ->middleware('throttle:10,1')->name('courses.sections.video-uploads.store');
+        ->middleware(['course.draft', 'throttle:10,1'])->name('courses.sections.video-uploads.store');
     Route::post('courses/{course}/sections/video-uploads/renew', 'CourseSectionVideoUploadController@renew')
-        ->middleware('throttle:60,1')->name('courses.sections.video-uploads.renew');
-    Route::resource('courses.sections', 'CourseSectionController');
+        ->middleware(['course.draft', 'throttle:60,1'])->name('courses.sections.video-uploads.renew');
+    Route::resource('courses.sections', 'CourseSectionController')->middleware('course.draft');
 
     // Course Modules routes
-    Route::post('courses/{course}/modules/reorder', 'CourseModuleController@reorder')->name('courses.modules.reorder');
-    Route::resource('courses.modules', 'CourseModuleController')->except(['index', 'show']);
+    Route::post('courses/{course}/modules/reorder', 'CourseModuleController@reorder')->middleware('course.draft')->name('courses.modules.reorder');
+    Route::resource('courses.modules', 'CourseModuleController')->except(['index', 'show'])->middleware('course.draft');
     Route::post('attachments', 'AttachmentController@store')->name('attachments.store');
     Route::delete('attachments/{attachment}', 'AttachmentController@destroy')->name('attachments.destroy');
 
     // Course PDFs routes
-    Route::post('courses/{course}/pdfs/reorder', 'CoursePdfController@reorder')->name('courses.pdfs.reorder');
-    Route::post('courses/{course}/pdfs/{pdf}/toggle-status', 'CoursePdfController@toggleStatus')->name('courses.pdfs.toggle-status');
-    Route::get('courses/{course}/pdfs/{pdf}/preview', 'CoursePdfController@preview')->name('courses.pdfs.preview');
-    Route::resource('courses.pdfs', 'CoursePdfController')->except(['show']);
+    Route::post('courses/{course}/pdfs/reorder', 'CoursePdfController@reorder')->middleware('course.draft')->name('courses.pdfs.reorder');
+    Route::post('courses/{course}/pdfs/{pdf}/toggle-status', 'CoursePdfController@toggleStatus')->middleware('course.draft')->name('courses.pdfs.toggle-status');
+    Route::get('courses/{course}/pdfs/{pdf}/preview', 'CoursePdfController@preview')->middleware('course.draft')->name('courses.pdfs.preview');
+    Route::resource('courses.pdfs', 'CoursePdfController')->except(['show'])->middleware('course.draft');
 
     Route::post('quizzes/{quiz}/copy', 'QuizController@copy')->name('quizzes.copy');
 

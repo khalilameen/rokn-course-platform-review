@@ -8,7 +8,6 @@ use App\Models\CoinEarningMethod;
 use App\Models\User;
 use App\Models\UserCoinTaskAttempt;
 use App\Models\UserWhatsAppConnection;
-use App\Models\WalletTransaction;
 use App\Models\WhatsAppLinkToken;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -17,8 +16,10 @@ final readonly class WhatsAppLinkService
 {
     private const TOKEN_PREFIX = 'ROKN_LINK_';
 
-    public function __construct(private WalletService $wallet)
-    {
+    public function __construct(
+        private WalletService $wallet,
+        private AcquisitionRewardTombstoneService $rewardTombstones
+    ) {
     }
 
     /** @return array<string, mixed> */
@@ -72,12 +73,11 @@ final readonly class WhatsAppLinkService
                 return ['claimed' => true, 'attempt' => $attempt];
             }
 
-            WhatsAppLinkToken::query()
-                ->where('user_id', $lockedUser->id)
-                ->where('coin_earning_method_id', $lockedMethod->id)
-                ->whereNull('consumed_at')
-                ->update(['consumed_at' => now()]);
-
+            // Keep earlier unexpired links usable. A rapid second tap can race
+            // the already-open WhatsApp composer; invalidating the first link
+            // here made the exact message visible to the learner stop working.
+            // The user aggregate and wallet idempotency key serialize whichever
+            // valid link reaches us first.
             WhatsAppLinkToken::query()->create([
                 'user_id' => $lockedUser->id,
                 'coin_earning_method_id' => $lockedMethod->id,
@@ -107,7 +107,7 @@ final readonly class WhatsAppLinkService
         ];
     }
 
-    /** @return array{matched:bool,already_claimed:bool,user:?User,coins:int,balance:int} */
+    /** @return array{matched:bool,already_claimed:bool,user:?User,coins:int,earned_coins:int,balance:int,reward_deferred:bool,reward_unavailable:bool} */
     public function consumeInbound(string $sender, string $message): array
     {
         $rawToken = $this->extractToken($message);
@@ -129,25 +129,68 @@ final readonly class WhatsAppLinkService
             /** @var User $user */
             $user = User::query()->lockForUpdate()->findOrFail($link->user_id);
             /** @var CoinEarningMethod $method */
-            $method = CoinEarningMethod::query()->findOrFail($link->coin_earning_method_id);
+            // A link may arrive after the dashboard retires its campaign.
+            // The verified inbound message must still connect the number and
+            // consume the one-time token rather than making the webhook retry
+            // forever because the method is now soft-deleted.
+            $method = CoinEarningMethod::withTrashed()->findOrFail($link->coin_earning_method_id);
             if ($method->total_claim_limit !== null) {
-                $method = CoinEarningMethod::query()
+                $method = CoinEarningMethod::withTrashed()
                     ->lockForUpdate()
                     ->findOrFail($method->id);
             }
 
             if ($link->consumed_at) {
-                $alreadyClaimed = $user->coinEarnings()
+                // consumed_at was also used by older releases to invalidate a
+                // superseded link. Only a token carrying the same verified
+                // sender is a real inbound replay.
+                $linkedPhone = trim((string) $link->sender_phone_e164);
+                if ($linkedPhone === '' || !hash_equals($linkedPhone, $phone)) {
+                    return $this->unmatched();
+                }
+
+                $earning = $user->coinEarnings()
                     ->where('coin_earning_method_id', $method->id)
-                    ->exists();
+                    ->first();
+                $alreadyClaimed = $earning !== null
+                    || UserCoinTaskAttempt::query()
+                        ->where('user_id', $user->id)
+                        ->where('coin_earning_method_id', $method->id)
+                        ->where('status', UserCoinTaskAttempt::STATUS_CLAIMED)
+                        ->exists();
+                $rewardKey = $this->rewardTombstones->rewardKeyForMethod($method);
+                $alreadyClaimed = $alreadyClaimed || ($rewardKey !== null
+                    && $this->rewardTombstones->identityHasConsumed('whatsapp', $phone, $rewardKey));
 
                 return [
                     'matched' => true,
                     'already_claimed' => $alreadyClaimed,
                     'user' => $user,
                     'coins' => 0,
+                    // Allows the idempotent notification receipt to be repaired
+                    // if the first webhook committed the wallet credit but the
+                    // HTTP process stopped before enqueueing its push.
+                    'earned_coins' => (int) ($earning?->amount ?? 0),
                     'balance' => (int) $user->wallet_coins,
+                    'reward_deferred' => false,
+                    'reward_unavailable' => false,
                 ];
+            }
+
+            $connection = UserWhatsAppConnection::query()
+                ->where('user_id', $user->id)
+                ->lockForUpdate()
+                ->first();
+            if (
+                $connection?->verified_at
+                && !hash_equals((string) $connection->phone_e164, $phone)
+            ) {
+                // Multiple composers may be open after a double tap. Once one
+                // number has proved ownership, a late sibling token must never
+                // silently replace it with the sender of the stale composer.
+                $link->forceFill(['consumed_at' => now()])->save();
+
+                return $this->unmatched();
             }
 
             if (UserWhatsAppConnection::query()
@@ -157,7 +200,7 @@ final readonly class WhatsAppLinkService
                 throw new \DomainException('whatsapp_phone_in_use');
             }
 
-            $connection = UserWhatsAppConnection::query()->firstOrNew(['user_id' => $user->id]);
+            $connection ??= new UserWhatsAppConnection(['user_id' => $user->id]);
             $connection->forceFill([
                 'phone_e164' => $phone,
                 'declared_at' => $connection->declared_at ?? now(),
@@ -181,14 +224,20 @@ final readonly class WhatsAppLinkService
                     'started_at' => now(),
                 ]
             );
+            $rewardKey = $this->rewardTombstones->rewardKeyForMethod($method);
+            $identityAlreadyConsumed = $rewardKey !== null
+                && $this->rewardTombstones->identityHasConsumed('whatsapp', $phone, $rewardKey);
             $alreadyClaimed = $earning !== null
-                || $attempt->status === UserCoinTaskAttempt::STATUS_CLAIMED;
+                || $attempt->status === UserCoinTaskAttempt::STATUS_CLAIMED
+                || $identityAlreadyConsumed;
             $rewardAvailable = $method->isAvailableNow() && $method->hasClaimCapacity();
             $coins = 0;
+            $earnedCoins = (int) ($earning?->amount ?? 0);
             $balance = (int) $user->wallet_coins;
+            $rewardDeferred = false;
 
             if (!$alreadyClaimed && $rewardAvailable) {
-                $transaction = $this->wallet->credit(
+                $transaction = $this->wallet->creditRewardWithinConfiguredCap(
                     $user->id,
                     (int) $method->coins_amount,
                     'task_reward',
@@ -199,23 +248,37 @@ final readonly class WhatsAppLinkService
                         'campaign_key' => $method->campaign_key,
                         'verified_by' => 'whatsapp_inbound',
                         'reward_timezone' => \App\Support\BusinessClock::timezoneName(),
-                    ],
-                    WalletTransaction::BUCKET_REWARD
+                    ]
                 );
-                $user->coinEarnings()->firstOrCreate(
-                    ['coin_earning_method_id' => $method->id],
-                    ['amount' => $method->coins_amount]
-                );
+                if ($transaction) {
+                    $user->coinEarnings()->firstOrCreate(
+                        ['coin_earning_method_id' => $method->id],
+                        ['amount' => $transaction->amount]
+                    );
+                    $attempt->forceFill([
+                        'status' => UserCoinTaskAttempt::STATUS_CLAIMED,
+                        'claim_available_at' => now(),
+                        'claimed_at' => now(),
+                        'metadata' => array_merge((array) $attempt->metadata, [
+                            'verification' => 'whatsapp_inbound',
+                        ]),
+                    ])->save();
+                    $coins = (int) $transaction->amount;
+                    $earnedCoins = $coins;
+                    $balance = (int) $transaction->balance_after;
+                } else {
+                    $rewardDeferred = true;
+                }
+            } elseif ($identityAlreadyConsumed && $attempt->status !== UserCoinTaskAttempt::STATUS_CLAIMED) {
                 $attempt->forceFill([
                     'status' => UserCoinTaskAttempt::STATUS_CLAIMED,
                     'claim_available_at' => now(),
                     'claimed_at' => now(),
                     'metadata' => array_merge((array) $attempt->metadata, [
                         'verification' => 'whatsapp_inbound',
+                        'reward_suppressed' => 'identity_already_consumed',
                     ]),
                 ])->save();
-                $coins = (int) $method->coins_amount;
-                $balance = (int) $transaction->balance_after;
             }
 
             $link->forceFill([
@@ -228,7 +291,10 @@ final readonly class WhatsAppLinkService
                 'already_claimed' => $alreadyClaimed,
                 'user' => $user->fresh(),
                 'coins' => $coins,
+                'earned_coins' => $earnedCoins,
                 'balance' => $balance,
+                'reward_deferred' => $rewardDeferred,
+                'reward_unavailable' => !$alreadyClaimed && !$rewardAvailable,
             ];
         });
     }
@@ -264,7 +330,7 @@ final readonly class WhatsAppLinkService
         return preg_match('/^[1-9][0-9]{9,14}$/', $digits) ? '+' . $digits : null;
     }
 
-    /** @return array{matched:false,already_claimed:false,user:null,coins:0,balance:0} */
+    /** @return array{matched:false,already_claimed:false,user:null,coins:0,earned_coins:0,balance:0,reward_deferred:false,reward_unavailable:false} */
     private function unmatched(): array
     {
         return [
@@ -272,7 +338,10 @@ final readonly class WhatsAppLinkService
             'already_claimed' => false,
             'user' => null,
             'coins' => 0,
+            'earned_coins' => 0,
             'balance' => 0,
+            'reward_deferred' => false,
+            'reward_unavailable' => false,
         ];
     }
 }

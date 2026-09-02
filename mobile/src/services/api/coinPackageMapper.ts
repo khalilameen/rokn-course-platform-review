@@ -41,7 +41,8 @@ export const mapCoinPackages = (
     }
     return item.channels?.apple !== false && Boolean(item.store_products?.apple);
   });
-  const packages = eligible.flatMap(item => {
+  const seenIds = new Set<string>();
+  const malformed = eligible.some(item => {
     const id = String(item.id ?? '').trim();
     const coins = nonNegativeNumber(item.coins);
     const price = nonNegativeNumber(
@@ -49,10 +50,31 @@ export const mapCoinPackages = (
         ? item.direct_price ?? item.price
         : item.price,
     );
-    if (!id || coins === null || coins <= 0 || price === null || price <= 0) {
-      return [];
+    if (
+      !id ||
+      seenIds.has(id) ||
+      coins === null ||
+      coins <= 0 ||
+      price === null ||
+      price <= 0
+    ) {
+      return true;
     }
-    return [{
+    seenIds.add(id);
+    return false;
+  });
+  if (malformed) {
+    throw new Error(invalidContractCode);
+  }
+  const packages = eligible.map(item => {
+    const id = String(item.id).trim();
+    const coins = Number(item.coins);
+    const price = Number(
+      DISTRIBUTION_CHANNEL === 'direct'
+        ? item.direct_price ?? item.price
+        : item.price,
+    );
+    return {
       id,
       coins,
       price,
@@ -69,11 +91,8 @@ export const mapCoinPackages = (
           ? String(item.store_products.apple)
           : undefined,
       },
-    }];
+    };
   });
-  if (eligible.length > 0 && packages.length === 0) {
-    throw new Error(invalidContractCode);
-  }
 
   return packages;
 };

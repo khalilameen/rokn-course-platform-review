@@ -58,7 +58,7 @@ export const socialAuthFailureCode = (error: unknown): string => {
 };
 
 export const socialAuthMessage = (code: string): string => {
-  if (code === 'LOGIN_CANCELLED') return '';
+  if (code === 'LOGIN_CANCELLED' || code === 'LOGIN_RESUMING') return '';
   if (code === 'PROVIDER_NOT_CONFIGURED') {
     return 'طريقة الدخول غير متاحة الآن\nاختر طريقة أخرى';
   }

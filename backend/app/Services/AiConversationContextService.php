@@ -9,11 +9,11 @@ use App\Models\CourseChatTurn;
 use App\Models\ProjectFeedbackMessage;
 use App\Models\ProjectFeedbackThread;
 use App\Models\User;
+use App\Support\DatabaseCapabilities;
 use App\Support\UnicodeText;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 
 /**
  * Durable extractive memory without a second, unmetered model request.
@@ -108,7 +108,7 @@ final class AiConversationContextService
         string $focus,
         ?Carbon $expiresAt
     ): string {
-        if (!Schema::hasTable('ai_conversation_contexts')) return '';
+        if (!DatabaseCapabilities::hasTable('ai_conversation_contexts')) return '';
 
         $entries = DB::transaction(function () use (
             $userId,

@@ -6,7 +6,10 @@
 @php
     $section = optional($submission->project)->section;
     $course = optional($section)->course;
-    $history = data_get($submission->submission_metadata, 'review_history', []);
+    // The append-only decision ledger is the audit source of truth. The JSON
+    // copy is deliberately capped and can be scrubbed during account deletion.
+    $history = $submission->reviewDecisions;
+    $latestDecision = $history->last();
 @endphp
 
 <div class="admin-page animated fadeIn">
@@ -126,13 +129,18 @@
                     <div class="admin-detail-label">المراجع</div><div class="admin-detail-value mb-3">{{ optional($submission->reviewer)->name ?: 'مراجعة آلية / غير محدد' }}</div>
                     <div class="admin-detail-label">وقت القرار</div><div class="admin-detail-value mb-3">{{ $submission->reviewed_at ? \App\Support\BusinessClock::format($submission->reviewed_at, 'Y-m-d H:i:s') : '—' }}</div>
                     <div class="admin-detail-label">النتيجة</div><div class="admin-detail-value mb-3">{{ $submission->score !== null ? $submission->score . '/100' : '—' }}</div>
-                    <div class="admin-detail-label">الملاحظة المسجلة</div><div class="mb-3">{{ $submission->feedback ?: '—' }}</div>
-                    @if(is_array($history) && count($history))
+                    <div class="admin-detail-label">الملاحظة المسجلة</div><div class="mb-3">{{ $latestDecision?->feedback ?: ($submission->feedback ?: '—') }}</div>
+                    @if($history->isNotEmpty())
                         <hr>
-                        @foreach(array_reverse($history) as $item)
+                        @foreach($history->sortByDesc('sequence') as $item)
                             <div class="admin-audit-item">
-                                @include('admin.partials.status-badge', ['badgeStatus' => $item['status'] ?? 'unknown'])
-                                <br><small class="text-muted">{{ $item['source'] ?? 'unknown' }} · {{ $item['reviewed_at'] ?? '—' }}</small>
+                                @include('admin.partials.status-badge', ['badgeStatus' => $item->status ?: 'unknown'])
+                                @if($item->feedback)<div class="mt-2">{{ $item->feedback }}</div>@endif
+                                <small class="text-muted">
+                                    {{ $item->source ?: 'unknown' }}
+                                    @if($item->reviewer) · {{ $item->reviewer->name }} @endif
+                                    · {{ $item->decided_at ? \App\Support\BusinessClock::format($item->decided_at, 'Y-m-d H:i:s') : '—' }}
+                                </small>
                             </div>
                         @endforeach
                     @endif

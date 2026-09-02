@@ -27,13 +27,16 @@ final readonly class KashierNotificationFlowService
             $this->kashier,
             $params
         );
+        $hasSignatureCandidate = $this->hasSignatureCandidate($request, $params);
 
         $orderRef = $params['merchantOrderId']
             ?? $params['orderId']
             ?? $params['merchant_order_id']
             ?? $params['order_ref']
             ?? null;
-        $paymentStatus = strtoupper((string) ($params['paymentStatus'] ?? $params['status'] ?? 'FAILURE'));
+        $paymentStatus = strtoupper(trim((string) (
+            $params['paymentStatus'] ?? $params['status'] ?? 'FAILURE'
+        )));
         $transactionId = $this->payments->normalizeTransactionId(
             $params['transactionId'] ?? $params['transaction_id'] ?? null
         );
@@ -52,10 +55,13 @@ final readonly class KashierNotificationFlowService
             'order_ref' => $orderRef,
             'payment_status' => $paymentStatus,
             'transaction_id' => $transactionId,
-            'has_signature' => isset($params['signature']),
+            'has_signature' => $hasSignatureCandidate,
         ]);
 
-        if (!$this->payments->isCaptureNotificationStatus($paymentStatus) && empty($params['signature'])) {
+        if (
+            !$this->payments->isCaptureNotificationStatus($paymentStatus)
+            && !$hasSignatureCandidate
+        ) {
             return $this->handleUnsignedCallbackFailure(
                 $params,
                 $orderRef,
@@ -183,13 +189,16 @@ final readonly class KashierNotificationFlowService
             $this->kashier,
             $params
         );
+        $hasSignatureCandidate = $this->hasSignatureCandidate($request, $params);
 
         $orderRef = $params['merchantOrderId']
             ?? $params['orderId']
             ?? $params['merchant_order_id']
             ?? $params['order_ref']
             ?? null;
-        $paymentStatus = strtoupper((string) ($params['paymentStatus'] ?? $params['status'] ?? 'FAILURE'));
+        $paymentStatus = strtoupper(trim((string) (
+            $params['paymentStatus'] ?? $params['status'] ?? 'FAILURE'
+        )));
         $transactionId = $this->payments->normalizeTransactionId(
             $params['transactionId'] ?? $params['transaction_id'] ?? null
         );
@@ -210,10 +219,13 @@ final readonly class KashierNotificationFlowService
             'order_ref' => $orderRef,
             'payment_status' => $paymentStatus,
             'transaction_id' => $transactionId,
-            'has_signature' => isset($params['signature']),
+            'has_signature' => $hasSignatureCandidate,
         ]);
 
-        if (!$this->payments->isCaptureNotificationStatus($paymentStatus) && !isset($params['signature'])) {
+        if (
+            !$this->payments->isCaptureNotificationStatus($paymentStatus)
+            && !$hasSignatureCandidate
+        ) {
             Log::warning('Kashier webhook: unsigned failure notification', [
                 'order_ref' => $orderRef,
                 'payment_status' => $paymentStatus,
@@ -534,5 +546,27 @@ final readonly class KashierNotificationFlowService
         return $order->status === Order::STATUS_APPROVED
             && $order->financial_status === Order::FINANCIAL_SETTLED
             && $order->reversed_at === null;
+    }
+
+    /** @param array<string, mixed> $params */
+    private function hasSignatureCandidate(Request $request, array $params): bool
+    {
+        foreach ([
+            $request->header('x-kashier-signature'),
+            $request->header('kashier-signature'),
+            $request->header('signature'),
+            $params['kashierSignature'] ?? null,
+            $params['signature'] ?? null,
+            $params['hash'] ?? null,
+            data_get($params, 'data.kashierSignature'),
+            data_get($params, 'data.signature'),
+            data_get($params, 'data.hash'),
+        ] as $candidate) {
+            if (is_scalar($candidate) && trim((string) $candidate) !== '') {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

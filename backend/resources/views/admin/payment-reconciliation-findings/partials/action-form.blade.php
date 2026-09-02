@@ -1,6 +1,11 @@
 <form method="POST" action="{{ $actionRoute }}" class="admin-review-action mb-3">
     @csrf
     @method('PATCH')
+    <input
+        type="hidden"
+        name="editor_version"
+        value="{{ $editorVersions[$finding->getKey()] }}"
+    >
     <div class="form-group mb-2">
         <label for="{{ $noteId }}" class="sr-only">{{ $noteLabel }}</label>
         <textarea

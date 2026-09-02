@@ -8,7 +8,6 @@ import {publicRequest} from '../../../constants/api';
 import {
   assertAccountSessionBoundary,
   captureAccountSessionBoundary,
-  getCurrentAccountStorageScope,
   type AccountSessionBoundary,
 } from '../../../constants/helpers';
 import {requireProductFeature} from '../../../services/productFeatures';
@@ -23,7 +22,6 @@ import {
 } from '../playbackTelemetry';
 import {
   isWatchHistoryEnabled,
-  updatePlayerState,
   updatePlayerStateForScope,
 } from './persistence';
 import {qualityOptions, qualitySources, valueAsString} from './shared';
@@ -54,12 +52,108 @@ type PendingWatchHistory = {
 const pendingWatchHistory = new Map<string, PendingWatchHistory>();
 const watchHistoryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const watchHistoryFlights = new Map<string, Promise<void>>();
+const watchEvidenceWriteQueues = new Map<string, Promise<void>>();
 const watchHistoryLastSyncedAt = new Map<string, number>();
 const playbackSequences = new Map<string, number>();
 const playbackRequestQueues = new Map<string, Promise<unknown>>();
 const sectionCompletionFlights = new Map<string, Promise<boolean>>();
 const MAX_RECENT_WATCH_SYNC_KEYS = 128;
 let playbackRuntimeGeneration = 0;
+
+export type CourseRevisionChange = {
+  courseId: string;
+  sourceLessonId?: string;
+  currentLessonId?: string;
+  currentSectionId?: string;
+};
+
+const courseRevisionListeners = new Set<
+  (change: CourseRevisionChange) => void
+>();
+
+export const subscribeCourseRevisionChanges = (
+  listener: (change: CourseRevisionChange) => void,
+) => {
+  courseRevisionListeners.add(listener);
+  return () => {
+    courseRevisionListeners.delete(listener);
+  };
+};
+
+const publishCourseRevisionChange = (
+  response: unknown,
+  sourceLessonId?: string,
+) => {
+  const candidate = response as {
+    data?: Record<string, unknown>;
+    response?: {data?: Record<string, unknown>};
+  };
+  const envelope = candidate?.response?.data || candidate?.data;
+  const raw = (envelope?.data || envelope) as
+    | Record<string, unknown>
+    | undefined;
+  const revisionChanged =
+    raw?.course_revision_changed === true ||
+    String(envelope?.code || '').toLowerCase() === 'course_revision_changed';
+  if (!revisionChanged || !raw) return;
+  const courseId = String(raw.course_id || '').trim();
+  if (!courseId) return;
+  const change: CourseRevisionChange = {
+    courseId,
+    ...(sourceLessonId ? {sourceLessonId} : {}),
+    ...(raw.current_lesson_id !== null &&
+    raw.current_lesson_id !== undefined
+      ? {currentLessonId: String(raw.current_lesson_id)}
+      : {}),
+    ...(raw.current_section_id !== null &&
+    raw.current_section_id !== undefined
+      ? {currentSectionId: String(raw.current_section_id)}
+      : {}),
+  };
+  courseRevisionListeners.forEach(listener => {
+    try {
+      listener(change);
+    } catch {
+      // A screen observer must never turn a committed heartbeat into a retry.
+    }
+  });
+};
+
+const isPendingWatchHistory = (
+  value: unknown,
+): value is PendingWatchHistory => {
+  const pending = value as Partial<PendingWatchHistory> | null;
+  return Boolean(
+    pending &&
+      Number.isFinite(pending.lessonId) &&
+      Number.isFinite(pending.positionSeconds) &&
+      typeof pending.completed === 'boolean',
+  );
+};
+
+const mergePendingWatchHistory = (
+  previous: PendingWatchHistory | undefined,
+  next: PendingWatchHistory,
+): PendingWatchHistory =>
+  previous?.completed
+    ? previous
+    : {
+        ...next,
+        positionSeconds: Math.max(
+          previous?.positionSeconds || 0,
+          next.positionSeconds,
+        ),
+        durationSeconds:
+          Math.max(
+            previous?.durationSeconds || 0,
+            next.durationSeconds || 0,
+          ) || undefined,
+        completed: previous?.completed === true || next.completed,
+        eventType:
+          previous?.completed === true || next.completed
+            ? 'complete'
+            : next.eventType,
+      };
 
 export type PlaybackEvidenceContext = {
   playbackSessionId?: string;
@@ -111,22 +205,35 @@ const localDeadlineFromTtl = (value: unknown): string | undefined => {
 const watchEvidenceStorageKey = (key: string) =>
   `${WATCH_EVIDENCE_PREFIX}:${key}`;
 
-const hydratePendingWatchEvidence = async () => {
-  const scopePrefix = `${WATCH_EVIDENCE_PREFIX}:${await getCurrentAccountStorageScope()}:`;
+const assertWatchHistoryOwner = (
+  generation: number,
+  boundary: AccountSessionBoundary,
+) => {
+  if (generation !== playbackRuntimeGeneration) {
+    throw new Error('ACCOUNT_SESSION_CHANGED');
+  }
+  assertAccountSessionBoundary(boundary);
+};
+
+const hydratePendingWatchEvidence = async (
+  boundary: AccountSessionBoundary,
+  generation: number,
+) => {
+  assertWatchHistoryOwner(generation, boundary);
+  const scopePrefix = `${WATCH_EVIDENCE_PREFIX}:${boundary.scope}:`;
   const keys = (await AsyncStorage.getAllKeys()).filter(key =>
     key.startsWith(scopePrefix),
   );
+  assertWatchHistoryOwner(generation, boundary);
   if (!keys.length) return;
   const entries = await AsyncStorage.multiGet(keys);
+  assertWatchHistoryOwner(generation, boundary);
   entries.forEach(([storageKey, raw]) => {
+    assertWatchHistoryOwner(generation, boundary);
     if (!raw) return;
     try {
       const pending = JSON.parse(raw) as PendingWatchHistory;
-      if (
-        Number.isFinite(pending.lessonId) &&
-        Number.isFinite(pending.positionSeconds) &&
-        typeof pending.completed === 'boolean'
-      ) {
+      if (isPendingWatchHistory(pending)) {
         const key = storageKey.slice(`${WATCH_EVIDENCE_PREFIX}:`.length);
         if (!pendingWatchHistory.has(key)) {
           pendingWatchHistory.set(key, pending);
@@ -168,13 +275,42 @@ const nextPlaybackSequence = (playbackSessionId: string) => {
 const postPlaybackSample = (
   playbackSessionId: string | undefined,
   payload: Record<string, unknown>,
+  boundary?: AccountSessionBoundary,
 ) => {
   const generation = playbackRuntimeGeneration;
-  const send = () => {
+  const sourceLessonId = String(payload.lesson_id || '').trim() || undefined;
+  const send = async () => {
     if (generation !== playbackRuntimeGeneration) {
       throw new Error('ACCOUNT_SESSION_CHANGED');
     }
-    return publicRequest.post('user/watch-history', payload);
+    if (boundary) assertAccountSessionBoundary(boundary);
+    try {
+      const response = await publicRequest.post('user/watch-history', payload);
+      if (generation !== playbackRuntimeGeneration) {
+        throw new Error('ACCOUNT_SESSION_CHANGED');
+      }
+      if (boundary) assertAccountSessionBoundary(boundary);
+      publishCourseRevisionChange(response, sourceLessonId);
+      return response;
+    } catch (error) {
+      const candidate = error as {
+        response?: {data?: {code?: unknown}};
+      };
+      if (
+        String(candidate.response?.data?.code || '').toLowerCase() !==
+        'course_revision_changed'
+      ) {
+        throw error;
+      }
+      if (generation !== playbackRuntimeGeneration) {
+        throw new Error('ACCOUNT_SESSION_CHANGED');
+      }
+      if (boundary) assertAccountSessionBoundary(boundary);
+      publishCourseRevisionChange(error, sourceLessonId);
+      // This sample belongs to an archived revision. Retrying the same DTO
+      // can never succeed; the observer reloads the authoritative curriculum.
+      return candidate.response;
+    }
   };
   if (!playbackSessionId) {
     return send();
@@ -191,12 +327,31 @@ const postPlaybackSample = (
   return request;
 };
 
-const flushWatchHistoryEntry = (key: string): Promise<void> => {
+const flushWatchHistoryEntry = async (key: string): Promise<void> => {
   const activeFlight = watchHistoryFlights.get(key);
   if (activeFlight) return activeFlight;
   const pending = pendingWatchHistory.get(key);
   if (!pending) return Promise.resolve();
   const generation = playbackRuntimeGeneration;
+  let boundary: AccountSessionBoundary;
+  try {
+    boundary = await captureAccountSessionBoundary();
+    assertWatchHistoryOwner(generation, boundary);
+  } catch {
+    return;
+  }
+  if (!key.startsWith(`${boundary.scope}:`)) {
+    return;
+  }
+
+  const stillOwned = () => {
+    try {
+      assertWatchHistoryOwner(generation, boundary);
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
   const timer = watchHistoryTimers.get(key);
   if (timer) clearTimeout(timer);
@@ -237,7 +392,7 @@ const flushWatchHistoryEntry = (key: string): Promise<void> => {
     ...(pending.endReason ? {end_reason: pending.endReason} : {}),
     ...(pending.errorCode ? {error_code: pending.errorCode} : {}),
     ...(pending.diagnostics ? {diagnostics: pending.diagnostics} : {}),
-  })
+  }, boundary)
     .then(() => {
       watchHistoryLastSyncedAt.set(key, Date.now());
       while (watchHistoryLastSyncedAt.size > MAX_RECENT_WATCH_SYNC_KEYS) {
@@ -259,14 +414,14 @@ const flushWatchHistoryEntry = (key: string): Promise<void> => {
     .catch(() => {
       // Keep only the newest sample in memory and retry later. Playback and
       // the local resume point never wait for this network request.
-      if (generation === playbackRuntimeGeneration) {
+      if (stillOwned()) {
         scheduleWatchHistoryFlush(key, WATCH_HISTORY_SYNC_INTERVAL_MS);
       }
     })
     .finally(() => {
       watchHistoryFlights.delete(key);
       if (
-        generation === playbackRuntimeGeneration &&
+        stillOwned() &&
         pendingWatchHistory.has(key) &&
         !watchHistoryTimers.has(key)
       ) {
@@ -283,9 +438,13 @@ const queueWatchHistorySync = async (
   durationSeconds?: number,
   completed = false,
   context?: PlaybackEvidenceContext,
+  boundary?: AccountSessionBoundary,
+  generation = playbackRuntimeGeneration,
 ) => {
-  const key = `${await getCurrentAccountStorageScope()}:${lessonId}`;
-  const pending: PendingWatchHistory = {
+  const owner = boundary || (await captureAccountSessionBoundary());
+  assertWatchHistoryOwner(generation, owner);
+  const key = `${owner.scope}:${lessonId}`;
+  const next: PendingWatchHistory = {
     lessonId,
     positionSeconds: Math.max(0, Math.floor(seconds)),
     ...(durationSeconds && durationSeconds > 0
@@ -342,24 +501,60 @@ const queueWatchHistorySync = async (
       ? {diagnostics: sanitizePlaybackDiagnostics(context?.diagnostics)}
       : {}),
   };
-  pendingWatchHistory.set(key, pending);
-  await AsyncStorage.setItem(
-    watchEvidenceStorageKey(key),
-    JSON.stringify(pending),
-  );
-  const elapsed = Date.now() - (watchHistoryLastSyncedAt.get(key) || 0);
-  if (completed || elapsed >= WATCH_HISTORY_SYNC_INTERVAL_MS) {
-    await flushWatchHistoryEntry(key);
-  } else {
-    scheduleWatchHistoryFlush(key, WATCH_HISTORY_SYNC_INTERVAL_MS - elapsed);
-  }
+  const previousWrite = watchEvidenceWriteQueues.get(key) || Promise.resolve();
+  const write = previousWrite.catch(() => undefined).then(async () => {
+    assertWatchHistoryOwner(generation, owner);
+    const storageKey = watchEvidenceStorageKey(key);
+    const raw = await AsyncStorage.getItem(storageKey);
+    assertWatchHistoryOwner(generation, owner);
+    let durable: PendingWatchHistory | undefined;
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (isPendingWatchHistory(parsed)) durable = parsed;
+      } catch {
+        // The next valid sample repairs this account-scoped record.
+      }
+    }
+    const previous = mergePendingWatchHistory(
+      durable,
+      pendingWatchHistory.get(key) || next,
+    );
+    const pending = mergePendingWatchHistory(previous, next);
+    await AsyncStorage.setItem(storageKey, JSON.stringify(pending));
+    assertWatchHistoryOwner(generation, owner);
+    pendingWatchHistory.set(key, pending);
+    const elapsed = Date.now() - (watchHistoryLastSyncedAt.get(key) || 0);
+    if (pending.completed || elapsed >= WATCH_HISTORY_SYNC_INTERVAL_MS) {
+      await flushWatchHistoryEntry(key);
+    } else {
+      scheduleWatchHistoryFlush(key, WATCH_HISTORY_SYNC_INTERVAL_MS - elapsed);
+    }
+  });
+  const settled = write.catch(() => undefined).finally(() => {
+    if (watchEvidenceWriteQueues.get(key) === settled) {
+      watchEvidenceWriteQueues.delete(key);
+    }
+  });
+  watchEvidenceWriteQueues.set(key, settled);
+  await write;
 };
 
 /** Flush the latest sample per lesson when the app backgrounds or changes reel. */
 export const flushPendingPlaybackPositions = async () => {
-  await hydratePendingWatchEvidence();
+  const generation = playbackRuntimeGeneration;
+  let boundary: AccountSessionBoundary;
+  try {
+    boundary = await captureAccountSessionBoundary();
+    await hydratePendingWatchEvidence(boundary, generation);
+    assertWatchHistoryOwner(generation, boundary);
+  } catch {
+    return;
+  }
   await Promise.allSettled(
-    Array.from(pendingWatchHistory.keys()).map(flushWatchHistoryEntry),
+    Array.from(pendingWatchHistory.keys())
+      .filter(key => key.startsWith(`${boundary.scope}:`))
+      .map(flushWatchHistoryEntry),
   );
 };
 
@@ -373,20 +568,28 @@ export const persistLocalPlaybackPosition = async (
   courseId: string,
   reelId: string,
   seconds: number,
+  boundary?: AccountSessionBoundary,
 ) => {
+  const owner = boundary || (await captureAccountSessionBoundary());
+  assertAccountSessionBoundary(owner);
   if (!(await isWatchHistoryEnabled())) return;
+  assertAccountSessionBoundary(owner);
   const historyKey = `${courseId}:${reelId}`;
-  await updatePlayerState(state => ({
-    ...state,
-    positions: {
-      ...state.positions,
-      [historyKey]: Math.max(0, Math.floor(seconds)),
-    },
-    lastWatchedAt: {
-      ...state.lastWatchedAt,
-      [historyKey]: new Date().toISOString(),
-    },
-  }));
+  await updatePlayerStateForScope(
+    owner.scope,
+    state => ({
+      ...state,
+      positions: {
+        ...state.positions,
+        [historyKey]: Math.max(0, Math.floor(seconds)),
+      },
+      lastWatchedAt: {
+        ...state.lastWatchedAt,
+        [historyKey]: new Date().toISOString(),
+      },
+    }),
+    owner,
+  );
 };
 
 export const savePlaybackPosition = async (
@@ -398,7 +601,11 @@ export const savePlaybackPosition = async (
   completed = false,
   context?: PlaybackEvidenceContext,
 ) => {
-  await persistLocalPlaybackPosition(courseId, reelId, seconds);
+  const generation = playbackRuntimeGeneration;
+  const boundary = await captureAccountSessionBoundary();
+  assertWatchHistoryOwner(generation, boundary);
+  await persistLocalPlaybackPosition(courseId, reelId, seconds, boundary);
+  assertWatchHistoryOwner(generation, boundary);
 
   const remoteLessonId = Number(lessonId);
   if (
@@ -408,12 +615,15 @@ export const savePlaybackPosition = async (
     Number.isFinite(remoteLessonId) &&
     (await hasSession())
   ) {
+    assertWatchHistoryOwner(generation, boundary);
     await queueWatchHistorySync(
       remoteLessonId,
       seconds,
       durationSeconds,
       completed,
       context,
+      boundary,
+      generation,
     );
   }
 };
@@ -424,6 +634,14 @@ export const savePlaybackPosition = async (
 export const reportPlaybackSessionEvent = async (
   event: PlaybackSessionEvent,
 ): Promise<boolean> => {
+  const generation = playbackRuntimeGeneration;
+  let boundary: AccountSessionBoundary;
+  try {
+    boundary = await captureAccountSessionBoundary();
+    assertWatchHistoryOwner(generation, boundary);
+  } catch {
+    return false;
+  }
   const lessonId = Number(event.lessonId);
   if (
     !event.playbackSessionId ||
@@ -438,6 +656,7 @@ export const reportPlaybackSessionEvent = async (
   const diagnostics = sanitizePlaybackDiagnostics(event.diagnostics);
   const errorCode = sanitizePlaybackErrorCode(event.errorCode);
   try {
+    assertWatchHistoryOwner(generation, boundary);
     await postPlaybackSample(event.playbackSessionId, {
       lesson_id: lessonId,
       position_seconds:
@@ -496,7 +715,7 @@ export const reportPlaybackSessionEvent = async (
         : {}),
       ...(errorCode ? {error_code: errorCode} : {}),
       ...(diagnostics ? {diagnostics} : {}),
-    });
+    }, boundary);
     return true;
   } catch {
     return false;
@@ -828,6 +1047,7 @@ export const resetPlaybackRuntimeState = () => {
   watchHistoryTimers.clear();
   pendingWatchHistory.clear();
   watchHistoryFlights.clear();
+  watchEvidenceWriteQueues.clear();
   watchHistoryLastSyncedAt.clear();
   playbackSequences.clear();
   playbackRequestQueues.clear();

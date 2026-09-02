@@ -22,11 +22,15 @@ class CertificateResource extends JsonResource
         }
         $textTemplateKey = trim((string) $this->certificate_text_template_key);
         $certificateText = trim((string) $this->certificate_text);
+        $publicId = trim((string) $this->public_id);
 
         return [
-            'id' => $this->id,
-            'certificate_id' => $this->id,
-            'public_id' => $this->public_id,
+            // The printed number, QR target, pending response and API identity
+            // are one public UUID. The database sequence is not a credential
+            // and must not become a second learner-facing certificate number.
+            'id' => $publicId,
+            'certificate_id' => $publicId,
+            'public_id' => $publicId,
             'holder_name' => $holderName !== '' ? $holderName : 'طالب ركن',
             'course_name' => $courseName !== '' ? $courseName : 'كورس ركن',
             'certificate_text_template_key' => $textTemplateKey !== '' ? $textTemplateKey : null,

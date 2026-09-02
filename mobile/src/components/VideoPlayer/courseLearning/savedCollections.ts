@@ -7,7 +7,12 @@ import {
   getCurrentAccountStorageScope,
   type AccountSessionBoundary,
 } from '../../../constants/helpers';
-import {hasSession} from '../../../services/roknApi';
+import {
+  hasSession,
+  removeSavedFolderFromCache,
+  removeSavedLessonEverywhereFromCache,
+  removeSavedLessonFromCache,
+} from '../../../services/roknApi';
 import {isLocalDemoId} from '../../../config/runtime';
 import {secureRandomUuid} from '../../../utils/secureRandom';
 import {
@@ -97,9 +102,7 @@ const ensureWatchLaterFolder = async (
   try {
     const response = await publicRequest.get('saved-folders');
     const folderPayload = response?.data?.data;
-    const folders = asArray<SavedFolderDto>(
-      folderPayload?.data ?? folderPayload,
-    );
+    const folders = requireSavedFolderList(folderPayload);
     let folder = folders.find(item => {
       const name = valueAsString(item?.name).trim().toLowerCase();
       return name === 'watch later' || name === 'المشاهدة لاحقًا';
@@ -150,6 +153,18 @@ const validSavedFolderOption = (value: unknown): value is SavedFolderDto => {
     (/^\d{1,18}$/.test(id) || id === 'local-watch-later') &&
     valueAsString(folder.name).trim().length > 0
   );
+};
+
+const requireSavedFolderList = (value: unknown): SavedFolderDto[] => {
+  if (Array.isArray(value)) return value as SavedFolderDto[];
+  if (
+    value &&
+    typeof value === 'object' &&
+    Array.isArray((value as {data?: unknown}).data)
+  ) {
+    return (value as {data: SavedFolderDto[]}).data;
+  }
+  throw new Error('INVALID_SAVED_FOLDERS_RESPONSE');
 };
 
 const localSavedFoldersKey = (accountScope?: string) =>
@@ -248,9 +263,7 @@ export const migrateGuestSavedCollections = async (
   const response = await publicRequest.get('saved-folders');
   if (accountBoundary) assertAccountSessionBoundary(accountBoundary);
   const folderPayload = response?.data?.data;
-  const remoteFolders = asArray<SavedFolderDto>(
-    folderPayload?.data ?? folderPayload,
-  )
+  const remoteFolders = requireSavedFolderList(folderPayload)
     .filter(item => item?.id && item?.name)
     .map(mapSavedFolder);
   const idMap = new Map<string, string>();
@@ -341,9 +354,7 @@ export const getSavedFolderOptions = async (): Promise<SavedFolderOption[]> => {
   try {
     const response = await publicRequest.get('saved-folders');
     const folderPayload = response?.data?.data;
-    const folders = asArray<SavedFolderDto>(
-      folderPayload?.data ?? folderPayload,
-    )
+    const folders = requireSavedFolderList(folderPayload)
       .filter(item => item?.id && item?.name)
       .map(mapSavedFolder);
     assertAccountSessionBoundary(accountBoundary);
@@ -420,6 +431,9 @@ export const deleteSavedFolderOption = async (folderId: string) => {
 
   const repair = async () => {
     await assertCurrentScope(accountScope);
+    if (sessionAvailable && !folderId.startsWith('local-')) {
+      await removeSavedFolderFromCache(folderId);
+    }
     const current = await readLocalSavedFolders(accountScope);
     await writeLocalSavedFolders(
       current.filter(folder => folder.id !== folderId),
@@ -522,7 +536,12 @@ export const toggleWatchLater = async (
         ),
   }));
   if (sessionAvailable) {
-    await acceptRemoteCacheRepair(accountScope, repair);
+    await acceptRemoteCacheRepair(accountScope, async () => {
+      if (!nextSaved) {
+        await removeSavedLessonEverywhereFromCache(lessonId);
+      }
+      await repair();
+    });
   } else {
     await assertCurrentScope(accountScope);
     await repair();
@@ -625,7 +644,10 @@ export const removeLessonFromSavedFolder = async (
     };
   });
   if (sessionAvailable && !isLocalDemoId(lessonId)) {
-    await acceptRemoteCacheRepair(accountScope, repair);
+    await acceptRemoteCacheRepair(accountScope, async () => {
+      await removeSavedLessonFromCache(folderId, lessonId);
+      await repair();
+    });
     return;
   }
   await assertCurrentScope(accountScope);

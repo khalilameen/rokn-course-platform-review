@@ -180,10 +180,11 @@ class StudentNotificationService
                 // inbox notification either complete together or can be retried.
                 $lockedUser = User::query()->lockForUpdate()->findOrFail($user->id);
 
-                $alreadyCredited = WalletTransaction::query()
+                $existingCredit = WalletTransaction::query()
                     ->where('user_id', $lockedUser->id)
                     ->where('idempotency_key', $idempotencyKey)
-                    ->exists();
+                    ->first();
+                $alreadyCredited = $existingCredit !== null;
                 $alreadyClaimed = $methodId
                     ? $lockedUser->coinEarnings()
                         ->where('coin_earning_method_id', $methodId)
@@ -197,15 +198,22 @@ class StudentNotificationService
                 }
 
                 if (!$alreadyCredited) {
-                    app(WalletService::class)->credit(
+                    $credit = app(WalletService::class)->creditRewardWithinConfiguredCap(
                         $lockedUser->id,
                         $coinsAmount,
                         'welcome_bonus',
                         $idempotencyKey,
                         $method,
-                        ['action_key' => 'register'],
-                        WalletTransaction::BUCKET_REWARD
+                        ['action_key' => 'register']
                     );
+                    if (!$credit) {
+                        return 0;
+                    }
+                    $coinsAmount = (int) $credit->amount;
+                } else {
+                    // The immutable ledger fact wins over today's dashboard
+                    // value when a post-credit side effect is being replayed.
+                    $coinsAmount = (int) $existingCredit->amount;
                 }
 
                 if ($methodId) {

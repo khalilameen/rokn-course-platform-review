@@ -11,6 +11,14 @@ final class CourseRating extends Model
 {
     use HasFactory, InvalidatesCourseCatalogue, SoftDeletes;
 
+    /** Catalogue cards depend on count/average, not the optional comment. */
+    public function shouldInvalidateCourseCatalogue(): bool
+    {
+        return $this->wasRecentlyCreated
+            || !$this->exists
+            || $this->wasChanged(['rating', 'course_id', 'deleted_at']);
+    }
+
     protected $fillable = [
         'user_id',
         'course_id',

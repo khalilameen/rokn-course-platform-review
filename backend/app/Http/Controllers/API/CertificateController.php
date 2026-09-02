@@ -6,13 +6,12 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\CertificateResource;
+use App\Jobs\RecoverPendingCertificate;
 use App\Models\Certificate;
 use App\Models\Course;
-use App\Models\Order;
 use App\Models\Project;
 use App\Services\CertificateEligibilityService;
 use App\Services\CertificateService;
-use App\Services\CourseChatAccessService;
 use App\Support\UnicodeText;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,7 +20,6 @@ final class CertificateController extends Controller
 {
     public function __construct(
         private readonly CertificateService $certificates,
-        private readonly CourseChatAccessService $courseAccess,
         private readonly CertificateEligibilityService $eligibility
     ) {
     }
@@ -96,13 +94,9 @@ final class CertificateController extends Controller
             ], 410);
         }
         if (!$certificate->hasStoredArtifact()) {
-            return response()->json([
-                'status' => 202,
-                'success' => true,
-                'code' => 'certificate_generating',
-                'message' => 'نجهّز شهادتك الآن',
-                'data' => null,
-            ], 202);
+            $this->queueGeneration($certificate);
+
+            return $this->pendingResponse($certificate);
         }
 
         return response()->json([
@@ -143,32 +137,9 @@ final class CertificateController extends Controller
                 ], 410);
             }
             if (!$certificate->hasStoredArtifact()) {
-                // A pending row remains retryable until generation succeeds.
-                $recovered = $this->certificates->generate(
-                    $user,
-                    $certificate->course,
-                    $certificate->project_id
-                        ? Project::find($certificate->project_id)
-                        : null,
-                );
-                if ($recovered && $recovered->image_path !== 'pending') {
-                    $recovered->load('course');
+                $this->queueGeneration($certificate);
 
-                    return response()->json([
-                        'status' => 200,
-                        'success' => true,
-                        'message' => 'تم تحميل الشهادة',
-                        'data' => new CertificateResource($recovered),
-                    ]);
-                }
-
-                return response()->json([
-                    'status' => 202,
-                    'success' => true,
-                    'code' => 'certificate_generating',
-                    'message' => 'نجهّز شهادتك الآن',
-                    'data' => null,
-                ], 202);
+                return $this->pendingResponse($certificate);
             }
 
             return response()->json([
@@ -189,21 +160,8 @@ final class CertificateController extends Controller
             ], 404);
         }
 
-        if (!$course->isPublishedForLearning() || $course->isNestedCourse()) {
-            return response()->json([
-                'status' => 404,
-                'success' => false,
-                'message' => 'الكورس غير متاح',
-                'data' => null,
-            ], 404);
-        }
-
-        $enrollment = $this->courseAccess->activeEnrollmentFor(
-            (int) $user->id,
-            (int) $courseId
-        );
-
-        if (!$enrollment) {
+        $eligibility = $this->eligibility->for($user, $course);
+        if ($eligibility['reason'] === 'entitlement_inactive') {
             return response()->json([
                 'status'  => 403,
                 'success' => false,
@@ -211,12 +169,7 @@ final class CertificateController extends Controller
                 'data' => null,
             ], 403);
         }
-
-        // Certificate access is checked independently from learning access.
-        if (!$this->courseAccess->hasCertificateAccess(
-            (int) $user->id,
-            (int) $courseId
-        )) {
+        if (!$eligibility['included']) {
             return response()->json([
                 'status' => 402,
                 'success' => false,
@@ -229,17 +182,7 @@ final class CertificateController extends Controller
                 ],
             ], 402);
         }
-
-        // Do not issue a new certificate while the related order is under review.
-        if ($enrollment->order_id && Order::query()
-            ->whereKey($enrollment->order_id)
-            ->where('user_id', $user->id)
-            ->whereIn('financial_status', [
-                Order::FINANCIAL_PARTIALLY_RECOVERED,
-                Order::FINANCIAL_REVIEW_REQUIRED,
-            ])
-            ->where('unrecovered_coins', '>', 0)
-            ->exists()) {
+        if ($eligibility['reason'] === 'financial_review') {
             return response()->json([
                 'status' => 409,
                 'success' => false,
@@ -248,8 +191,14 @@ final class CertificateController extends Controller
                 'data' => null,
             ], 409);
         }
-
-        $eligibility = $this->eligibility->for($user, $course);
+        if ($eligibility['reason'] === 'course_unavailable') {
+            return response()->json([
+                'status' => 404,
+                'success' => false,
+                'message' => 'الكورس غير متاح',
+                'data' => null,
+            ], 404);
+        }
         if (!$eligibility['available']) {
             return response()->json([
                 'status' => 403,
@@ -284,7 +233,8 @@ final class CertificateController extends Controller
             $user,
             $course,
             $graduationProject,
-            $holderName
+            $holderName,
+            false
         );
 
         if (!$certificate) {
@@ -299,13 +249,9 @@ final class CertificateController extends Controller
                 })
                 ->first();
             if ($pending && !$pending->hasStoredArtifact()) {
-                return response()->json([
-                    'status' => 202,
-                    'success' => true,
-                    'code' => 'certificate_generating',
-                    'message' => 'نجهّز شهادتك الآن',
-                    'data' => null,
-                ], 202);
+                $this->queueGeneration($pending);
+
+                return $this->pendingResponse($pending);
             }
 
             return response()->json([
@@ -316,6 +262,12 @@ final class CertificateController extends Controller
             ], 500);
         }
 
+        if (!$certificate->hasStoredArtifact()) {
+            $this->queueGeneration($certificate);
+
+            return $this->pendingResponse($certificate);
+        }
+
         $certificate->load('course');
 
         return response()->json([
@@ -324,6 +276,42 @@ final class CertificateController extends Controller
             'message' => 'تم إصدار الشهادة',
             'data'    => new CertificateResource($certificate),
         ]);
+    }
+
+    private function queueGeneration(Certificate $certificate): void
+    {
+        try {
+            RecoverPendingCertificate::dispatch((int) $certificate->id)->afterCommit();
+        } catch (\Throwable $exception) {
+            // The pending row is the durable recovery marker. The scheduled
+            // recovery command will enqueue it after a transient queue outage,
+            // so an already accepted issue action must not become a false 500.
+            report($exception);
+        }
+    }
+
+    /**
+     * A stable non-null contract lets mobile distinguish accepted background
+     * work from a failed issue request and poll the read endpoint safely.
+     */
+    private function pendingResponse(Certificate $certificate): JsonResponse
+    {
+        $courseId = (int) $certificate->course_id;
+
+        return response()->json([
+            'status' => 202,
+            'success' => true,
+            'code' => 'certificate_generating',
+            'message' => 'نجهّز شهادتك الآن',
+            'data' => [
+                'certificate_id' => (string) $certificate->public_id,
+                'course_id' => $courseId,
+                'status' => 'generating',
+                'ready' => false,
+                'poll_after_seconds' => 3,
+                'status_endpoint' => "/api/v1/certificates/{$courseId}",
+            ],
+        ], 202);
     }
 
 }

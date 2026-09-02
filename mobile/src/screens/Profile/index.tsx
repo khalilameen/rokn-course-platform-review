@@ -49,7 +49,7 @@ import {
   Profile as ProfileDto,
 } from '../../services/roknApi';
 import type {RootState} from '../../store/store';
-import {portfolioUrlFor} from '../../services/publicLinks';
+import {trustedPortfolioShareUrl} from '../../services/publicLinks';
 import {isolateBidirectionalText} from '../../constants/arabicFormatting';
 
 type ProfileTab = 'portfolio' | 'certificates' | 'saved';
@@ -90,8 +90,13 @@ export default function Profile() {
     (authenticatedIdentity ? user.portfolio_slug || user.username : '') ||
     '';
   const publicPortfolioUrl =
-    visiblePortfolioProfile?.publicUrl || portfolioUrlFor(username);
-  const canSharePortfolio = Boolean(username);
+    trustedPortfolioShareUrl(visiblePortfolioProfile?.publicUrl) ||
+    trustedPortfolioShareUrl(visibleRemoteProfile?.portfolioUrl) ||
+    '';
+  const canSharePortfolio = Boolean(publicPortfolioUrl);
+  const portfolioLinkLabel = publicPortfolioUrl
+    ? publicPortfolioUrl.replace(/^https:\/\/(?:www\.)?/i, '').replace(/\/$/, '')
+    : '';
   const avatarUri = useMemo(
     () =>
       visibleRemoteProfile?.avatar ||
@@ -264,7 +269,7 @@ export default function Profile() {
                   pressed && styles.pressed,
                 ]}>
                 <Text numberOfLines={1} style={styles.publicLinkText}>
-                  {isolateBidirectionalText(`rokn.app/@${username}`)}
+                  {isolateBidirectionalText(portfolioLinkLabel)}
                 </Text>
               </Pressable>
             )}

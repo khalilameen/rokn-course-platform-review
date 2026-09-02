@@ -98,10 +98,14 @@ final readonly class InternalSignalHandler
             $effectPayload['curriculum_revision'] = $revision;
         }
         foreach (['badge', 'certificate', 'reward'] as $effect) {
+            $payloadForEffect = $effectPayload;
+            if ($effect === 'reward' && array_key_exists('reward_contract', $payload)) {
+                $payloadForEffect['reward_contract'] = $payload['reward_contract'];
+            }
             $this->internalSignals->record(
                 'course.completed.' . $effect,
                 "user:{$userId}:course:{$courseId}{$revisionIdentity}:effect:{$effect}",
-                $effectPayload,
+                $payloadForEffect,
                 'course_enrollment',
                 "{$userId}:{$courseId}"
             );
@@ -115,6 +119,9 @@ final readonly class InternalSignalHandler
             (int) ($payload['course_id'] ?? 0),
             isset($payload['curriculum_revision'])
                 ? (int) $payload['curriculum_revision']
+                : null,
+            is_array($payload['reward_contract'] ?? null)
+                ? $payload['reward_contract']
                 : null
         );
     }
@@ -141,12 +148,20 @@ final readonly class InternalSignalHandler
     private function projectPassedReward(array $payload): void
     {
         $user = User::query()->find((int) ($payload['user_id'] ?? 0));
-        $project = Project::query()->find((int) ($payload['project_id'] ?? 0));
-        if (!$user || !$project) {
+        $projectId = (int) ($payload['project_id'] ?? 0);
+        $project = Project::query()->find($projectId);
+        if (!$user || ($projectId <= 0 && !$project)) {
             return;
         }
 
-        $this->learningRewards->awardFirstProject($user, $project);
+        $this->learningRewards->awardFirstProject(
+            $user,
+            $project ?? $projectId,
+            is_array($payload['reward_contract'] ?? null)
+                ? $payload['reward_contract']
+                : null,
+            isset($payload['course_id']) ? (int) $payload['course_id'] : null
+        );
     }
 
     private function fanOutAiAlert(array $payload): void

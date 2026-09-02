@@ -183,7 +183,17 @@ final class QuizController extends Controller
             $request,
             'quiz-update|'.$quiz->id.'|'.(string) $request->input('editor_version')
         );
-        DB::transaction(function () use ($request, $quiz, $validated, $inlineImages): void {
+        $quizImagePath = $this->stageQuizImage(
+            $request,
+            'quiz-update|'.$quiz->id.'|'.(string) $request->input('editor_version')
+        );
+        DB::transaction(function () use (
+            $request,
+            $quiz,
+            $validated,
+            $inlineImages,
+            $quizImagePath
+        ): void {
             $lockedQuiz = ItemList::quiz()->whereKey($quiz->id)->lockForUpdate()->firstOrFail();
             $this->assertEditorVersion($lockedQuiz, (string) $request->input('editor_version'));
             $lockedQuiz->update($this->quizPayload($validated));
@@ -191,17 +201,15 @@ final class QuizController extends Controller
             if (!$request->has('q_title')) {
                 $this->copySelectedQuestions($lockedQuiz, (array) ($validated['questions'] ?? []), true);
             }
+            if ($quizImagePath !== null) {
+                $oldPhotos = $lockedQuiz->allPhotos()->where('type', 'featured')->get();
+                $newPhoto = $lockedQuiz->allPhotos()->firstOrCreate([
+                    'path' => $quizImagePath,
+                    'type' => 'featured',
+                ]);
+                $oldPhotos->where('id', '!=', $newPhoto->id)->each->delete();
+            }
         }, 3);
-
-        if ($request->hasFile('image')) {
-            $file = $request->file('image');
-            $quiz->replaceImage(
-                $file,
-                'quizzes',
-                'featured',
-                'quiz-update|'.$quiz->id.'|'.(string) $request->input('editor_version').'|'.hash_file('sha256', $file->getRealPath())
-            );
-        }
 
         return !empty($validated['course_id'])
             ? redirect()->route('admin.courses.sections.index', $validated['course_id'])->with('success', 'تم تعديل الاختبار')
@@ -393,6 +401,24 @@ final class QuizController extends Controller
             'quizzes',
             'featured',
             'admin-quiz|'.strtolower($operation).'|'.hash_file('sha256', $file->getRealPath())
+        );
+    }
+
+    private function stageQuizImage(Request $request, string $operation): ?string
+    {
+        if (!$request->hasFile('image')) return null;
+        $image = $request->file('image');
+        $sha = hash_file('sha256', $image->getRealPath());
+        if (!is_string($sha) || $sha === '') {
+            throw new \RuntimeException('Quiz image could not be fingerprinted.');
+        }
+
+        return app(StoredFileDeletionService::class)->storeTrackedUpload(
+            $image,
+            'quizzes',
+            'public',
+            60,
+            $operation.'|'.$sha
         );
     }
 

@@ -6,6 +6,7 @@ import type {SettingsSectionsProps} from './settingsData';
 import type {SettingsNavigation} from './types';
 import {useAccountSettingsActions} from './useAccountSettingsActions';
 import {useSettingsPreferences} from './useSettingsPreferences';
+import {openGuestLogin} from '../../navigation/journeyNavigation';
 
 export const useSettingsController = () => {
   const navigation = useNavigation<SettingsNavigation>();
@@ -34,7 +35,7 @@ export const useSettingsController = () => {
     onEditAccount: () => navigation.navigate('EditAccount'),
     onFeedback: () =>
       navigation.navigate('Feedback', {sourceScreen: 'settings'}),
-    onLogin: () => navigation.navigate('Login', {returnTo: {name: 'Settings'}}),
+    onLogin: () => openGuestLogin(navigation, {name: 'Settings'}),
     onLogout: account.logout,
     onOpenQuality: preferences.openQualityChoice,
     onOpenReminderTime: preferences.openReminderChoice,

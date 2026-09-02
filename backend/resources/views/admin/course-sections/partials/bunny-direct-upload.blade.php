@@ -21,10 +21,19 @@ document.addEventListener('DOMContentLoaded', function () {
         webm: 'video/webm',
     };
     const chunkBytes = 20 * 1024 * 1024;
-    const recordVersion = 2;
+    const recordVersion = 3;
     const ownerId = @json((string) auth()->id());
     const courseId = String(form.dataset.courseId || '');
     const sectionId = String(form.dataset.sectionId || 'new');
+    const currentAuthoringVersion = () => {
+        const value = Number(form.querySelector('[name="authoring_version"]')?.value || 0);
+        if (!Number.isSafeInteger(value) || value < 1) {
+            throw Object.assign(new Error('تعذر تحديد نسخة المسودة\nأعد تحميل الصفحة'), {
+                code: 'bunny_upload_claim_unavailable',
+            });
+        }
+        return value;
+    };
     const legacyStorageKey = `rokn:bunny-upload:${ownerId}:${courseId}:${sectionId}`;
     const operationId = () => {
         if (window.crypto?.randomUUID) return window.crypto.randomUUID();
@@ -88,6 +97,16 @@ document.addEventListener('DOMContentLoaded', function () {
     let submittingAfterUpload = false;
     let lastSubmitter = null;
     let currentStorageKey = null;
+    let reconciliationRequired = false;
+    const submitControls = () => Array.from(new Set([
+        ...form.querySelectorAll('button[type="submit"], input[type="submit"]'),
+        ...document.querySelectorAll('[form="' + CSS.escape(form.id) + '"][type="submit"]'),
+    ]));
+    const setSubmissionBusy = busy => {
+        submitControls().forEach(control => { control.disabled = busy; });
+        if (busy) form.setAttribute('aria-busy', 'true');
+        else form.removeAttribute('aria-busy');
+    };
 
     const show = (message, percent, retry) => {
         progressBox?.classList.remove('is-hidden');
@@ -138,6 +157,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 && String(saved.ownerId) === ownerId
                 && String(saved.courseId) === courseId
                 && String(saved.sectionId) === sectionId
+                && Number(saved.authoringVersion) === currentAuthoringVersion()
                 && saved.fingerprint === fingerprint(file);
             const claimExpiresAt = Date.parse(saved?.claimExpiresAt || '') || 0;
             const operationExpired = !saved?.claim
@@ -167,6 +187,7 @@ document.addEventListener('DOMContentLoaded', function () {
             ownerId,
             courseId,
             sectionId,
+            authoringVersion: Number(record.authoringVersion || currentAuthoringVersion()),
             savedAt: Date.now(),
         });
         if (!currentStorageKey) throw new Error('تعذر حفظ حالة الرفع');
@@ -204,6 +225,11 @@ document.addEventListener('DOMContentLoaded', function () {
     };
 
     const freshAuthorization = async record => {
+        if (Number(record.authoringVersion) !== currentAuthoringVersion()) {
+            throw Object.assign(new Error('تغيّرت المسودة أثناء الرفع\nأعد تحميل الصفحة قبل المتابعة'), {
+                code: 'bunny_upload_claim_unavailable',
+            });
+        }
         if (record.headers && Number(record.authorizationDeadline || 0) > performance.now() + 60000) {
             return record.headers;
         }
@@ -273,7 +299,7 @@ document.addEventListener('DOMContentLoaded', function () {
             show(`جاري الرفع ${Math.floor(((offset + event.loaded) / file.size) * 100)}٪`, ((offset + event.loaded) / file.size) * 100, false);
         };
         request.onload = () => {
-            currentRequest = null;
+            if (currentRequest === request) currentRequest = null;
             if (request.status >= 200 && request.status < 300) {
                 const nextOffset = Number(request.getResponseHeader('Upload-Offset'));
                 if (!Number.isSafeInteger(nextOffset) || nextOffset !== end || nextOffset > file.size) {
@@ -285,9 +311,13 @@ document.addEventListener('DOMContentLoaded', function () {
                 reject(Object.assign(new Error('تعذر متابعة الرفع'), {status: request.status}));
             }
         };
-        request.onerror = () => reject(new Error('انقطع الاتصال أثناء الرفع'));
-        request.ontimeout = () => reject(new Error('الاتصال بطيء جدًا'));
-        request.onabort = () => reject(Object.assign(new Error('تم إيقاف الرفع'), {cancelled: true}));
+        const rejectRequest = error => {
+            if (currentRequest === request) currentRequest = null;
+            reject(error);
+        };
+        request.onerror = () => rejectRequest(new Error('انقطع الاتصال أثناء الرفع'));
+        request.ontimeout = () => rejectRequest(new Error('الاتصال بطيء جدًا'));
+        request.onabort = () => rejectRequest(Object.assign(new Error('تم إيقاف الرفع'), {cancelled: true}));
         request.send(file.slice(offset, end));
     });
 
@@ -309,6 +339,7 @@ document.addEventListener('DOMContentLoaded', function () {
             record = {
                 fingerprint: fingerprint(file),
                 idempotencyKey: operationId(),
+                authoringVersion: currentAuthoringVersion(),
                 endpoint: null,
                 claim: null,
                 headers: null,
@@ -326,6 +357,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 original_name: file.name,
                 section_id: form.dataset.sectionId || null,
                 idempotency_key: record.idempotencyKey,
+                authoring_version: record.authoringVersion,
             });
             Object.assign(record, {
                 endpoint: issued.upload_endpoint,
@@ -344,6 +376,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     original_name: file.name,
                     section_id: form.dataset.sectionId || null,
                     idempotency_key: record.idempotencyKey,
+                    authoring_version: record.authoringVersion,
                 });
                 Object.assign(record, {
                     endpoint: issued.upload_endpoint,
@@ -414,18 +447,29 @@ document.addEventListener('DOMContentLoaded', function () {
     const startUploadAndSubmit = async () => {
         if (!currentFile || uploading) return;
         uploading = true;
+        setSubmissionBusy(true);
         stopped = false;
         retryButton?.classList.add('is-hidden');
         try {
             await upload(currentFile);
             submittingAfterUpload = true;
+            setSubmissionBusy(false);
             if (lastSubmitter) form.requestSubmit(lastSubmitter);
             else form.requestSubmit();
         } catch (error) {
+            if (Number(error?.status || 0) === 409) {
+                clearRecord();
+                reconciliationRequired = true;
+                window.RoknAdminRequest.blockMutationsUntilReload();
+                show(error.message || 'تغيّرت المسودة\nنعيد تحميل أحدث نسخة', Number(progressBar?.getAttribute('aria-valuenow') || 0), false);
+                window.setTimeout(() => window.location.reload(), 700);
+                return;
+            }
             if (terminalCodes.has(String(error?.code || ''))) clearRecord();
             show(error.message || 'تعذر رفع الفيديو', Number(progressBar?.getAttribute('aria-valuenow') || 0), true);
         } finally {
             uploading = false;
+            if (!submittingAfterUpload && !reconciliationRequired) setSubmissionBusy(false);
         }
     };
 

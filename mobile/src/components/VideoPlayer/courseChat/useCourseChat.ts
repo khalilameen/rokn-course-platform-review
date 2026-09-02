@@ -71,6 +71,7 @@ export const useCourseChat = ({
   const appIsActive = useAppActiveState();
   const interactive = visible && appIsActive;
   const [serverBlocked, setServerBlocked] = useState(false);
+  const [serverBlockCode, setServerBlockCode] = useState('');
   const [upgraded, setUpgraded] = useState(false);
   const [upgradeQuote, setUpgradeQuote] =
     useState<CourseChatUpgradeQuote | null>(null);
@@ -79,7 +80,12 @@ export const useCourseChat = ({
   const assistantIncluded =
     (courseIncludesAssistant(course) || upgraded) && !serverBlocked;
   const scholarshipAccess = isGrantCourseAccess(course.accessType);
-  const planLimitReached = serverBlocked && courseIncludesAssistant(course);
+  const planLimitReached = serverBlockCode === 'chat_plan_limit_reached';
+  const chatAccessUnavailable = [
+    'course_not_available',
+    'course_access_required',
+    'chat_disabled_for_course',
+  ].includes(serverBlockCode);
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
     welcomeMessage(courseId),
   ]);
@@ -108,6 +114,11 @@ export const useCourseChat = ({
   const visibleRef = useRef(interactive);
   const sendFlightRef = useRef<symbol | null>(null);
   const sendGenerationRef = useRef(0);
+  const inFlightAttachmentIdsRef = useRef(new Set<string>());
+  const stopFlightRef = useRef<{
+    conversation: string;
+    flight: symbol;
+  } | null>(null);
   const upgradeFlightRef = useRef<symbol | null>(null);
   const upgradeGenerationRef = useRef(0);
   const resumeInterruptedTurnRef = useRef(false);
@@ -144,7 +155,13 @@ export const useCourseChat = ({
     sendFlightRef.current = null;
     setMessages([welcomeMessage(courseId)]);
     setInput('');
-    void Promise.all(attachmentsRef.current.map(removeLearnerDraftFile));
+    void Promise.all(
+      attachmentsRef.current
+        .filter(
+          file => !inFlightAttachmentIdsRef.current.has(file.uploadId),
+        )
+        .map(removeLearnerDraftFile),
+    );
     setAttachments([]);
     setSending(false);
     void (async () => {
@@ -275,6 +292,7 @@ export const useCourseChat = ({
     upgradeGenerationRef.current += 1;
     upgradeFlightRef.current = null;
     setServerBlocked(false);
+    setServerBlockCode('');
     setUpgraded(false);
     setUpgradeQuote(null);
     setUpgradeError('');
@@ -313,6 +331,9 @@ export const useCourseChat = ({
     const sendGeneration = ++sendGenerationRef.current;
     let clientRequestId = retryClientRequestId || secureRandomUuid();
     sendFlightRef.current = flight;
+    selectedAttachments.forEach(file =>
+      inFlightAttachmentIdsRef.current.add(file.uploadId),
+    );
     const existingUser = retryClientRequestId
       ? messages.find(
           item =>
@@ -568,13 +589,9 @@ export const useCourseChat = ({
         sendGeneration !== sendGenerationRef.current
       )
         return;
-      if (
-        response.blocked &&
-        ['chat_upgrade_required', 'chat_plan_limit_reached'].includes(
-          response.code || '',
-        )
-      ) {
+      if (response.blocked) {
         setServerBlocked(true);
+        setServerBlockCode(response.code || 'chat_upgrade_required');
       }
       const completed =
         !response.unavailable &&
@@ -583,6 +600,14 @@ export const useCourseChat = ({
       const acceptedPending =
         response.code === 'chat_answer_in_progress' &&
         ['queued', 'streaming'].includes(response.turnStatus || '');
+      if (acceptedPending) {
+        // The provider may legitimately outlive one foreground polling
+        // window. Keep recovering this exact accepted turn when the chat is
+        // still visible or when the learner opens it again; never require a
+        // second send (and therefore a second paid provider call) merely
+        // because the first answer was slow.
+        resumeInterruptedTurnRef.current = true;
+      }
       setMessages(current =>
         current.map(item => {
           if (item.id === userMessage.id) {
@@ -632,6 +657,9 @@ export const useCourseChat = ({
         ),
       );
     } finally {
+      selectedAttachments.forEach(file =>
+        inFlightAttachmentIdsRef.current.delete(file.uploadId),
+      );
       if (sendFlightRef.current === flight) {
         sendFlightRef.current = null;
         if (conversationGeneration === conversationGenerationRef.current) {
@@ -643,6 +671,7 @@ export const useCourseChat = ({
   };
 
   const send = () => void runTurn();
+  const isSendInFlight = () => Boolean(sendFlightRef.current);
 
   const retry = (clientRequestId: string) => {
     const userMessage = messages.find(
@@ -654,6 +683,7 @@ export const useCourseChat = ({
   };
 
   const stop = async () => {
+    if (stopFlightRef.current?.conversation === conversationScope) return;
     const pending = [...messagesRef.current]
       .reverse()
       .find(
@@ -665,6 +695,11 @@ export const useCourseChat = ({
           ),
       );
     if (!pending?.clientRequestId) return;
+    const stopFlight = Symbol('course-chat-stop');
+    stopFlightRef.current = {
+      conversation: conversationScope,
+      flight: stopFlight,
+    };
     const stoppedRequestId = pending.clientRequestId;
     const stopConversationGeneration = conversationGenerationRef.current;
     // Stop the local polling loop immediately. The cancellation request may
@@ -687,37 +722,58 @@ export const useCourseChat = ({
           : item,
       ),
     );
-    const cancelledAtServer = await cancelCourseAssistantTurn(stoppedRequestId);
-    if (
-      stopConversationGeneration !== conversationGenerationRef.current ||
-      activeConversationRef.current !== conversationScope
-    ) {
-      return;
+    try {
+      let cancelledAtServer = false;
+      try {
+        cancelledAtServer = await cancelCourseAssistantTurn(stoppedRequestId);
+      } catch {
+        // Cancellation has an unknown outcome on a broken connection. The
+        // accepted turn still belongs to this immutable request id, so resume
+        // reconciliation instead of leaving the bubble at "stopping" forever
+        // or sending a second paid turn.
+        resumeInterruptedTurnRef.current = true;
+      }
+      if (!cancelledAtServer) {
+        // The API intentionally reports transport errors as `false`, so this
+        // path is the common unknown-outcome case as well as the thrown one.
+        resumeInterruptedTurnRef.current = true;
+      }
+      if (
+        stopConversationGeneration !== conversationGenerationRef.current ||
+        activeConversationRef.current !== conversationScope
+      ) {
+        return;
+      }
+      setMessages(current =>
+        current.map(item =>
+          item.clientRequestId === stoppedRequestId
+            ? cancelledAtServer
+              ? {
+                  ...item,
+                  text:
+                    item.role === 'assistant' ? 'تم إيقاف الرد' : item.text,
+                  pending: false,
+                  deliveryStatus: 'cancelled',
+                  errorCode: 'learner_cancelled',
+                  contextEligible: false,
+                }
+              : item.role === 'assistant'
+              ? {
+                  ...item,
+                  text: 'الرد قيد التجهيز\nسيظهر عند فتح الشات',
+                  pending: false,
+                  deliveryStatus: 'queued',
+                  errorCode: 'chat_answer_in_progress',
+                }
+              : {...item, deliveryStatus: 'sent', contextEligible: false}
+            : item,
+        ),
+      );
+    } finally {
+      if (stopFlightRef.current?.flight === stopFlight) {
+        stopFlightRef.current = null;
+      }
     }
-    setMessages(current =>
-      current.map(item =>
-        item.clientRequestId === stoppedRequestId
-          ? cancelledAtServer
-            ? {
-                ...item,
-                text: item.role === 'assistant' ? 'تم إيقاف الرد' : item.text,
-                pending: false,
-                deliveryStatus: 'cancelled',
-                errorCode: 'learner_cancelled',
-                contextEligible: false,
-              }
-            : item.role === 'assistant'
-            ? {
-                ...item,
-                text: 'الرد قيد التجهيز\nسيظهر عند فتح الشات',
-                pending: false,
-                deliveryStatus: 'queued',
-                errorCode: 'chat_answer_in_progress',
-              }
-            : {...item, deliveryStatus: 'sent', contextEligible: false}
-          : item,
-      ),
-    );
   };
 
   runTurnRef.current = runTurn;
@@ -781,6 +837,7 @@ export const useCourseChat = ({
       if (quote.alreadyUpgraded || quote.chatAvailable) {
         setUpgraded(true);
         setServerBlocked(false);
+        setServerBlockCode('');
         setUpgradeQuote(null);
         return;
       }
@@ -836,6 +893,7 @@ export const useCourseChat = ({
       if (result.alreadyUpgraded || result.chatAvailable) {
         setUpgraded(true);
         setServerBlocked(false);
+        setServerBlockCode('');
         setUpgradeQuote(null);
         return;
       }
@@ -864,6 +922,7 @@ export const useCourseChat = ({
         if (refreshedQuote.alreadyUpgraded || refreshedQuote.chatAvailable) {
           setUpgraded(true);
           setServerBlocked(false);
+          setServerBlockCode('');
           setUpgradeQuote(null);
           setUpgradeError('');
           return;
@@ -901,6 +960,7 @@ export const useCourseChat = ({
     assistantPresence,
     assistantIncluded,
     attachments,
+    chatAccessUnavailable,
     confirmUpgrade,
     input,
     loadUpgradeQuote,
@@ -910,6 +970,7 @@ export const useCourseChat = ({
     scrollRef,
     retry,
     send,
+    isSendInFlight,
     sending,
     stop,
     setInput,

@@ -13,7 +13,8 @@ use Illuminate\Support\Collection;
 final class StudentProgressSummaryService
 {
     public function __construct(
-        private readonly CourseSectionSequenceService $sectionSequence
+        private readonly CourseSectionSequenceService $sectionSequence,
+        private readonly CourseRevisionLearnerReadService $revisionReads
     ) {
     }
 
@@ -56,10 +57,8 @@ final class StudentProgressSummaryService
             ->groupBy('course_id')
             ->map(fn ($sections) => $this->sectionSequence->learning($sections));
         $sectionIds = $sectionsByCourse->flatten(1)->pluck('id');
-        $progressByUser = StudentSectionProgress::query()
-            ->whereIn('user_id', $userIds)
-            ->whereIn('course_section_id', $sectionIds)
-            ->get(['user_id', 'course_section_id', 'is_completed', 'completed_at', 'updated_at'])
+        $progressByUser = $this->revisionReads
+            ->sectionProgressRowsForUsers($userIds, $sectionIds)
             ->groupBy('user_id');
 
         return $users->mapWithKeys(function (User $user) use (

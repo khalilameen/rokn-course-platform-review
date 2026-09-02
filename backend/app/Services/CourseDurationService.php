@@ -7,9 +7,9 @@ namespace App\Services;
 use App\Models\Course;
 use App\Models\CourseSection;
 use App\Models\Lesson;
+use App\Support\DatabaseCapabilities;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Schema;
 
 final readonly class CourseDurationService
 {
@@ -123,11 +123,11 @@ final readonly class CourseDurationService
 
     private function hasLessonDurationSchema(): bool
     {
-        return Schema::hasTable('course_sections')
-            && Schema::hasColumn('course_sections', 'sectionable_type')
-            && Schema::hasColumn('course_sections', 'sectionable_id')
-            && Schema::hasTable('lessons')
-            && Schema::hasColumn('lessons', 'duration_minutes');
+        return DatabaseCapabilities::hasTable('course_sections')
+            && DatabaseCapabilities::hasColumn('course_sections', 'sectionable_type')
+            && DatabaseCapabilities::hasColumn('course_sections', 'sectionable_id')
+            && DatabaseCapabilities::hasTable('lessons')
+            && DatabaseCapabilities::hasColumn('lessons', 'duration_minutes');
     }
 
     private function lessonDurationQuery(): Builder
@@ -135,8 +135,8 @@ final readonly class CourseDurationService
         $query = Lesson::query();
 
         if (
-            Schema::hasTable('lesson_media_states')
-            && Schema::hasColumn('lesson_media_states', 'duration_seconds')
+            DatabaseCapabilities::hasTable('lesson_media_states')
+            && DatabaseCapabilities::hasColumn('lesson_media_states', 'duration_seconds')
         ) {
             $query->with('mediaState:id,lesson_id,duration_seconds');
         }

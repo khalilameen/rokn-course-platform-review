@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\CourseRequest;
 use App\Models\Classification;
 use App\Models\Course;
+use App\Models\CourseAuthoringRevision;
 use App\Models\CourseEnrollment;
+use App\Models\CourseCode;
 use App\Models\CourseRating;
 use App\Models\DesignSetting;
 use App\Models\Level;
@@ -18,12 +20,16 @@ use App\Models\User;
 use App\Services\CourseAccessPlanService;
 use App\Services\AdminAuthoringCreateIntentService;
 use App\Services\ArabicSearchNormalizer;
+use App\Services\CertificateService;
 use App\Services\CourseAuthoringConcurrencyService;
 use App\Services\CourseCommercialReportService;
 use App\Services\CourseDurationService;
 use App\Services\CourseHeroSelectionService;
 use App\Services\CourseLearningHealthService;
+use App\Services\CoursePresentationService;
+use App\Services\CourseReadCompatibilityService;
 use App\Services\CoursePublishingService;
+use App\Services\CourseStagedAuthoringService;
 use App\Services\StoredFileDeletionService;
 use App\Services\NotificationService;
 use Illuminate\Support\Facades\Cache;
@@ -79,9 +85,25 @@ class CourseController extends Controller
                 'sections',
                 'lessons as preview_steps_count' => fn ($query) => $query->where('is_opened', true),
             ])
+            ->whereNotIn('courses.id', CourseAuthoringRevision::query()->select('revision_course_id'))
             ->whereNull('parent_id');
-        if ($canViewFinance && $filters['state'] === 'archived') {
-            $courseQuery->onlyTrashed();
+        if ($filters['state'] === 'active') {
+            // Keep authoring drafts and discoverable products in the daily
+            // list. A retired published course belongs in the archive view
+            // even though its row remains live for existing entitlements.
+            $courseQuery->where(function ($current): void {
+                $current->where('is_coming_soon', true)
+                    ->orWhere('is_catalog_visible', true);
+            });
+        } elseif ($canViewFinance && $filters['state'] === 'archived') {
+            $courseQuery->where(function ($archived): void {
+                $archived->whereNotNull('courses.deleted_at')
+                    ->orWhere(function ($retired): void {
+                        $retired->whereNull('courses.deleted_at')
+                            ->where('is_coming_soon', false)
+                            ->where('is_catalog_visible', false);
+                    });
+            });
         }
         if (!empty($filters['search'])) {
             $rawSearch = trim((string) $filters['search']);
@@ -289,7 +311,8 @@ class CourseController extends Controller
         CourseCommercialReportService $commercialReports,
         CourseDurationService $durations,
         CourseAccessPlanService $accessPlanService,
-        CourseLearningHealthService $learningHealth
+        CourseLearningHealthService $learningHealth,
+        CourseStagedAuthoringService $stagedAuthoring
     )
     {
         $course->load([
@@ -304,8 +327,9 @@ class CourseController extends Controller
         ]);
         $sections = $course->sections()->with('sectionable')->orderBy('order')->get();
         $course->setRelation('sections', $sections);
-        $course->loadCount(['activeEnrollments', 'ratings']);
-        $course->loadAvg('ratings', 'rating');
+        $reportCourse = $stagedAuthoring->canonicalFor($course);
+        $reportCourse->loadCount(['activeEnrollments', 'ratings']);
+        $reportCourse->loadAvg('ratings', 'rating');
         $durations->attach($course);
         $ungroupedSections = $sections->whereNull('module_id')->values();
         $publishingAudit = $publishingService->audit($course);
@@ -316,19 +340,19 @@ class CourseController extends Controller
             ->values();
         $designSettings = $this->getDesignSettings();
         $commercialReport = $this->isAdministrator()
-            ? $commercialReports->forCourse($course)
+            ? $commercialReports->forCourse($reportCourse)
             : null;
         // These two aggregates are the same real public social proof shown to
         // learners. Financial identities and cash remain administrator-only.
-        $activeStudentsCount = (int) $course->active_enrollments_count;
-        $learningHealthSummary = $learningHealth->forCourse($course);
+        $activeStudentsCount = (int) $reportCourse->active_enrollments_count;
+        $learningHealthSummary = $learningHealth->forCourse($reportCourse);
         $ratingSummary = $this->isAdministrator() ? [
-            'count' => (int) $course->ratings_count,
-            'average' => $course->ratings_count > 0
-                ? round((float) $course->ratings_avg_rating, 1)
+            'count' => (int) $reportCourse->ratings_count,
+            'average' => $reportCourse->ratings_count > 0
+                ? round((float) $reportCourse->ratings_avg_rating, 1)
                 : null,
             'removed_count' => CourseRating::onlyTrashed()
-                ->where('course_id', $course->id)
+                ->where('course_id', $reportCourse->id)
                 ->count(),
         ] : null;
         return view('admin.courses.show', compact(
@@ -345,20 +369,101 @@ class CourseController extends Controller
         ));
     }
 
+    /** Exact entitled learner contract, including draft rows, behind dashboard auth. */
+    public function studentPreview(
+        Request $request,
+        Course $course,
+        CourseReadCompatibilityService $courseReads,
+        CoursePresentationService $presentation,
+        CourseAccessPlanService $plans,
+        CertificateService $certificates
+    ) {
+        $validated = $request->validate([
+            'plan' => 'nullable|string|max:32',
+        ]);
+        $previewCourse = $courseReads->detailedCourseForAdminPreview((int) $course->id);
+        $planOptions = $plans->publicPlans($previewCourse)
+            ->map(fn ($plan): array => $plans->publicPayload($plan))
+            ->values();
+        $hasInstitutionalGrant = CourseCode::query()
+            ->where('course_id', $previewCourse->id)
+            ->valid()
+            ->get()
+            ->contains(fn (CourseCode $code): bool => $code->isInstitutionalGrant());
+
+        if ($hasInstitutionalGrant) {
+            $planOptions->push([
+                'code' => 'grant',
+                'name' => 'منحة جهة تعليمية',
+                'price_coins' => 0,
+                'minimum_paid_coins' => 0,
+                'chat_enabled' => false,
+                'chat_message_limit' => 0,
+                'chat_attachments_enabled' => false,
+                'chat_attachment_max_files' => 0,
+                'project_feedback_level' => 'pass_only',
+                'project_report_enabled' => false,
+                'project_thread_reply_enabled' => false,
+                'project_message_limit' => 0,
+                'project_token_budget' => 0,
+                'project_attachments_enabled' => false,
+                'project_attachment_max_files' => 0,
+                'project_output_enabled' => false,
+                'certificate_enabled' => false,
+            ]);
+        }
+
+        abort_if($planOptions->isEmpty(), 422, 'أنشئ فئة نشطة قبل معاينة تجربة الطالب.');
+        $requestedCode = strtolower(trim((string) ($validated['plan'] ?? '')));
+        $selectedPlan = $requestedCode !== ''
+            ? $planOptions->firstWhere('code', $requestedCode)
+            : ($planOptions->firstWhere('code', \App\Models\CourseAccessPlan::BASIC)
+                ?? $planOptions->first());
+        abort_unless($selectedPlan, 422, 'هذه الفئة لم تعد متاحة للمعاينة.');
+
+        /** @var User $actor */
+        $actor = $request->user();
+        $accessType = $selectedPlan['code'] === 'grant'
+            ? 'scholarship'
+            : 'paid';
+        $previewPayload = $presentation
+            ->dashboardPreview($previewCourse, $actor, $selectedPlan, $accessType)
+            ->resolve($request);
+        $certificateTextTemplate = $certificates
+            ->selectedTextTemplateForCourse($previewCourse);
+        abort_unless(
+            $certificateTextTemplate !== null,
+            422,
+            'اختر صياغة شهادة صالحة قبل معاينة تجربة الطالب.'
+        );
+
+        return response()->view('admin.courses.student-preview', compact(
+            'previewCourse',
+            'previewPayload',
+            'planOptions',
+            'selectedPlan',
+            'certificateTextTemplate'
+        ))->header('Cache-Control', 'private, no-store, max-age=0');
+    }
+
     /** Download the auditable learner economics ledger without exposing it to moderators. */
     public function exportCommercialReport(
         Course $course,
-        CourseCommercialReportService $commercialReports
+        CourseCommercialReportService $commercialReports,
+        CourseStagedAuthoringService $stagedAuthoring
     ) {
         abort_unless($this->isAdministrator(), 403);
-        $report = $commercialReports->forCourse($course);
+        // The studio may be displaying an isolated draft id. Financial facts
+        // always belong to the canonical learner-facing commercial shell.
+        $reportCourse = $stagedAuthoring->canonicalFor($course);
+        $report = $commercialReports->forCourse($reportCourse);
 
         return response()->streamDownload(function () use ($report): void {
             $output = fopen('php://output', 'wb');
             fwrite($output, "\xEF\xBB\xBF");
             fputcsv($output, [
                 'الطالب', 'البريد', 'الحالة', 'مصدر الإتاحة', 'الفئة', 'سعر العقد بالعملات',
-                'إجمالي العملات', 'خصم العملات', 'أكواد الخصم', 'عملات مشتراة', 'عملات مكافآت', 'إجمالي نقدي مؤكد منسوب',
+                'إجمالي العملات', 'خصم العملات', 'أكواد الخصم', 'أكواد الإتاحة والمنح', 'عملات مشتراة', 'عملات مكافآت', 'إجمالي نقدي مؤكد منسوب',
                 'إجمالي تقديري بسعر الكتالوج', 'حالة الإجمالي',
                 'قنوات الشحن', 'صافي بوابات الدفع', 'حالة التسوية', 'طلبات AI', 'طلبات AI فاشلة',
                 'طلبات AI بتكلفة تقديرية', 'حالة تكلفة AI', 'توكنات AI',
@@ -375,7 +480,8 @@ class CourseController extends Controller
                     $row['user']?->name ?? 'مستخدم محذوف', $row['user']?->email,
                     $row['is_active'] ? 'نشط' : 'غير نشط', $row['source_label'], $row['plan_name'],
                     $row['contract_price_coins'], $row['total_coins'], $row['discount_coins'],
-                    implode(' | ', $row['coupon_codes']), $row['paid_coins'],
+                    implode(' | ', $row['coupon_codes']),
+                    implode(' | ', $row['access_codes']), $row['paid_coins'],
                     $row['reward_coins'], $row['cash_gross_egp'],
                     $row['cash_estimated_gross_egp'],
                     $row['cash_gross_complete'] ? 'مؤكد' : 'جزئي أو تقديري',
@@ -398,7 +504,7 @@ class CourseController extends Controller
                 ]), ',', '"', '');
             }
             fclose($output);
-        }, "course-{$course->id}-commercial-report.csv", [
+        }, "course-{$reportCourse->id}-commercial-report.csv", [
             'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
     }
@@ -413,7 +519,8 @@ class CourseController extends Controller
         Course $course,
         CoursePublishingService $publishingService,
         CourseAccessPlanService $accessPlanService,
-        CourseAuthoringConcurrencyService $authoring
+        CourseAuthoringConcurrencyService $authoring,
+        CourseStagedAuthoringService $stagedAuthoring
     )
     {
         $course->load(['classifications', 'teachers']);
@@ -436,7 +543,7 @@ class CourseController extends Controller
         // the report out of one tab is not enough if the same figures are
         // injected into the edit form.
         $planStats = $this->isAdministrator()
-            ? $this->accessPlanStats($course)
+            ? $this->accessPlanStats($stagedAuthoring->canonicalFor($course))
             : collect();
         return view('admin.courses.edit', compact('course', 'enableEnglish', 'classifications', 'levels', 'designSettings', 'teachers', 'paths', 'allowedAiModels', 'certificateTextTemplates', 'publishingAudit', 'planStats'));
     }
@@ -454,7 +561,8 @@ class CourseController extends Controller
         CoursePublishingService $publishingService,
         CourseAccessPlanService $accessPlanService,
         CourseAuthoringConcurrencyService $authoring,
-        CourseHeroSelectionService $heroSelection
+        CourseHeroSelectionService $heroSelection,
+        CourseStagedAuthoringService $stagedAuthoring
     )
     {
         $previousClassificationIds = $course->classifications()->pluck('classifications.id')->all();
@@ -481,6 +589,7 @@ class CourseController extends Controller
         $oldPhotoIds = collect();
         $livePublishingIssues = [];
         $ownedAuthoringVersion = null;
+        $managedDraft = $stagedAuthoring->isManagedDraft($course);
         try {
             if ($request->hasFile('image')) {
                 $storedImagePath = app(StoredFileDeletionService::class)
@@ -503,19 +612,28 @@ class CourseController extends Controller
                 $publishingRequested,
                 $wasDraft,
                 $authoring,
+                $managedDraft,
                 $oldPhotoIds,
                 &$livePublishingIssues,
                 &$ownedAuthoringVersion
             ): void {
                 $lockedCourse = $authoring->lock($request, $course);
                 $lockedCourse->update($courseData);
+                if ($managedDraft && $request->has('is_main_course')) {
+                    // This is draft intent only. Global hero ownership changes
+                    // atomically when the revision is published.
+                    $lockedCourse->updateQuietly([
+                        'is_main_course' => $request->boolean('is_main_course'),
+                    ]);
+                }
                 if ($this->canManageCourses() && $request->has('access_plans')) {
                     $accessPlanService->syncAdminPlans(
                         $lockedCourse,
-                        (array) $request->input('access_plans', [])
+                        (array) $request->input('access_plans', []),
+                        $this->isAdministrator()
                     );
                 }
-                  if ($this->isAdministrator() && (
+                  if (!$managedDraft && $this->isAdministrator() && (
                       $request->boolean('grant_chat_attachments_to_current_enrollments')
                       || $request->boolean('grant_project_followup_attachments_to_current_enrollments')
                   )) {
@@ -579,51 +697,79 @@ class CourseController extends Controller
 
         $course->refresh();
 
-        if ($wasDraft && $publishingRequested) {
+        if ($wasDraft && $publishingRequested && $managedDraft) {
+            try {
+                $published = $stagedAuthoring->publish(
+                    $course,
+                    (int) $ownedAuthoringVersion,
+                    $catalogAnnouncementRequested,
+                    $this->isAdministrator()
+                        && $request->boolean('grant_chat_attachments_to_current_enrollments'),
+                    $this->isAdministrator()
+                        && $request->boolean('grant_project_followup_attachments_to_current_enrollments')
+                );
+                $course = $published['course'];
+                $ownedAuthoringVersion = (int) $published['published_revision'];
+            } catch (ValidationException $exception) {
+                throw $exception;
+            } catch (\Throwable $exception) {
+                report($exception);
+                return redirect()->route('admin.courses.edit', $course)
+                    ->with('success', 'تم حفظ المسودة')
+                    ->with('error', 'لم يكتمل النشر\nالنسخة الحالية ما زالت متاحة للطلاب');
+            }
+        } elseif ($wasDraft && $publishingRequested) {
             $publishingAudit = null;
             $publishedRevision = null;
-            DB::transaction(function () use (
-                $course,
-                $catalogAnnouncementRequested,
-                $publishingService,
-                $authoring,
-                &$publishingAudit,
-                &$publishedRevision,
-                &$ownedAuthoringVersion
-            ): void {
-                $lockedCourse = $authoring->lockExpected($course, (int) $ownedAuthoringVersion);
-                $publishingAudit = $publishingService->audit($lockedCourse->fresh());
-                if ($publishingAudit['ready']) {
-                    $previousPublishedRevision = (int) ($lockedCourse->last_published_authoring_version ?? 0);
-                    $lockedCourse->update([
-                        'is_coming_soon' => false,
-                        'is_catalog_visible' => $catalogAnnouncementRequested,
-                    ]);
-                    $publishedRevision = $authoring->advance($lockedCourse);
-                    $ownedAuthoringVersion = $publishedRevision;
-                    $lockedCourse->forceFill([
-                        'last_published_authoring_version' => $publishedRevision,
-                        'published_at' => now(),
-                    ])->save();
-                    if ($previousPublishedRevision > 0
-                        && $publishedRevision > $previousPublishedRevision) {
-                        // Persist the campaign in the same transaction as the
-                        // published revision. The coordinator is dispatched
-                        // after commit, so a killed HTTP request cannot publish
-                        // content while silently losing its one notification.
-                        NotificationService::notifyCourseUpdate(
-                            $lockedCourse->fresh(),
-                            'published_changes',
-                            'course-published:' . $lockedCourse->id . ':v' . $publishedRevision
-                        );
-                    } elseif ($previousPublishedRevision === 0 && $catalogAnnouncementRequested) {
-                        NotificationService::notifyNewCourse(
-                            $lockedCourse->fresh(),
-                            'course-published:' . $lockedCourse->id . ':v' . $publishedRevision . ':new'
-                        );
+            try {
+                DB::transaction(function () use (
+                    $course,
+                    $catalogAnnouncementRequested,
+                    $publishingService,
+                    $authoring,
+                    &$publishingAudit,
+                    &$publishedRevision,
+                    &$ownedAuthoringVersion
+                ): void {
+                    $lockedCourse = $authoring->lockExpected($course, (int) $ownedAuthoringVersion);
+                    $publishingAudit = $publishingService->audit($lockedCourse->fresh());
+                    if ($publishingAudit['ready']) {
+                        $previousPublishedRevision = (int) ($lockedCourse->last_published_authoring_version ?? 0);
+                        $lockedCourse->update([
+                            'is_coming_soon' => false,
+                            'is_catalog_visible' => $catalogAnnouncementRequested,
+                        ]);
+                        $publishedRevision = $authoring->advance($lockedCourse);
+                        $ownedAuthoringVersion = $publishedRevision;
+                        $lockedCourse->forceFill([
+                            'last_published_authoring_version' => $publishedRevision,
+                            'published_at' => now(),
+                        ])->save();
+                        if ($previousPublishedRevision > 0
+                            && $publishedRevision > $previousPublishedRevision) {
+                            // Persist the campaign in the same transaction as the
+                            // published revision. The coordinator is dispatched
+                            // after commit, so a killed HTTP request cannot publish
+                            // content while silently losing its one notification.
+                            NotificationService::notifyCourseUpdate(
+                                $lockedCourse->fresh(),
+                                'published_changes',
+                                'course-published:' . $lockedCourse->id . ':v' . $publishedRevision
+                            );
+                        } elseif ($previousPublishedRevision === 0 && $catalogAnnouncementRequested) {
+                            NotificationService::notifyNewCourse(
+                                $lockedCourse->fresh(),
+                                'course-published:' . $lockedCourse->id . ':v' . $publishedRevision . ':new'
+                            );
+                        }
                     }
-                }
-            }, 3);
+                }, 3);
+            } catch (\Throwable $exception) {
+                report($exception);
+                return redirect()->route('admin.courses.edit', $course)
+                    ->with('success', 'تم حفظ تعديلات الكورس')
+                    ->with('error', 'لم يكتمل النشر\nأعد تحميل الصفحة وراجعه قبل المحاولة');
+            }
             if (!$publishingAudit['ready']) {
                 return redirect()->route('admin.courses.edit', $course)
                     ->with('error', 'تم حفظ التعديلات، لكن الكورس ما زال مسودة حتى تكتمل عناصر النشر.')
@@ -633,22 +779,29 @@ class CourseController extends Controller
         }
 
         $freshCourse = $course->fresh();
-        if ($freshCourse->is_coming_soon && $catalogAnnouncementRequested) {
+        if (!$managedDraft && $freshCourse->is_coming_soon && $catalogAnnouncementRequested) {
             $catalogAudit = null;
-            DB::transaction(function () use (
-                $freshCourse,
-                $publishingService,
-                $authoring,
-                &$catalogAudit,
-                &$ownedAuthoringVersion
-            ): void {
-                $lockedCourse = $authoring->lockExpected($freshCourse, (int) $ownedAuthoringVersion);
-                $catalogAudit = $publishingService->auditCatalogCard($lockedCourse->fresh());
-                if ($catalogAudit['ready']) {
-                    $lockedCourse->update(['is_catalog_visible' => true]);
-                    $ownedAuthoringVersion = $authoring->advance($lockedCourse);
-                }
-            }, 3);
+            try {
+                DB::transaction(function () use (
+                    $freshCourse,
+                    $publishingService,
+                    $authoring,
+                    &$catalogAudit,
+                    &$ownedAuthoringVersion
+                ): void {
+                    $lockedCourse = $authoring->lockExpected($freshCourse, (int) $ownedAuthoringVersion);
+                    $catalogAudit = $publishingService->auditCatalogCard($lockedCourse->fresh());
+                    if ($catalogAudit['ready']) {
+                        $lockedCourse->update(['is_catalog_visible' => true]);
+                        $ownedAuthoringVersion = $authoring->advance($lockedCourse);
+                    }
+                }, 3);
+            } catch (\Throwable $exception) {
+                report($exception);
+                return redirect()->route('admin.courses.edit', $course)
+                    ->with('success', 'تم حفظ تعديلات الكورس')
+                    ->with('error', 'لم يكتمل إظهار بطاقة الكورس\nأعد تحميل الصفحة ثم حاول مرة أخرى');
+            }
             if (!$catalogAudit['ready']) {
                 return redirect()->route('admin.courses.edit', $course)
                     ->with('error', 'تم حفظ التعديلات، لكن بطاقة قريبًا ما زالت مخفية حتى تكتمل بياناتها.')
@@ -663,11 +816,25 @@ class CourseController extends Controller
         $heroRequestedMain = $request->has('is_main_course')
             ? $request->boolean('is_main_course')
             : (bool) $heroCourse->is_main_course;
-        $heroSelection->synchronize(
-            $course,
-            (int) $ownedAuthoringVersion,
-            $heroRequestedMain
-        );
+        try {
+            if (!($managedDraft && !$publishingRequested)) {
+                $heroSelection->synchronize(
+                    $course,
+                    (int) $ownedAuthoringVersion,
+                    $heroRequestedMain
+                );
+            }
+        } catch (\Throwable $exception) {
+            // Metadata/publishing is already committed. The hero operation is
+            // idempotent and independently revision-checked, so report its
+            // real outcome instead of returning a generic failure that invites
+            // the moderator to resubmit the whole stale course form.
+            report($exception);
+            $this->forgetCatalogCache($course->fresh());
+            return redirect()->route('admin.courses.edit', $course)
+                ->with('success', 'تم حفظ تعديلات الكورس')
+                ->with('error', 'لم يتغير اختيار الواجهة الرئيسية\nأعد تحميل الصفحة ثم حاول مرة أخرى');
+        }
 
         $this->forgetCatalogCache(
             $course->fresh(),
@@ -695,29 +862,94 @@ class CourseController extends Controller
      */
     public function destroy(
         Request $request,
-        Course $course,
-        CourseAuthoringConcurrencyService $authoring
+        Course $course
     )
     {
         abort_unless($this->isAdministrator(), 403);
-        $request->validate(['authoring_version' => 'required|integer|min:1']);
+        $validated = $request->validate([
+            'authoring_version' => 'required|integer|min:1',
+        ]);
         $classificationIds = [];
+        $unlisted = false;
+        $discardedDraft = false;
         DB::transaction(function () use (
-            $request,
             $course,
-            $authoring,
-            &$classificationIds
+            $validated,
+            &$classificationIds,
+            &$unlisted,
+            &$discardedDraft
         ): void {
-            $lockedCourse = $authoring->lock($request, $course);
+            // Administrative retirement is not a draft edit. Lock the
+            // canonical product directly; the authoring lock deliberately
+            // rejects published rows and made the archive button unusable on
+            // the courses that actually need this lifecycle.
+            $lockedCourse = Course::query()->whereKey($course->id)
+                ->lockForUpdate()->firstOrFail();
+            if ((int) $lockedCourse->authoring_version !== (int) $validated['authoring_version']) {
+                throw ValidationException::withMessages([
+                    'authoring_version' => [
+                        'تغيّر الكورس منذ فتح الصفحة\nأعد تحميلها قبل الأرشفة',
+                    ],
+                ])->status(409);
+            }
             $classificationIds = $lockedCourse->classifications()
                 ->pluck('classifications.id')->all();
+
+            $wasEverPublished = $lockedCourse->published_at !== null
+                || (int) ($lockedCourse->last_published_authoring_version ?? 0) > 0
+                || !(bool) $lockedCourse->is_coming_soon;
+            $hasCommercialHistory = $lockedCourse->enrollments()->exists()
+                || $lockedCourse->orders()->exists();
+
+            if ($wasEverPublished || $hasCommercialHistory) {
+                // A purchased course is an entitlement, not a catalogue row.
+                // Unlisting blocks every new checkout while retaining the
+                // immutable content/plan snapshots for existing learners.
+                $lockedCourse->forceFill([
+                    'is_catalog_visible' => false,
+                    'is_main_course' => false,
+                    'authoring_version' => (int) $lockedCourse->authoring_version + 1,
+                ])->save();
+                $unlisted = true;
+
+                // A moderator tab cloned before this retirement must not be
+                // able to publish later and silently relist the product.
+                $activeDraft = CourseAuthoringRevision::query()
+                    ->where('canonical_course_id', $lockedCourse->id)
+                    ->where('status', CourseAuthoringRevision::DRAFT)
+                    ->lockForUpdate()
+                    ->first();
+                if ($activeDraft) {
+                    $activeDraft->forceFill([
+                        'status' => CourseAuthoringRevision::ARCHIVED,
+                        'active_slot' => null,
+                        'retain_until' => now()->addDays(
+                            max(7, (int) config('playback.revision_grace_days', 7))
+                        ),
+                    ])->save();
+                    $discardedDraft = true;
+                }
+                return;
+            }
+
+            // A never-published draft has no learner or financial contract to
+            // preserve and can enter the recoverable soft-delete archive.
             $lockedCourse->delete();
         }, 3);
 
         $this->forgetCatalogCache($course, $classificationIds);
+        if ($unlisted) {
+            return redirect()->route('admin.courses.index')->with(
+                'success',
+                $discardedDraft
+                    ? 'أُخفي الكورس من الكتالوج مع استمرار وصول الطلاب وأُغلقت المسودة القديمة'
+                    : 'أُخفي الكورس من الكتالوج مع استمرار وصول الطلاب الحاليين'
+            );
+        }
+
         return redirect()->route('admin.courses.index')->with(
             'success',
-            'نُقل الكورس إلى الأرشيف وتوقّف ظهوره وفتح محتواه'
+            'نُقلت المسودة غير المنشورة إلى الأرشيف'
         );
     }
 
@@ -725,17 +957,27 @@ class CourseController extends Controller
     {
         abort_unless($this->isAdministrator(), 403);
 
-        $course = DB::transaction(function () use ($courseId): Course {
+        $preservedLearnerAccess = false;
+        $course = DB::transaction(function () use (
+            $courseId,
+            &$preservedLearnerAccess
+        ): Course {
             $course = Course::onlyTrashed()
                 ->whereKey($courseId)
                 ->lockForUpdate()
                 ->firstOrFail();
+            $preservedLearnerAccess = CourseEnrollment::query()
+                ->where('course_id', $course->id)
+                ->active()
+                ->exists();
             $course->restore();
-            // Restoring must never silently republish an old commercial page.
-            // Return it to authoring as a hidden draft for an explicit review.
+            // Never relist a restored commercial page. Legacy rows that were
+            // archived before retirement became non-destructive may still
+            // have active paid/grant enrollments; restore their private
+            // learning access without reopening checkout.
             $course->forceFill([
                 'is_catalog_visible' => false,
-                'is_coming_soon' => true,
+                'is_coming_soon' => !$preservedLearnerAccess,
                 'is_main_course' => false,
                 'authoring_version' => max(1, (int) $course->authoring_version + 1),
             ])->save();
@@ -747,7 +989,9 @@ class CourseController extends Controller
 
         return redirect()->route('admin.courses.edit', $course)->with(
             'success',
-            'استُعيد الكورس كمسودة مخفية للمراجعة قبل النشر'
+            $preservedLearnerAccess
+                ? 'استُعيد الكورس مخفيًا من الكتالوج وعاد وصول الطلاب الحاليين'
+                : 'استُعيد الكورس كمسودة مخفية للمراجعة قبل النشر'
         );
     }
 
@@ -771,65 +1015,88 @@ class CourseController extends Controller
         if (
             !$this->isAdministrator()
             || !Schema::hasColumn('orders', 'access_plan_id')
+            || !Schema::hasTable('course_access_plans')
             || !Schema::hasTable('ai_usage_events')
         ) {
             return collect();
         }
 
+        $driver = DB::connection()->getDriverName();
+        $snapshotPlanCode = Schema::hasColumn('orders', 'access_plan_snapshot')
+            ? match ($driver) {
+                'mysql', 'mariadb' => "JSON_UNQUOTE(JSON_EXTRACT(orders.access_plan_snapshot, '$.code'))",
+                'pgsql' => "orders.access_plan_snapshot->>'code'",
+                'sqlite' => "json_extract(orders.access_plan_snapshot, '$.code')",
+                default => 'NULL',
+            }
+            : 'NULL';
+        $salesPlanCode = "COALESCE(NULLIF({$snapshotPlanCode}, ''), historical_plan.code)";
         $sales = Order::query()
-            ->where('course_id', $course->id)
-            ->where('status', Order::STATUS_APPROVED)
-            ->where('financial_status', Order::FINANCIAL_SETTLED)
-            ->whereNull('reversed_at')
-            ->whereNotNull('access_plan_id')
-            ->selectRaw('access_plan_id, COUNT(*) as sales_count, COALESCE(SUM(total_coins),0) as total_coins, COALESCE(SUM(paid_coins),0) as paid_coins, COALESCE(SUM(reward_coins),0) as reward_coins')
-            ->groupBy('access_plan_id')
+            ->leftJoin(
+                'course_access_plans as historical_plan',
+                'historical_plan.id',
+                '=',
+                'orders.access_plan_id'
+            )
+            ->where('orders.course_id', $course->id)
+            ->where('orders.status', Order::STATUS_APPROVED)
+            ->where('orders.financial_status', Order::FINANCIAL_SETTLED)
+            ->whereNull('orders.reversed_at')
+            ->whereNotNull('orders.access_plan_id')
+            ->selectRaw("{$salesPlanCode} as plan_code, COUNT(*) as sales_count, COALESCE(SUM(orders.total_coins),0) as total_coins, COALESCE(SUM(orders.paid_coins),0) as paid_coins, COALESCE(SUM(orders.reward_coins),0) as reward_coins")
+            ->groupByRaw($salesPlanCode)
             ->get()
-            ->keyBy('access_plan_id');
-        $costSource = match (DB::connection()->getDriverName()) {
+            ->keyBy('plan_code');
+        $costSource = match ($driver) {
             'mysql', 'mariadb' => "JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.cost_usage_source'))",
             'pgsql' => "metadata->>'cost_usage_source'",
             'sqlite' => "json_extract(metadata, '$.cost_usage_source')",
             default => "''",
         };
-        $deliverySource = match (DB::connection()->getDriverName()) {
+        $deliverySource = match ($driver) {
             'mysql', 'mariadb' => "JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.entitlement_delivered'))",
             'pgsql' => "metadata->>'entitlement_delivered'",
             'sqlite' => "CAST(json_extract(metadata, '$.entitlement_delivered') AS TEXT)",
             default => "'true'",
         };
         $usage = DB::table('ai_usage_events')
-            ->where('course_id', $course->id)
-            ->where('status', 'completed')
-            ->whereNotNull('access_plan_id')
-            ->selectRaw("access_plan_id, feature, SUM(CASE WHEN COALESCE({$deliverySource}, 'true') NOT IN ('false', '0') THEN 1 ELSE 0 END) as ai_requests, SUM(CASE WHEN COALESCE({$deliverySource}, 'true') IN ('false', '0') THEN 1 ELSE 0 END) as unanswered_requests, SUM(CASE WHEN COALESCE({$costSource}, '') <> 'provider' THEN 1 ELSE 0 END) as estimated_requests, COALESCE(SUM(total_tokens),0) as total_tokens, COALESCE(SUM(cost_usd),0) as cost_usd")
-            ->groupBy('access_plan_id', 'feature')
+            ->leftJoin(
+                'course_access_plans as usage_plan',
+                'usage_plan.id',
+                '=',
+                'ai_usage_events.access_plan_id'
+            )
+            ->where('ai_usage_events.course_id', $course->id)
+            ->where('ai_usage_events.status', 'completed')
+            ->whereNotNull('ai_usage_events.access_plan_id')
+            ->selectRaw("usage_plan.code as plan_code, ai_usage_events.feature, SUM(CASE WHEN COALESCE({$deliverySource}, 'true') NOT IN ('false', '0') THEN 1 ELSE 0 END) as ai_requests, SUM(CASE WHEN COALESCE({$deliverySource}, 'true') IN ('false', '0') THEN 1 ELSE 0 END) as unanswered_requests, SUM(CASE WHEN COALESCE({$costSource}, '') <> 'provider' THEN 1 ELSE 0 END) as estimated_requests, COALESCE(SUM(ai_usage_events.total_tokens),0) as total_tokens, COALESCE(SUM(ai_usage_events.cost_usd),0) as cost_usd")
+            ->groupBy('usage_plan.code', 'ai_usage_events.feature')
             ->get()
-            ->keyBy(fn ($row) => $row->access_plan_id . ':' . $row->feature);
+            ->keyBy(fn ($row) => $row->plan_code . ':' . $row->feature);
 
         return $course->accessPlans->mapWithKeys(fn ($plan) => [
             $plan->code => [
-                'sales_count' => (int) ($sales->get($plan->id)?->sales_count ?? 0),
-                'total_coins' => (int) ($sales->get($plan->id)?->total_coins ?? 0),
-                'paid_coins' => (int) ($sales->get($plan->id)?->paid_coins ?? 0),
-                'reward_coins' => (int) ($sales->get($plan->id)?->reward_coins ?? 0),
-                'chat_requests' => (int) ($usage->get($plan->id . ':course_chat')?->ai_requests ?? 0),
-                'chat_unanswered_requests' => (int) ($usage->get($plan->id . ':course_chat')?->unanswered_requests ?? 0),
-                'chat_tokens' => (int) ($usage->get($plan->id . ':course_chat')?->total_tokens ?? 0),
-                'chat_cost_usd' => (float) ($usage->get($plan->id . ':course_chat')?->cost_usd ?? 0),
-                'project_requests' => (int) ($usage->get($plan->id . ':project_feedback')?->ai_requests ?? 0),
-                'project_unanswered_requests' => (int) ($usage->get($plan->id . ':project_feedback')?->unanswered_requests ?? 0),
-                'project_tokens' => (int) ($usage->get($plan->id . ':project_feedback')?->total_tokens ?? 0),
-                'project_cost_usd' => (float) ($usage->get($plan->id . ':project_feedback')?->cost_usd ?? 0),
-                'followup_requests' => (int) ($usage->get($plan->id . ':project_followup')?->ai_requests ?? 0),
-                'followup_unanswered_requests' => (int) ($usage->get($plan->id . ':project_followup')?->unanswered_requests ?? 0),
-                'followup_tokens' => (int) ($usage->get($plan->id . ':project_followup')?->total_tokens ?? 0),
-                'followup_cost_usd' => (float) ($usage->get($plan->id . ':project_followup')?->cost_usd ?? 0),
+                'sales_count' => (int) ($sales->get($plan->code)?->sales_count ?? 0),
+                'total_coins' => (int) ($sales->get($plan->code)?->total_coins ?? 0),
+                'paid_coins' => (int) ($sales->get($plan->code)?->paid_coins ?? 0),
+                'reward_coins' => (int) ($sales->get($plan->code)?->reward_coins ?? 0),
+                'chat_requests' => (int) ($usage->get($plan->code . ':course_chat')?->ai_requests ?? 0),
+                'chat_unanswered_requests' => (int) ($usage->get($plan->code . ':course_chat')?->unanswered_requests ?? 0),
+                'chat_tokens' => (int) ($usage->get($plan->code . ':course_chat')?->total_tokens ?? 0),
+                'chat_cost_usd' => (float) ($usage->get($plan->code . ':course_chat')?->cost_usd ?? 0),
+                'project_requests' => (int) ($usage->get($plan->code . ':project_feedback')?->ai_requests ?? 0),
+                'project_unanswered_requests' => (int) ($usage->get($plan->code . ':project_feedback')?->unanswered_requests ?? 0),
+                'project_tokens' => (int) ($usage->get($plan->code . ':project_feedback')?->total_tokens ?? 0),
+                'project_cost_usd' => (float) ($usage->get($plan->code . ':project_feedback')?->cost_usd ?? 0),
+                'followup_requests' => (int) ($usage->get($plan->code . ':project_followup')?->ai_requests ?? 0),
+                'followup_unanswered_requests' => (int) ($usage->get($plan->code . ':project_followup')?->unanswered_requests ?? 0),
+                'followup_tokens' => (int) ($usage->get($plan->code . ':project_followup')?->total_tokens ?? 0),
+                'followup_cost_usd' => (float) ($usage->get($plan->code . ':project_followup')?->cost_usd ?? 0),
                 'estimated_cost_requests' => (int) collect(['course_chat', 'project_feedback', 'project_followup'])->sum(
-                    fn (string $feature): int => (int) ($usage->get($plan->id . ':' . $feature)?->estimated_requests ?? 0)
+                    fn (string $feature): int => (int) ($usage->get($plan->code . ':' . $feature)?->estimated_requests ?? 0)
                 ),
                 'total_unanswered_requests' => (int) collect(['course_chat', 'project_feedback', 'project_followup'])->sum(
-                    fn (string $feature): int => (int) ($usage->get($plan->id . ':' . $feature)?->unanswered_requests ?? 0)
+                    fn (string $feature): int => (int) ($usage->get($plan->code . ':' . $feature)?->unanswered_requests ?? 0)
                 ),
             ],
         ]);
@@ -840,7 +1107,11 @@ class CourseController extends Controller
     {
         try {
             $catalogRevisionKey = 'courses:catalog-revision';
-            Cache::add($catalogRevisionKey, 1, now()->addYears(10));
+            Cache::add(
+                $catalogRevisionKey,
+                max(1, (int) floor(microtime(true) * 1000)),
+                now()->addYears(10)
+            );
             Cache::increment($catalogRevisionKey);
             Cache::forget('home:courses:v4');
             Cache::forget('mobile-home:main-courses:v3');

@@ -61,6 +61,7 @@
                                     <div class="dropdown-menu dropdown-menu-right">
                                         <form action="{{ route('admin.contacts.read', $contact->id) }}" method="POST" class="m-0">
                                             @csrf
+                                            <input type="hidden" name="editor_version" value="{{ $editorVersions[$contact->id] }}">
                                             <button type="submit" class="dropdown-item border-0 bg-transparent text-right w-100">
                                                 <i class="fa fa-eye"></i>
                                                 <span>مشاهدة التفاصيل</span>
@@ -74,6 +75,7 @@
                                             <form class="admin-inline-hidden" id="deleteForm{{$contact->id}}" action="{{ route('admin.contacts.destroy', $contact->id) }}" method="post">
                                                 <input name="_method" type="hidden" value="DELETE">
                                                 @csrf
+                                                <input type="hidden" name="editor_version" value="{{ $editorVersions[$contact->id] }}">
                                             </form>
                                         @endunless
                                     </div>

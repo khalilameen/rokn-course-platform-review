@@ -17,6 +17,8 @@ use App\Services\AiInputAttachmentService;
 use App\Services\CourseAccessPlanService;
 use App\Services\CourseChatAccessService;
 use App\Services\CourseChatTurnService;
+use App\Services\CourseStagedAuthoringService;
+use App\Services\PaidAiCallExecutionService;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -38,7 +40,9 @@ final class CourseChatController extends Controller
         private readonly CourseAccessPlanService $accessPlans,
         private readonly AiEntitlementBudgetService $entitlementBudget,
         private readonly CourseChatTurnService $turns,
-        private readonly AiInputAttachmentService $attachments
+        private readonly AiInputAttachmentService $attachments,
+        private readonly CourseStagedAuthoringService $stagedAuthoring,
+        private readonly PaidAiCallExecutionService $paidCalls
     ) {
     }
 
@@ -61,7 +65,7 @@ final class CourseChatController extends Controller
             || !$access->hasChatAccess((int) $user->id, (int) $course->id)) {
             abort(404);
         }
-        $enrollment = $access->activeEnrollmentFor((int) $user->id, (int) $course->id);
+        $enrollment = $access->activeChatEnrollmentFor((int) $user->id, (int) $course->id);
         $terms = $enrollment ? $this->accessPlans->termsForEnrollment($enrollment) : null;
         $contract = $this->attachmentContract($course, $terms);
         if (!$contract['enabled']) {
@@ -132,20 +136,18 @@ final class CourseChatController extends Controller
             ], 404);
         }
 
-        $lessonId = isset($validated['lesson_id']) ? (int) $validated['lesson_id'] : null;
-        if ($lessonId !== null && !Lesson::query()
-            ->whereKey($lessonId)
-            ->where('list_id', $course->id)
-            ->whereHas('courseSection', fn ($sections) =>
-                $sections->where('course_id', $course->id)
-            )
-            ->exists()) {
-            return response()->json([
-                'status' => 422,
-                'success' => false,
-                'message' => 'المقطع لا ينتمي إلى هذا الكورس',
-                'data' => null,
-            ], 422);
+        $lessonId = null;
+        if (isset($validated['lesson_id'])) {
+            $lesson = $this->currentCourseLesson((int) $validated['lesson_id'], $course);
+            if (!$lesson) {
+                return response()->json([
+                    'status' => 422,
+                    'success' => false,
+                    'message' => 'المقطع لا ينتمي إلى هذا الكورس',
+                    'data' => null,
+                ], 422);
+            }
+            $lessonId = (int) $lesson->id;
         }
 
         if (!$this->turns->available()) {
@@ -318,7 +320,8 @@ final class CourseChatController extends Controller
             $event = AiUsageEvent::query()
                 ->where('request_id', $clientRequestId)
                 ->where('user_id', $turn->user_id)
-                ->where('course_id', $turn->course_id)
+                ->where('enrollment_id', $turn->enrollment_id)
+                ->where('feature', 'course_chat')
                 ->lockForUpdate()->first();
             if ($event?->status === 'reserved' && in_array(
                 data_get($event->metadata, 'provider_call_state'),
@@ -392,7 +395,11 @@ final class CourseChatController extends Controller
                 'data' => null,
             ], 403);
         }
-        if (!$access->hasChatAccess($user->id, $course->id)) {
+        $chatEnrollment = $access->activeChatEnrollmentFor(
+            (int) $user->id,
+            (int) $course->id
+        );
+        if (!$chatEnrollment) {
             return response()->json([
                 'status' => 403,
                 'success' => false,
@@ -439,13 +446,8 @@ final class CourseChatController extends Controller
             160
         );
         if (!empty($validated['lesson_id'])) {
-            $lesson = Lesson::query()
-                ->where('id', $validated['lesson_id'])
-                ->where('list_id', $course->id)
-                ->whereHas('courseSection', function ($sections) use ($course): void {
-                    $sections->where('course_id', $course->id);
-                })
-                ->first();
+            $requestedLesson = Lesson::query()->find((int) $validated['lesson_id']);
+            $lesson = $this->currentCourseLesson((int) $validated['lesson_id'], $course);
             if (!$lesson) {
                 return response()->json([
                     'status' => 422,
@@ -455,17 +457,18 @@ final class CourseChatController extends Controller
                     'data' => null,
                 ], 422);
             }
-            $currentStepTitle = (string) $lesson->title;
+            $currentStepTitle = (string) ($requestedLesson?->title ?: $lesson->title);
         }
 
         $requestContext = [
+            'course_id' => (int) $course->id,
             'question_hash' => $questionHash,
             'lesson_id' => isset($lesson) ? (int) $lesson->id : null,
             'language' => $language,
             'prompt_version' => $promptVersion,
             'attachment_count' => count($attachmentIds),
         ];
-        $enrollment = $access->activeEnrollmentFor((int) $user->id, (int) $course->id);
+        $enrollment = $chatEnrollment;
         $planTerms = $enrollment
             ? $this->accessPlans->termsForEnrollment($enrollment)
             : null;
@@ -513,6 +516,23 @@ final class CourseChatController extends Controller
                 )
                 : collect();
         } catch (\UnexpectedValueException) {
+            // begin() may already have persisted the idempotent turn before
+            // attachment ownership validation rejects it. Close only that
+            // undispatched turn so a rejected request never looks queued.
+            $closed = $this->turns->failBeforeDispatch(
+                $this->activeTurn,
+                'chat_attachment_claim_failed'
+            );
+            if ($this->activeTurn && !$closed) {
+                return $this->gracefulUnavailable(
+                    "نجهز إجابتك الآن\nستظهر خلال لحظات",
+                    3,
+                    'chat_answer_in_progress',
+                    $clientRequestId,
+                    'queued'
+                );
+            }
+
             return response()->json([
                 'status' => 409,
                 'success' => false,
@@ -554,7 +574,7 @@ final class CourseChatController extends Controller
         if ($prior) {
             if (
                 (int) $prior->user_id !== (int) $user->id
-                || (int) $prior->course_id !== (int) $course->id
+                || (int) $prior->enrollment_id !== (int) $enrollment->id
                 || (string) $prior->feature !== 'course_chat'
             ) {
                 return response()->json([
@@ -591,10 +611,49 @@ final class CourseChatController extends Controller
                     $prior->reservation_expires_at
                     && $prior->reservation_expires_at->isPast()
                 ) {
-                    $this->entitlementBudget->release(
-                        $prior,
-                        'expired_course_chat_request'
-                    );
+                    // Expiry only proves the local reservation lease elapsed.
+                    // It does not prove that a paid provider request never
+                    // started. Preserve live/landed work and reconcile stale
+                    // exposure instead of releasing it as free capacity.
+                    if ($this->paidCalls->landedResult($prior) !== null) {
+                        return $this->gracefulUnavailable(
+                            "نجهز إجابتك الآن\nستظهر خلال لحظات",
+                            3,
+                            'chat_answer_in_progress',
+                            $clientRequestId,
+                            'streaming'
+                        );
+                    }
+                    $providerState = $this->paidCalls->startedState($prior);
+                    if ($providerState === PaidAiCallExecutionService::LIVE) {
+                        return $this->gracefulUnavailable(
+                            "نجهز إجابتك الآن\nستظهر خلال لحظات",
+                            3,
+                            'chat_answer_in_progress',
+                            $clientRequestId,
+                            'streaming'
+                        );
+                    }
+                    if ($providerState === PaidAiCallExecutionService::STALE_STARTED) {
+                        $this->paidCalls->settleUnknown(
+                            $this->entitlementBudget,
+                            $prior,
+                            $requestContext
+                        );
+                        $this->turns->fail(
+                            $this->activeTurn,
+                            'chat_provider_outcome_unknown'
+                        );
+                    } else {
+                        $this->entitlementBudget->release(
+                            $prior,
+                            'expired_course_chat_request'
+                        );
+                        $this->turns->fail(
+                            $this->activeTurn,
+                            'chat_request_interrupted'
+                        );
+                    }
 
                     return $this->gracefulUnavailable(
                         "لم تكتمل الإجابة السابقة\nأرسل السؤال مرة أخرى",
@@ -632,6 +691,20 @@ final class CourseChatController extends Controller
             $consumeAdmissionQuota
             && RateLimiter::tooManyAttempts($minuteKey, $perMinute)
         ) {
+            $closed = $this->turns->failBeforeDispatch(
+                $this->activeTurn,
+                'chat_rate_limited_before_dispatch'
+            );
+            if (!$closed) {
+                return $this->gracefulUnavailable(
+                    "نجهز إجابتك الآن\nستظهر خلال لحظات",
+                    3,
+                    'chat_answer_in_progress',
+                    $clientRequestId,
+                    'queued'
+                );
+            }
+
             return $this->gracefulUnavailable(
                 "انتظر قليلًا\nثم أرسل سؤالك مرة أخرى\nمكانك في الكورس محفوظ",
                 RateLimiter::availableIn($minuteKey),
@@ -671,6 +744,19 @@ final class CourseChatController extends Controller
             $model = $this->resolveModel($course, $planTerms['model_override'] ?? null);
         } catch (\Throwable $exception) {
             report($exception);
+            $closed = $this->turns->failBeforeDispatch(
+                $this->activeTurn,
+                'chat_preparation_failed'
+            );
+            if (!$closed) {
+                return $this->gracefulUnavailable(
+                    "نجهز إجابتك الآن\nستظهر خلال لحظات",
+                    3,
+                    'chat_answer_in_progress',
+                    $clientRequestId,
+                    'queued'
+                );
+            }
 
             return $this->gracefulUnavailable(
                 "ركن AI غير متاح الآن\nأكمل المشاهدة وحاول لاحقًا",
@@ -846,6 +932,20 @@ final class CourseChatController extends Controller
                 });
 
                 if (!($result['rate'] ?? true)) {
+                    $closed = $this->turns->failBeforeDispatch(
+                        $this->activeTurn,
+                        'chat_rate_limited_before_dispatch'
+                    );
+                    if (!$closed) {
+                        return $this->gracefulUnavailable(
+                            "نجهز إجابتك الآن\nستظهر خلال لحظات",
+                            3,
+                            'chat_answer_in_progress',
+                            $clientRequestId,
+                            'queued'
+                        );
+                    }
+
                     return $this->gracefulUnavailable(
                         "انتظر قليلًا\nثم أرسل سؤالك مرة أخرى\nمكانك في الكورس محفوظ",
                         RateLimiter::availableIn($minuteKey),
@@ -855,6 +955,20 @@ final class CourseChatController extends Controller
                 }
 
                 if (!$result['quota']) {
+                    $closed = $this->turns->failBeforeDispatch(
+                        $this->activeTurn,
+                        'chat_daily_limit_before_dispatch'
+                    );
+                    if (!$closed) {
+                        return $this->gracefulUnavailable(
+                            "نجهز إجابتك الآن\nستظهر خلال لحظات",
+                            3,
+                            'chat_answer_in_progress',
+                            $clientRequestId,
+                            'queued'
+                        );
+                    }
+
                     return $this->gracefulUnavailable(
                         "وصلت إلى حد الاستخدام اليومي\nحاول غدًا\nتقدمك محفوظ",
                         $this->secondsUntilEndOfDay(),
@@ -911,7 +1025,7 @@ final class CourseChatController extends Controller
                 $cachedUsage = $this->recordCachedTurn(
                     $clientRequestId,
                     $user->id,
-                    $course->id,
+                    (int) $enrollment->course_id,
                     $enrollment->id,
                     $enrollment->access_plan_id ? (int) $enrollment->access_plan_id : null,
                     $model,
@@ -936,6 +1050,22 @@ final class CourseChatController extends Controller
             $clientRequestId,
             $wasCached
         );
+    }
+
+    private function currentCourseLesson(int $lessonId, Course $course): ?Lesson
+    {
+        $currentId = $this->stagedAuthoring->currentLearnerEntityMap(
+            Lesson::class,
+            [$lessonId]
+        )[$lessonId] ?? $lessonId;
+
+        return Lesson::query()
+            ->whereKey($currentId)
+            ->where('list_id', $course->id)
+            ->whereHas('courseSection', fn ($sections) =>
+                $sections->where('course_id', $course->id)
+            )
+            ->first();
     }
 
     private function consumeDailyQuota(string $key, int $limit): bool

@@ -2,10 +2,10 @@
 
 namespace App\Models;
 
+use App\Services\AppReleaseChannelService;
 use App\Services\PublicAppSettingsService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -20,7 +20,7 @@ class AppVersion extends Model
                     // dependency first, then its consumer; the reverse order
                     // leaves a window where public settings can be rebuilt
                     // from the old release and remain stale for five minutes.
-                    Cache::forget('app-release-channels:v2');
+                    AppReleaseChannelService::invalidate();
                 } catch (Throwable $exception) {
                     report($exception);
                 }

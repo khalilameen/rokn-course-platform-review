@@ -29,23 +29,49 @@ final class EngagementController extends Controller
             })
             // Lead with the current social follow task, matching the familiar
             // short-drama-app loop: leave, return, then claim.
+            ->withCount('userEarnings')
             ->orderByDesc('requires_external_visit')
             ->orderBy('id')
             ->get();
 
-        $method = $methods->first(function (CoinEarningMethod $method) use ($user, $tombstones): bool {
-            if (!$method->hasUsableDestination() || $tombstones->userHasConsumedMethod($user, $method)) {
+        $methodIds = $methods->pluck('id');
+        $earnedMethodIds = $user->coinEarnings()
+            ->whereIn('coin_earning_method_id', $methodIds)
+            ->pluck('coin_earning_method_id')
+            ->map(static fn ($id): int => (int) $id)
+            ->flip();
+        $claimedMethodIds = UserCoinTaskAttempt::query()
+            ->where('user_id', $user->id)
+            ->whereIn('coin_earning_method_id', $methodIds)
+            ->where('status', UserCoinTaskAttempt::STATUS_CLAIMED)
+            ->pluck('coin_earning_method_id')
+            ->map(static fn ($id): int => (int) $id)
+            ->flip();
+        // Tombstones are resolved from the learner's identities, not once per
+        // candidate task. Home calls this endpoint frequently; query-per-task
+        // selection turns a larger campaign list into avoidable DB fan-out.
+        $consumedRewardKeys = $tombstones->consumedRewardKeys($user);
+
+        $method = $methods->first(function (CoinEarningMethod $method) use (
+            $tombstones,
+            $consumedRewardKeys,
+            $earnedMethodIds,
+            $claimedMethodIds
+        ): bool {
+            $rewardKey = $tombstones->rewardKeyForMethod($method);
+            if (
+                !$method->hasUsableDestination()
+                || ($method->total_claim_limit !== null
+                    && (int) $method->user_earnings_count >= (int) $method->total_claim_limit)
+                || ($rewardKey !== null && in_array($rewardKey, $consumedRewardKeys, true))
+            ) {
                 return false;
             }
-            if ($user->coinEarnings()->where('coin_earning_method_id', $method->id)->exists()) {
+            if ($earnedMethodIds->has((int) $method->id)) {
                 return false;
             }
 
-            return !UserCoinTaskAttempt::query()
-                ->where('user_id', $user->id)
-                ->where('coin_earning_method_id', $method->id)
-                ->where('status', UserCoinTaskAttempt::STATUS_CLAIMED)
-                ->exists();
+            return !$claimedMethodIds->has((int) $method->id);
         });
 
         if (!$method) {

@@ -1,6 +1,5 @@
 import {useEffect, useRef} from 'react';
 import type {MutableRefObject} from 'react';
-import {NativeModules} from 'react-native';
 import {
   flushPendingPlaybackPositions,
   persistLocalPlaybackPosition,
@@ -65,7 +64,6 @@ export const useReelsLifecycle = (
   useEffect(() => {
     const delayedActions = refs.delayedActions.current;
     refs.mounted.current = true;
-    NativeModules.RoknOrientation?.lockPortrait?.();
     return () => {
       reportActiveSession(refs, 'stop', getPlaybackSpeed);
       refs.mounted.current = false;
@@ -76,7 +74,6 @@ export const useReelsLifecycle = (
       delayedActions.forEach(clearTimeout);
       delayedActions.clear();
       void flushPendingPlaybackPositions();
-      NativeModules.RoknOrientation?.unlock?.();
     };
   }, [getPlaybackSpeed, refs]);
 

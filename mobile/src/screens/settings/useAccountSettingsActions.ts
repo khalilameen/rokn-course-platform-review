@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {Alert, Platform} from 'react-native';
 import type {AppDispatch} from '../../store/store';
 import {deleteAccount} from '../../store/actions/auth';
@@ -53,6 +53,10 @@ export const useAccountSettingsActions = ({
   userData: unknown;
 }) => {
   const [deletingAccount, setDeletingAccount] = useState(false);
+  // React state is not synchronous: two alert callbacks can run before the
+  // disabled state is painted. One boundary also prevents logout racing an
+  // already-confirmed deletion and clearing its reauthentication state.
+  const accountExitFlightRef = useRef<'delete' | 'logout' | null>(null);
   const [storeRatingAvailable, setStoreRatingAvailable] = useState(
     Boolean(configuredAppStoreUrl()),
   );
@@ -137,61 +141,68 @@ export const useAccountSettingsActions = ({
         text: 'تسجيل الخروج',
         style: 'destructive',
         onPress: async () => {
-          const accountScope = await getCurrentAccountStorageScope();
-          cancelLearningReminders();
-          await setSmartRemindersEnabled(false).catch(() => undefined);
-          let serverSessionRevoked = !extractApiToken(userData);
-          if (extractApiToken(userData)) {
-            try {
-              const deviceToken = await getCurrentPushDeviceToken();
-              await revokeCurrentDeviceSession(deviceToken);
-              serverSessionRevoked = true;
-            } catch {
-              // The local session still closes when the API is unavailable.
+          if (accountExitFlightRef.current) return;
+          accountExitFlightRef.current = 'logout';
+          try {
+            const accountScope = await getCurrentAccountStorageScope();
+            cancelLearningReminders();
+            await setSmartRemindersEnabled(false).catch(() => undefined);
+            let serverSessionRevoked = !extractApiToken(userData);
+            if (extractApiToken(userData)) {
+              try {
+                const deviceToken = await getCurrentPushDeviceToken();
+                await revokeCurrentDeviceSession(deviceToken);
+                serverSessionRevoked = true;
+              } catch {
+                // The local session still closes when the API is unavailable.
+              }
             }
-          }
-          const pushInvalidationDurable = await clearCurrentPushDeviceRegistration()
-            .then(() => true)
-            .catch(() => false);
-          if (!serverSessionRevoked && !pushInvalidationDurable) {
-            Alert.alert(
-              'لم يكتمل تسجيل الخروج',
-              'تعذّر تأمين إشعارات هذا الجهاز الآن\nحاول مرة أخرى',
+            const pushInvalidationDurable =
+              await clearCurrentPushDeviceRegistration()
+                .then(() => true)
+                .catch(() => false);
+            if (!serverSessionRevoked && !pushInvalidationDurable) {
+              Alert.alert(
+                'لم يكتمل تسجيل الخروج',
+                'حاول مرة أخرى',
+              );
+              return;
+            }
+            // Secure credential deletion is the durable device-side logout
+            // boundary. Do not reset the UI while a bearer or completed OAuth
+            // receipt may still be recoverable on the next cold start.
+            const secureSessionDeleted = await removeItem(AsyncKeys.USER_DATA);
+            if (!secureSessionDeleted) {
+              Alert.alert(
+                'لم يكتمل تسجيل الخروج',
+                'حاول مرة أخرى',
+              );
+              return;
+            }
+            await clearCurrentAccountLearningFiles(accountScope).catch(
+              () => undefined,
             );
-            return;
-          }
-          // Secure credential deletion is the durable device-side logout
-          // boundary. Do not reset the UI while a bearer or completed OAuth
-          // receipt may still be recoverable on the next cold start.
-          const secureSessionDeleted = await removeItem(AsyncKeys.USER_DATA);
-          if (!secureSessionDeleted) {
-            Alert.alert(
-              'لم يكتمل تسجيل الخروج',
-              'تعذّر إغلاق الجلسة على هذا الجهاز\nحاول مرة أخرى',
+            await clearTransientChatCache({accountBoundary: true}).catch(
+              () => undefined,
             );
-            return;
+            await clearLegacyUnscopedPersonalStorage().catch(() => undefined);
+            await clearAccountScopedStorage(accountScope, {
+              preserveFinancialRecovery: true,
+            }).catch(() => undefined);
+            await clearPendingLoginReturnTo().catch(() => undefined);
+            await removeItem(AsyncKeys.IS_LOGIN);
+            await rotateGuestStorageScope().catch(() => undefined);
+            dispatch(LogOut());
+            navigation.reset({index: 0, routes: [{name: 'Home'}]});
+          } finally {
+            accountExitFlightRef.current = null;
           }
-          await clearCurrentAccountLearningFiles(accountScope).catch(
-            () => undefined,
-          );
-          await clearTransientChatCache({accountBoundary: true}).catch(
-            () => undefined,
-          );
-          await clearLegacyUnscopedPersonalStorage().catch(() => undefined);
-          await clearAccountScopedStorage(accountScope, {
-            preserveFinancialRecovery: true,
-          }).catch(() => undefined);
-          await clearPendingLoginReturnTo().catch(() => undefined);
-          await removeItem(AsyncKeys.IS_LOGIN);
-          await rotateGuestStorageScope().catch(() => undefined);
-          dispatch(LogOut());
-          navigation.reset({index: 0, routes: [{name: 'Home'}]});
         },
       },
     ]);
 
   const deleteCurrentAccount = async () => {
-    if (deletingAccount) return;
+    if (deletingAccount || accountExitFlightRef.current) return;
     const token = extractApiToken(userData);
     if (!token) {
       Alert.alert('سجّل الدخول', 'أكد هويتك أولًا', [
@@ -207,6 +218,7 @@ export const useAccountSettingsActions = ({
       return;
     }
 
+    accountExitFlightRef.current = 'delete';
     setDeletingAccount(true);
     let accountDeleted = false;
     let reauthenticationToken = '';
@@ -232,7 +244,10 @@ export const useAccountSettingsActions = ({
       // Once the server confirms deletion, no ancillary cache or notification
       // failure may leave the deleted identity active on this device.
       await clearCurrentPushDeviceRegistration().catch(() => undefined);
-      await removeItem(AsyncKeys.USER_DATA);
+      const secureSessionDeleted = await removeItem(AsyncKeys.USER_DATA);
+      if (!secureSessionDeleted) {
+        throw new Error('LOCAL_SESSION_DELETE_FAILED');
+      }
       await clearCurrentAccountLearningFiles(accountScope).catch(
         () => undefined,
       );
@@ -265,7 +280,7 @@ export const useAccountSettingsActions = ({
         navigation.reset({index: 0, routes: [{name: 'Home'}]});
         Alert.alert(
           'تم حذف الحساب',
-          'يمكنك متابعة التصفح كزائر',
+          'أغلق التطبيق وافتحه من جديد',
         );
       } else {
         const mismatch =
@@ -283,6 +298,7 @@ export const useAccountSettingsActions = ({
         );
       }
     } finally {
+      accountExitFlightRef.current = null;
       setDeletingAccount(false);
     }
   };

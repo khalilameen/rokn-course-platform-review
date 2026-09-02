@@ -34,6 +34,7 @@ import {
 import {
   FeedbackAttachment,
   clearProductFeedbackDraft,
+  loadProductFeedbackCase,
   loadProductFeedbackCases,
   loadProductFeedbackDraft,
   loadProductFeedbackDraftConflicts,
@@ -59,6 +60,10 @@ import {
 } from '../services/learnerDraftFiles';
 import {useAppActiveState} from '../hooks/useAppActiveState';
 import {showMediaPickerFailure} from '../services/mediaPickerErrors';
+import {
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+} from '../constants/helpers';
 
 const CATEGORIES: Array<{key: ProductFeedbackCategory; label: string}> = [
   {key: 'problem', label: 'مشكلة'},
@@ -107,6 +112,7 @@ export default function Feedback() {
   const [replyError, setReplyError] = useState('');
   const [previewArtifact, setPreviewArtifact] =
     useState<ProductFeedbackArtifact>();
+  const [previewLoadFailed, setPreviewLoadFailed] = useState(false);
   const mountedRef = useRef(true);
   const submitFlightRef = useRef(false);
   const replyFlightsRef = useRef(new Map<string, symbol>());
@@ -114,6 +120,7 @@ export default function Feedback() {
   const replyDraftEpochRef = useRef(0);
   const casesGenerationRef = useRef(0);
   const pickerFlightRef = useRef(false);
+  const artifactRefreshFlightRef = useRef(false);
   const draftSnapshotRef = useRef({
     attachment,
     category,
@@ -362,12 +369,16 @@ export default function Feedback() {
   const chooseScreenshot = async () => {
     if (pickerFlightRef.current || busy) return;
     pickerFlightRef.current = true;
+    let cachedSelection: FeedbackAttachment | undefined;
     try {
+      const pickerBoundary = await captureAccountSessionBoundary();
+      assertAccountSessionBoundary(pickerBoundary);
       const result = await launchImageLibrary({
         mediaType: 'photo',
         quality: 0.8 as PhotoQuality,
         selectionLimit: 1,
       });
+      assertAccountSessionBoundary(pickerBoundary);
       if (!mountedRef.current) return;
       if (result.errorCode === 'permission') {
         showMediaPickerFailure(result.errorCode);
@@ -392,7 +403,10 @@ export default function Feedback() {
           uri: asset.uri,
         },
         4 * 1024 * 1024,
+        pickerBoundary,
       );
+      cachedSelection = cached;
+      assertAccountSessionBoundary(pickerBoundary);
       const previous = attachment;
       changeDraft(() =>
         setAttachment({
@@ -402,8 +416,15 @@ export default function Feedback() {
           uri: cached.uri,
         }),
       );
+      cachedSelection = undefined;
       await removeLearnerDraftFile(previous);
     } catch (pickerError: unknown) {
+      await removeLearnerDraftFile(cachedSelection);
+      if (
+        pickerError instanceof Error &&
+        pickerError.message === 'ACCOUNT_CHANGED_DURING_REQUEST'
+      )
+        return;
       if (mountedRef.current) {
         showMediaPickerFailure(
           typeof pickerError === 'object' &&
@@ -429,12 +450,16 @@ export default function Feedback() {
     const ownerCaseId = selectedCaseId;
     const ownerGeneration = replyGenerationRef.current;
     pickerFlightRef.current = true;
+    let cachedSelection: FeedbackAttachment | undefined;
     try {
+      const pickerBoundary = await captureAccountSessionBoundary();
+      assertAccountSessionBoundary(pickerBoundary);
       const result = await launchImageLibrary({
         mediaType: 'photo',
         quality: 0.8 as PhotoQuality,
         selectionLimit: 1,
       });
+      assertAccountSessionBoundary(pickerBoundary);
       if (!mountedRef.current || result.didCancel) return;
       if (result.errorCode) {
         showMediaPickerFailure(result.errorCode);
@@ -455,20 +480,31 @@ export default function Feedback() {
           uri: asset.uri,
         },
         4 * 1024 * 1024,
+        pickerBoundary,
       );
+      cachedSelection = cached;
+      assertAccountSessionBoundary(pickerBoundary);
       if (
         !mountedRef.current ||
         ownerGeneration !== replyGenerationRef.current ||
         ownerCaseId !== selectedCaseId
       ) {
         await removeLearnerDraftFile(cached);
+        cachedSelection = undefined;
         return;
       }
       const previous = replyAttachment;
       setReplyAttachment(cached);
+      cachedSelection = undefined;
       setReplyRequestId(secureRandomUuid());
       await removeLearnerDraftFile(previous);
     } catch (pickerError: unknown) {
+      await removeLearnerDraftFile(cachedSelection);
+      if (
+        pickerError instanceof Error &&
+        pickerError.message === 'ACCOUNT_CHANGED_DURING_REQUEST'
+      )
+        return;
       if (mountedRef.current) {
         showMediaPickerFailure(
           typeof pickerError === 'object' &&
@@ -571,6 +607,62 @@ export default function Feedback() {
           return next;
         });
       }
+    }
+  };
+
+  const openCaseArtifact = async (
+    artifact: ProductFeedbackArtifact,
+    forceRefresh = false,
+  ) => {
+    const owner = selectedCase;
+    if (!owner || artifactRefreshFlightRef.current) return;
+    const expiresAt = Date.parse(artifact.expiresAt);
+    if (
+      !forceRefresh &&
+      Number.isFinite(expiresAt) &&
+      expiresAt > Date.now() + 30_000
+    ) {
+      setPreviewLoadFailed(false);
+      setPreviewArtifact(artifact);
+      return;
+    }
+
+    artifactRefreshFlightRef.current = true;
+    try {
+      const boundary = await captureAccountSessionBoundary();
+      const refreshed = await loadProductFeedbackCase(
+        owner.publicId,
+        owner.accessToken,
+        boundary,
+      );
+      assertAccountSessionBoundary(boundary);
+      if (!mountedRef.current || selectedCaseId !== owner.publicId) return;
+      const renewed = [
+        ...refreshed.attachments,
+        ...refreshed.messages.flatMap(item => item.attachments),
+      ].find(candidate => candidate.id === artifact.id);
+      if (!renewed) throw new Error('SUPPORT_ATTACHMENT_RETIRED');
+      setSupportCases(current =>
+        current.map(item =>
+          item.publicId === refreshed.publicId
+            ? {...refreshed, accessToken: item.accessToken}
+            : item,
+        ),
+      );
+      setPreviewLoadFailed(false);
+      setPreviewArtifact(renewed);
+    } catch (artifactError: unknown) {
+      if (
+        artifactError instanceof Error &&
+        artifactError.message === 'ACCOUNT_CHANGED_DURING_REQUEST'
+      )
+        return;
+      if (mountedRef.current) {
+        setPreviewLoadFailed(true);
+        setPreviewArtifact(artifact);
+      }
+    } finally {
+      artifactRefreshFlightRef.current = false;
     }
   };
 
@@ -678,7 +770,7 @@ export default function Feedback() {
                           accessibilityLabel="فتح الصورة المرفقة"
                           accessibilityRole="button"
                           key={file.id}
-                          onPress={() => setPreviewArtifact(file)}
+                          onPress={() => void openCaseArtifact(file)}
                           style={({pressed}) => [
                             styles.timelineAttachment,
                             pressed && styles.pressed,
@@ -901,7 +993,10 @@ export default function Feedback() {
           </Pressable>
           <Modal
             animationType="fade"
-            onRequestClose={() => setPreviewArtifact(undefined)}
+            onRequestClose={() => {
+              setPreviewArtifact(undefined);
+              setPreviewLoadFailed(false);
+            }}
             transparent
             visible={Boolean(previewArtifact)}>
             <View
@@ -911,7 +1006,10 @@ export default function Feedback() {
               <Pressable
                 accessibilityLabel="إغلاق الصورة"
                 accessibilityRole="button"
-                onPress={() => setPreviewArtifact(undefined)}
+                onPress={() => {
+                  setPreviewArtifact(undefined);
+                  setPreviewLoadFailed(false);
+                }}
                 style={styles.previewClose}>
                 <Text style={styles.previewCloseText}>إغلاق</Text>
               </Pressable>
@@ -919,10 +1017,21 @@ export default function Feedback() {
                 <Image
                   accessibilityLabel={previewArtifact.name}
                   accessibilityIgnoresInvertColors
+                  onError={() => setPreviewLoadFailed(true)}
                   resizeMode="contain"
                   source={{uri: previewArtifact.url}}
                   style={styles.previewImage}
                 />
+              )}
+              {previewArtifact && previewLoadFailed && (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() =>
+                    void openCaseArtifact(previewArtifact, true)
+                  }
+                  style={styles.previewRetry}>
+                  <Text style={styles.previewRetryText}>حاول مرة أخرى</Text>
+                </Pressable>
               )}
             </View>
           </Modal>
@@ -1150,4 +1259,10 @@ const styles = StyleSheet.create({
   },
   previewCloseText: {...Type.bodyStrong, color: '#FFFFFF'},
   previewImage: {width: '100%', height: '82%'},
+  previewRetry: {
+    minHeight: Accessibility.minTouchTarget,
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.lg,
+  },
+  previewRetryText: {...Type.bodyStrong, color: '#FFFFFF'},
 });

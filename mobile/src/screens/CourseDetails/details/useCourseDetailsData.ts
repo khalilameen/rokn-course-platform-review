@@ -22,15 +22,21 @@ import {
 } from '../../../services/networkExperience';
 import {CAN_START_NATIVE_CHECKOUT} from '../../../constants/distribution';
 import {subscribeCoinCheckoutCredits} from '../../../services/coinCheckout';
+import {
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+} from '../../../constants/helpers';
 
 type UseCourseDetailsDataParams = {
   courseId: string;
+  identityKey: string;
   isDemoCourse: boolean;
   setNotice: Dispatch<SetStateAction<string>>;
 };
 
 export const useCourseDetailsData = ({
   courseId,
+  identityKey,
   isDemoCourse,
   setNotice,
 }: UseCourseDetailsDataParams) => {
@@ -51,6 +57,8 @@ export const useCourseDetailsData = ({
   const [remoteCourse, setRemoteCourse] =
     useState<CourseDetailsDto | null>(null);
   const loadedCourseRef = useRef<CourseDetailsDto | null>(null);
+  const loadedOwnerRef = useRef(identityKey);
+  const displayScopeRef = useRef({courseId, identityKey});
   const [remoteLoading, setRemoteLoading] = useState(!isDemoCourse);
   const [remoteError, setRemoteError] = useState('');
   const [remoteReload, setRemoteReload] = useState(0);
@@ -73,20 +81,63 @@ export const useCourseDetailsData = ({
         active = false;
         controller.abort();
       };
+    if (
+      displayScopeRef.current.courseId !== courseId ||
+      displayScopeRef.current.identityKey !== identityKey
+    ) {
+      displayScopeRef.current = {courseId, identityKey};
+      setRemoteCourse(null);
+      setRemoteBalance(null);
+      setRemoteSpendableBalance(null);
+      setRemotePaidBalance(null);
+      setRemoteRewardBalance(null);
+      setRemoteRewardContributionCap(null);
+      setRemotePackages([]);
+      setRemoteOwned(false);
+      setRemoteError('');
+      setRemoteLoading(true);
+    }
     if (!courseId) {
       setRemoteLoading(false);
-      setRemoteError('رابط الكورس غير مكتمل\nعد إلى الرئيسية وافتحه من هناك');
+      setRemoteError('عد إلى الرئيسية\nوافتح الكورس من هناك');
       return () => {
         active = false;
         controller.abort();
       };
     }
     void (async () => {
-      setRemoteLoading(true);
+      const boundary = await captureAccountSessionBoundary().catch(() => null);
+      if (!boundary) {
+        if (active) {
+          setRemoteLoading(false);
+          setRemoteError('تعذّر تجهيز تفاصيل الكورس\nحاول مرة أخرى');
+        }
+        return;
+      }
+      if (!active) return;
+      const stillOwned = () => {
+        if (!active) return false;
+        try {
+          assertAccountSessionBoundary(boundary);
+          return true;
+        } catch {
+          setRemoteLoading(false);
+          setRemoteError('تغيّر الحساب\nحاول مرة أخرى');
+          return false;
+        }
+      };
+      const hasCurrentDetails =
+        loadedCourseRef.current?.id === courseId &&
+        loadedOwnerRef.current === identityKey;
+      setRemoteLoading(!hasCurrentDetails);
       setRemoteError('');
       setNotice('');
-      if (loadedCourseRef.current?.id !== courseId) {
+      if (
+        loadedCourseRef.current?.id !== courseId ||
+        loadedOwnerRef.current !== identityKey
+      ) {
         loadedCourseRef.current = null;
+        loadedOwnerRef.current = identityKey;
         setRemoteCourse(null);
         setRemoteBalance(null);
         setRemoteSpendableBalance(null);
@@ -97,24 +148,28 @@ export const useCourseDetailsData = ({
         setRemoteOwned(false);
       }
       const sessionAvailable = await hasSession();
-      if (active) setRemoteSession(sessionAvailable);
-      let detailsLoaded = loadedCourseRef.current?.id === courseId;
+      if (!stillOwned()) return;
+      setRemoteSession(sessionAvailable);
+      let detailsLoaded =
+        loadedCourseRef.current?.id === courseId &&
+        loadedOwnerRef.current === identityKey;
       try {
         const details = await getCourseDetails(courseId, {
           signal: controller.signal,
         });
         detailsLoaded = true;
-        if (active) {
+        if (stillOwned()) {
           loadedCourseRef.current = details;
+          loadedOwnerRef.current = identityKey;
           setRemoteCourse(details);
           setRemoteOwned(details.owned);
           if (details.fromCache) {
-            setNotice('نعرض آخر تفاصيل محفوظة\nحدّث الصفحة عند عودة الاتصال');
+            setNotice('نعرض آخر تفاصيل محفوظة\nسنحدّثها عند عودة الاتصال');
           }
         }
       } catch (error) {
         if (networkFailureKind(error) === 'cancelled') return;
-        if (active) {
+        if (stillOwned()) {
           if (isCourseUnavailableError(error)) {
             loadedCourseRef.current = null;
             setRemoteCourse(null);
@@ -130,7 +185,7 @@ export const useCourseDetailsData = ({
         }
       }
       if (!detailsLoaded) {
-        if (active) setRemoteLoading(false);
+        if (stillOwned()) setRemoteLoading(false);
         return;
       }
       if (sessionAvailable) {
@@ -138,7 +193,8 @@ export const useCourseDetailsData = ({
           getWallet(),
           getCoinPackages(),
         ]);
-        if (active && walletResult.status === 'fulfilled') {
+        if (!stillOwned()) return;
+        if (walletResult.status === 'fulfilled') {
           setRemoteBalance(walletResult.value.balance);
           setRemoteSpendableBalance(walletResult.value.spendableBalance);
           setRemotePaidBalance(walletResult.value.paidBalance);
@@ -147,24 +203,23 @@ export const useCourseDetailsData = ({
             walletResult.value.rewardContributionCap,
           );
         }
-        if (active && packagesResult.status === 'fulfilled') {
+        if (packagesResult.status === 'fulfilled') {
           setRemotePackages(packagesResult.value);
         }
         if (
-          active &&
-          (walletResult.status === 'rejected' ||
-            packagesResult.status === 'rejected')
+          walletResult.status === 'rejected' ||
+          packagesResult.status === 'rejected'
         ) {
           setNotice('تعذّر تحديث بعض بيانات المحفظة\nحدّث الصفحة لعرض أحدثها');
         }
       }
-      if (active) setRemoteLoading(false);
+      if (stillOwned()) setRemoteLoading(false);
     })();
     return () => {
       active = false;
       controller.abort();
     };
-  }, [courseId, isDemoCourse, remoteReload, setNotice]);
+  }, [courseId, identityKey, isDemoCourse, remoteReload, setNotice]);
 
   useEffect(() => {
     if (isDemoCourse) return undefined;
@@ -185,20 +240,26 @@ export const useCourseDetailsData = ({
     };
   }, [isDemoCourse]);
 
+  const ownerMatches =
+    displayScopeRef.current.identityKey === identityKey &&
+    displayScopeRef.current.courseId === courseId;
+
   return {
     experience,
     reloadRemote,
-    remoteBalance,
-    remoteCourse,
-    remoteError,
-    remoteLoading,
-    remoteOwned,
-    remotePaidBalance,
-    remotePackages,
-    remoteSession,
-    remoteRewardBalance,
-    remoteRewardContributionCap,
-    remoteSpendableBalance,
+    remoteBalance: ownerMatches ? remoteBalance : null,
+    remoteCourse: ownerMatches ? remoteCourse : null,
+    remoteError: ownerMatches ? remoteError : '',
+    remoteLoading: remoteLoading || !ownerMatches,
+    remoteOwned: ownerMatches ? remoteOwned : false,
+    remotePaidBalance: ownerMatches ? remotePaidBalance : null,
+    remotePackages: ownerMatches ? remotePackages : [],
+    remoteSession: ownerMatches ? remoteSession : null,
+    remoteRewardBalance: ownerMatches ? remoteRewardBalance : null,
+    remoteRewardContributionCap: ownerMatches
+      ? remoteRewardContributionCap
+      : null,
+    remoteSpendableBalance: ownerMatches ? remoteSpendableBalance : null,
     setExperience,
     setRemoteBalance,
     setRemoteCourse,

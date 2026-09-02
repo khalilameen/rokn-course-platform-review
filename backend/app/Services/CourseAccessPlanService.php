@@ -8,10 +8,10 @@ use App\Models\Course;
 use App\Models\CourseAccessPlan;
 use App\Models\CourseEnrollment;
 use App\Support\CourseAccessPlanSnapshot;
+use App\Support\DatabaseCapabilities;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 final readonly class CourseAccessPlanService
@@ -19,7 +19,7 @@ final readonly class CourseAccessPlanService
     /** @return Collection<int, CourseAccessPlan> */
     public function publicPlans(Course $course, bool $lockForUpdate = false): Collection
     {
-        if (!Schema::hasTable('course_access_plans')) {
+        if (!DatabaseCapabilities::hasTable('course_access_plans')) {
             return collect();
         }
 
@@ -43,7 +43,7 @@ final readonly class CourseAccessPlanService
     {
         $plans = $this->publicPlans($course, $lockForUpdate);
         if ($plans->isEmpty()) {
-            if (Schema::hasTable('course_access_plans') && $course->accessPlans()->exists()) {
+            if (DatabaseCapabilities::hasTable('course_access_plans') && $course->accessPlans()->exists()) {
                 throw ValidationException::withMessages([
                     'access_plan_code' => ['فتح هذا الكورس متوقف مؤقتًا حتى تُنشر خطة متاحة.'],
                 ]);
@@ -70,7 +70,7 @@ final readonly class CourseAccessPlanService
 
     public function planForEnrollment(CourseEnrollment $enrollment): ?CourseAccessPlan
     {
-        if (!Schema::hasColumn('course_enrollments', 'access_plan_id')) {
+        if (!DatabaseCapabilities::hasColumn('course_enrollments', 'access_plan_id')) {
             return null;
         }
         if (!$enrollment->access_plan_id) {
@@ -256,7 +256,7 @@ final readonly class CourseAccessPlanService
 
     public function createDefaults(Course $course): void
     {
-        if (!Schema::hasTable('course_access_plans')) {
+        if (!DatabaseCapabilities::hasTable('course_access_plans')) {
             return;
         }
 
@@ -284,7 +284,7 @@ final readonly class CourseAccessPlanService
      */
     public function plansForEditor(Course $course): Collection
     {
-        if (!Schema::hasTable('course_access_plans')) {
+        if (!DatabaseCapabilities::hasTable('course_access_plans')) {
             return collect();
         }
 
@@ -311,9 +311,13 @@ final readonly class CourseAccessPlanService
     }
 
     /** Plan codes remain stable across dashboard updates. */
-    public function syncAdminPlans(Course $course, array $input): void
+    public function syncAdminPlans(
+        Course $course,
+        array $input,
+        bool $canManageFinancialLimits = true
+    ): void
     {
-        if (!Schema::hasTable('course_access_plans')) {
+        if (!DatabaseCapabilities::hasTable('course_access_plans')) {
             return;
         }
         $allowedCodes = [CourseAccessPlan::BASIC, CourseAccessPlan::GUIDED, CourseAccessPlan::MENTOR];
@@ -340,7 +344,8 @@ final readonly class CourseAccessPlanService
             $allowedCodes,
             $allowedFeedback,
             $allowedModels,
-            $prices
+            $prices,
+            $canManageFinancialLimits
         ): void {
             // Plan updates and purchases serialize on the course row.
             $lockedCourse = Course::query()->lockForUpdate()->findOrFail($course->id);
@@ -348,6 +353,24 @@ final readonly class CourseAccessPlanService
 
             foreach ($allowedCodes as $position => $code) {
                 $row = is_array($input[$code] ?? null) ? $input[$code] : [];
+                $existingPlan = $lockedCourse->accessPlans()
+                    ->where('code', $code)
+                    ->lockForUpdate()
+                    ->first();
+                // Dollar budgets are an administrator-only safety boundary.
+                // Moderator forms intentionally omit them; absence must mean
+                // “preserve”, and forged request fields must not cross that
+                // field-level permission boundary.
+                $financialValue = static function (
+                    string $field,
+                    float $fallback = 0.0
+                ) use ($row, $existingPlan, $canManageFinancialLimits): float {
+                    if ($canManageFinancialLimits) {
+                        return max(0, (float) ($row[$field] ?? $fallback));
+                    }
+
+                    return max(0, (float) ($existingPlan?->{$field} ?? $fallback));
+                };
                 $model = trim((string) ($row['model_override'] ?? ''));
                 if ($model !== '' && !in_array($model, $allowedModels, true)) {
                     throw ValidationException::withMessages([
@@ -363,14 +386,14 @@ final readonly class CourseAccessPlanService
                 $projectAttachmentsEnabled = $feedback === 'enhanced'
                     && !empty($row['project_followup_attachments_enabled']);
                 $minimumPaidCoins = max(0, (int) ($row['minimum_paid_coins'] ?? 0));
-                $chatBudget = max(0, (float) ($row['ai_budget_usd'] ?? 0));
-                $chatReserve = max(0, (float) ($row['request_reserve_usd'] ?? 0));
-                $projectBudget = max(0, (float) ($row['project_feedback_budget_usd'] ?? 0));
-                $projectReserve = max(0, (float) ($row['project_feedback_reserve_usd'] ?? 0));
+                $chatBudget = $financialValue('ai_budget_usd');
+                $chatReserve = $financialValue('request_reserve_usd');
+                $projectBudget = $financialValue('project_feedback_budget_usd');
+                $projectReserve = $financialValue('project_feedback_reserve_usd');
                 $followupMessageLimit = max(0, (int) ($row['project_followup_message_limit'] ?? 0));
                 $followupTokenBudget = max(0, (int) ($row['project_followup_token_budget'] ?? 0));
-                $followupBudget = max(0, (float) ($row['project_followup_budget_usd'] ?? 0));
-                $followupReserve = max(0, (float) ($row['project_followup_reserve_usd'] ?? 0));
+                $followupBudget = $financialValue('project_followup_budget_usd');
+                $followupReserve = $financialValue('project_followup_reserve_usd');
                 $maxOutputTokens = max(
                     80,
                     min(
@@ -439,17 +462,29 @@ final readonly class CourseAccessPlanService
                     'project_followup_attachment_max_files' => $projectAttachmentsEnabled
                         ? min(5, max(1, (int) ($row['project_followup_attachment_max_files'] ?? 1)))
                         : 0,
-                    'ai_budget_usd' => $chatEnabled ? $chatBudget : 0,
-                    'request_reserve_usd' => $chatEnabled ? $chatReserve : 0,
+                    'ai_budget_usd' => $canManageFinancialLimits
+                        ? ($chatEnabled ? $chatBudget : 0)
+                        : $chatBudget,
+                    'request_reserve_usd' => $canManageFinancialLimits
+                        ? ($chatEnabled ? $chatReserve : 0)
+                        : $chatReserve,
                     'project_feedback_token_budget' => $feedback !== 'pass_only'
                         ? max(100, (int) ($row['project_feedback_token_budget'] ?? 100))
                         : 0,
-                    'project_feedback_budget_usd' => $feedback !== 'pass_only' ? $projectBudget : 0,
-                    'project_feedback_reserve_usd' => $feedback !== 'pass_only' ? $projectReserve : 0,
+                    'project_feedback_budget_usd' => $canManageFinancialLimits
+                        ? ($feedback !== 'pass_only' ? $projectBudget : 0)
+                        : $projectBudget,
+                    'project_feedback_reserve_usd' => $canManageFinancialLimits
+                        ? ($feedback !== 'pass_only' ? $projectReserve : 0)
+                        : $projectReserve,
                     'project_followup_message_limit' => $feedback === 'enhanced' ? $followupMessageLimit : 0,
                     'project_followup_token_budget' => $feedback === 'enhanced' ? $followupTokenBudget : 0,
-                    'project_followup_budget_usd' => $feedback === 'enhanced' ? $followupBudget : 0,
-                    'project_followup_reserve_usd' => $feedback === 'enhanced' ? $followupReserve : 0,
+                    'project_followup_budget_usd' => $canManageFinancialLimits
+                        ? ($feedback === 'enhanced' ? $followupBudget : 0)
+                        : $followupBudget,
+                    'project_followup_reserve_usd' => $canManageFinancialLimits
+                        ? ($feedback === 'enhanced' ? $followupReserve : 0)
+                        : $followupReserve,
                     'max_output_tokens' => $maxOutputTokens,
                     'model_override' => $model !== '' ? $model : null,
                     'project_feedback_level' => $feedback,
@@ -472,7 +507,9 @@ final readonly class CourseAccessPlanService
     ): int
     {
         if (!$grantCourseChat && !$grantProjectFollowup) return 0;
-        $plans = $course->accessPlans()->get()->keyBy('id');
+        $planRows = $course->accessPlans()->get();
+        $plans = $planRows->keyBy('id');
+        $plansByCode = $planRows->keyBy('code');
         $updated = 0;
         CourseEnrollment::query()
             ->where('course_id', $course->id)
@@ -480,13 +517,18 @@ final readonly class CourseAccessPlanService
             ->where('status', 'active')
             ->orderBy('id')
             ->chunkById(200, function ($enrollments) use (
-                $course, $plans, $grantCourseChat, $grantProjectFollowup, &$updated
+                $course, $plans, $plansByCode, $grantCourseChat, $grantProjectFollowup, &$updated
             ): void {
                 foreach ($enrollments as $enrollment) {
                     $snapshot = is_array($enrollment->access_plan_snapshot)
                         ? $enrollment->access_plan_snapshot
                         : null;
-                    $plan = $plans->get($enrollment->access_plan_id);
+                    // Published revisions replace the editable plan rows while
+                    // old enrollments deliberately retain their purchased plan
+                    // id and immutable receipt. Match the new opt-in capability
+                    // policy by its stable plan code without rewriting either.
+                    $plan = $plans->get($enrollment->access_plan_id)
+                        ?: $plansByCode->get((string) ($snapshot['code'] ?? ''));
                     if (!$snapshot || (int) ($snapshot['version'] ?? 0) < 3 || !$plan) {
                         continue;
                     }

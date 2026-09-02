@@ -6,10 +6,10 @@ namespace App\Services;
 
 use App\Models\Course;
 use App\Models\Lesson;
+use App\Support\DatabaseCapabilities;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 final readonly class CourseCatalogueQueryService
@@ -125,8 +125,17 @@ final readonly class CourseCatalogueQueryService
     public function revision(): int
     {
         try {
-            return max(1, (int) Cache::get('courses:catalog-revision', 1));
+            $key = 'courses:catalog-revision';
+            Cache::add(
+                $key,
+                max(1, (int) floor(microtime(true) * 1000)),
+                now()->addYears(10)
+            );
+
+            return max(1, (int) Cache::get($key));
         } catch (Throwable) {
+            // Cache-backed pages are unavailable in the same failure mode, so
+            // this value is response metadata only and cannot resurrect data.
             return 1;
         }
     }
@@ -192,7 +201,7 @@ final readonly class CourseCatalogueQueryService
      */
     public function withPublicPlanFacts(Builder $query): Builder
     {
-        if (!Schema::hasTable('course_access_plans')) {
+        if (!DatabaseCapabilities::hasTable('course_access_plans')) {
             return $query;
         }
 
@@ -246,23 +255,19 @@ final readonly class CourseCatalogueQueryService
                         $legacy->whereNotNull('image')->where('image', '<>', '');
                     });
             })
-            ->whereHas('classifications')
-            ->where(function (Builder $instructor): void {
-                $instructor->whereHas(
-                    'teachers',
-                    fn (Builder $teachers) => $teachers->where('users.active', true)
-                )->orWhereHas('teacher', function (Builder $teacher): void {
-                    $teacher->where('active', true)
-                        ->whereIn('role', ['teacher', 'admin']);
-                });
-            })
+            // Existing production courses predate the classification and
+            // multi-teacher pivots. Their public contract has always allowed
+            // empty tags/teachers and the app supplies the neutral instructor
+            // label. Keep those already-published rows discoverable during a
+            // rolling deploy; CoursePublishingService still requires both
+            // relations before any new course can be published.
             ->where(function ($availability): void {
                 $availability->where('is_coming_soon', true)
                     ->orWhere(function (Builder $published): void {
                         $published->where('is_coming_soon', false)
                             ->whereHas('sections');
 
-                        if (Schema::hasTable('course_access_plans')) {
+                        if (DatabaseCapabilities::hasTable('course_access_plans')) {
                             $published->whereHas(
                                 'accessPlans',
                                 fn (Builder $plans) => $plans->where('is_active', true)
@@ -327,8 +332,8 @@ final readonly class CourseCatalogueQueryService
         if (
             $normalized === ''
             ||
-            !Schema::hasColumn('courses', 'search_title_normalized')
-            || !Schema::hasColumn('courses', 'search_terms_normalized')
+            !DatabaseCapabilities::hasColumn('courses', 'search_title_normalized')
+            || !DatabaseCapabilities::hasColumn('courses', 'search_terms_normalized')
         ) {
             $literal = addcslashes($raw, '\\%_');
             $courses->where(function (Builder $names) use ($literal): void {

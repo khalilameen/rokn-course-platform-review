@@ -109,7 +109,7 @@
 </div>
 
 <!-- Sortable JS -->
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js" integrity="sha384-eeLEhtwdMwD3X9y+8P3Cn7Idl/M+w8H4uZqkgD/2eJVkWIN1yKzEj6XegJ9dL3q0" crossorigin="anonymous"></script>
+<script src="{{ asset('admin/assets/js/vendor/sortablejs/Sortable.min.js') }}?v={{ filemtime(public_path('admin/assets/js/vendor/sortablejs/Sortable.min.js')) }}"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     let authoringVersion = Number(@json((int) $course->authoring_version));
@@ -117,19 +117,27 @@ document.addEventListener('DOMContentLoaded', function() {
     const saveOrder = (key, url, payload, successMessage) =>
         window.RoknAdminRequest.serializeMutation(key, async () => {
             try {
+                const expectedVersion = authoringVersion;
                 const data = await window.RoknAdminRequest.request(url, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf},
                     body: JSON.stringify({...payload, authoring_version: authoringVersion}),
                 });
-                authoringVersion = Number(data.authoring_version || authoringVersion);
+                authoringVersion = window.RoknAdminRequest.requireAuthoringVersion(data, expectedVersion, true);
                 document.querySelectorAll('[name="authoring_version"]').forEach(input => input.value = authoringVersion);
                 showNotification(successMessage, 'success');
             } catch (error) {
                 if (error.code === 'cancelled') return;
+                window.RoknAdminRequest.blockMutationsUntilReload();
+                document.querySelectorAll('#modules-list, .sortable-sections').forEach(list => {
+                    list.style.pointerEvents = 'none';
+                    list.setAttribute('aria-busy', 'true');
+                });
                 showNotification(error.message || 'تعذّر حفظ الترتيب', 'error');
                 setTimeout(() => location.reload(), 1200);
             }
+        }).catch(error => {
+            if (error.code !== 'cancelled') throw error;
         });
     
     // 1. Modules Sorting
@@ -139,7 +147,8 @@ document.addEventListener('DOMContentLoaded', function() {
             handle: '.module-drag-handle',
             animation: 150,
             ghostClass: 'dragging',
-            onEnd: function() {
+            onEnd: function(evt) {
+                if (evt.oldIndex === evt.newIndex) return;
                 const modules = [];
                 modulesList.querySelectorAll('.module-card').forEach((card, index) => {
                     modules.push({
@@ -167,6 +176,7 @@ document.addEventListener('DOMContentLoaded', function() {
             animation: 150,
             ghostClass: 'dragging',
             onEnd: function(evt) {
+                if (evt.from === evt.to && evt.oldIndex === evt.newIndex) return;
                 const newContainer = evt.to;
                 const moduleId = newContainer.dataset.moduleId || null; // "" -> null in Laravel validation? No, nullable means null. "" is string. But in JSON it will be "" or null.
                 // We should ensure we send null if empty string.

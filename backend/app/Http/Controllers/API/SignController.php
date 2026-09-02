@@ -19,6 +19,8 @@ use App\Services\DeviceLoginService;
 use App\Services\PortfolioShareIdentityService;
 use App\Services\SocialIdentityGuardService;
 use App\Support\RoknLocale;
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -66,7 +68,7 @@ class SignController extends Controller
      */
     public function socialLogin(Request $request)
     {
-        $attemptStartedAt = $request->attributes->get('social_attempt_started_at') ?: now();
+        $attemptStartedAt = $request->attributes->get('social_attempt_started_at');
         $nonceRules = $request->input('provider') === 'apple'
             ? ['bail', 'required', 'string', 'size:64', 'regex:/\A[a-f0-9]{64}\z/']
             : ['nullable', 'string', 'max:255'];
@@ -99,7 +101,10 @@ class SignController extends Controller
             // Verify token with appropriate service
             $socialData = match($provider) {
                 'facebook' => $this->facebookService->verify($token),
-                'google' => $this->googleService->verify($token),
+                'google' => $this->googleService->verify(
+                    $token,
+                    $request->attributes->get('social_expected_nonce_hash')
+                ),
                 'tiktok' => $this->tikTokService->verify($token),
                 'apple' => $this->appleService->verify($token, (string) $validated['nonce']),
                 default => throw new Exception('Unsupported provider'),
@@ -134,6 +139,29 @@ class SignController extends Controller
                 'message' => 'تعذّر التحقق من هوية الحساب',
                 'data' => null,
             ], 422);
+        }
+
+        if (!$attemptStartedAt instanceof CarbonInterface) {
+            $issuedAt = $socialData['identity_issued_at'] ?? null;
+            if (!is_numeric($issuedAt) || (int) $issuedAt <= 0) {
+                return response()->json([
+                    'status' => 410,
+                    'success' => false,
+                    'code' => 'social_login_fresh_attempt_required',
+                    'message' => "انتهت محاولة تسجيل الدخول\nابدأ مرة أخرى",
+                    'data' => null,
+                ], 410);
+            }
+            $attemptStartedAt = CarbonImmutable::createFromTimestampUTC((int) $issuedAt);
+            if ($attemptStartedAt->isAfter(now()->addMinutes(5))) {
+                return response()->json([
+                    'status' => 422,
+                    'success' => false,
+                    'code' => 'social_identity_verification_failed',
+                    'message' => 'تعذّر التحقق من هوية الحساب',
+                    'data' => null,
+                ], 422);
+            }
         }
 
         $email = isset($socialData['email']) && filter_var($socialData['email'], FILTER_VALIDATE_EMAIL)
@@ -300,7 +328,7 @@ class SignController extends Controller
                 }
 
                 return [$user, $isNewUser];
-            });
+            }, 3);
         } catch (\Illuminate\Database\QueryException $e) {
             report($e);
 
@@ -362,10 +390,10 @@ class SignController extends Controller
                 (string) $access['device_id']
             );
 
-            return [
-                'access' => $access,
-                'api_token' => $lockedUser->generateApiToken(),
-            ];
+            $apiToken = $lockedUser->generateApiToken();
+            $this->deviceLogin->enforceActiveSessionLimit($lockedUser, $apiToken);
+
+            return ['access' => $access, 'api_token' => $apiToken];
         });
         $deviceAccess = $deviceSession['access'];
         if (!$deviceAccess['allowed']) {
@@ -811,9 +839,9 @@ class SignController extends Controller
 
         \Illuminate\Support\Facades\DB::transaction(function () use ($user, $request): void {
             $this->saveDeviceToken($user, $request);
-            if (! $user->notifications_status) {
-                $user->update(['notifications_status' => true]);
-            }
+            // Token rotation is transport maintenance, not consent. Reopening
+            // the app or refreshing FCM must not silently undo an explicit
+            // notification opt-out saved on the profile.
         });
         $user->refresh();
 

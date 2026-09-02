@@ -10,10 +10,18 @@ use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\HttpFoundation\Response;
+use Sentry\Laravel\Integration;
 use Throwable;
 
 class Handler extends ExceptionHandler
 {
+    public function register(): void
+    {
+        $this->reportable(static function (Throwable $exception): void {
+            Integration::captureUnhandledException($exception);
+        });
+    }
+
     /**
      * A list of the exception types that are not reported.
      *

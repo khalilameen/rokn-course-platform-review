@@ -114,7 +114,32 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    let originalFormData = new FormData(document.getElementById('courseEditForm'));
+    const courseForm = document.getElementById('courseEditForm');
+    if (!courseForm) return;
+    const ignoredChangeFields = new Set([
+        '_token', '_method', 'authoring_version', 'authoring_draft_receipt',
+    ]);
+    const formFingerprint = () => {
+        const rows = [];
+        courseForm.querySelectorAll('input, select, textarea').forEach(field => {
+            if (!field.name || ignoredChangeFields.has(field.name) || field.disabled) return;
+            if (field.type === 'file') {
+                rows.push([field.name, field.files?.[0]
+                    ? `${field.files[0].name}:${field.files[0].size}:${field.files[0].lastModified}`
+                    : '']);
+                return;
+            }
+            if ((field.type === 'checkbox' || field.type === 'radio') && !field.checked) return;
+            if (field.multiple) {
+                rows.push([field.name, Array.from(field.selectedOptions).map(option => option.value).join('\u001f')]);
+                return;
+            }
+            rows.push([field.name, field.value]);
+        });
+        return JSON.stringify(rows);
+    };
+    window.roknCourseFormFingerprint = formFingerprint;
+    window.roknOriginalCourseFormFingerprint = formFingerprint();
 
     // Initialize Select2
     $('.select2').select2({
@@ -166,7 +191,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Form change detection
-    document.querySelectorAll('input, select, textarea').forEach(element => {
+    courseForm.querySelectorAll('input, select, textarea').forEach(element => {
         element.addEventListener('input', checkForChanges);
         element.addEventListener('change', checkForChanges);
     });
@@ -183,12 +208,18 @@ function handleFileSelect(e) {
         // Validate file type
         if (!file.type.startsWith('image/')) {
             alert('يرجى اختيار ملف صورة صحيح');
+            document.getElementById('image').value = '';
+            imagePreview.innerHTML = '';
+            checkForChanges();
             return;
         }
 
         // Validate file size (10MB)
         if (file.size > 10 * 1024 * 1024) {
             alert('حجم الملف يجب أن يكون أقل من 10 ميجابايت');
+            document.getElementById('image').value = '';
+            imagePreview.innerHTML = '';
+            checkForChanges();
             return;
         }
 
@@ -208,11 +239,13 @@ function handleFileSelect(e) {
 }
 
 function checkForChanges() {
-    const originalFormData = new FormData(document.getElementById('courseEditForm'));
-    // Compare with initial values or implement change detection logic
+    const courseForm = document.getElementById('courseEditForm');
+    if (!courseForm || typeof window.roknCourseFormFingerprint !== 'function') return;
     const changesIndicator = document.getElementById('changesIndicator');
-    // For simplicity, show the indicator when any input has been modified
-    changesIndicator.classList.add('show');
+    changesIndicator.classList.toggle(
+        'show',
+        window.roknCourseFormFingerprint() !== window.roknOriginalCourseFormFingerprint
+    );
 }
 
 </script>

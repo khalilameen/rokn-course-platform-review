@@ -24,7 +24,12 @@ function navigateToCourse(event, card) {
     }
 }
 
-function deleteCourse(courseId) {
+function deleteCourse(courseId, preservesLearnerAccess) {
+    const title = preservesLearnerAccess ? 'إخفاء الكورس' : 'أرشفة المسودة';
+    const message = preservesLearnerAccess
+        ? 'سيتوقف ظهوره والشراء الجديد<br><strong>يستمر الطلاب الحاليون في فتح ما اشتروه</strong>'
+        : 'ستُنقل المسودة غير المنشورة إلى الأرشيف<br><strong>يمكنك استعادتها لاحقًا</strong>';
+    const action = preservesLearnerAccess ? 'إخفاء الكورس' : 'نقل إلى الأرشيف';
     // Create modern confirmation modal
     const modal = document.createElement('div');
     modal.className = 'delete-confirmation-overlay';
@@ -33,10 +38,9 @@ function deleteCourse(courseId) {
             <div class="modal-icon">
                 <i class="fa fa-exclamation-triangle"></i>
             </div>
-            <h3 class="modal-title">أرشفة الكورس</h3>
+            <h3 class="modal-title">${title}</h3>
             <p class="modal-message">
-                سيتوقف ظهوره وفتح محتواه للطلاب<br>
-                <strong>يمكنك استعادته لاحقًا كمسودة مخفية.</strong>
+                ${message}
             </p>
             <div class="modal-actions">
                 <button class="btn-modal btn-cancel" onclick="closeDeleteModal()">
@@ -44,8 +48,8 @@ function deleteCourse(courseId) {
                     إلغاء
                 </button>
                 <button class="btn-modal btn-confirm" onclick="confirmDelete(${courseId})">
-                    <i class="fa fa-trash"></i>
-                    نقل إلى الأرشيف
+                    <i class="fa fa-archive"></i>
+                    ${action}
                 </button>
             </div>
         </div>

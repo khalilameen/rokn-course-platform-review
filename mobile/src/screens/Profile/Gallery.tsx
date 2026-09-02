@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {useNavigation} from '@react-navigation/native';
+import {useFocusEffect, useNavigation} from '@react-navigation/native';
 import type {RootNavigation} from '../../navigation/types';
+import {openGuestLogin} from '../../navigation/journeyNavigation';
 import {learnerErrorMessage} from '../../utils/errorPayload';
 import {
   ActivityIndicator,
@@ -40,6 +41,7 @@ import {
   deletePortfolioMedia,
   deletePortfolioItem,
   finalizePortfolioItem,
+  getCachedPortfolio,
   getEligibleProjects,
   getPortfolio,
   getPortfolioItem,
@@ -75,6 +77,11 @@ import {
 } from '../../services/portfolioMediaOutbox';
 import {replayPendingPortfolioMediaUploads} from '../../services/portfolioMediaReplay';
 import {remainingServerMilliseconds} from '../../utils/serverClock';
+import {
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+  type AccountSessionBoundary,
+} from '../../constants/helpers';
 
 type Project = {
   id: string;
@@ -210,9 +217,12 @@ export default function Gallery() {
   const portfolioReplayRevisionRef = useRef(0);
   const mediaRefreshFlightRef = useRef(false);
   const mediaRefreshAttemptsRef = useRef(new Set<string>());
+  const projectsRef = useRef<Project[]>(projects);
   const selectedRef = useRef<Project | null>(selected);
   const previewMediaRef = useRef<PortfolioMedia | null>(previewMedia);
   const previousAppActiveRef = useRef(appActive);
+  const portfolioBoundaryRef = useRef<AccountSessionBoundary | null>(null);
+  projectsRef.current = projects;
   selectedRef.current = selected;
   previewMediaRef.current = previewMedia;
   const draftSnapshotRef = useRef({
@@ -238,6 +248,12 @@ export default function Gallery() {
     if (projectMutationFlightRef.current) return null;
     const flight = Symbol('portfolio-project-mutation');
     projectMutationFlightRef.current = flight;
+    // A list/detail request that started before this mutation is no longer an
+    // authoritative snapshot and must not overwrite the mutation on return.
+    loadGenerationRef.current += 1;
+    detailGenerationRef.current += 1;
+    setLoading(false);
+    setDetailLoading(false);
     if (showSaving) setSaving(true);
     return flight;
   };
@@ -261,28 +277,32 @@ export default function Gallery() {
 
   useEffect(() => {
     let active = true;
-    void readPortfolioEditorDraft()
-      .then(draft => {
-        if (!active || !draft) return;
-        setDraftTitle(draft.title);
-        setDraftSummary(draft.summary);
-        setDraftCoverAsset(draft.cover);
-        const restoredMedia = draft.media?.length
-          ? draft.media
-          : draft.cover
-          ? [draft.cover]
-          : [];
-        setDraftMediaAssets(restoredMedia);
-        const restoredCover = restoredMedia.find(
-          file =>
-            !String(file.type || '')
-              .toLowerCase()
-              .startsWith('video/'),
-        );
-        setDraftCover(restoredCover ? {uri: restoredCover.uri} : null);
-        setSelectedSourceProject(draft.selectedSource || null);
-        setClientRequestId(draft.clientRequestId);
-      })
+    void (async () => {
+      const boundary = await captureAccountSessionBoundary();
+      if (!active) return;
+      portfolioBoundaryRef.current = boundary;
+      const draft = await readPortfolioEditorDraft(boundary);
+      assertAccountSessionBoundary(boundary);
+      if (!active || !draft) return;
+      setDraftTitle(draft.title);
+      setDraftSummary(draft.summary);
+      setDraftCoverAsset(draft.cover);
+      const restoredMedia = draft.media?.length
+        ? draft.media
+        : draft.cover
+        ? [draft.cover]
+        : [];
+      setDraftMediaAssets(restoredMedia);
+      const restoredCover = restoredMedia.find(
+        file =>
+          !String(file.type || '')
+            .toLowerCase()
+            .startsWith('video/'),
+      );
+      setDraftCover(restoredCover ? {uri: restoredCover.uri} : null);
+      setSelectedSourceProject(draft.selectedSource || null);
+      setClientRequestId(draft.clientRequestId);
+    })()
       .catch(() => {
         if (active) setDraftSaveError(true);
       })
@@ -297,6 +317,8 @@ export default function Gallery() {
   useEffect(() => {
     if (!draftReady) return;
     const timer = setTimeout(() => {
+      const boundary = portfolioBoundaryRef.current;
+      if (!boundary) return;
       void writePortfolioEditorDraft({
         clientRequestId,
         cover: draftCoverAsset,
@@ -305,7 +327,7 @@ export default function Gallery() {
         summary: draftSummary,
         title: draftTitle,
         updatedAt: Date.now(),
-      })
+      }, boundary)
         .then(() => {
           if (mountedRef.current) setDraftSaveError(false);
         })
@@ -326,17 +348,25 @@ export default function Gallery() {
 
   useEffect(() => {
     if (appActive || !draftReady) return;
+    const boundary = portfolioBoundaryRef.current;
+    if (!boundary) return;
     void writePortfolioEditorDraft({
       ...draftSnapshotRef.current,
       updatedAt: Date.now(),
-    }).catch(() => {
+    }, boundary).catch(() => {
       if (mountedRef.current) setDraftSaveError(true);
     });
   }, [appActive, draftReady]);
 
   const refreshOpenRemoteProject = useCallback(async (force = false) => {
     const current = selectedRef.current;
-    if (!current || current.source !== 'remote' || mediaRefreshFlightRef.current)
+    if (
+      !current ||
+      current.source !== 'remote' ||
+      mediaRefreshFlightRef.current ||
+      projectMutationFlightRef.current ||
+      addFlightRef.current
+    )
       return;
     const currentPreview = previewMediaRef.current;
     const remaining = remainingServerMilliseconds(currentPreview?.urlExpiresAt);
@@ -374,20 +404,13 @@ export default function Gallery() {
     }
   }, []);
 
-  useEffect(() => {
-    const becameActive = appActive && !previousAppActiveRef.current;
-    previousAppActiveRef.current = appActive;
-    if (!becameActive) return;
-    mediaRefreshAttemptsRef.current.clear();
-    void refreshOpenRemoteProject();
-  }, [appActive, refreshOpenRemoteProject]);
-
   const changeDraft = (change: () => void) => {
     change();
     setClientRequestId(secureRandomUuid());
   };
 
   const loadProjects = useCallback(async () => {
+    if (addFlightRef.current || projectMutationFlightRef.current) return;
     const generation = ++loadGenerationRef.current;
     const isCurrent = () =>
       mountedRef.current && generation === loadGenerationRef.current;
@@ -406,6 +429,12 @@ export default function Gallery() {
     setServerSession(sessionAvailable);
     if (sessionAvailable) {
       try {
+        const cached = await getCachedPortfolio().catch(() => []);
+        if (!isCurrent()) return;
+        if (cached.length && projectsRef.current.length === 0) {
+          setProjects(cached.map(remoteProject));
+          setLoading(false);
+        }
         const items = await getPortfolio();
         if (!isCurrent()) return;
         setProjects(items.map(remoteProject));
@@ -448,9 +477,23 @@ export default function Gallery() {
     }
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      void loadProjects();
+      return () => {
+        loadGenerationRef.current += 1;
+      };
+    }, [loadProjects]),
+  );
+
   useEffect(() => {
+    const becameActive = appActive && !previousAppActiveRef.current;
+    previousAppActiveRef.current = appActive;
+    if (!becameActive) return;
+    mediaRefreshAttemptsRef.current.clear();
     void loadProjects();
-  }, [loadProjects]);
+    void refreshOpenRemoteProject();
+  }, [appActive, loadProjects, refreshOpenRemoteProject]);
 
   const replayPortfolioMedia = useCallback(() => {
     if (portfolioReplayRefreshFlightRef.current) {
@@ -493,11 +536,14 @@ export default function Gallery() {
     pickerFlightRef.current = true;
     const generation = ++pickerGenerationRef.current;
     try {
+      const pickerBoundary = await captureAccountSessionBoundary();
+      assertAccountSessionBoundary(pickerBoundary);
       const result = await launchImageLibrary({
         mediaType: 'mixed' as MediaType,
         selectionLimit: 12,
         quality: 0.8,
       });
+      assertAccountSessionBoundary(pickerBoundary);
       if (!mountedRef.current) return;
       if (result.errorCode === 'permission') {
         showMediaPickerFailure(result.errorCode);
@@ -527,8 +573,10 @@ export default function Gallery() {
                 size: asset.fileSize,
               },
               50 * 1024 * 1024,
+              pickerBoundary,
             ),
           );
+          assertAccountSessionBoundary(pickerBoundary);
           if (
             !mountedRef.current ||
             pickerGenerationRef.current !== generation
@@ -559,6 +607,11 @@ export default function Gallery() {
       });
       await Promise.all(previous.map(removeLearnerDraftFile));
     } catch (error: unknown) {
+      if (
+        error instanceof Error &&
+        error.message === 'ACCOUNT_CHANGED_DURING_REQUEST'
+      )
+        return;
       if (mountedRef.current) {
         showMediaPickerFailure(
           typeof error === 'object' && error && 'errorCode' in error
@@ -572,6 +625,7 @@ export default function Gallery() {
   };
 
   const clearDraft = () => {
+    const boundary = portfolioBoundaryRef.current || undefined;
     const previous = draftCoverAsset;
     const previousMedia = draftMediaAssets;
     setDraftTitle('');
@@ -583,7 +637,7 @@ export default function Gallery() {
     setClientRequestId(secureRandomUuid());
     setDraftSaveError(false);
     void Promise.all([
-      clearPortfolioEditorDraft(),
+      clearPortfolioEditorDraft(boundary),
       removeLearnerDraftFile(previous),
       ...previousMedia.map(removeLearnerDraftFile),
     ]).catch(() => {
@@ -652,9 +706,15 @@ export default function Gallery() {
   const addProject = async () => {
     if (!draftTitle.trim() || saving || addFlightRef.current) return;
     addFlightRef.current = true;
+    loadGenerationRef.current += 1;
+    setLoading(false);
     setSaving(true);
     let remoteProjectCreated = false;
     try {
+      const ownerBoundary =
+        portfolioBoundaryRef.current ||
+        (await captureAccountSessionBoundary());
+      assertAccountSessionBoundary(ownerBoundary);
       if (serverSession) {
         const item = await createPortfolioItem({
           title: draftTitle.trim(),
@@ -664,6 +724,7 @@ export default function Gallery() {
           clientRequestId,
           expectedMediaCount: draftMediaAssets.length,
         });
+        assertAccountSessionBoundary(ownerBoundary);
         remoteProjectCreated = true;
         if (mountedRef.current) {
           setProjects(current => [
@@ -686,7 +747,9 @@ export default function Gallery() {
             'portfolio',
             source,
             50 * 1024 * 1024,
+            ownerBoundary,
           );
+          assertAccountSessionBoundary(ownerBoundary);
           try {
             const entry: PortfolioMediaOutboxEntry = {
               projectId: item.id,
@@ -694,7 +757,10 @@ export default function Gallery() {
               file: cached,
               createdAt: Date.now() + index,
             };
-            staged.push(await stagePortfolioMediaUpload(entry));
+            staged.push(
+              await stagePortfolioMediaUpload(entry, ownerBoundary),
+            );
+            assertAccountSessionBoundary(ownerBoundary);
           } catch (error) {
             await removeLearnerDraftFile(cached);
             throw error;
@@ -708,7 +774,9 @@ export default function Gallery() {
           const uploaded = await uploadStagedMedia(
             entry,
             detailGenerationRef.current,
+            ownerBoundary,
           );
+          assertAccountSessionBoundary(ownerBoundary);
           if (!uploaded) {
             if (mountedRef.current) {
               Alert.alert(
@@ -749,7 +817,7 @@ export default function Gallery() {
         clearDraft();
         setAdding(false);
       } else {
-        await clearPortfolioEditorDraft().catch(() => undefined);
+        await clearPortfolioEditorDraft(ownerBoundary).catch(() => undefined);
       }
     } catch (error: unknown) {
       if (mountedRef.current) {
@@ -782,9 +850,17 @@ export default function Gallery() {
     }
     setSaving(true);
     try {
+      const ownerBoundary =
+        portfolioBoundaryRef.current ||
+        (await captureAccountSessionBoundary());
+      assertAccountSessionBoundary(ownerBoundary);
       if (selected.source === 'remote') {
         await deletePortfolioItem(selected.id);
-        await discardPortfolioMediaUploads(selected.id).catch(() => undefined);
+        assertAccountSessionBoundary(ownerBoundary);
+        await discardPortfolioMediaUploads(
+          selected.id,
+          ownerBoundary,
+        ).catch(() => undefined);
       }
       if (mountedRef.current)
         setProjects(current => {
@@ -884,19 +960,23 @@ export default function Gallery() {
   async function uploadStagedMedia(
     entry: PortfolioMediaOutboxEntry,
     generation: number,
+    ownerBoundary?: AccountSessionBoundary,
   ): Promise<boolean> {
     try {
+      if (ownerBoundary) assertAccountSessionBoundary(ownerBoundary);
       const uploaded = await appendPortfolioMedia(
         entry.projectId,
         entry.file,
         entry.clientRequestId,
       );
-      await completePortfolioMediaUpload(entry);
+      if (ownerBoundary) assertAccountSessionBoundary(ownerBoundary);
+      await completePortfolioMediaUpload(entry, ownerBoundary);
+      if (ownerBoundary) assertAccountSessionBoundary(ownerBoundary);
       applyUploadedMedia(entry.projectId, uploaded, generation);
       return true;
     } catch (error: unknown) {
       if (responseStatus(error) === 404) {
-        await discardPortfolioMediaUploads(entry.projectId);
+        await discardPortfolioMediaUploads(entry.projectId, ownerBoundary);
       }
       return false;
     }
@@ -923,7 +1003,17 @@ export default function Gallery() {
           ),
         );
       })
-      .catch(() => undefined)
+      .catch(error => {
+        if (!mountedRef.current || detailGenerationRef.current !== generation)
+          return;
+        if (responseStatus(error) !== 404) return;
+        setProjects(current =>
+          current.filter(candidate => candidate.id !== project.id),
+        );
+        setSelected(null);
+        setPreviewMedia(null);
+        Alert.alert('المشروع غير متاح', 'حُذف المشروع أو لم يعد متاحًا');
+      })
       .finally(() => {
         if (mountedRef.current && detailGenerationRef.current === generation) {
           setDetailLoading(false);
@@ -962,10 +1052,15 @@ export default function Gallery() {
     const projectId = selected.id;
     const generation = detailGenerationRef.current;
     try {
+      const ownerBoundary =
+        portfolioBoundaryRef.current ||
+        (await captureAccountSessionBoundary());
+      assertAccountSessionBoundary(ownerBoundary);
       const item = await updatePortfolioItem(projectId, {
         title: editTitle.trim(),
         summary: editSummary.trim(),
       });
+      assertAccountSessionBoundary(ownerBoundary);
       if (!mountedRef.current) return;
       const next = remoteProject(item);
       setProjects(current =>
@@ -1000,8 +1095,15 @@ export default function Gallery() {
     const projectId = selected.id;
     const generation = detailGenerationRef.current;
     try {
+      const ownerBoundary =
+        portfolioBoundaryRef.current ||
+        (await captureAccountSessionBoundary());
+      assertAccountSessionBoundary(ownerBoundary);
       const item = await finalizePortfolioItem(projectId);
-      await discardPortfolioMediaUploads(projectId).catch(() => undefined);
+      assertAccountSessionBoundary(ownerBoundary);
+      await discardPortfolioMediaUploads(projectId, ownerBoundary).catch(
+        () => undefined,
+      );
       if (!mountedRef.current) return;
       const next = remoteProject(item);
       setProjects(current =>
@@ -1033,11 +1135,14 @@ export default function Gallery() {
     const projectId = selected.id;
     const generation = detailGenerationRef.current;
     try {
+      const pickerBoundary = await captureAccountSessionBoundary();
+      assertAccountSessionBoundary(pickerBoundary);
       const result = await launchImageLibrary({
         mediaType: 'mixed' as MediaType,
         selectionLimit: Math.max(1, 12 - selected.media.length),
         quality: 0.8,
       });
+      assertAccountSessionBoundary(pickerBoundary);
       if (result.errorCode) {
         showMediaPickerFailure(result.errorCode);
         return;
@@ -1056,7 +1161,9 @@ export default function Gallery() {
             size: asset.fileSize,
           },
           50 * 1024 * 1024,
+          pickerBoundary,
         );
+        assertAccountSessionBoundary(pickerBoundary);
         try {
           const entry: PortfolioMediaOutboxEntry = {
             projectId,
@@ -1064,14 +1171,16 @@ export default function Gallery() {
             file: cached,
             createdAt: Date.now(),
           };
-          staged.push(await stagePortfolioMediaUpload(entry));
+          staged.push(await stagePortfolioMediaUpload(entry, pickerBoundary));
+          assertAccountSessionBoundary(pickerBoundary);
         } catch (error) {
           await removeLearnerDraftFile(cached);
           throw error;
         }
       }
       for (const entry of staged) {
-        if (!(await uploadStagedMedia(entry, generation))) {
+        assertAccountSessionBoundary(pickerBoundary);
+        if (!(await uploadStagedMedia(entry, generation, pickerBoundary))) {
           if (mountedRef.current) {
             Alert.alert(
               'لم يكتمل الرفع',
@@ -1080,8 +1189,14 @@ export default function Gallery() {
           }
           break;
         }
+        assertAccountSessionBoundary(pickerBoundary);
       }
     } catch (error: unknown) {
+      if (
+        error instanceof Error &&
+        error.message === 'ACCOUNT_CHANGED_DURING_REQUEST'
+      )
+        return;
       if (mountedRef.current) {
         Alert.alert(
           'تعذّر رفع الملف',
@@ -1211,8 +1326,9 @@ export default function Gallery() {
           actionLabel="تسجيل الدخول"
           description="سجّل الدخول لإضافة مشروعاتك ومشاركة البورتفوليو"
           onAction={() =>
-            navigation.navigate('Login', {
-              returnTo: {name: 'Profile', params: {tab: 'portfolio'}},
+            openGuestLogin(navigation, {
+              name: 'Profile',
+              params: {tab: 'portfolio'},
             })
           }
           state="empty"
@@ -1220,10 +1336,8 @@ export default function Gallery() {
         />
       ) : !projects.length ? (
         <StatusView
-          actionLabel="إضافة أول مشروع"
           description="أضف عملًا أو أكمل مشروع كورس ليظهر هنا"
-          onAction={openAddProject}
-          title="أضف أول مشروع"
+          title="لا توجد مشروعات"
         />
       ) : (
         <>

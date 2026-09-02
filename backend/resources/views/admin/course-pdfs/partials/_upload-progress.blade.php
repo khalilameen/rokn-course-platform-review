@@ -21,15 +21,32 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!form || !file || !container || !bar || !value || !label || !cancel) return;
 
     let request = null;
+    let bodySent = false;
+    let navigatingAfterSuccess = false;
     form.addEventListener('submit', function (event) {
-        if (!file.files || file.files.length === 0 || request) return;
+        if (request) {
+            event.preventDefault();
+            return;
+        }
+        if (!file.files || file.files.length === 0) return;
         event.preventDefault();
         request = new XMLHttpRequest();
-        const submit = form.querySelector('[type="submit"]');
+        bodySent = false;
+        const submit = form.querySelector('[type="submit"]')
+            || document.querySelector('[form="' + CSS.escape(form.id) + '"][type="submit"]');
         const allowRetry = function () {
             request = null;
             if (submit) submit.disabled = false;
+            cancel.disabled = false;
             label.textContent = 'تعذر رفع الملف  تحقق من الاتصال ثم حاول مرة أخرى';
+        };
+        const reconcileUnknownOutcome = function () {
+            request = null;
+            window.RoknAdminRequest?.blockMutationsUntilReload();
+            if (submit) submit.disabled = true;
+            cancel.disabled = true;
+            label.textContent = 'وصل الملف ونراجع نتيجة الحفظ';
+            window.setTimeout(() => window.location.reload(), 2000);
         };
         if (submit) submit.disabled = true;
         container.classList.remove('d-none');
@@ -42,17 +59,32 @@ document.addEventListener('DOMContentLoaded', function () {
             bar.setAttribute('aria-valuenow', String(percent));
             value.textContent = percent + '%';
         });
+        request.upload.addEventListener('load', function () {
+            bodySent = true;
+            cancel.disabled = true;
+            label.textContent = 'اكتمل الرفع  جاري حفظ الملف';
+        });
         request.addEventListener('load', function () {
             if (request.status < 200 || request.status >= 400) {
                 allowRetry();
                 return;
             }
             const destination = request.responseURL || form.action;
+            request = null;
+            navigatingAfterSuccess = true;
             window.location.assign(destination);
         });
-        request.addEventListener('error', allowRetry);
-        request.addEventListener('timeout', allowRetry);
+        request.addEventListener('error', function () {
+            bodySent ? reconcileUnknownOutcome() : allowRetry();
+        });
+        request.addEventListener('timeout', function () {
+            bodySent ? reconcileUnknownOutcome() : allowRetry();
+        });
         request.addEventListener('abort', function () {
+            if (bodySent) {
+                reconcileUnknownOutcome();
+                return;
+            }
             request = null;
             if (submit) submit.disabled = false;
             container.classList.add('d-none');
@@ -65,7 +97,12 @@ document.addEventListener('DOMContentLoaded', function () {
         request.send(new FormData(form));
     });
     cancel.addEventListener('click', function () {
-        if (request) request.abort();
+        if (request && !bodySent) request.abort();
+    });
+    window.addEventListener('beforeunload', function (event) {
+        if (!request || navigatingAfterSuccess) return;
+        event.preventDefault();
+        event.returnValue = '';
     });
 });
 </script>

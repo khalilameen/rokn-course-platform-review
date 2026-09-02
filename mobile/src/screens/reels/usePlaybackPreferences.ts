@@ -13,7 +13,10 @@ import {
   updatePlaybackPreferences,
 } from '../../services/roknApi';
 
-export const usePlaybackPreferences = (serverSession: boolean | null) => {
+export const usePlaybackPreferences = (
+  serverSession: boolean | null,
+  accountIdentity: string,
+) => {
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const playbackSpeedRef = useRef(1);
   const [selectedQuality, setSelectedQuality] = useState<VideoQuality>('auto');
@@ -24,6 +27,14 @@ export const usePlaybackPreferences = (serverSession: boolean | null) => {
 
   useEffect(() => {
     let active = true;
+    // A stack route may survive logout and direct account replacement. Do not
+    // play the new owner's course with the previous owner's speed/data policy
+    // while this account's durable preferences are still being resolved.
+    playbackSpeedRef.current = 1;
+    setPlaybackSpeed(1);
+    setSelectedQuality('auto');
+    setDataSaver(false);
+    setPlaybackPreferencesReady(false);
     void (async () => {
       const boundary = await captureAccountSessionBoundary();
       const qualityKey = await accountScopedStorageKey(
@@ -80,7 +91,7 @@ export const usePlaybackPreferences = (serverSession: boolean | null) => {
     return () => {
       active = false;
     };
-  }, []);
+  }, [accountIdentity]);
 
   const changeQuality = useCallback(
     (quality: VideoQuality) => {

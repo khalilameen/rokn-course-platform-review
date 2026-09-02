@@ -26,6 +26,10 @@ import {
   buildPreviewFeed,
   type ReelsRouteParams,
 } from './presentation';
+import {
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+} from '../../constants/helpers';
 
 type CourseLoaderRefs = {
   closedPlaybackSessions: MutableRefObject<Set<string>>;
@@ -33,6 +37,7 @@ type CourseLoaderRefs = {
   loadRequest: MutableRefObject<number>;
   loadAbort: MutableRefObject<AbortController | null>;
   loadedCourse: MutableRefObject<CourseLearningData | null>;
+  loadedCourseOwner: MutableRefObject<string>;
   manifestVersions: MutableRefObject<Record<string, number>>;
   pendingInitialIndex: MutableRefObject<number | null>;
   pendingInitialKey: MutableRefObject<string | null>;
@@ -41,8 +46,15 @@ type CourseLoaderRefs = {
   positions: MutableRefObject<Record<string, number>>;
 };
 
+export type CourseReloadTarget = {
+  lessonId?: string;
+  index?: number;
+  onResult?: (succeeded: boolean) => void;
+};
+
 export const useReelsCourseLoader = ({
   navigation,
+  identityKey,
   params,
   previewMode,
   refs,
@@ -55,6 +67,7 @@ export const useReelsCourseLoader = ({
   setServerSession,
 }: {
   navigation: Pick<RootNavigation, 'replace'>;
+  identityKey: string;
   params: ReelsRouteParams;
   previewMode: boolean;
   refs: CourseLoaderRefs;
@@ -66,7 +79,7 @@ export const useReelsCourseLoader = ({
   setSavedLessons: Dispatch<SetStateAction<Set<string>>>;
   setServerSession: Dispatch<SetStateAction<boolean | null>>;
 }) =>
-  useCallback(async () => {
+  useCallback(async (reloadTarget?: CourseReloadTarget) => {
     refs.loadAbort.current?.abort();
     const controller = new AbortController();
     refs.loadAbort.current = controller;
@@ -75,40 +88,74 @@ export const useReelsCourseLoader = ({
       params.courseId || (LOCAL_DEMO_ENABLED ? DEMO_COURSE_ID : ''),
     );
     const hasCurrentCourse =
-      refs.loadedCourse.current?.id === requestedCourseId;
+      refs.loadedCourse.current?.id === requestedCourseId &&
+      refs.loadedCourseOwner.current === identityKey;
     if (!hasCurrentCourse) {
       refs.closedPlaybackSessions.current.clear();
       refs.playbackRuntime.current = {};
       refs.playbackDurations.current = {};
       refs.manifestVersions.current = {};
       refs.loadedCourse.current = null;
+      refs.loadedCourseOwner.current = identityKey;
       setCourse(null);
       setLoading(true);
       setLoadError('');
     }
     setPreviewGateVisible(false);
+    const boundary = await captureAccountSessionBoundary().catch(() => null);
+    const ownsLoadSlot = () =>
+      requestId === refs.loadRequest.current &&
+      refs.loadedCourseOwner.current === identityKey;
+    const isCurrentOwner = () => {
+      if (!boundary || !ownsLoadSlot()) return false;
+      try {
+        assertAccountSessionBoundary(boundary);
+        return true;
+      } catch {
+        return false;
+      }
+    };
     try {
+      if (!boundary) {
+        if (!ownsLoadSlot()) return;
+        if (hasCurrentCourse) {
+          setConnectionNote(
+            'تعذّر تحديث محتوى الكورس\nحاول مرة أخرى من زر الفيديو',
+          );
+        } else {
+          setLoadError(
+            'تعذّر فتح محتوى الكورس\nمكانك محفوظ\nحاول مرة أخرى',
+          );
+        }
+        if (refs.loadAbort.current === controller) {
+          refs.loadAbort.current = null;
+        }
+        setLoading(false);
+        reloadTarget?.onResult?.(false);
+        return;
+      }
       if (
         LOCAL_DEMO_ENABLED &&
         isLocalDemoId(requestedCourseId) &&
         !previewMode &&
         !(await hasDemoCourseAccess(requestedCourseId))
       ) {
-        if (requestId !== refs.loadRequest.current) return;
+        if (!isCurrentOwner()) return;
         navigation.replace('CourseDetails', {courseId: requestedCourseId});
+        reloadTarget?.onResult?.(false);
         return;
       }
       const result = await loadCourseLearningData(
         requestedCourseId || undefined,
         {signal: controller.signal},
       );
-      if (requestId !== refs.loadRequest.current) return;
+      if (!isCurrentOwner()) return;
       const [withLocalState, localState, sessionAvailable] = await Promise.all([
         applyLocalLearningState(result.course),
         getLocalLearningState(),
         hasSession(),
       ]);
-      if (requestId !== refs.loadRequest.current) return;
+      if (!isCurrentOwner()) return;
       setServerSession(sessionAvailable);
       refs.demoRewardsEnabled.current =
         !sessionAvailable && isLocalDemoId(withLocalState.id);
@@ -133,22 +180,28 @@ export const useReelsCourseLoader = ({
       refs.positions.current = localState.positions;
       setSavedLessons(new Set(localState.savedLessons));
       refs.loadedCourse.current = withLocalState;
+      refs.loadedCourseOwner.current = identityKey;
       setCourse(withLocalState);
+      setConnectionNote('');
       if (sessionAvailable) {
         const lessonIds = withLocalState.modules.flatMap(module =>
           module.reels.map(reel => reel.lessonId),
         );
         void reconcileServerSavedLessons(lessonIds)
           .then(serverSaved => {
-            if (requestId === refs.loadRequest.current) {
+            if (isCurrentOwner()) {
               setSavedLessons(new Set(serverSaved));
             }
           })
           .catch(() => undefined);
       }
-      const requestedReel = params.reelId || params.lessonId;
+      const requestedReel =
+        String(reloadTarget?.lessonId || '').trim() ||
+        params.reelId ||
+        params.lessonId;
       const requestedPosition = Number(params.initialPositionSeconds);
       if (
+        !reloadTarget &&
         requestedReel &&
         Number.isFinite(requestedPosition) &&
         requestedPosition > 0
@@ -157,13 +210,21 @@ export const useReelsCourseLoader = ({
           `${withLocalState.id}:${String(requestedReel)}`
         ] = requestedPosition;
       }
-      refs.pendingInitialKey.current = requestedReel
-        ? `reel-${String(requestedReel)}`
-        : null;
-      const requestedIndex = Number(params.initialReelIndex);
       const accessibleItems = previewMode
         ? buildPreviewFeed(withLocalState, Number(params.previewCount) || 0)
         : buildAccessibleFeed(withLocalState);
+      const requestedKey = requestedReel
+        ? `reel-${String(requestedReel)}`
+        : null;
+      const requestedReelExists = Boolean(
+        requestedKey && accessibleItems.some(item => item.key === requestedKey),
+      );
+      refs.pendingInitialKey.current = requestedReelExists
+        ? requestedKey
+        : null;
+      const requestedIndex = Number(
+        reloadTarget?.index ?? params.initialReelIndex,
+      );
       const firstPendingIndex = accessibleItems.findIndex(item =>
         item.type === 'project'
           ? item.project.status !== 'passed'
@@ -172,15 +233,16 @@ export const useReelsCourseLoader = ({
           : !item.reel.isCompleted,
       );
       refs.pendingInitialIndex.current =
-        !requestedReel && Number.isFinite(requestedIndex)
+        !requestedReelExists && Number.isFinite(requestedIndex)
           ? Math.max(0, Math.floor(requestedIndex))
-          : !requestedReel && accessibleItems.length
+          : !requestedReelExists && accessibleItems.length
           ? firstPendingIndex >= 0
             ? firstPendingIndex
             : accessibleItems.length - 1
           : null;
+      reloadTarget?.onResult?.(true);
     } catch (error) {
-      if (requestId !== refs.loadRequest.current) return;
+      if (!isCurrentOwner()) return;
       if (networkFailureKind(error) === 'cancelled') return;
       if (hasCurrentCourse) {
         setConnectionNote(friendlyNetworkMessage(error, 'الفيديو'));
@@ -191,14 +253,16 @@ export const useReelsCourseLoader = ({
           'تعذّر فتح محتوى الكورس\nمكانك محفوظ\nتحقق من الاتصال ثم حاول مرة أخرى',
         );
       }
+      reloadTarget?.onResult?.(false);
     } finally {
-      if (requestId === refs.loadRequest.current) {
+      if (isCurrentOwner()) {
         if (refs.loadAbort.current === controller) refs.loadAbort.current = null;
         setLoading(false);
       }
     }
   }, [
     navigation,
+    identityKey,
     params.courseId,
     params.initialReelIndex,
     params.initialPositionSeconds,

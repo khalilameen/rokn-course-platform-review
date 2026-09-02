@@ -198,30 +198,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Toggle additional file links for lesson form
-    const toggleFileLinksBtn = document.getElementById('toggleFileLinks');
-    const additionalFileLinks = document.getElementById('additionalFileLinks');
-
-    if (toggleFileLinksBtn && additionalFileLinks) {
-        // Set initial button state
-        if (!additionalFileLinks.classList.contains('is-hidden')) {
-            toggleFileLinksBtn.innerHTML = '<i class="fa fa-minus-circle"></i> إخفاء روابط الملفات الإضافية';
-            toggleFileLinksBtn.classList.add('is-active');
-        }
-
-        toggleFileLinksBtn.addEventListener('click', function() {
-            if (additionalFileLinks.classList.contains('is-hidden')) {
-                additionalFileLinks.classList.remove('is-hidden');
-                this.innerHTML = '<i class="fa fa-minus-circle"></i> إخفاء روابط الملفات الإضافية';
-                this.classList.add('is-active');
-            } else {
-                additionalFileLinks.classList.add('is-hidden');
-                this.innerHTML = '<i class="fa fa-plus-circle"></i> إضافة روابط ملفات إضافية';
-                this.classList.remove('is-active');
-            }
-        });
-    }
-
     // Video Source Toggle (YouTube / Bunny)
     const videoSourceYoutube = document.getElementById('video_source_youtube');
     const videoSourceBunny = document.getElementById('video_source_bunny');

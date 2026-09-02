@@ -25,7 +25,8 @@ final class ProjectFeedbackThreadService
 {
     public function __construct(
         private CourseAccessPlanService $accessPlans,
-        private AiInputAttachmentService $attachments
+        private AiInputAttachmentService $attachments,
+        private CourseChatAccessService $courseAccess
     )
     {
     }
@@ -218,17 +219,11 @@ final class ProjectFeedbackThreadService
             if ((int) $locked->user_id !== (int) $user->id) {
                 throw new AuthorizationException('Project thread not found.');
             }
-            if (!$locked->can_reply || $locked->feedback_level !== 'enhanced' || $locked->status !== 'ready') {
-                throw new AuthorizationException('Replies are not included in this course plan.');
-            }
             $enrollment = CourseEnrollment::query()->lockForUpdate()->find($locked->enrollment_id);
-            if (!$enrollment || !$enrollment->isActive()) {
-                throw new AuthorizationException('The course entitlement is not active.');
-            }
-            $contract = $this->accessPlans->publicPayloadFromTerms(
-                $this->accessPlans->termsForEnrollment($enrollment) ?? []
-            );
-            if (!(bool) $contract['project_thread_reply_enabled']) {
+            $contract = $enrollment
+                ? $this->replyContractFor($locked, $enrollment)
+                : null;
+            if (!$contract) {
                 throw new AuthorizationException('Replies are not included in this course plan.');
             }
             $maxAttachments = min(5, max(0, (int) ($contract['project_attachment_max_files'] ?? 0)));
@@ -349,10 +344,7 @@ final class ProjectFeedbackThreadService
             ? $this->accessPlans->termsForEnrollment($thread->enrollment)
             : null;
         $contract = $this->accessPlans->publicPayloadFromTerms($terms ?? []);
-        $replyEnabled = (bool) $thread->can_reply
-            && $thread->status === 'ready'
-            && (bool) $contract['project_thread_reply_enabled']
-            && (bool) $thread->enrollment?->isActive();
+        $replyEnabled = $this->activeReplyContract($thread) !== null;
         $usage = AiEntitlementUsage::query()
             ->where('enrollment_id', $thread->enrollment_id)
             ->where('feature', AiEntitlementUsage::FEATURE_PROJECT_FOLLOWUP)
@@ -436,6 +428,39 @@ final class ProjectFeedbackThreadService
                 )->values(),
             ])->values(),
         ];
+    }
+
+    /**
+     * Resolve the single reply capability used by presentation, queueing and
+     * attachment staging. A plan flag alone never authorizes provider spend.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function activeReplyContract(ProjectFeedbackThread $thread): ?array
+    {
+        $thread->loadMissing('enrollment');
+        $enrollment = $thread->enrollment;
+        return $enrollment ? $this->replyContractFor($thread, $enrollment) : null;
+    }
+
+    /** @return array<string,mixed>|null */
+    private function replyContractFor(
+        ProjectFeedbackThread $thread,
+        CourseEnrollment $enrollment
+    ): ?array {
+        if (
+            $thread->status !== 'ready'
+            || !$enrollment->isActive()
+        ) return null;
+
+        $terms = $this->accessPlans->termsForEnrollment($enrollment);
+        $contract = $this->accessPlans->publicPayloadFromTerms($terms ?? []);
+
+        return $terms
+            && (bool) ($contract['project_thread_reply_enabled'] ?? false)
+            && $this->courseAccess->enrollmentAllowsVariableCostFeatures($enrollment)
+                ? $contract
+                : null;
     }
 
     private function safeBody(string $body, int $limit): string

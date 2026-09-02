@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "package-lock.json production dependency closure",
-  "packageCount": 711,
-  "packagePathCount": 792,
-  "inventoryHash": "bc324887f1a575034ab744d44527b0c506042855a00219304e20a5cb6f80437f",
+  "packageCount": 735,
+  "packagePathCount": 818,
+  "inventoryHash": "7c58b479403c770b91a4fb021fc099d42528001b4fd64cd2ffe0cee25e064fb3",
   "packages": [
     {
       "name": "@babel/code-frame",
@@ -2231,6 +2231,196 @@
       "license": "MIT",
       "declaredLicense": "MIT",
       "sourceUrl": "https://www.npmjs.com/package/%40reduxjs%2Ftoolkit/v/2.11.2",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@sentry-internal/browser-utils",
+      "version": "10.37.0",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/%40sentry-internal%2Fbrowser-utils/v/10.37.0",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@sentry-internal/feedback",
+      "version": "10.37.0",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/%40sentry-internal%2Ffeedback/v/10.37.0",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@sentry-internal/replay-canvas",
+      "version": "10.37.0",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/%40sentry-internal%2Freplay-canvas/v/10.37.0",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@sentry-internal/replay",
+      "version": "10.37.0",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/%40sentry-internal%2Freplay/v/10.37.0",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@sentry/babel-plugin-component-annotate",
+      "version": "4.8.0",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/%40sentry%2Fbabel-plugin-component-annotate/v/4.8.0",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@sentry/browser",
+      "version": "10.37.0",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/%40sentry%2Fbrowser/v/10.37.0",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@sentry/cli-darwin",
+      "version": "2.58.4",
+      "license": "FSL-1.1-MIT",
+      "declaredLicense": "FSL-1.1-MIT",
+      "sourceUrl": "https://www.npmjs.com/package/%40sentry%2Fcli-darwin/v/2.58.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@sentry/cli-linux-arm64",
+      "version": "2.58.4",
+      "license": "FSL-1.1-MIT",
+      "declaredLicense": "FSL-1.1-MIT",
+      "sourceUrl": "https://www.npmjs.com/package/%40sentry%2Fcli-linux-arm64/v/2.58.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@sentry/cli-linux-arm",
+      "version": "2.58.4",
+      "license": "FSL-1.1-MIT",
+      "declaredLicense": "FSL-1.1-MIT",
+      "sourceUrl": "https://www.npmjs.com/package/%40sentry%2Fcli-linux-arm/v/2.58.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@sentry/cli-linux-i686",
+      "version": "2.58.4",
+      "license": "FSL-1.1-MIT",
+      "declaredLicense": "FSL-1.1-MIT",
+      "sourceUrl": "https://www.npmjs.com/package/%40sentry%2Fcli-linux-i686/v/2.58.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@sentry/cli-linux-x64",
+      "version": "2.58.4",
+      "license": "FSL-1.1-MIT",
+      "declaredLicense": "FSL-1.1-MIT",
+      "sourceUrl": "https://www.npmjs.com/package/%40sentry%2Fcli-linux-x64/v/2.58.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@sentry/cli-win32-arm64",
+      "version": "2.58.4",
+      "license": "FSL-1.1-MIT",
+      "declaredLicense": "FSL-1.1-MIT",
+      "sourceUrl": "https://www.npmjs.com/package/%40sentry%2Fcli-win32-arm64/v/2.58.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@sentry/cli-win32-i686",
+      "version": "2.58.4",
+      "license": "FSL-1.1-MIT",
+      "declaredLicense": "FSL-1.1-MIT",
+      "sourceUrl": "https://www.npmjs.com/package/%40sentry%2Fcli-win32-i686/v/2.58.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@sentry/cli-win32-x64",
+      "version": "2.58.4",
+      "license": "FSL-1.1-MIT",
+      "declaredLicense": "FSL-1.1-MIT",
+      "sourceUrl": "https://www.npmjs.com/package/%40sentry%2Fcli-win32-x64/v/2.58.4",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@sentry/cli",
+      "version": "2.58.4",
+      "license": "FSL-1.1-MIT",
+      "declaredLicense": "FSL-1.1-MIT",
+      "sourceUrl": "https://www.npmjs.com/package/%40sentry%2Fcli/v/2.58.4",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@sentry/core",
+      "version": "10.37.0",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/%40sentry%2Fcore/v/10.37.0",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@sentry/react-native",
+      "version": "7.11.0",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/%40sentry%2Freact-native/v/7.11.0",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@sentry/react",
+      "version": "10.37.0",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/%40sentry%2Freact/v/10.37.0",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "@sentry/types",
+      "version": "10.37.0",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/%40sentry%2Ftypes/v/10.37.0",
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null
@@ -5336,6 +5526,16 @@
       "apacheNotice": null
     },
     {
+      "name": "node-fetch",
+      "version": "2.7.0",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/node-fetch/v/2.7.0",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
       "name": "node-forge",
       "version": "1.4.0",
       "license": "BSD-3-Clause",
@@ -5733,6 +5933,16 @@
       "sourceUrl": "https://www.npmjs.com/package/protobufjs/v/7.6.6",
       "legalSource": "package-root",
       "legalFileCount": 2,
+      "apacheNotice": null
+    },
+    {
+      "name": "proxy-from-env",
+      "version": "1.1.0",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/proxy-from-env/v/1.1.0",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
       "apacheNotice": null
     },
     {
@@ -6676,6 +6886,16 @@
       "apacheNotice": null
     },
     {
+      "name": "tr46",
+      "version": "0.0.3",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/tr46/v/0.0.3",
+      "legalSource": "reviewed-metadata-fallback",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
       "name": "tslib",
       "version": "2.8.1",
       "license": "0BSD",
@@ -6916,6 +7136,16 @@
       "apacheNotice": "not-published"
     },
     {
+      "name": "webidl-conversions",
+      "version": "3.0.1",
+      "license": "BSD-2-Clause",
+      "declaredLicense": "BSD-2-Clause",
+      "sourceUrl": "https://www.npmjs.com/package/webidl-conversions/v/3.0.1",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
       "name": "websocket-driver",
       "version": "0.7.5",
       "license": "Apache-2.0",
@@ -6951,6 +7181,16 @@
       "license": "MIT",
       "declaredLicense": "MIT",
       "sourceUrl": "https://www.npmjs.com/package/whatwg-url-minimum/v/0.1.2",
+      "legalSource": "package-root",
+      "legalFileCount": 1,
+      "apacheNotice": null
+    },
+    {
+      "name": "whatwg-url",
+      "version": "5.0.0",
+      "license": "MIT",
+      "declaredLicense": "MIT",
+      "sourceUrl": "https://www.npmjs.com/package/whatwg-url/v/5.0.0",
       "legalSource": "package-root",
       "legalFileCount": 1,
       "apacheNotice": null

@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\PaymentReconciliationFinding;
 use App\Models\User;
+use App\Support\AdminEditorVersion;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -54,6 +55,11 @@ class PaymentReconciliationFindingController extends Controller
             ->latest('id')
             ->paginate(30)
             ->withQueryString();
+        $editorVersions = $findings->getCollection()->mapWithKeys(
+            static fn (PaymentReconciliationFinding $finding): array => [
+                $finding->getKey() => self::editorVersion($finding),
+            ]
+        );
 
         $stateCounts = PaymentReconciliationFinding::query()
             ->selectRaw('state, COUNT(*) as aggregate')
@@ -69,7 +75,8 @@ class PaymentReconciliationFindingController extends Controller
             'findings',
             'filters',
             'stateCounts',
-            'kinds'
+            'kinds',
+            'editorVersions'
         ));
     }
 
@@ -117,6 +124,7 @@ class PaymentReconciliationFindingController extends Controller
     ): RedirectResponse {
         $validated = $request->validate([
             'note' => 'required|string|min:3|max:2000',
+            'editor_version' => ['required', 'string', 'size:64'],
         ]);
         $actor = $request->user();
         abort_unless($actor instanceof User, 403);
@@ -138,6 +146,14 @@ class PaymentReconciliationFindingController extends Controller
                     'finding' => 'تغيرت حالة نتيجة التسوية بالفعل. حدّث الصفحة قبل تسجيل قرار جديد.',
                 ]);
             }
+            if (!hash_equals(
+                self::editorVersion($lockedFinding),
+                (string) $validated['editor_version']
+            )) {
+                throw ValidationException::withMessages([
+                    'finding' => 'وصل دليل دفع أحدث منذ فتح الصفحة. راجعه قبل تسجيل القرار.',
+                ]);
+            }
 
             $lockedFinding->update([
                 'state' => $targetState,
@@ -152,5 +168,19 @@ class PaymentReconciliationFindingController extends Controller
         }, 3);
 
         return back()->with('success', $successMessage);
+    }
+
+    private static function editorVersion(PaymentReconciliationFinding $finding): string
+    {
+        return AdminEditorVersion::for($finding, [
+            'state',
+            'attempts',
+            'last_seen_at',
+            'local_status',
+            'local_financial_status',
+            'provider_status',
+            'provider_transaction_id',
+            'evidence',
+        ]);
     }
 }

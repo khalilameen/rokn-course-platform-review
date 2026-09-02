@@ -11,6 +11,27 @@ class CourseEnrollment extends Model
 {
     use HasFactory, InvalidatesCourseCatalogue;
 
+    /**
+     * Catalogue cards only depend on the number of active student
+     * enrollments. Progress/completion and entitlement bookkeeping update the
+     * same row frequently; invalidating every catalogue page for those writes
+     * turns one learner finishing a section into a cache stampede for all
+     * learners without changing anything shown on a course card.
+     */
+    public function shouldInvalidateCourseCatalogue(): bool
+    {
+        if ($this->wasRecentlyCreated || !$this->exists) {
+            return true;
+        }
+
+        return $this->wasChanged([
+            'course_id',
+            'user_id',
+            'is_active',
+            'expires_at',
+        ]);
+    }
+
     protected $fillable = [
         'user_id',
         'course_id',

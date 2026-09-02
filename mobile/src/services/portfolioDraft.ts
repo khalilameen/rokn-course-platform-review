@@ -4,6 +4,7 @@ import {
   accountScopedStorageKey,
   assertAccountSessionBoundary,
   captureAccountSessionBoundary,
+  type AccountSessionBoundary,
 } from '../constants/helpers';
 import type {EligibleProject} from './api/profile';
 import {
@@ -37,8 +38,10 @@ const withDraftLock = <T>(operation: () => Promise<T>) => {
 };
 
 export const readPortfolioEditorDraft =
-  async (): Promise<PortfolioDraft | null> => {
-    const boundary = await captureAccountSessionBoundary();
+  async (
+    ownerBoundary?: AccountSessionBoundary,
+  ): Promise<PortfolioDraft | null> => {
+    const boundary = ownerBoundary || (await captureAccountSessionBoundary());
     const key = await accountScopedStorageKey(STORAGE_KEY, boundary);
     return withDraftLock(async () => {
       assertAccountSessionBoundary(boundary);
@@ -101,8 +104,9 @@ export const readPortfolioEditorDraft =
 
 export const writePortfolioEditorDraft = async (
   draft: PortfolioDraft,
+  ownerBoundary?: AccountSessionBoundary,
 ): Promise<void> => {
-  const boundary = await captureAccountSessionBoundary();
+  const boundary = ownerBoundary || (await captureAccountSessionBoundary());
   const key = await accountScopedStorageKey(STORAGE_KEY, boundary);
   await withDraftLock(async () => {
     assertAccountSessionBoundary(boundary);
@@ -127,8 +131,10 @@ export const writePortfolioEditorDraft = async (
   });
 };
 
-export const clearPortfolioEditorDraft = async (): Promise<void> => {
-  const boundary = await captureAccountSessionBoundary();
+export const clearPortfolioEditorDraft = async (
+  ownerBoundary?: AccountSessionBoundary,
+): Promise<void> => {
+  const boundary = ownerBoundary || (await captureAccountSessionBoundary());
   const key = await accountScopedStorageKey(STORAGE_KEY, boundary);
   await withDraftLock(async () => {
     assertAccountSessionBoundary(boundary);

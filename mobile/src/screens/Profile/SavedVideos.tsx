@@ -1,5 +1,6 @@
 import {useFocusEffect, useNavigation} from '@react-navigation/native';
 import type {RootNavigation} from '../../navigation/types';
+import {openGuestLogin} from '../../navigation/journeyNavigation';
 import React, {useCallback, useRef, useState} from 'react';
 import {
   Alert,
@@ -39,7 +40,6 @@ import {
 } from '../../components/VideoPlayer/courseLearningApi';
 import {createDemoCourse} from '../../components/VideoPlayer/demoCourse';
 import {
-  deleteSavedLesson,
   getSavedLessonsPage,
   hasSession,
   type SavedLesson,
@@ -140,7 +140,11 @@ export default function SavedVideos() {
               );
             }
             setNextPage(result.hasMore ? result.page + 1 : null);
-            setError('');
+            setError(
+              result.fromCache
+                ? 'نعرض آخر محفوظات متاحة\nأعد المحاولة عند عودة الاتصال'
+                : '',
+            );
             return;
           }
           if (!LOCAL_DEMO_ENABLED) {
@@ -304,9 +308,7 @@ export default function SavedVideos() {
       setActionError('');
       setRemovingSaved(current => new Set(current).add(key));
       try {
-        if (item.remote && item.folderId) {
-          await deleteSavedLesson(item.folderId, item.id);
-        } else if (item.folderId) {
+        if (item.folderId) {
           await removeLessonFromSavedFolder(item.id, item.folderId);
         } else {
           await toggleWatchLater(item.id, true);
@@ -453,8 +455,9 @@ export default function SavedVideos() {
         actionLabel="تسجيل الدخول"
         description="سجّل الدخول لعرض محفوظاتك على أي جهاز"
         onAction={() =>
-          navigation.navigate('Login', {
-            returnTo: {name: 'Profile', params: {tab: 'saved'}},
+          openGuestLogin(navigation, {
+            name: 'Profile',
+            params: {tab: 'saved'},
           })
         }
         state="empty"
@@ -474,9 +477,16 @@ export default function SavedVideos() {
         title="محفوظاتك"
       />
       {!!error && saved.length ? (
-        <Text accessibilityRole="alert" style={styles.actionError}>
-          {error}
-        </Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setReload(value => value + 1)}
+          style={({pressed}) => [
+            styles.retryNotice,
+            pressed && styles.pressed,
+          ]}>
+          <Text style={styles.retryNoticeText}>{error}</Text>
+          <Text style={styles.retryNoticeAction}>إعادة المحاولة</Text>
+        </Pressable>
       ) : null}
       {folderLoadError ? (
         <Text accessibilityRole="alert" style={styles.actionError}>
@@ -831,6 +841,28 @@ const styles = StyleSheet.create({
     ...textDirection,
     color: Palette.danger,
     marginBottom: Spacing.sm,
+  },
+  retryNotice: {
+    ...rtlRowStyle,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+    padding: Spacing.sm,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Palette.lineSoft,
+    backgroundColor: Palette.surface,
+  },
+  retryNoticeText: {
+    ...Type.caption,
+    ...textDirection,
+    color: Palette.textMuted,
+    flex: 1,
+  },
+  retryNoticeAction: {
+    ...Type.caption,
+    color: Palette.primary,
   },
   folder: {marginTop: Spacing.md},
   folderTitle: {

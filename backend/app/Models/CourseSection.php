@@ -122,10 +122,9 @@ class CourseSection extends Model
      */
     public function isCompletedByUser(int $userId): bool
     {
-        return StudentSectionProgress::where('user_id', $userId)
-            ->where('course_section_id', $this->id)
-            ->where('is_completed', true)
-            ->exists();
+        return app(\App\Services\CourseRevisionLearnerReadService::class)
+            ->completedSectionIds($userId, [(int) $this->id])
+            ->contains((int) $this->id);
     }
 
     /**

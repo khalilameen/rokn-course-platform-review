@@ -29,13 +29,6 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
-    document.getElementById('studentPreviewToggle')?.addEventListener('click', function () {
-        const previewing = studio.classList.toggle('is-previewing');
-        this.setAttribute('aria-pressed', previewing ? 'true' : 'false');
-        this.querySelector('span').textContent = previewing ? 'العودة للتحرير' : 'معاينة الطالب';
-        this.querySelector('i').className = previewing ? 'fa fa-pencil' : 'fa fa-eye';
-    });
-
     document.querySelectorAll('.outline-module__toggle[aria-controls]').forEach(button => button.addEventListener('click', function () {
         const content = document.getElementById(this.getAttribute('aria-controls'));
         if (!content) return;
@@ -47,20 +40,29 @@ document.addEventListener('DOMContentLoaded', function () {
     const postOrder = async (url, payload, successMessage) => {
         return window.RoknAdminRequest.serializeMutation('course-studio-order', async () => {
           try {
+            const expectedVersion = authoringVersion;
             const result = await window.RoknAdminRequest.request(url, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf}, body: JSON.stringify({...payload, authoring_version: authoringVersion})});
-            authoringVersion = Number(result.authoring_version || authoringVersion);
+            authoringVersion = window.RoknAdminRequest.requireAuthoringVersion(result, expectedVersion, true);
             if (studio) studio.dataset.authoringVersion = String(authoringVersion);
             notify(successMessage);
           } catch (error) {
             if (error.code === 'cancelled') return;
+            window.RoknAdminRequest.blockMutationsUntilReload();
+            studio?.querySelectorAll('.outline-module__drag, .outline-item__drag').forEach(handle => {
+                handle.style.pointerEvents = 'none';
+                handle.setAttribute('aria-disabled', 'true');
+            });
             notify(error.message || 'لم يُحفظ الترتيب\nأعد تحميل الصفحة وحاول مرة أخرى', true);
             window.setTimeout(() => window.location.reload(), 1500);
           }
+        }).catch(error => {
+            if (error.code !== 'cancelled') throw error;
         });
     };
 
     const modulesList = document.getElementById('studioModulesList');
-    if (canAuthorContent && modulesList && window.Sortable) new Sortable(modulesList, {handle: '.outline-module__drag', animation: 160, ghostClass: 'is-dragging', onEnd: function () {
+    if (canAuthorContent && modulesList && window.Sortable) new Sortable(modulesList, {handle: '.outline-module__drag', animation: 160, ghostClass: 'is-dragging', onEnd: function (event) {
+        if (event.oldIndex === event.newIndex) return;
         const modules = Array.from(modulesList.querySelectorAll(':scope > .outline-module')).map((node, index) => ({id: Number(node.dataset.moduleId), order: index + 1}));
         postOrder(@json(route('admin.courses.modules.reorder', $course)), {modules}, 'تم حفظ ترتيب الوحدات');
     }});
@@ -78,6 +80,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         return true;
     }, onEnd: function (event) {
+        if (event.from === event.to && event.oldIndex === event.newIndex) return;
         const changedLists = Array.from(new Set([event.from, event.to]));
         changedLists.forEach(target => {
             const project = target.querySelector(':scope > .outline-item[data-section-type="project"]');

@@ -11,8 +11,8 @@ use App\Models\AiUsageEvent;
 use App\Models\CourseEnrollment;
 use App\Models\Setting;
 use App\Models\User;
+use App\Support\DatabaseCapabilities;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 final readonly class AiEntitlementBudgetService
@@ -268,7 +268,7 @@ final readonly class AiEntitlementBudgetService
                 ];
                 if (
                     $acceptedResponse !== ''
-                    && Schema::hasColumn(
+                    && DatabaseCapabilities::hasColumn(
                         'ai_entitlement_usages',
                         'unanswered_provider_requests'
                     )
@@ -279,7 +279,7 @@ final readonly class AiEntitlementBudgetService
                         'provider_exposure_paused_until' => null,
                     ];
                 }
-            } elseif ($usage && Schema::hasColumn(
+            } elseif ($usage && DatabaseCapabilities::hasColumn(
                 'ai_entitlement_usages',
                 'unanswered_provider_requests'
             )) {
@@ -360,7 +360,7 @@ final readonly class AiEntitlementBudgetService
                 ], static fn ($value): bool => $value !== null && $value !== '');
             }
             $egpFacts = [];
-            if (Schema::hasColumn('ai_usage_events', 'cost_egp')) {
+            if (DatabaseCapabilities::hasColumn('ai_usage_events', 'cost_egp')) {
                 $fxRate = max(0, (float) (Setting::query()->value('openrouter_usd_to_egp_rate') ?? 0));
                 if ($fxRate > 0) {
                     $egpFacts = [
@@ -544,8 +544,8 @@ final readonly class AiEntitlementBudgetService
     public function resetForNewPurchase(CourseEnrollment $enrollment): void
     {
         if (
-            !Schema::hasTable('ai_entitlement_usages')
-            || !Schema::hasTable('ai_usage_events')
+            !DatabaseCapabilities::hasTable('ai_entitlement_usages')
+            || !DatabaseCapabilities::hasTable('ai_usage_events')
         ) {
             return;
         }
@@ -565,8 +565,8 @@ final readonly class AiEntitlementBudgetService
         string $reason
     ): int {
         if (
-            !Schema::hasTable('ai_entitlement_usages')
-            || !Schema::hasTable('ai_usage_events')
+            !DatabaseCapabilities::hasTable('ai_entitlement_usages')
+            || !DatabaseCapabilities::hasTable('ai_usage_events')
         ) {
             return 0;
         }
@@ -639,9 +639,9 @@ final readonly class AiEntitlementBudgetService
     public function releaseExpiredReservations(int $limit = 500): int
     {
         if (
-            !Schema::hasTable('ai_entitlement_usages')
-            || !Schema::hasTable('ai_usage_events')
-            || !Schema::hasColumn('ai_usage_events', 'reservation_expires_at')
+            !DatabaseCapabilities::hasTable('ai_entitlement_usages')
+            || !DatabaseCapabilities::hasTable('ai_usage_events')
+            || !DatabaseCapabilities::hasColumn('ai_usage_events', 'reservation_expires_at')
         ) {
             return 0;
         }
@@ -760,7 +760,7 @@ final readonly class AiEntitlementBudgetService
                 $this->toUsdMicros($usage->reserved_cost_usd) - $reservedCostMicros
             )),
         ];
-        if (Schema::hasColumn(
+        if (DatabaseCapabilities::hasColumn(
             'ai_entitlement_usages',
             'unanswered_provider_requests'
         )) {
@@ -818,7 +818,7 @@ final readonly class AiEntitlementBudgetService
         $metadata['entitlement_delivered'] = false;
         $costMicros = $this->toUsdMicros($event->reserved_cost_usd);
         $egpFacts = [];
-        if (Schema::hasColumn('ai_usage_events', 'cost_egp')) {
+        if (DatabaseCapabilities::hasColumn('ai_usage_events', 'cost_egp')) {
             $fxRate = max(
                 0,
                 (float) (Setting::query()->value('openrouter_usd_to_egp_rate') ?? 0)
@@ -850,7 +850,7 @@ final readonly class AiEntitlementBudgetService
     /** Reset an elapsed circuit/window, or reject only this enrollment briefly. */
     private function refreshProviderExposureCircuit(AiEntitlementUsage $usage): void
     {
-        if (!Schema::hasColumn(
+        if (!DatabaseCapabilities::hasColumn(
             'ai_entitlement_usages',
             'provider_exposure_paused_until'
         )) {

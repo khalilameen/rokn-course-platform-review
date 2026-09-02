@@ -1,4 +1,4 @@
-import {useFocusEffect} from '@react-navigation/native';
+import {useFocusEffect, useNavigation} from '@react-navigation/native';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   AccessibilityInfo,
@@ -47,6 +47,8 @@ import {formatArabicDisplayText} from '../constants/arabicFormatting';
 import {LOCAL_DEMO_ENABLED} from '../config/runtime';
 import {isExternalWebLink, parseRoknDestination} from '../navigation/deepLinks';
 import {openRoknDestination} from '../navigation/RootNavigationHelper';
+import {openGuestLogin} from '../navigation/journeyNavigation';
+import type {RootNavigation} from '../navigation/types';
 import {
   normalizeLocalNotificationIds,
   readLocalNotificationIds,
@@ -61,10 +63,10 @@ import {
   type AccountSessionBoundary,
 } from '../constants/helpers';
 import {networkFailureKind} from '../services/networkExperience';
-import {isServerTimestampFresh, serverNowMs} from '../utils/serverClock';
+import {serverNowMs} from '../utils/serverClock';
 
 const NOTIFICATIONS_CACHE_KEY = '@rokn/notifications-cache/v2';
-const NOTIFICATIONS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+let notificationsCacheWriteTail: Promise<void> = Promise.resolve();
 
 type NotificationsCache = {
   version: 2;
@@ -83,10 +85,6 @@ const readCachedNotifications = async (
   assertAccountSessionBoundary(boundary);
   if (
     cached?.version !== 2 ||
-    !isServerTimestampFresh(
-      Number(cached.savedAt),
-      NOTIFICATIONS_CACHE_TTL_MS,
-    ) ||
     !Array.isArray(cached.items)
   ) {
     return [];
@@ -111,14 +109,23 @@ const saveCachedNotifications = async (
   boundary: AccountSessionBoundary | null,
 ) => {
   if (!key || !boundary) return false;
-  assertAccountSessionBoundary(boundary);
-  const saved = await saveItem(key, {
-    version: 2,
-    savedAt: serverNowMs(),
-    items: items.slice(0, 120),
-  } satisfies NotificationsCache);
-  assertAccountSessionBoundary(boundary);
-  return saved;
+  const write = notificationsCacheWriteTail
+    .catch(() => undefined)
+    .then(async () => {
+      assertAccountSessionBoundary(boundary);
+      const saved = await saveItem(key, {
+        version: 2,
+        savedAt: serverNowMs(),
+        items: items.slice(0, 120),
+      } satisfies NotificationsCache);
+      assertAccountSessionBoundary(boundary);
+      return saved;
+    });
+  notificationsCacheWriteTail = write.then(
+    () => undefined,
+    () => undefined,
+  );
+  return write;
 };
 
 type NotificationItem = {
@@ -134,6 +141,7 @@ type NotificationItem = {
 };
 
 export default function Notifications() {
+  const navigation = useNavigation<RootNavigation>();
   const {width, fontScale, contentWidth, gutter} = useResponsiveLayout();
   const compactLayout = width < 380 || fontScale > 1.2;
   const [experience, setExperience] = useState<DemoExperienceState | null>(
@@ -158,6 +166,9 @@ export default function Notifications() {
     Record<string, ImageSourcePropType>
   >({});
   const notificationGenerationRef = useRef(0);
+  const notificationMutationRevisionRef = useRef(0);
+  const locallyReadNotificationIdsRef = useRef(new Set<string>());
+  const notificationReadScopeRef = useRef<string | null>(null);
   const refreshControllerRef = useRef<AbortController | null>(null);
   const loadMoreControllerRef = useRef<AbortController | null>(null);
   const notificationCacheKeyRef = useRef<string | null>(null);
@@ -170,6 +181,8 @@ export default function Notifications() {
   const lastRefreshAtRef = useRef(0);
   const notificationErrorRef = useRef('');
   notificationErrorRef.current = notificationError;
+  const serverNotificationsRef = useRef(serverNotifications);
+  serverNotificationsRef.current = serverNotifications;
 
   useEffect(() => {
     let active = true;
@@ -200,6 +213,7 @@ export default function Notifications() {
     refreshControllerRef.current = controller;
     lastRefreshAtRef.current = Date.now();
     const requestGeneration = ++notificationGenerationRef.current;
+    const mutationRevision = notificationMutationRevisionRef.current;
     loadMoreFlightRef.current = null;
     markAllFlightRef.current = null;
     setLoadingMore(false);
@@ -209,6 +223,10 @@ export default function Notifications() {
       const scopedCacheKey = await notificationCacheKey(boundary);
       assertAccountSessionBoundary(boundary);
       if (requestGeneration !== notificationGenerationRef.current) return;
+      if (notificationReadScopeRef.current !== scopedCacheKey) {
+        locallyReadNotificationIdsRef.current.clear();
+        notificationReadScopeRef.current = scopedCacheKey;
+      }
       if (
         notificationCacheKeyRef.current !== null &&
         notificationCacheKeyRef.current !== scopedCacheKey
@@ -250,7 +268,21 @@ export default function Notifications() {
         requestGeneration === notificationGenerationRef.current &&
         cachedNotifications.length
       ) {
-        setServerNotifications(cachedNotifications);
+        setServerNotifications(current => {
+          const locallyRead = new Set(
+            locallyReadNotificationIdsRef.current,
+          );
+          if (mutationRevision !== notificationMutationRevisionRef.current) {
+            current
+              .filter(item => item.read)
+              .forEach(item => locallyRead.add(item.id));
+          }
+          return cachedNotifications.map(item =>
+            locallyRead.has(item.id) && !item.read
+              ? {...item, read: true}
+              : item,
+          );
+        });
         setLoading(false);
       }
       assertAccountSessionBoundary(boundary);
@@ -260,7 +292,23 @@ export default function Notifications() {
       ]);
       assertAccountSessionBoundary(boundary);
       if (requestGeneration !== notificationGenerationRef.current) return;
-      setServerNotifications(page.notifications);
+      setServerNotifications(current => {
+        const locallyRead = new Set(
+          locallyReadNotificationIdsRef.current,
+        );
+        if (mutationRevision !== notificationMutationRevisionRef.current) {
+          current
+            .filter(item => item.read)
+            .forEach(item => locallyRead.add(item.id));
+        }
+        const next = page.notifications.map(item =>
+          locallyRead.has(item.id) && !item.read ? {...item, read: true} : item,
+        );
+        void saveCachedNotifications(scopedCacheKey, next, boundary).catch(
+          () => undefined,
+        );
+        return next;
+      });
       setCourseImages(
         Object.fromEntries(
           cachedCourses.map(course => [course.id, course.image]),
@@ -269,11 +317,6 @@ export default function Notifications() {
       setNotificationCursor(page.nextCursor);
       setHasMoreNotifications(page.hasMore);
       setNotificationError('');
-      void saveCachedNotifications(
-        scopedCacheKey,
-        page.notifications,
-        boundary,
-      ).catch(() => undefined);
     } catch (error) {
       if (
         error instanceof Error &&
@@ -327,7 +370,17 @@ export default function Notifications() {
         return;
       setServerNotifications(current => {
         const merged = new Map(current.map(item => [item.id, item]));
-        page.notifications.forEach(item => merged.set(item.id, item));
+        page.notifications.forEach(item => {
+          const existing = merged.get(item.id);
+          merged.set(
+            item.id,
+            (existing?.read ||
+              locallyReadNotificationIdsRef.current.has(item.id)) &&
+              !item.read
+              ? {...item, read: true}
+              : item,
+          );
+        });
         const next = Array.from(merged.values());
         void saveCachedNotifications(
           notificationCacheKeyRef.current,
@@ -526,6 +579,10 @@ export default function Notifications() {
           markAllFlightRef.current === flight &&
           requestGeneration === notificationGenerationRef.current
         ) {
+          notificationMutationRevisionRef.current += 1;
+          serverNotificationsRef.current.forEach(item =>
+            locallyReadNotificationIdsRef.current.add(item.id),
+          );
           setServerNotifications(current => {
             const next = current.map(item => ({...item, read: true}));
             void saveCachedNotifications(
@@ -561,6 +618,7 @@ export default function Notifications() {
   const openNotification = async (item: NotificationItem, read: boolean) => {
     const requestGeneration = notificationGenerationRef.current;
     const boundary = notificationCacheBoundaryRef.current;
+    const cacheKey = notificationCacheKeyRef.current;
     if (!read) {
       if (serverSession === true) {
         if (!readFlightsRef.current.has(item.id)) {
@@ -569,7 +627,17 @@ export default function Notifications() {
           void markNotificationRead(item.id)
             .then(() => {
               if (boundary) assertAccountSessionBoundary(boundary);
+              notificationMutationRevisionRef.current += 1;
+              locallyReadNotificationIdsRef.current.add(item.id);
               if (requestGeneration !== notificationGenerationRef.current) {
+                const next = serverNotificationsRef.current.map(notification =>
+                  notification.id === item.id
+                    ? {...notification, read: true}
+                    : notification,
+                );
+                void saveCachedNotifications(cacheKey, next, boundary).catch(
+                  () => undefined,
+                );
                 return;
               }
               setServerNotifications(current => {
@@ -579,14 +647,20 @@ export default function Notifications() {
                     : notification,
                 );
                 void saveCachedNotifications(
-                  notificationCacheKeyRef.current,
+                  cacheKey,
                   next,
                   boundary,
                 ).catch(() => undefined);
                 return next;
               });
             })
-            .catch(() => {
+            .catch(error => {
+              if (
+                error instanceof Error &&
+                error.message === 'ACCOUNT_CHANGED_DURING_REQUEST'
+              ) {
+                return;
+              }
               if (requestGeneration === notificationGenerationRef.current) {
                 setNotificationError('تعذّر تحديث حالة القراءة');
               }
@@ -613,10 +687,10 @@ export default function Notifications() {
           return;
         }
         setNotificationError(
-          'رابط الإشعار غير مكتمل\nحدّث الصفحة ثم حاول مرة أخرى',
+          'هذا الإشعار لم يعد متاحًا\nحدّث الصفحة ثم حاول مرة أخرى',
         );
       } catch {
-        setNotificationError('تعذّر فتح وجهة الإشعار الآن');
+        setNotificationError('تعذّر فتح الإشعار الآن');
       }
     }
   };
@@ -624,6 +698,7 @@ export default function Notifications() {
   const renderNotification = ({item}: ListRenderItemInfo<NotificationItem>) => {
     const read =
       item.read || (serverSession !== true && readIds.includes(item.id));
+    const actionable = Boolean(item.link) || !read;
     const gradient =
       item.tone === 'coins'
         ? ['rgba(216,166,60,0.18)', 'rgba(17,22,32,0.98)']
@@ -637,7 +712,7 @@ export default function Notifications() {
           {maxWidth: contentWidth, paddingHorizontal: gutter},
         ]}>
         <Pressable
-          accessibilityHint={item.link ? 'يفتح وجهة الإشعار' : undefined}
+          accessibilityHint={item.link ? 'يفتح الإشعار' : undefined}
           accessibilityLabel={[
             item.title,
             item.description,
@@ -646,7 +721,8 @@ export default function Notifications() {
           ]
             .filter(Boolean)
             .join('\n')}
-          accessibilityRole="button"
+          accessibilityRole={actionable ? 'button' : undefined}
+          disabled={!actionable}
           onPress={() => openNotification(item, read)}
           style={({pressed}) => [
             styles.cardPressable,
@@ -739,6 +815,8 @@ export default function Notifications() {
     notificationError &&
     serverSession !== false &&
     !source.length;
+  const guestNeedsAccount =
+    serverSession === false && !LOCAL_DEMO_ENABLED;
 
   return (
     <Container noPadding>
@@ -769,6 +847,16 @@ export default function Notifications() {
                 onAction={refreshNotifications}
                 state="error"
                 title="تعذّر تحديث الإشعارات"
+              />
+            ) : guestNeedsAccount ? (
+              <StatusView
+                actionLabel="تسجيل الدخول"
+                description="سجّل الدخول لعرض تحديثات كورساتك ومكافآتك"
+                onAction={() =>
+                  openGuestLogin(navigation, {name: 'Notifications'})
+                }
+                state="empty"
+                title="إشعاراتك مرتبطة بحسابك"
               />
             ) : !source.length ? (
               <StatusView

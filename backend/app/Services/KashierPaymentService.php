@@ -408,6 +408,25 @@ final readonly class KashierPaymentService
             return null;
         }
 
+        // Order summaries commonly stay CAPTURED after a later refund or
+        // reversal. Financial transactions are the newer evidence and must
+        // win regardless of provider array ordering.
+        $reversalEvents = $this->extractFinancialReversalEvents($apiResponse);
+        if ($reversalEvents !== []) {
+            $priority = [
+                'CHARGEBACK' => 4,
+                'REVERSED' => 3,
+                'REFUNDED' => 2,
+                'PARTIAL_REFUND' => 1,
+            ];
+            usort($reversalEvents, static function (array $left, array $right) use ($priority): int {
+                return ($priority[$right['payment_status']] ?? 0)
+                    <=> ($priority[$left['payment_status']] ?? 0);
+            });
+
+            return $reversalEvents[0]['payment_status'];
+        }
+
         $status = $apiResponse['response']['status']
             ?? $apiResponse['response']['paymentStatus']
             ?? $apiResponse['data']['status']
@@ -451,6 +470,121 @@ final readonly class KashierPaymentService
         return $status !== '' && preg_match('/\A[A-Z0-9_-]{1,32}\z/D', $status) === 1
             ? $status
             : null;
+    }
+
+    /**
+     * Return compact, stable evidence for every successful provider-side
+     * reversal. Generic REFUND operations are classified for review rather
+     * than assumed to be full refunds; only an explicit FULL marker may cause
+     * the whole paid lot to be reclaimed automatically.
+     *
+     * @param array<string, mixed>|null $apiResponse
+     * @return array<int, array{payment_status:string,provider_event_id:?string,original_transaction_id:?string,amount:int|float|string|null,currency:?string,occurred_at:?string,evidence_fingerprint:string}>
+     */
+    public function extractFinancialReversalEvents(?array $apiResponse): array
+    {
+        if (!$apiResponse) return [];
+
+        $transactions = $apiResponse['response']['transactions']
+            ?? $apiResponse['data']['transactions']
+            ?? $apiResponse['transactions']
+            ?? null;
+        if (!is_array($transactions)) return [];
+
+        $events = [];
+        foreach ($transactions as $transaction) {
+            if (!is_array($transaction)) continue;
+            $transactionStatus = strtoupper(trim((string) (
+                $transaction['status'] ?? $transaction['paymentStatus'] ?? ''
+            )));
+            $operation = strtoupper(trim((string) (
+                $transaction['operation'] ?? $transaction['type'] ?? ''
+            )));
+            $successful = in_array($transactionStatus, [
+                'SUCCESS', 'CAPTURED', 'PAID', 'REFUND', 'REFUNDED',
+                'FULLY_REFUNDED', 'PARTIAL_REFUND', 'PARTIALLY_REFUNDED',
+                'CHARGEBACK', 'DISPUTED', 'REVERSED', 'REVERSAL',
+            ], true);
+            if (!$successful) continue;
+
+            $paymentStatus = null;
+            if (str_contains($operation, 'CHARGEBACK') || str_contains($operation, 'DISPUTE')) {
+                $paymentStatus = 'CHARGEBACK';
+            } elseif (str_contains($operation, 'REVERS') || str_contains($operation, 'VOID')) {
+                $paymentStatus = 'REVERSED';
+            } elseif (str_contains($operation, 'REFUND')) {
+                $paymentStatus = str_contains($operation, 'FULL')
+                    ? 'REFUNDED'
+                    : 'PARTIAL_REFUND';
+            } elseif (in_array($transactionStatus, ['CHARGEBACK', 'DISPUTED'], true)) {
+                $paymentStatus = 'CHARGEBACK';
+            } elseif (in_array($transactionStatus, ['REVERSED', 'REVERSAL'], true)) {
+                $paymentStatus = 'REVERSED';
+            } elseif (in_array($transactionStatus, ['FULLY_REFUNDED'], true)) {
+                $paymentStatus = 'REFUNDED';
+            } elseif (in_array($transactionStatus, [
+                'REFUND', 'REFUNDED', 'PARTIAL_REFUND', 'PARTIALLY_REFUNDED',
+            ], true)) {
+                $paymentStatus = in_array($transactionStatus, [
+                    'PARTIAL_REFUND', 'PARTIALLY_REFUNDED',
+                ], true) ? 'PARTIAL_REFUND' : 'REFUNDED';
+            }
+            if ($paymentStatus === null) continue;
+
+            $providerEventId = $this->normalizeTransactionId(
+                $transaction['eventId']
+                ?? $transaction['event_id']
+                ?? $transaction['refundId']
+                ?? $transaction['refund_id']
+                ?? $transaction['transactionId']
+                ?? $transaction['transaction_id']
+                ?? null
+            );
+            $originalTransactionId = $this->normalizeTransactionId(
+                $transaction['originalTransactionId']
+                ?? $transaction['original_transaction_id']
+                ?? $transaction['parentTransactionId']
+                ?? $transaction['parent_transaction_id']
+                ?? null
+            );
+            $amount = $transaction['amount'] ?? $transaction['refundAmount'] ?? null;
+            $amount = is_int($amount) || is_float($amount) || is_string($amount)
+                ? $amount
+                : null;
+            $currency = strtoupper(trim((string) (
+                $transaction['currency'] ?? $transaction['currencyCode'] ?? ''
+            )));
+            $currency = preg_match('/\A[A-Z]{3}\z/D', $currency) === 1
+                ? $currency
+                : null;
+            $occurredAt = trim((string) (
+                $transaction['createdAt']
+                ?? $transaction['created_at']
+                ?? $transaction['date']
+                ?? ''
+            ));
+            $occurredAt = $occurredAt !== '' ? $occurredAt : null;
+            $fingerprint = hash('sha256', json_encode([
+                $paymentStatus,
+                $providerEventId,
+                $originalTransactionId,
+                $amount,
+                $currency,
+                $occurredAt,
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+            $events[$providerEventId ?? $fingerprint] = [
+                'payment_status' => $paymentStatus,
+                'provider_event_id' => $providerEventId,
+                'original_transaction_id' => $originalTransactionId,
+                'amount' => $amount,
+                'currency' => $currency,
+                'occurred_at' => $occurredAt,
+                'evidence_fingerprint' => $fingerprint,
+            ];
+        }
+
+        ksort($events);
+        return array_values($events);
     }
 
     public function isProviderPendingStatus(?string $status): bool
@@ -710,6 +844,45 @@ final readonly class KashierPaymentService
         ?string $transactionId,
         array $params
     ): void {
+        if (empty($params['_normalized_reversal_event'])) {
+            $events = isset($params['reversal_events']) && is_array($params['reversal_events'])
+                ? $params['reversal_events']
+                : $this->extractFinancialReversalEvents($params);
+            if ($events !== []) {
+                foreach ($events as $event) {
+                    if (!is_array($event)) continue;
+                    $eventStatus = strtoupper(trim((string) ($event['payment_status'] ?? '')));
+                    $eventType = $this->financialReversalType($eventStatus);
+                    if ($eventType === null) continue;
+                    $eventIdentity = trim((string) ($event['provider_event_id'] ?? ''));
+                    if ($eventIdentity === '') {
+                        $eventIdentity = 'evidence:' . trim((string) (
+                            $event['evidence_fingerprint'] ?? hash('sha256', json_encode($event))
+                        ));
+                    }
+                    $this->recordFinancialReversal(
+                        $order,
+                        $eventType,
+                        $eventStatus,
+                        $this->normalizeTransactionId(
+                            $event['original_transaction_id'] ?? null
+                        ) ?? $transactionId,
+                        [
+                            '_normalized_reversal_event' => true,
+                            'eventId' => $eventIdentity,
+                            'paymentStatus' => $eventStatus,
+                            'amount' => $event['amount'] ?? null,
+                            'currency' => $event['currency'] ?? null,
+                            'occurred_at' => $event['occurred_at'] ?? null,
+                            'original_transaction_id' => $event['original_transaction_id'] ?? null,
+                        ]
+                    );
+                }
+
+                return;
+            }
+        }
+
         $normalizedStatus = strtoupper(trim($paymentStatus));
         $eventStatus = in_array($normalizedStatus, [
             'PARTIAL_REFUND',
@@ -799,7 +972,7 @@ final readonly class KashierPaymentService
 
         try {
             $expectedUserId = (int) $order->user_id;
-            User::withTrashed()->lockForUpdate()->findOrFail($expectedUserId);
+            $lockedUser = User::withTrashed()->lockForUpdate()->findOrFail($expectedUserId);
             $order = Order::with(['user', 'package'])->lockForUpdate()->findOrFail($order->id);
             if ((int) $order->user_id !== $expectedUserId) {
                 throw new \RuntimeException('Kashier order ownership changed during fulfillment.');
@@ -889,6 +1062,27 @@ final readonly class KashierPaymentService
                 Log::critical('Kashier capture is missing a valid transaction identifier', [
                     'order_ref' => $order->order_ref,
                     'order_id' => $order->id,
+                ]);
+
+                DB::commit();
+
+                return $order->fresh(['user', 'package']);
+            }
+
+            if ($lockedUser->trashed()) {
+                $order->update(array_merge([
+                    'status' => Order::STATUS_APPROVED,
+                    'financial_status' => Order::FINANCIAL_REVIEW_REQUIRED,
+                    'transaction_id' => $transactionId,
+                    'approved_at' => now(),
+                    'payment_gateway_response' => $this->sanitizeGatewayResponse($gatewayResponse),
+                ], $this->gatewaySettlementFacts($order, $gatewayResponse)));
+                $this->recordCaptureAfterAccountDeletion($order, $transactionId, $lockedUser);
+
+                Log::critical('Kashier captured payment after the learner account was deleted', [
+                    'order_ref' => $order->order_ref,
+                    'order_id' => $order->id,
+                    'transaction_id' => $transactionId,
                 ]);
 
                 DB::commit();
@@ -1194,14 +1388,13 @@ final readonly class KashierPaymentService
             'data.amount',
             'data.amount.value',
         ]);
-        if ($gatewayAmount !== null) {
-            $normalizedAmount = $this->normalizeGatewayAmount($gatewayAmount);
-            if (
-                $normalizedAmount === null
-                || abs($normalizedAmount - (float) $order->final_amount) > 0.009
-            ) {
-                throw new \RuntimeException('Kashier payment amount mismatch.');
-            }
+        $normalizedAmount = $this->normalizeGatewayAmount($gatewayAmount);
+        if (
+            $gatewayAmount === null
+            || $normalizedAmount === null
+            || abs($normalizedAmount - (float) $order->final_amount) > 0.009
+        ) {
+            throw new \RuntimeException('Kashier payment amount mismatch.');
         }
 
         $gatewayCurrency = $this->firstGatewayValue($payload, [
@@ -1215,11 +1408,49 @@ final readonly class KashierPaymentService
             'data.amount.currency',
         ]);
         if (
-            $gatewayCurrency !== null
-            && strtoupper(trim((string) $gatewayCurrency)) !== 'EGP'
+            $gatewayCurrency === null
+            || strtoupper(trim((string) $gatewayCurrency)) !== 'EGP'
         ) {
             throw new \RuntimeException('Kashier payment currency mismatch.');
         }
+    }
+
+    private function recordCaptureAfterAccountDeletion(
+        Order $order,
+        string $transactionId,
+        User $user
+    ): void {
+        if (!Schema::hasTable('payment_reconciliation_findings')) {
+            return;
+        }
+
+        $fingerprint = hash('sha256', implode('|', [
+            'kashier',
+            (string) $order->id,
+            'capture_after_account_deletion',
+            $transactionId,
+        ]));
+        PaymentReconciliationFinding::query()->firstOrCreate(
+            ['fingerprint' => $fingerprint],
+            [
+                'provider' => 'kashier',
+                'order_id' => $order->id,
+                'order_ref' => (string) $order->order_ref,
+                'kind' => 'capture_after_account_deletion',
+                'local_status' => (string) $order->status,
+                'local_financial_status' => (string) $order->financial_status,
+                'provider_status' => 'CAPTURED',
+                'provider_transaction_id' => $transactionId,
+                'state' => PaymentReconciliationFinding::STATE_OPEN,
+                'attempts' => 1,
+                'first_seen_at' => now(),
+                'last_seen_at' => now(),
+                'evidence' => [
+                    'account_deleted_at' => $user->deleted_at?->toIso8601String(),
+                    'wallet_credit_withheld' => true,
+                ],
+            ]
+        );
     }
 
     private function firstGatewayValue(array $payload, array $paths): mixed

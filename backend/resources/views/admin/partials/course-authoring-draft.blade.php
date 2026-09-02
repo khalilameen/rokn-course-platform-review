@@ -22,13 +22,37 @@
 document.addEventListener('DOMContentLoaded', function () {
     const form = document.getElementById(@json($draftFormId));
     if (!form || !window.localStorage || !window.sessionStorage) return;
+    const submitControls = () => Array.from(new Set([
+        ...form.querySelectorAll('button[type="submit"], input[type="submit"]'),
+        ...document.querySelectorAll('[form="' + CSS.escape(form.id) + '"][type="submit"]'),
+    ]));
     const conflictMessage = @json($errors->first('authoring_version') ?: $errors->first('editor_version'));
     if (conflictMessage) {
         const conflict = document.createElement('div');
         conflict.className = 'alert alert-warning mb-3';
         conflict.style.whiteSpace = 'pre-line';
-        conflict.textContent = conflictMessage;
+        const copy = document.createElement('div');
+        copy.textContent = conflictMessage;
+        const conflictReloadButton = document.createElement('button');
+        conflictReloadButton.type = 'button';
+        conflictReloadButton.className = 'btn btn-sm btn-warning mt-2';
+        conflictReloadButton.textContent = 'تحميل أحدث نسخة';
+        conflictReloadButton.addEventListener('click', () => window.location.reload());
+        conflict.append(copy, conflictReloadButton);
         form.prepend(conflict);
+        // Validation redirects carry the old form values. The hidden revision,
+        // however, is rendered from the newly loaded course. Saving or even
+        // snapshotting that hybrid would let stale fields adopt the latest
+        // revision on the next click. This page is therefore read-only until
+        // one clean GET loads one coherent version.
+        submitControls().forEach(button => {
+            button.disabled = true;
+        });
+        form.addEventListener('submit', event => {
+            event.preventDefault();
+            conflictReloadButton.focus();
+        });
+        return;
     }
     // A create request gets a fresh idempotency UUID after a hard reload. It
     // must not invalidate the user's saved text; only an existing resource's
@@ -278,7 +302,7 @@ document.addEventListener('DOMContentLoaded', function () {
             submitting = true;
             snapshot();
             form.setAttribute('aria-busy', 'true');
-            form.querySelectorAll('button[type="submit"], input[type="submit"]').forEach(button => {
+            submitControls().forEach(button => {
                 button.disabled = true;
             });
         });

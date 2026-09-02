@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 use App\Support\CsvCell;
 use App\Support\AdminEditorVersion;
+use App\Support\AdminSingletonLock;
 use Illuminate\Validation\ValidationException;
 
 final class OperatingCostPoolController extends Controller
@@ -32,19 +33,28 @@ final class OperatingCostPoolController extends Controller
             'to' => ['nullable', 'date', 'after_or_equal:from'],
         ]);
         $poolQuery = OperatingCostPool::query()
-            ->with('course')
             ->when($filters['service_key'] ?? null, fn ($query, $service) => $query->where('service_key', $service))
             ->when($filters['course_id'] ?? null, fn ($query, $courseId) => $query->where('course_id', $courseId))
             ->when($filters['from'] ?? null, fn ($query, $from) => $query->where('period_end', '>=', $from))
             ->when($filters['to'] ?? null, fn ($query, $to) => $query->where('period_start', '<=', $to));
-        $matchingPools = (clone $poolQuery)->get();
-        $pools = $poolQuery->latest('period_end')->latest('id')->paginate(30)->withQueryString();
+        $summaryRows = (clone $poolQuery)
+            ->select(['service_key', 'is_final'])
+            ->selectRaw("SUM(CASE WHEN currency = 'EGP' THEN amount WHEN currency = 'USD' AND COALESCE(fx_rate_to_egp, 0) > 0 THEN amount * fx_rate_to_egp ELSE 0 END) AS amount_egp")
+            ->selectRaw("SUM(CASE WHEN currency = 'USD' AND COALESCE(fx_rate_to_egp, 0) <= 0 THEN 1 ELSE 0 END) AS missing_fx")
+            ->groupBy('service_key', 'is_final')
+            ->get();
+        $pools = (clone $poolQuery)
+            ->with('course')
+            ->latest('period_end')
+            ->latest('id')
+            ->paginate(30)
+            ->withQueryString();
         $courses = Course::query()
             ->whereNull('parent_id')
             ->withCount('activeEnrollments')
             ->orderBy('name_ar')
             ->get(['id', 'name_ar']);
-        $settings = Setting::query()->firstOrCreate([]);
+        $settings = Setting::query()->first() ?? new Setting();
         $editPool = $request->filled('edit_cost')
             ? OperatingCostPool::query()->findOrFail((int) $request->input('edit_cost'))
             : null;
@@ -57,14 +67,16 @@ final class OperatingCostPoolController extends Controller
             ['openrouter_usd_to_egp_rate']
         );
 
+        $actualRows = $summaryRows->filter(fn ($row): bool => (bool) $row->is_final);
+        $estimatedRows = $summaryRows->reject(fn ($row): bool => (bool) $row->is_final);
         $totals = [
-            'actual_egp' => round((float) $matchingPools->where('is_final', true)->sum(fn (OperatingCostPool $pool) => $pool->amountEgp() ?? 0), 2),
-            'estimated_egp' => round((float) $matchingPools->where('is_final', false)->sum(fn (OperatingCostPool $pool) => $pool->amountEgp() ?? 0), 2),
-            'missing_fx' => $matchingPools->filter(fn (OperatingCostPool $pool) => $pool->amountEgp() === null)->count(),
+            'actual_egp' => round((float) $actualRows->sum('amount_egp'), 2),
+            'estimated_egp' => round((float) $estimatedRows->sum('amount_egp'), 2),
+            'missing_fx' => (int) $summaryRows->sum('missing_fx'),
         ];
-        $serviceSummary = $matchingPools->groupBy('service_key')->map(fn ($servicePools) => [
-            'actual_egp' => round((float) $servicePools->where('is_final', true)->sum(fn (OperatingCostPool $pool) => $pool->amountEgp() ?? 0), 2),
-            'estimated_egp' => round((float) $servicePools->where('is_final', false)->sum(fn (OperatingCostPool $pool) => $pool->amountEgp() ?? 0), 2),
+        $serviceSummary = $summaryRows->groupBy('service_key')->map(fn ($serviceRows) => [
+            'actual_egp' => round((float) $serviceRows->filter(fn ($row): bool => (bool) $row->is_final)->sum('amount_egp'), 2),
+            'estimated_egp' => round((float) $serviceRows->reject(fn ($row): bool => (bool) $row->is_final)->sum('amount_egp'), 2),
         ]);
 
         return view('admin.operating-costs.index', compact(
@@ -128,16 +140,20 @@ final class OperatingCostPoolController extends Controller
         $editorVersion = (string) $data['editor_version'];
         unset($data['editor_version']);
         DB::transaction(function () use ($data, $editorVersion): void {
-            $setting = Setting::query()->lockForUpdate()->firstOrFail();
-            if (!hash_equals(
-                AdminEditorVersion::for($setting, ['openrouter_usd_to_egp_rate']),
-                $editorVersion
-            )) {
+            AdminSingletonLock::acquire('settings');
+            $setting = Setting::query()->lockForUpdate()->first();
+            if (!$setting) {
+                $setting = new Setting();
+            }
+            if (!hash_equals(AdminEditorVersion::for(
+                $setting,
+                ['openrouter_usd_to_egp_rate']
+            ), $editorVersion)) {
                 throw ValidationException::withMessages([
                     'editor_version' => 'تغيّر سعر التحويل منذ فتح الصفحة\nأعد تحميلها قبل الحفظ',
                 ]);
             }
-            $setting->update($data);
+            $setting->fill($data)->save();
         }, 3);
 
         return back()->with('success', 'تم تحديث سعر تحويل تكلفة OpenRouter للتقارير الجديدة.');
@@ -157,7 +173,7 @@ final class OperatingCostPoolController extends Controller
             $page,
             ['path' => $request->url(), 'query' => $request->query()]
         );
-        $courses = Course::query()
+        $courses = Course::withTrashed()
             ->whereNull('parent_id')
             ->whereHas('enrollments')
             ->orderBy('name_ar')

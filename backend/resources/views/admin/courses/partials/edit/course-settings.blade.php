@@ -63,7 +63,7 @@
                         <div class="section-icon"><i class="fa fa-paperclip"></i></div>
                         تنبيه اكتشاف المرفقات أثناء المشاهدة
                     </h2>
-                    <div class="form-help course-editor__section-help">يظهر مرة واحدة لكل وحدة فيها مرفقات، ويستخدم نفس الملفات وزر التنزيل الموجودين بالفعل.</div>
+                    <div class="form-help course-editor__section-help">يستخدم نفس الملفات وزر التنزيل الذي يراه الطالب.</div>
                     <input type="hidden" name="attachment_prompt_enabled" value="0">
                     <label class="course-editor__inline-check course-editor__inline-check--spaced">
                         <input type="checkbox" name="attachment_prompt_enabled" value="1" {{ old('attachment_prompt_enabled', $course->attachment_prompt_enabled ?? true) ? 'checked' : '' }}>
@@ -72,20 +72,28 @@
                     <div class="form-row">
                         <div class="form-group-modern">
                             <label class="form-label-modern">يظهر بعد كم ثانية؟</label>
-                            <input class="form-control-modern" type="number" min="0" max="3600" name="attachment_prompt_at_seconds" value="{{ old('attachment_prompt_at_seconds', $course->attachment_prompt_at_seconds ?? 20) }}">
+                            <input class="form-control-modern" type="number" min="0" max="3600" name="attachment_prompt_at_seconds" value="{{ old('attachment_prompt_at_seconds', $course->attachment_prompt_at_seconds ?? config('course_attachments.prompt.at_seconds')) }}">
                         </div>
                         <div class="form-group-modern">
                             <label class="form-label-modern">عنوان النافذة</label>
-                            <input class="form-control-modern" type="text" maxlength="120" name="attachment_prompt_title" value="{{ old('attachment_prompt_title', $course->attachment_prompt_title) }}" placeholder="مرفقات تساعدك في التطبيق">
+                            <input class="form-control-modern" type="text" maxlength="120" name="attachment_prompt_title" value="{{ old('attachment_prompt_title', $course->attachment_prompt_title ?: config('course_attachments.prompt.title')) }}">
                         </div>
                     </div>
                     <div class="form-group-modern">
+                        <label class="form-label-modern">التكرار</label>
+                        <select class="form-control-modern" name="attachment_prompt_frequency">
+                            @foreach((array) config('course_attachments.prompt.frequencies', []) as $frequency => $label)
+                                <option value="{{ $frequency }}" {{ old('attachment_prompt_frequency', $course->attachment_prompt_frequency ?: config('course_attachments.prompt.default_frequency')) === $frequency ? 'selected' : '' }}>{{ $label }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="form-group-modern">
                         <label class="form-label-modern">نص النافذة</label>
-                        <textarea class="form-control-modern" rows="3" maxlength="500" name="attachment_prompt_body" placeholder="هذه الوحدة تتضمن ملفات تساعد الطالب على التطبيق">{{ old('attachment_prompt_body', $course->attachment_prompt_body) }}</textarea>
+                        <textarea class="form-control-modern" rows="3" maxlength="500" name="attachment_prompt_body">{{ old('attachment_prompt_body', $course->attachment_prompt_body ?: config('course_attachments.prompt.body')) }}</textarea>
                     </div>
                     <div class="form-group-modern">
                         <label class="form-label-modern">نص زر الفتح</label>
-                        <input class="form-control-modern" type="text" maxlength="80" name="attachment_prompt_button_text" value="{{ old('attachment_prompt_button_text', $course->attachment_prompt_button_text) }}" placeholder="عرض المرفقات">
+                        <input class="form-control-modern" type="text" maxlength="80" name="attachment_prompt_button_text" value="{{ old('attachment_prompt_button_text', $course->attachment_prompt_button_text ?: config('course_attachments.prompt.button_text')) }}">
                     </div>
                 </div>
                     <div class="form-group-modern">

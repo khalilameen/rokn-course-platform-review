@@ -36,7 +36,7 @@ class Course extends Model
         'search_keywords_ar', 'search_keywords_en', 'search_title_normalized', 'search_terms_normalized',
         'ai_model_type', 'chat_ai_prompt', 'temperature', 'tokens_number', 'ai_chat_enabled',
         'chat_attachments_enabled', 'chat_attachment_max_files',
-        'attachment_prompt_enabled', 'attachment_prompt_at_seconds', 'attachment_prompt_title',
+        'attachment_prompt_enabled', 'attachment_prompt_at_seconds', 'attachment_prompt_frequency', 'attachment_prompt_title',
         'attachment_prompt_body', 'attachment_prompt_button_text',
         'level_id', 'awards_badge', 'badge_track', 'certificate_text_template_key',
         'created_at', 'updated_at', 'path_id'

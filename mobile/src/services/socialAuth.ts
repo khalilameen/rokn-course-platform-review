@@ -54,6 +54,7 @@ WebBrowser.maybeCompleteAuthSession();
 
 const SOCIAL_AUTH_METHODS_CACHE_KEY = '@rokn/social-auth-methods/v1';
 const SOCIAL_AUTH_METHODS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+type SocialAuthMethodsCacheDisposition = 'replace' | 'preserve' | 'clear';
 
 const queryValue = (url: string, key: string) => {
   const query = url.split('?')[1]?.split('#')[0] || '';
@@ -248,6 +249,42 @@ const completionIsTerminal = (error: unknown) => {
   );
 };
 
+const socialAuthCompletionFlights = new Map<
+  string,
+  Promise<SocialAuthSession>
+>();
+
+const socialAuthAttemptKey = (pending: PendingSocialAuthAttempt) =>
+  [
+    pending.provider,
+    pending.verifier,
+    pending.startedAt,
+    pending.purpose ?? 'login',
+  ].join('|');
+
+/**
+ * The provider UI returning to foreground and the live login screen can both
+ * observe the same recoverable credential. Exchange it once: provider codes
+ * and native identity tokens are attempt-owned, not observer-owned.
+ */
+const runSocialAuthCompletion = (
+  pending: PendingSocialAuthAttempt,
+  operation: () => Promise<SocialAuthSession>,
+) => {
+  const key = socialAuthAttemptKey(pending);
+  const current = socialAuthCompletionFlights.get(key);
+  if (current) return current;
+
+  let flight: Promise<SocialAuthSession>;
+  flight = operation().finally(() => {
+    if (socialAuthCompletionFlights.get(key) === flight) {
+      socialAuthCompletionFlights.delete(key);
+    }
+  });
+  socialAuthCompletionFlights.set(key, flight);
+  return flight;
+};
+
 const completeSocialAttempt = async (code: string, verifier: string) => {
   const installationId = await getInstallationId();
   const body = {
@@ -287,33 +324,42 @@ const completeSocialAttempt = async (code: string, verifier: string) => {
 };
 
 const exchangeNativeSocialToken = async (
-  provider: NativeSocialProvider,
+  provider: NativeSocialProvider | 'apple',
   token: string,
-  pending: Awaited<ReturnType<typeof createNativeAttempt>>,
+  pending: PendingSocialAuthAttempt,
   options: SocialAuthOptions,
-) => {
-  const installationId = await getInstallationId();
-  const response = await publicRequest.post(
-    'social-login',
-    {
-      provider,
-      token,
-      device_os: Platform.OS,
-      device_type: Platform.OS,
-      ...(installationId ? {device_id: installationId} : {}),
-    },
-    {skipAuthorization: true} as RoknRequestConfig,
-  );
-  const session = normalizeSocialSession(response?.data, provider);
-  if ((options.purpose ?? 'login') === 'login') {
-    if (!(await persistCompletedLogin(pending, session))) {
-      throw new Error('LOGIN_SESSION_INVALID');
+) =>
+  runSocialAuthCompletion(pending, async () => {
+    const installationId = await getInstallationId();
+    const response = await publicRequest.post(
+      'social-login',
+      {
+        provider,
+        token,
+        ...(provider === 'apple'
+          ? {
+              nonce: pending.verifier,
+              ...(pending.providerName
+                ? {provider_name: pending.providerName}
+                : {}),
+            }
+          : {}),
+        device_os: Platform.OS,
+        device_type: Platform.OS,
+        ...(installationId ? {device_id: installationId} : {}),
+      },
+      {skipAuthorization: true} as RoknRequestConfig,
+    );
+    const session = normalizeSocialSession(response?.data, provider);
+    if ((options.purpose ?? 'login') === 'login') {
+      if (!(await persistCompletedLogin(pending, session))) {
+        throw new Error('LOGIN_SESSION_INVALID');
+      }
+    } else {
+      await deletePendingSocialAuthAttempt(pending);
     }
-  } else {
-    await deletePendingSocialAuthAttempt(pending);
-  }
-  return session;
-};
+    return session;
+  });
 
 const persistCompletedLogin = async (
   pending: Awaited<ReturnType<typeof loadPendingSocialAuthAttempt>>,
@@ -342,6 +388,8 @@ const persistCompletedLogin = async (
   // of replaying a consumed code or reporting a false login failure.
   const staged = await replacePendingSocialAuthAttempt(current!, {
     ...current!,
+    nativeToken: undefined,
+    providerName: undefined,
     completedSession: session,
   });
   if (!staged) {
@@ -415,6 +463,26 @@ export const resumePendingSocialAuth = async (
     return null;
   }
 
+  if (
+    pending.flow === 'native' &&
+    pending.nativeToken &&
+    pending.provider !== 'tiktok'
+  ) {
+    try {
+      return await exchangeNativeSocialToken(
+        pending.provider,
+        pending.nativeToken,
+        pending,
+        options,
+      );
+    } catch (error) {
+      if (completionIsTerminal(error)) {
+        await deletePendingSocialAuthAttempt(pending);
+      }
+      throw error;
+    }
+  }
+
   const returnedUrl =
     callbackUrl && isAuthCallbackUrl(callbackUrl)
       ? callbackUrl
@@ -467,32 +535,33 @@ export const resumePendingSocialAuth = async (
     throw new Error('LOGIN_CODE_MISSING');
   }
 
-  let response;
   try {
-    response = await completeSocialAttempt(code, pending.verifier);
+    return await runSocialAuthCompletion(pending, async () => {
+      const response = await completeSocialAttempt(code, pending.verifier);
+      const session = normalizeSocialSession(response?.data, pending.provider);
+      if (purpose === 'login') {
+        // Stage the complete response in encrypted storage before moving it to
+        // the normal session keys. A process death between the two writes can
+        // then finish locally without replaying a consumed provider code.
+        if (
+          !(await persistCompletedLogin(
+            {...pending, callbackUrl: returnedUrl},
+            session,
+          ))
+        ) {
+          throw new Error('LOGIN_SESSION_INVALID');
+        }
+      } else {
+        await deletePendingSocialAuthAttempt(pending);
+      }
+      return session;
+    });
   } catch (error) {
     if (completionIsTerminal(error)) {
       await deletePendingSocialAuthAttempt(pending);
     }
     throw error;
   }
-  const session = normalizeSocialSession(response?.data, pending.provider);
-  if (purpose === 'login') {
-    // Stage the complete response in encrypted storage before moving it to the
-    // normal session keys. A process death between the two writes can then
-    // finish locally without replaying a server code that was already used.
-    if (
-      !(await persistCompletedLogin(
-        {...pending, callbackUrl: returnedUrl},
-        session,
-      ))
-    ) {
-      return null;
-    }
-  } else {
-    await deletePendingSocialAuthAttempt(pending);
-  }
-  return session;
 };
 
 const normalizeSocialAuthMethods = (value: unknown): SocialAuthMethods => {
@@ -544,19 +613,27 @@ const normalizeSocialAuthMethods = (value: unknown): SocialAuthMethods => {
 };
 
 const declaredSocialProviders = (value: unknown): SocialProvider[] => {
-  const envelope = asRecord(value) ?? {};
-  const methods = asRecord(envelope.data) ?? envelope;
-  return Array.isArray(methods.providers)
-    ? Array.from(
-        new Set(methods.providers.map(String).filter(isSocialProvider)),
-      )
-    : [];
+  const envelope = asRecord(value);
+  const methods = envelope ? asRecord(envelope.data) ?? envelope : null;
+  if (
+    !methods ||
+    !Object.prototype.hasOwnProperty.call(methods, 'providers') ||
+    !Array.isArray(methods.providers) ||
+    methods.providers.some(provider => !isSocialProvider(String(provider)))
+  ) {
+    throw new Error('SOCIAL_AUTH_METHODS_CONTRACT_INVALID');
+  }
+
+  return Array.from(new Set(methods.providers.map(String))) as SocialProvider[];
 };
 
 const recoverIncompleteSocialAuthMethods = async (
   value: unknown,
   normalized: SocialAuthMethods,
-) => {
+): Promise<{
+  methods: SocialAuthMethods;
+  cacheDisposition: SocialAuthMethodsCacheDisposition;
+}> => {
   const envelope = asRecord(value) ?? {};
   const methods = asRecord(envelope.data) ?? envelope;
   const declared = declaredSocialProviders(value);
@@ -577,9 +654,16 @@ const recoverIncompleteSocialAuthMethods = async (
   // deployment or a host-injection attempt. Only a structurally incomplete
   // 200 response may borrow the missing entries from the last known-good
   // discovery contract.
-  if (!missing.length || explicitlyUnsafe) return normalized;
+  if (explicitlyUnsafe) {
+    return {methods: normalized, cacheDisposition: 'clear'};
+  }
+  if (!missing.length) {
+    return {methods: normalized, cacheDisposition: 'replace'};
+  }
   const cached = await readCachedSocialAuthMethods();
-  if (!cached) return normalized;
+  if (!cached) {
+    return {methods: normalized, cacheDisposition: 'preserve'};
+  }
 
   const recoveredAuthorizationUrls = {...normalized.authorizationUrls};
   missing.forEach(provider => {
@@ -599,10 +683,16 @@ const recoverIncompleteSocialAuthMethods = async (
       : providers[0] ?? null;
 
   return {
-    ...normalized,
-    providers,
-    authorizationUrls: recoveredAuthorizationUrls,
-    recommendedProvider,
+    methods: {
+      ...normalized,
+      providers,
+      authorizationUrls: recoveredAuthorizationUrls,
+      recommendedProvider,
+    },
+    // A partial response may borrow from the last known-good contract, but it
+    // must not renew that contract's TTL forever. Only a complete discovery
+    // response can replace the durable fallback.
+    cacheDisposition: 'preserve',
   };
 };
 
@@ -613,6 +703,7 @@ const readCachedSocialAuthMethods = async () => {
     const savedAt = Number(cached?.savedAt);
     const age = Date.now() - savedAt;
     if (
+      cached?.apiUrl !== roknApiUrl ||
       !Number.isFinite(savedAt) ||
       age < -5 * 60 * 1000 ||
       age > SOCIAL_AUTH_METHODS_CACHE_TTL_MS
@@ -631,15 +722,30 @@ export const getSocialAuthMethods = async (): Promise<SocialAuthMethods> => {
     const methodsResponse = await publicRequest.get<unknown>('auth-methods', {
       skipAuthorization: true,
     } as RoknRequestConfig);
-    const methods = await recoverIncompleteSocialAuthMethods(
+    const recovered = await recoverIncompleteSocialAuthMethods(
       methodsResponse.data,
       normalizeSocialAuthMethods(methodsResponse.data),
     );
-    if (methods.providers.length) {
-      void AsyncStorage.setItem(
+    const {methods, cacheDisposition} = recovered;
+    if (cacheDisposition === 'replace' && methods.providers.length) {
+      await AsyncStorage.setItem(
         SOCIAL_AUTH_METHODS_CACHE_KEY,
-        JSON.stringify({savedAt: Date.now(), methods}),
+        JSON.stringify({savedAt: Date.now(), apiUrl: roknApiUrl, methods}),
       ).catch(() => undefined);
+    } else if (cacheDisposition === 'clear') {
+      await AsyncStorage.removeItem(SOCIAL_AUTH_METHODS_CACHE_KEY).catch(
+        () => undefined,
+      );
+    } else if (
+      cacheDisposition === 'replace' &&
+      methods.providers.length === 0
+    ) {
+      // A valid explicit providers: [] response is an authoritative shutdown.
+      // Retire the prior LKG before returning so a following offline refresh
+      // cannot resurrect removed buttons or an obsolete authorization URL.
+      await AsyncStorage.removeItem(SOCIAL_AUTH_METHODS_CACHE_KEY).catch(
+        () => undefined,
+      );
     }
     return methods;
   } catch (error) {
@@ -699,29 +805,26 @@ export const signInWithSocialProvider = async (
         .filter(Boolean)
         .join(' ')
         .trim();
-      const installationId = await getInstallationId();
-      const response = await publicRequest.post(
-        'social-login',
-        {
-          provider,
-          token: credential.identityToken,
-          nonce: nonce.raw,
-          provider_name: providerName || undefined,
-          device_os: Platform.OS,
-          device_type: Platform.OS,
-          ...(installationId ? {device_id: installationId} : {}),
-        },
-        {skipAuthorization: true} as RoknRequestConfig,
-      );
-      const session = normalizeSocialSession(response?.data, provider);
-      if ((options.purpose ?? 'login') === 'login') {
-        if (!(await persistCompletedLogin(appleAttempt, session))) {
-          throw new Error('LOGIN_SESSION_INVALID');
-        }
-      } else {
-        await deletePendingSocialAuthAttempt(appleAttempt);
+      const recoverableAppleAttempt: PendingSocialAuthAttempt = {
+        ...appleAttempt,
+        nativeToken: credential.identityToken,
+        ...(providerName ? {providerName} : {}),
+      };
+      if (
+        !(await replacePendingSocialAuthAttempt(
+          appleAttempt,
+          recoverableAppleAttempt,
+        ))
+      ) {
+        throw new Error('LOGIN_SESSION_INVALID');
       }
-      return session;
+      ownedAppleAttempt = recoverableAppleAttempt;
+      return await exchangeNativeSocialToken(
+        provider,
+        credential.identityToken,
+        recoverableAppleAttempt,
+        options,
+      );
     } catch (error: unknown) {
       if (asRecord(error)?.code === 'ERR_REQUEST_CANCELED') {
         if (ownedAppleAttempt) {
@@ -750,10 +853,22 @@ export const signInWithSocialProvider = async (
     }
     if (nativeResult.type === 'success') {
       try {
+        const recoverableAttempt: PendingSocialAuthAttempt = {
+          ...nativeAttempt,
+          nativeToken: nativeResult.token,
+        };
+        if (
+          !(await replacePendingSocialAuthAttempt(
+            nativeAttempt,
+            recoverableAttempt,
+          ))
+        ) {
+          throw new Error('LOGIN_SESSION_INVALID');
+        }
         return await exchangeNativeSocialToken(
           provider,
           nativeResult.token,
-          nativeAttempt,
+          recoverableAttempt,
           options,
         );
       } catch (error) {
@@ -818,8 +933,14 @@ export const signInWithSocialProvider = async (
       result.type === 'cancel' &&
       'recoverable' in result &&
       result.recoverable === true;
-    if (!recoverableAndroidReturn) {
+    if (!recoverableAndroidReturn || (options.purpose ?? 'login') !== 'login') {
       await deletePendingSocialAuthAttempt(browserAttempt);
+    }
+    if (recoverableAndroidReturn && (options.purpose ?? 'login') === 'login') {
+      // Returning from a Custom Tab is not proof of cancellation. The global
+      // callback listener can still complete this durable attempt moments
+      // later, so keep both the PKCE attempt and the learner's return route.
+      throw new Error('LOGIN_RESUMING');
     }
     throw new Error('LOGIN_CANCELLED');
   }

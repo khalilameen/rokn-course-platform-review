@@ -65,6 +65,7 @@ class Kernel extends HttpKernel
      */
     protected $middlewareAliases = [
         'auth' => \App\Http\Middleware\Authenticate::class,
+        'auth.optional' => \App\Http\Middleware\AuthenticateOptionalApiToken::class,
         'auth.basic' => \Illuminate\Auth\Middleware\AuthenticateWithBasicAuth::class,
         'bindings' => \Illuminate\Routing\Middleware\SubstituteBindings::class,
         'cache.headers' => \Illuminate\Http\Middleware\SetCacheHeaders::class,
@@ -78,6 +79,7 @@ class Kernel extends HttpKernel
         'admin.only' => \App\Http\Middleware\RequireAdministrator::class,
         'admin.mfa' => \App\Http\Middleware\RequireAdminMfa::class,
         'admin.audit' => \App\Http\Middleware\AuditAdminMutation::class,
+        'course.draft' => \App\Http\Middleware\ResolveCourseAuthoringDraft::class,
         'product.feature' => \App\Http\Middleware\RequireProductFeature::class,
         'recovery.write' => \App\Http\Middleware\PauseDuringRecovery::class,
         'WebsiteVisitorCount' => WebsiteVisitorCount::class,

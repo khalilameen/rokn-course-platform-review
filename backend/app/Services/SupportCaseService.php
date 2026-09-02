@@ -155,6 +155,9 @@ final class SupportCaseService
             $expectedVersion,
             $fingerprint
         ): SupportCaseMessage {
+            if ($report->user_id) {
+                User::withTrashed()->whereKey($report->user_id)->lockForUpdate()->first();
+            }
             $locked = FeedbackReport::query()->lockForUpdate()->findOrFail($report->id);
             $existing = SupportCaseMessage::query()
                 ->where('feedback_report_id', $locked->id)
@@ -162,6 +165,9 @@ final class SupportCaseService
                 ->first();
             if ($existing) {
                 abort_unless(hash_equals((string) $existing->request_fingerprint, $fingerprint), 409);
+                if ($visibility === SupportCaseMessage::VISIBILITY_CUSTOMER && $locked->user_id) {
+                    $this->notifyCustomer($locked, $existing);
+                }
                 return $existing;
             }
             abort_if((int) $locked->version !== $expectedVersion, 409, 'عدّل شخص آخر هذه الحالة\nحدّث الصفحة ثم أعد المحاولة');
@@ -183,13 +189,12 @@ final class SupportCaseService
             }
             $locked->update($updates);
             $this->event($locked, $staff->id, $visibility === 'internal' ? 'internal_note' : 'staff_replied');
+            if ($visibility === SupportCaseMessage::VISIBILITY_CUSTOMER && $locked->user_id) {
+                $this->notifyCustomer($locked, $message);
+            }
 
             return $message;
         }, 3);
-
-        if ($visibility === SupportCaseMessage::VISIBILITY_CUSTOMER && $report->user_id) {
-            $this->notifyCustomer($report->fresh(), $message);
-        }
         return $message;
     }
 

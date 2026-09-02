@@ -32,7 +32,7 @@
             <div><span class="course-studio__eyebrow">استوديو الكورس</span><h1>{{ $courseTitle }}</h1></div>
         </div>
         <div class="course-studio__top-actions">
-            <button type="button" class="course-studio__preview-toggle" id="studentPreviewToggle" aria-pressed="false"><i class="fa fa-eye" aria-hidden="true"></i><span>معاينة الطالب</span></button>
+            <a class="course-studio__preview-toggle" href="{{ route('admin.courses.student-preview', $course) }}" target="_blank" rel="noopener"><i class="fa fa-eye" aria-hidden="true"></i><span>معاينة الطالب</span></a>
             <a href="{{ route('admin.courses.edit', [$course, 'return_to' => 'studio']) }}" class="course-studio__save-action"><i class="fa fa-sliders" aria-hidden="true"></i> إعدادات الكورس</a>
         </div>
     </header>
@@ -168,6 +168,6 @@
 @endsection
 
 @section('scripts')
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js" integrity="sha384-eeLEhtwdMwD3X9y+8P3Cn7Idl/M+w8H4uZqkgD/2eJVkWIN1yKzEj6XegJ9dL3q0" crossorigin="anonymous"></script>
+<script src="{{ asset('admin/assets/js/vendor/sortablejs/Sortable.min.js') }}?v={{ filemtime(public_path('admin/assets/js/vendor/sortablejs/Sortable.min.js')) }}"></script>
 @include('admin.courses.partials.show.scripts')
 @endsection

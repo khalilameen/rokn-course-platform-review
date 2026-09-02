@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Models\ApiToken;
 use App\Models\SocialOAuthAttempt;
+use App\Models\User;
 use App\Services\SocialAuthProviderRegistry;
 use App\Services\SocialOAuthAttemptService;
 use App\Support\RoknLocale;
@@ -43,16 +45,30 @@ final class SocialOAuthController extends Controller
             abort(422, 'تعذّر بدء تسجيل الدخول');
         }
 
+        if (!$this->socialProviders->isReady($provider)) {
+            $payload = ['error' => 'provider_unavailable'];
+            if ($challenge !== '') {
+                // The app ignores callbacks owned by another/newer attempt.
+                // Bind even this pre-provider failure to the PKCE challenge
+                // that opened the browser so it can terminate the right flow.
+                $payload['attempt'] = $challenge;
+            }
+
+            return $this->redirectToApp($returnTo, $payload);
+        }
+
         $state = Str::random(64);
+        $nonce = $provider === 'google' ? Str::random(64) : null;
         $attempt = $this->attempts->begin(
             $state,
             $provider,
             $returnTo,
-            $challenge !== '' ? $challenge : null
+            $challenge !== '' ? $challenge : null,
+            $nonce
         );
 
         try {
-            return redirect()->away($this->authorizationUrl($provider, $state));
+            return redirect()->away($this->authorizationUrl($provider, $state, $nonce));
         } catch (\Throwable $exception) {
             $attempt->delete();
             report($exception);
@@ -72,9 +88,53 @@ final class SocialOAuthController extends Controller
         // legitimate state value. The atomic pull happens only after all
         // callback constraints match.
         $stateAttempt = $state !== '' ? $this->attempts->inspectState($state) : null;
+        if (!$stateAttempt && $state !== '') {
+            $replayAttempt = $this->attempts->waitForCallbackReplay(
+                $state,
+                $provider,
+                $this->requestTimeout() + 2
+            );
+            if ($replayAttempt) {
+                try {
+                    $completionCode = Crypt::decryptString(
+                        (string) $replayAttempt->encrypted_completion_code
+                    );
+
+                    return $this->redirectToApp(
+                        (string) $replayAttempt->return_to,
+                        $this->callbackPayload($replayAttempt, ['code' => $completionCode])
+                    );
+                } catch (\Throwable $exception) {
+                    report($exception);
+
+                    return $this->redirectToApp(
+                        (string) $replayAttempt->return_to,
+                        $this->callbackPayload($replayAttempt, ['error' => 'login_cancelled'])
+                    );
+                }
+            }
+
+            // A transient provider failure may have released the state while
+            // this duplicate was waiting. It can safely become the retrying
+            // owner instead of reporting a false cancellation.
+            $stateAttempt = $this->attempts->inspectState($state);
+        }
+        $knownAttempt = !$stateAttempt && $state !== ''
+            ? $this->attempts->inspectKnownState($state, $provider)
+            : null;
         $returnTo = $stateAttempt
             ? (string) $stateAttempt->return_to
-            : 'rokn://auth';
+            : ($knownAttempt ? (string) $knownAttempt->return_to : 'rokn://auth');
+
+        if (!$stateAttempt && $knownAttempt) {
+            // Expiry is terminal, but an unbound deep link is ignored by the
+            // app when a newer browser callback exists. Preserve the original
+            // PKCE attempt binding so this exact login ends immediately.
+            return $this->redirectToApp(
+                $returnTo,
+                $this->callbackPayload($knownAttempt, ['error' => 'login_cancelled'])
+            );
+        }
 
         if (!$stateAttempt || !hash_equals((string) $stateAttempt->provider, $provider)) {
             return $this->redirectToApp($returnTo, ['error' => 'login_cancelled']);
@@ -240,6 +300,7 @@ final class SocialOAuthController extends Controller
             'preferred_locale' => RoknLocale::fromRequest($request),
         ]);
         $forward->attributes->set('social_attempt_started_at', $claimedAttempt->created_at);
+        $forward->attributes->set('social_expected_nonce_hash', $claimedAttempt->nonce_hash);
 
         try {
             $response = $signController->socialLogin($forward);
@@ -304,6 +365,29 @@ final class SocialOAuthController extends Controller
                 throw new RuntimeException('Invalid stored social session response.');
             }
 
+            $plainToken = trim((string) data_get($body, 'data.api_token', ''));
+            $userId = (int) data_get($body, 'data.user.id', 0);
+            if ($plainToken === '' || $userId <= 0) {
+                throw new RuntimeException('Stored social session is missing its identity binding.');
+            }
+
+            $tokenCandidates = [hash('sha256', $plainToken)];
+            if ((bool) config('multiple-tokens-auth.allow_legacy_plaintext', false)) {
+                $tokenCandidates[] = $plainToken;
+            }
+            $sessionExists = ApiToken::query()
+                ->where('user_id', $userId)
+                ->whereIn('token', array_values(array_unique($tokenCandidates)))
+                ->whereHasNotExpired()
+                ->exists();
+            $activeUserExists = User::query()
+                ->whereKey($userId)
+                ->where('active', true)
+                ->exists();
+            if (!$sessionExists || !$activeUserExists) {
+                throw new RuntimeException('Stored social session has been revoked.');
+            }
+
             return response()->json($body, $status);
         } catch (\Throwable $exception) {
             report($exception);
@@ -318,12 +402,13 @@ final class SocialOAuthController extends Controller
         }
     }
 
-    private function authorizationUrl(string $provider, string $state): string
+    private function authorizationUrl(string $provider, string $state, ?string $nonce = null): string
     {
         $redirectUri = $this->callbackUrl($provider);
         if ($provider === 'google') {
             $clientId = (string) config('services.google.client_id');
             $this->requireValue($clientId, 'Google client ID');
+            $this->requireValue((string) $nonce, 'Google OAuth nonce');
             return 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query([
                 'client_id' => $clientId,
                 'redirect_uri' => $redirectUri,
@@ -331,6 +416,7 @@ final class SocialOAuthController extends Controller
                 'scope' => 'openid email profile',
                 'prompt' => 'select_account',
                 'state' => $state,
+                'nonce' => $nonce,
             ]);
         }
 
@@ -361,7 +447,7 @@ final class SocialOAuthController extends Controller
     {
         $redirectUri = $this->callbackUrl($provider);
         if ($provider === 'google') {
-            $response = Http::asForm()->timeout(15)->post('https://oauth2.googleapis.com/token', [
+            $response = Http::asForm()->timeout($this->requestTimeout())->post('https://oauth2.googleapis.com/token', [
                 'client_id' => config('services.google.client_id'),
                 'client_secret' => config('services.google.client_secret'),
                 'code' => $code,
@@ -382,7 +468,7 @@ final class SocialOAuthController extends Controller
             return $this->token($response->json('access_token'));
         }
 
-        $response = Http::asForm()->timeout(15)->post('https://open.tiktokapis.com/v2/oauth/token/', [
+        $response = Http::asForm()->timeout($this->requestTimeout())->post('https://open.tiktokapis.com/v2/oauth/token/', [
             'client_key' => config('services.tiktok.client_key'),
             'client_secret' => config('services.tiktok.client_secret'),
             'code' => $code,
@@ -447,7 +533,7 @@ final class SocialOAuthController extends Controller
 
     private function requestTimeout(): int
     {
-        return max(3, (int) config('social_auth.timeout_seconds', 10));
+        return max(3, min(30, (int) config('social_auth.timeout_seconds', 10)));
     }
 
     private function isTransientProviderFailure(Throwable $exception): bool

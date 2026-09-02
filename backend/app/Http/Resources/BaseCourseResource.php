@@ -9,6 +9,7 @@ use App\Services\BunnyService;
 use App\Services\CourseAccessPlanService;
 use App\Services\CourseDurationService;
 use App\Services\CourseSectionSequenceService;
+use App\Services\SafeExternalUrl;
 use App\Support\RoknPublicUrl;
 
 class BaseCourseResource extends JsonResource
@@ -98,6 +99,11 @@ class BaseCourseResource extends JsonResource
 
         return [
             'id' => (int)$this->id,
+            // A loaded course map names one immutable published graph. Mobile
+            // uses this token to replace a stale back-stack map after publish.
+            'published_revision' => max(0, (int) (
+                $this->last_published_authoring_version ?: $this->authoring_version
+            )),
             'share_url' => $courseShareable
                 ? RoknPublicUrl::course((int) $this->id)
                 : null,
@@ -189,6 +195,7 @@ class BaseCourseResource extends JsonResource
                         && (bool) ($section->sectionable?->is_opened ?? false);
                     $data = [
                         'id' => $section->id,
+                        'content_id' => $section->sectionable_id,
                         'title' => $section->title,
                         'type' => $section->getSectionType(),
                         'order' => $section->order,
@@ -216,7 +223,9 @@ class BaseCourseResource extends JsonResource
                         'order' => $module->order,
                         // Buyers receive attachment links from CourseResource.
                         // Before purchase only the map and counts are public.
-                        'attachments_count' => $module->attachments->count(),
+                        'attachments_count' => $module->attachments->count()
+                            + $module->sections->sum(fn ($section) => $section->attachments->count())
+                            + (SafeExternalUrl::sanitize($module->attachments_link) !== null ? 1 : 0),
                         'sections' => $module->sections->sortBy([
                             ['order', 'asc'],
                             ['id', 'asc'],
@@ -227,6 +236,7 @@ class BaseCourseResource extends JsonResource
                             && (bool) ($section->sectionable?->is_opened ?? false);
                         $data = [
                             'id' => $section->id,
+                            'content_id' => $section->sectionable_id,
                             'title' => $section->title,
                             'type' => $section->getSectionType(),
                             'order' => $section->order,
@@ -281,10 +291,13 @@ class BaseCourseResource extends JsonResource
         // Add type-specific basic data
         switch ($section->getSectionType()) {
             case 'lesson':
+                $durationSeconds = $this->lessonDurationSeconds($section->sectionable);
                 $content['priority'] = $section->sectionable->priority ?? null;
                 $content['is_opened'] = $section->sectionable->is_opened ?? true;
-                $content['duration_minutes'] = (int)($section->sectionable->duration_minutes ?? 0);
-                $content['duration_seconds'] = $this->lessonDurationSeconds($section->sectionable) ?: null;
+                $content['duration_minutes'] = $durationSeconds > 0
+                    ? (int) ceil($durationSeconds / 60)
+                    : max(0, (int) ($section->sectionable->duration_minutes ?? 0));
+                $content['duration_seconds'] = $durationSeconds ?: null;
                 $bunnyService = app(BunnyService::class);
                 $content['thumbnail_url'] = $section->sectionable->thumbnail_path
                     ? $bunnyService->generateBunnySignedUrl($section->sectionable->thumbnail_path)
@@ -292,7 +305,8 @@ class BaseCourseResource extends JsonResource
                 if($section->sectionable->is_opened ){
                     // Get video data with signed URL for Bunny videos
                     $videoData = $bunnyService->getVideoDataForLesson($section->sectionable);
-                    $fallbackVideo = $section->sectionable->bunny_video_id
+                    $fallbackVideo = !empty($videoData['bunny_video_url'])
+                        && $section->sectionable->bunny_video_id
                         ? $bunnyService->getFallbackVideo((string) $section->sectionable->bunny_video_id)
                         : null;
 

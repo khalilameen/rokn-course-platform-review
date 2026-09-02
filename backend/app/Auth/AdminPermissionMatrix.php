@@ -29,6 +29,7 @@ final class AdminPermissionMatrix
         'admin.courses.store' => ['POST'],
         'admin.courses.edit' => ['GET'],
         'admin.courses.update' => ['PUT', 'PATCH'],
+        'admin.courses.student-preview' => ['GET'],
         'admin.courses.media-health.probe' => ['POST'],
 
         // Educational content authoring and review workflows.

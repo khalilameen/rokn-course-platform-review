@@ -9,12 +9,12 @@ use App\Http\Resources\StudentProfileResource;
 use App\Models\ProfileUpdateReceipt;
 use App\Models\User;
 use App\Services\StoredFileDeletionService;
+use App\Services\PortfolioShareIdentityService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Intervention\Image\Facades\Image;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
@@ -31,6 +31,7 @@ final class ProfileController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = auth('api')->user();
+        app(PortfolioShareIdentityService::class)->ensure($user);
         $profile = new StudentProfileResource($user);
 
         // Account/settings screens only consume identity and preferences. Keep
@@ -92,15 +93,9 @@ final class ProfileController extends Controller
             'email' => 'nullable|email|unique:users,email,' . $user->id,
             'name' => 'nullable|string|max:255',
             'job_title' => 'nullable|string|max:255',
-            'portfolio_slug' => [
-                'nullable',
-                'string',
-                'min:3',
-                'max:60',
-                'regex:/^[a-z0-9-]+$/',
-                'not_regex:/^student-[1-9][0-9]*$/',
-                Rule::unique('users', 'portfolio_slug')->ignore($user->id),
-            ],
+            // Accepted for rolling clients but no longer persisted as a
+            // username; the server owns this unlisted share capability.
+            'portfolio_slug' => ['nullable', 'string', 'max:60'],
             'portfolio_headline' => 'nullable|string|max:160',
             // This controls delivery to the device. The in-app notification
             // history remains available so important account activity is never lost.
@@ -120,10 +115,6 @@ final class ProfileController extends Controller
             'email.email' => 'البريد الإلكتروني غير صالح',
             'name.max' => 'الاسم يجب ألا يتجاوز 255 حرفاً',
             'job_title.max' => 'مسمى الوظيفة يجب ألا يتجاوز 255 حرفاً',
-            'portfolio_slug.min' => 'اسم المستخدم قصير جدًا',
-            'portfolio_slug.max' => 'اسم المستخدم طويل جدًا',
-            'portfolio_slug.regex' => 'استخدم حروفًا إنجليزية وأرقامًا وشرطة فقط',
-            'portfolio_slug.unique' => 'اسم المستخدم مستخدم بالفعل',
             'portfolio_headline.max' => 'المسمى المهني طويل جدًا',
             'profile_image.image' => 'يجب أن يكون الملف صورة',
             'profile_image.mimes' => 'يجب أن تكون الصورة من نوع JPEG أو PNG أو WebP',
@@ -190,15 +181,6 @@ final class ProfileController extends Controller
 
         if ($request->has('job_title')) {
             $updateData['job_title'] = $request->job_title;
-        }
-
-        // Account identity is one learner action in the app. Persist the
-        // profile and its share slug in the same database write so a network
-        // interruption cannot leave only half of the form updated.
-        if ($request->has('portfolio_slug')) {
-            $updateData['portfolio_slug'] = Str::slug(
-                (string) $request->input('portfolio_slug')
-            );
         }
 
         if ($request->has('portfolio_headline')) {
@@ -311,6 +293,11 @@ final class ProfileController extends Controller
 
     private function profileUpdateResponse($user, bool $phoneChanged, bool $replayed = false): JsonResponse
     {
+        // Portfolio URLs are unlisted share capabilities, not discoverable
+        // usernames. A legacy/custom alias is rotated before any authenticated
+        // profile response exposes it, including replayed updates.
+        app(PortfolioShareIdentityService::class)->ensure($user);
+
         return response()->json([
             'status' => 200,
             'success' => true,

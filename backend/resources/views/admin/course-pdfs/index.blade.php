@@ -86,6 +86,11 @@
                     @foreach($pdfs as $pdf)
                         <div class="pdf-card {{ !$pdf->is_active ? 'inactive' : '' }}" data-id="{{ $pdf->id }}">
                             <div class="pdf-content">
+                                @if($course->is_coming_soon)
+                                    <button type="button" class="pdf-drag-handle" aria-label="اسحب لترتيب الملف">
+                                        <i class="fa fa-bars" aria-hidden="true"></i>
+                                    </button>
+                                @endif
                                 <div class="pdf-info">
                                     <div class="pdf-file-title">
                                         <div class="pdf-icon">
@@ -168,23 +173,27 @@
 @endsection
 
 @section('scripts')
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js" integrity="sha384-eeLEhtwdMwD3X9y+8P3Cn7Idl/M+w8H4uZqkgD/2eJVkWIN1yKzEj6XegJ9dL3q0" crossorigin="anonymous"></script>
+<script src="{{ asset('admin/assets/js/vendor/sortablejs/Sortable.min.js') }}?v={{ filemtime(public_path('admin/assets/js/vendor/sortablejs/Sortable.min.js')) }}"></script>
 <script>
 let authoringVersion = Number(@json((int) $course->authoring_version));
 const csrf = @json(csrf_token());
-const mutatePdf = (key, url, payload) => window.RoknAdminRequest.serializeMutation(key, () =>
-    window.RoknAdminRequest.request(url, {
+const mutatePdf = (key, url, payload) => window.RoknAdminRequest.serializeMutation(key, async () => {
+    const expectedVersion = authoringVersion;
+    const data = await window.RoknAdminRequest.request(url, {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf},
         body: JSON.stringify({...payload, authoring_version: authoringVersion}),
-    })
-);
+    });
+    return {...data, authoring_version: window.RoknAdminRequest.requireAuthoringVersion(data, expectedVersion, true)};
+});
 // Initialize sortable
 var sortableRoot = document.getElementById('sortable-pdfs');
 var sortable = @json((bool) $course->is_coming_soon) && sortableRoot ? new Sortable(sortableRoot, {
+    handle: '.pdf-drag-handle',
     animation: 150,
     ghostClass: 'dragging',
     onEnd: function(evt) {
+        if (evt.oldIndex === evt.newIndex) return;
         var order = [];
         document.querySelectorAll('.pdf-card').forEach(function(card) {
             order.push(card.dataset.id);
@@ -192,7 +201,7 @@ var sortable = @json((bool) $course->is_coming_soon) && sortableRoot ? new Sorta
         
         mutatePdf('course-pdf-mutation', '{{ route('admin.courses.pdfs.reorder', $course) }}', {order})
         .then(data => {
-            authoringVersion = Number(data.authoring_version || authoringVersion);
+            authoringVersion = Number(data.authoring_version);
             document.querySelectorAll('[name="authoring_version"]').forEach(input => input.value = authoringVersion);
             // Update order badges
             document.querySelectorAll('.pdf-card').forEach(function(card, index) {
@@ -203,6 +212,8 @@ var sortable = @json((bool) $course->is_coming_soon) && sortableRoot ? new Sorta
             });
         }).catch(error => {
             if (error.code === 'cancelled') return;
+            window.RoknAdminRequest.blockMutationsUntilReload();
+            sortable?.option('disabled', true);
             alert(error.message || 'تعذّر حفظ الترتيب');
             location.reload();
         });
@@ -213,10 +224,20 @@ var sortable = @json((bool) $course->is_coming_soon) && sortableRoot ? new Sorta
 function toggleStatus(pdfId) {
     mutatePdf('course-pdf-mutation', '{{ url('dashboard/courses/' . $course->id . '/pdfs') }}/' + pdfId + '/toggle-status', {})
     .then(data => {
-        authoringVersion = Number(data.authoring_version || authoringVersion);
+        authoringVersion = Number(data.authoring_version);
         location.reload();
     }).catch(error => {
         if (error.code !== 'cancelled') alert(error.message || 'تعذّر تحديث الحالة');
+        if (
+            error.code === 'mutation_outcome_unknown' ||
+            error.code === 'invalid_authoring_response' ||
+            error.status === 409
+        ) {
+            window.RoknAdminRequest.blockMutationsUntilReload();
+            sortable?.option('disabled', true);
+            document.querySelectorAll('[onclick^="toggleStatus("]').forEach(button => button.disabled = true);
+            location.reload();
+        }
     });
 }
 </script>

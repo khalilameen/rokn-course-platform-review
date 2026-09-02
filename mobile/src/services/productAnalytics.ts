@@ -8,6 +8,7 @@ import {
   type AccountSessionBoundary,
 } from '../constants/helpers';
 import {enqueueDurableOutbox, flushDurableOutbox} from './durableOutbox';
+import {errorStatus} from '../utils/errorPayload';
 
 export type ProductEventName =
   | 'app_opened'
@@ -111,9 +112,7 @@ const deliver = async (
     await publicRequest.post('product-events', event, {timeout: 6000});
     return 'ack';
   } catch (error) {
-    const status = Number(
-      (error as {response?: {status?: unknown}})?.response?.status || 0,
-    );
+    const status = errorStatus(error);
     return status >= 400 && status < 500 ? 'drop' : 'retry';
   }
 };
@@ -125,9 +124,7 @@ const deliverBatch = async (
     await publicRequest.post('product-events', {events}, {timeout: 6000});
     return 'ack';
   } catch (error) {
-    const status = Number(
-      (error as {response?: {status?: unknown}})?.response?.status || 0,
-    );
+    const status = errorStatus(error);
     return status >= 400 && status < 500 ? 'drop' : 'retry';
   }
 };

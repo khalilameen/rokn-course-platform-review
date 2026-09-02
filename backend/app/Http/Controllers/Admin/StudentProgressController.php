@@ -6,17 +6,17 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Course;
 use App\Models\CourseEnrollment;
-use App\Models\StudentSectionProgress;
 use App\Models\CourseSection;
 use App\Services\CourseSectionSequenceService;
 use App\Services\StudentProgressSummaryService;
+use App\Services\CourseRevisionLearnerReadService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class StudentProgressController extends Controller
 {
     public function __construct(
-        private readonly CourseSectionSequenceService $sectionSequence
+        private readonly CourseSectionSequenceService $sectionSequence,
+        private readonly CourseRevisionLearnerReadService $revisionReads
     ) {
     }
 
@@ -106,10 +106,8 @@ class StudentProgressController extends Controller
             ])
             ->groupBy('course_id')
             ->map(fn ($sections) => $this->sectionSequence->learning($sections));
-        $progressBySection = StudentSectionProgress::query()
-            ->where('user_id', $userId)
-            ->whereIn('course_section_id', $sectionsByCourse->flatten(1)->pluck('id'))
-            ->get(['course_section_id', 'is_completed', 'completed_at', 'updated_at'])
+        $progressBySection = $this->revisionReads
+            ->sectionProgressRows((int) $userId, $sectionsByCourse->flatten(1)->pluck('id'))
             ->keyBy('course_section_id');
 
         // Calculate progress for each enrolled course
@@ -201,10 +199,8 @@ class StudentProgressController extends Controller
         }
 
         // Get completed sections for this user
-        $completedSectionIds = StudentSectionProgress::where('user_id', $userId)
-            ->where('is_completed', true)
-            ->whereIn('course_section_id', $sections->pluck('id'))
-            ->pluck('course_section_id')
+        $completedSectionIds = $this->revisionReads
+            ->completedSectionIds((int) $userId, $sections->pluck('id'))
             ->toArray();
 
         $completedCount = count($completedSectionIds);
@@ -253,9 +249,8 @@ class StudentProgressController extends Controller
             ->get();
         $sections = $this->sectionSequence->learning($sections);
 
-        $progress = StudentSectionProgress::where('user_id', $userId)
-            ->whereIn('course_section_id', $sections->pluck('id'))
-            ->get()
+        $progress = $this->revisionReads
+            ->sectionProgressRows((int) $userId, $sections->pluck('id'))
             ->keyBy('course_section_id');
 
         return $sections->map(function ($section) use ($progress) {
@@ -287,10 +282,9 @@ class StudentProgressController extends Controller
             ->learning(CourseSection::where('course_id', $courseId)->get())
             ->pluck('id');
 
-        $lastProgress = StudentSectionProgress::where('user_id', $userId)
-            ->whereIn('course_section_id', $sectionIds)
-            ->orderByDesc('completed_at')
-            ->orderByDesc('updated_at')
+        $lastProgress = $this->revisionReads
+            ->sectionProgressRows((int) $userId, $sectionIds)
+            ->sortByDesc(fn ($row) => $row->completed_at ?? $row->updated_at)
             ->first();
 
         return $lastProgress
@@ -319,26 +313,24 @@ class StudentProgressController extends Controller
             ->get(['id', 'course_id', 'module_id', 'order', 'section_type', 'sectionable_type']));
         $learningSectionIds = $learningSections->pluck('id');
         $sectionCounts = $learningSections->countBy('course_id');
-        $completedCounts = DB::table('student_section_progress as progress')
-            ->join('course_sections as sections', 'progress.course_section_id', '=', 'sections.id')
-            ->join('course_enrollments as enrollments', function ($join): void {
-                $join->on('progress.user_id', '=', 'enrollments.user_id')
-                    ->on('sections.course_id', '=', 'enrollments.course_id');
-            })
-            ->join('users', 'progress.user_id', '=', 'users.id')
-            ->where('enrollments.is_active', true)
-            ->where(function ($active): void {
-                $active->whereNull('enrollments.expires_at')
-                    ->orWhere('enrollments.expires_at', '>', now());
-            })
-            ->whereRaw('LOWER(users.role) = ?', ['client'])
-            ->whereIn('sections.id', $learningSectionIds)
-            ->where('progress.is_completed', true)
-            ->select('progress.user_id', 'sections.course_id')
-            ->selectRaw('COUNT(DISTINCT progress.course_section_id) as completed_count')
-            ->groupBy('progress.user_id', 'sections.course_id')
-            ->get()
-            ->keyBy(fn ($row) => $row->user_id . ':' . $row->course_id);
+        $courseBySection = $learningSections->pluck('course_id', 'id');
+        $activePairs = $activeEnrollmentRows->keyBy(
+            fn (CourseEnrollment $row): string => $row->user_id . ':' . $row->course_id
+        );
+        $completedRows = $this->revisionReads->sectionProgressRowsForUsers(
+            $activeEnrollmentRows->pluck('user_id'),
+            $learningSectionIds
+        )->where('is_completed', true)
+            ->filter(function ($row) use ($courseBySection, $activePairs): bool {
+                $courseId = $courseBySection->get((int) $row->course_section_id);
+
+                return $courseId !== null
+                    && $activePairs->has($row->user_id . ':' . $courseId);
+            });
+        $completedCounts = $completedRows
+            ->groupBy(fn ($row): string => $row->user_id . ':'
+                . $courseBySection->get((int) $row->course_section_id))
+            ->map->count();
         $progressPercentages = $activeEnrollmentRows
             ->map(function (CourseEnrollment $enrollment) use ($sectionCounts, $completedCounts): ?float {
                 $total = (int) ($sectionCounts[$enrollment->course_id] ?? 0);
@@ -346,9 +338,10 @@ class StudentProgressController extends Controller
                     return null;
                 }
 
-                $completed = (int) ($completedCounts->get(
-                    $enrollment->user_id . ':' . $enrollment->course_id
-                )?->completed_count ?? 0);
+                $completed = (int) $completedCounts->get(
+                    $enrollment->user_id . ':' . $enrollment->course_id,
+                    0
+                );
 
                 return min(100, ($completed / $total) * 100);
             })
@@ -357,27 +350,13 @@ class StudentProgressController extends Controller
             ? round((float) $progressPercentages->average(), 2)
             : 0;
 
-        // Get most active students (by completion count)
-        $topStudents = DB::table('student_section_progress')
-            ->join('users', 'student_section_progress.user_id', '=', 'users.id')
-            ->join('course_sections', 'student_section_progress.course_section_id', '=', 'course_sections.id')
-            ->join('course_enrollments', function ($join): void {
-                $join->on('student_section_progress.user_id', '=', 'course_enrollments.user_id')
-                    ->on('course_sections.course_id', '=', 'course_enrollments.course_id');
-            })
-            ->whereRaw('LOWER(users.role) = ?', ['client'])
-            ->whereIn('course_sections.id', $learningSectionIds)
-            ->where('course_enrollments.is_active', true)
-            ->where(function ($active): void {
-                $active->whereNull('course_enrollments.expires_at')
-                    ->orWhere('course_enrollments.expires_at', '>', now());
-            })
-            ->where('student_section_progress.is_completed', true)
-            ->select('users.id', 'users.name', DB::raw('COUNT(DISTINCT student_section_progress.course_section_id) as completed_count'))
-            ->groupBy('users.id', 'users.name')
-            ->orderBy('completed_count', 'desc')
-            ->limit(5)
-            ->get();
+        $topCounts = $completedRows->countBy('user_id')->sortDesc()->take(5);
+        $topNames = User::query()->whereIn('id', $topCounts->keys())->pluck('name', 'id');
+        $topStudents = $topCounts->map(fn (int $count, int $userId): array => [
+            'id' => $userId,
+            'name' => $topNames->get($userId),
+            'completed_count' => $count,
+        ])->values();
 
         return response()->json([
             'total_users' => $totalUsers,

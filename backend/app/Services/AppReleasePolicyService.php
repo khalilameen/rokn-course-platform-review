@@ -85,6 +85,21 @@ final class AppReleasePolicyService
     /** @return Collection<int, AppVersion> */
     public function activeVersions(string $platform, ?string $channel): Collection
     {
+        try {
+            if (!Schema::hasTable('app_versions')) {
+                return collect();
+            }
+
+            return $this->activeVersionsFromDatabase($platform, $channel);
+        } catch (Throwable $exception) {
+            report($exception);
+            return collect();
+        }
+    }
+
+    /** @return Collection<int, AppVersion> */
+    private function activeVersionsFromDatabase(string $platform, ?string $channel): Collection
+    {
         $base = AppVersion::query()
             ->where('platform', $platform)
             ->where('is_active', true);

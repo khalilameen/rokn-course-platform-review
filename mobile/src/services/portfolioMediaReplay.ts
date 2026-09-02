@@ -56,13 +56,13 @@ export const replayPendingPortfolioMediaUploads = async () => {
           entry.clientRequestId,
         );
         assertAccountSessionBoundary(boundary);
-        await completePortfolioMediaUpload(entry);
+        await completePortfolioMediaUpload(entry, boundary);
         completed += 1;
         completedProjects.add(entry.projectId);
       } catch (error: unknown) {
         failedProjects.add(entry.projectId);
         if (responseStatus(error) === 404) {
-          await discardPortfolioMediaUploads(entry.projectId).catch(
+          await discardPortfolioMediaUploads(entry.projectId, boundary).catch(
             () => undefined,
           );
         }

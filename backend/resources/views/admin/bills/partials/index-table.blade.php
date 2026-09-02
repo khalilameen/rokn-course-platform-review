@@ -54,15 +54,15 @@
                                     </td>
                                     <td class="text-center">
                                         <div class="bill-table-number">{{ number_format($bill->amount, 2) }}</div>
-                                        <small class="text-muted">جنيه</small>
+                                        <small class="text-muted">{{ $bill->amountUnitLabel() }}</small>
                                     </td>
                                     <td class="text-center">
                                         <div class="bill-table-number">{{ number_format($bill->tax_amount, 2) }}</div>
-                                        <small class="text-muted">جنيه</small>
+                                        <small class="text-muted">{{ $bill->amountUnitLabel() }}</small>
                                     </td>
                                     <td class="text-center">
                                         <div class="amount-display">{{ number_format($bill->total_amount, 2) }}</div>
-                                        <small class="text-muted">جنيه</small>
+                                        <small class="text-muted">{{ $bill->amountUnitLabel() }}</small>
                                     </td>
                                     <td class="text-center">
                                         <span class="payment-badge badge-secondary">

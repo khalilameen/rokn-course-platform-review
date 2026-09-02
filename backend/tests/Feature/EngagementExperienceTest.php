@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Jobs\SendUserPushNotification;
+use App\Jobs\SendWhatsAppMessage;
 use App\Models\CoinEarningMethod;
 use App\Models\RewardRule;
 use App\Models\Setting;
@@ -21,7 +22,7 @@ final class EngagementExperienceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        Queue::fake([SendUserPushNotification::class]);
+        Queue::fake([SendUserPushNotification::class, SendWhatsAppMessage::class]);
         config()->set('whatsapp.linking.bot_phone', '201001234567');
         config()->set('whatsapp.linking.webhook_secret', 'engagement-test-webhook-secret');
         config()->set('whatsapp.whatspie.api_key', '');
@@ -56,19 +57,23 @@ final class EngagementExperienceTest extends TestCase
         self::assertStringContainsString('ROKN_LINK_', $message);
         $this->assertDatabaseMissing('user_whatsapp_connections', ['user_id' => $user->id]);
 
-        $first = $this->withHeader('X-WhatsApp-Webhook-Secret', 'engagement-test-webhook-secret')
-            ->postJson('/api/v1/whatsapp/webhook', [
-                'sender' => '201012345678',
-                'message' => ['text' => $message],
+        // Whatspie v1 posts the message body at the root and lets the webhook
+        // URL carry the shared token. Exercise that production contract here;
+        // the header and nested payload variants remain backwards compatible.
+        $first = $this->postJson('/api/v1/whatsapp/webhook?token=engagement-test-webhook-secret', [
+                'from' => '201012345678',
+                'message' => $message,
+                'message_id' => 'whatspie-message-1',
             ])->assertOk()
             ->assertJsonPath('matched', true)
             ->assertJsonPath('already_claimed', false);
         self::assertSame((int) $method->coins_amount, (int) $first->json('coins_added'));
+        Queue::assertPushed(SendWhatsAppMessage::class);
 
-        $this->withHeader('X-WhatsApp-Webhook-Secret', 'engagement-test-webhook-secret')
-            ->postJson('/api/v1/whatsapp/webhook', [
-                'sender' => '201012345678',
-                'message' => ['text' => $message],
+        $this->postJson('/api/v1/whatsapp/webhook?token=engagement-test-webhook-secret', [
+                'from' => '201012345678',
+                'message' => $message,
+                'message_id' => 'whatspie-message-1',
             ])->assertOk()
             ->assertJsonPath('matched', true)
             ->assertJsonPath('already_claimed', true)

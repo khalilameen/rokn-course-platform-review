@@ -2,15 +2,18 @@
 
 namespace App\Services;
 
-use App\Models\StudentSectionProgress;
 use Carbon\Carbon;
 use App\Support\BusinessClock;
+use Illuminate\Support\Facades\DB;
 
 class StreakService
 {
     /**
-     * Get distinct calendar days when the learner first completed a section.
-     * completed_at is immutable; updated_at can move during moderation or repair.
+     * Get distinct business-calendar days on which the learner checked in.
+     *
+     * Reward streaks are earned by opening the app. Reading section completion
+     * here made the streak screen disagree with the daily reward response and
+     * made a valid check-in look broken until a lesson happened to complete.
      *
      * @param int $userId
      * @param Carbon|null $from
@@ -19,25 +22,30 @@ class StreakService
      */
     public static function getActivityDatesForUser(int $userId, ?Carbon $from = null, ?Carbon $to = null): array
     {
-        $query = StudentSectionProgress::query()
-            ->where('user_id', $userId)
-            ->where('is_completed', true)
-            ->whereNotNull('completed_at');
+        $timezone = BusinessClock::timezoneName();
+        $query = DB::table('user_reward_checkins')
+            ->where('user_id', $userId);
 
         if ($from !== null) {
-            $query->where('completed_at', '>=', $from);
+            $query->where(
+                'checkin_date',
+                '>=',
+                $from->copy()->timezone($timezone)->format('Y-m-d')
+            );
         }
         if ($to !== null) {
-            $query->where('completed_at', '<', $to);
+            $query->where(
+                'checkin_date',
+                '<',
+                $to->copy()->timezone($timezone)->format('Y-m-d')
+            );
         }
 
-        $timezone = BusinessClock::timezoneName();
-
-        return $query->get(['completed_at'])
-            ->map(function ($progress) use ($timezone) {
-                return Carbon::parse($progress->completed_at)->timezone($timezone)->format('Y-m-d');
-            })
-            ->unique()
+        return $query
+            ->distinct()
+            ->orderBy('checkin_date')
+            ->pluck('checkin_date')
+            ->map(fn ($date): string => (string) $date)
             ->values()
             ->toArray();
     }
@@ -57,12 +65,11 @@ class StreakService
         $weekStart = $now->copy()->startOfWeek(Carbon::SUNDAY);
         $weekEnd = $now->copy()->endOfWeek(Carbon::SATURDAY);
 
-        // Keep a bounded year of history so a real long streak is not silently
-        // capped by the seven-day presentation window.
-        $lookbackStart = $now->copy()->subDays(370)->startOfDay()->utc();
+        // The week is only presentation. Streak truth must not reset after an
+        // arbitrary lookback limit for learners who kept a longer run.
         $activityDates = self::getActivityDatesForUser(
             $userId,
-            $lookbackStart,
+            null,
             $weekEnd->copy()->addDay()->startOfDay()->utc()
         );
         $activitySet = array_flip($activityDates);
@@ -82,23 +89,35 @@ class StreakService
             $current->addDay();
         }
 
-        // Current streak: consecutive days from today backwards (or from most recent activity)
+        // A streak is not broken at midnight. Until today's check-in arrives,
+        // yesterday remains the valid anchor; only a fully missed business
+        // day breaks continuity.
         $currentStreak = 0;
-        if (isset($activitySet[$today])) {
-            $check = $now->copy();
+        $checkedInToday = isset($activitySet[$today]);
+        $yesterday = $now->copy()->subDay();
+        $anchor = $checkedInToday
+            ? $now->copy()
+            : (isset($activitySet[$yesterday->format('Y-m-d')]) ? $yesterday : null);
+        if ($anchor) {
+            $check = $anchor->copy();
             while (isset($activitySet[$check->format('Y-m-d')])) {
                 $currentStreak++;
                 $check->subDay();
             }
         }
 
-        // Last streak before gap: if today has no activity, count backwards from yesterday
         $lastStreakBeforeGap = 0;
-        if (!isset($activitySet[$today])) {
-            $check = $now->copy()->subDay();
-            while (isset($activitySet[$check->format('Y-m-d')])) {
-                $lastStreakBeforeGap++;
-                $check->subDay();
+        if (!$anchor && $activityDates !== []) {
+            $latest = collect($activityDates)
+                ->filter(fn (string $date): bool => $date < $today)
+                ->sortDesc()
+                ->first();
+            if ($latest) {
+                $check = Carbon::parse($latest, $timezone)->startOfDay();
+                while (isset($activitySet[$check->format('Y-m-d')])) {
+                    $lastStreakBeforeGap++;
+                    $check->subDay();
+                }
             }
         }
 
@@ -122,6 +141,8 @@ class StreakService
             ],
             'current_streak' => $currentStreak,
             'last_streak_before_gap' => $lastStreakBeforeGap,
+            'checked_in_today' => $checkedInToday,
+            'grace_day' => !$checkedInToday && $currentStreak > 0,
             'status' => $status,
             'status_message_ar' => $statusMessageAr,
             'status_message_en' => $statusMessageEn,

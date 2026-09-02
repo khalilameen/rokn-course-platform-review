@@ -23,7 +23,9 @@ type PlaybackManifestRefs = {
   durations: MutableRefObject<Record<string, number>>;
   flights: MutableRefObject<Map<string, Promise<void>>>;
   mounted: MutableRefObject<boolean>;
+  ownerGeneration: MutableRefObject<number>;
   positions: MutableRefObject<Record<string, number>>;
+  revisionReloadPending: MutableRefObject<boolean>;
   runtime: MutableRefObject<Record<string, PlaybackRuntimeMetrics>>;
   versions: MutableRefObject<Record<string, number>>;
 };
@@ -32,6 +34,7 @@ export const usePlaybackManifest = ({
   courseId,
   dataSaver,
   getPlaybackSpeed,
+  onCourseRevisionChanged,
   playbackPreferencesReady,
   refs,
   scheduleDelayedAction,
@@ -44,6 +47,7 @@ export const usePlaybackManifest = ({
   courseId?: string;
   dataSaver: boolean;
   getPlaybackSpeed: () => number;
+  onCourseRevisionChanged: () => void;
   playbackPreferencesReady: boolean;
   refs: PlaybackManifestRefs;
   scheduleDelayedAction: (action: () => void, delayMs: number) => void;
@@ -59,18 +63,32 @@ export const usePlaybackManifest = ({
       expectedSessionId?: string,
       reuseExpectedSession = true,
     ) => {
+      if (refs.revisionReloadPending.current) {
+        onCourseRevisionChanged();
+        return;
+      }
       if (!serverSession || !playbackPreferencesReady) {
         return;
       }
       const sourceCourseId = courseId;
+      const ownerGeneration = refs.ownerGeneration.current;
       const lessonId = reel.lessonId;
-      const existingFlight = refs.flights.current.get(lessonId);
-      if (existingFlight) return existingFlight;
-      const requestVersion = (refs.versions.current[lessonId] || 0) + 1;
-      refs.versions.current[lessonId] = requestVersion;
       const maxBitrateKbps = dataSaver
         ? 750
         : PLAYBACK_PREFERENCE_BITRATE_KBPS[selectedQuality];
+      const flightKey = JSON.stringify({
+        lessonId,
+        dataSaver,
+        maxBitrateKbps: maxBitrateKbps ?? null,
+        playbackSessionId: reuseExpectedSession
+          ? expectedSessionId ?? null
+          : null,
+        reuseExpectedSession,
+      });
+      const existingFlight = refs.flights.current.get(flightKey);
+      if (existingFlight) return existingFlight;
+      const requestVersion = (refs.versions.current[lessonId] || 0) + 1;
+      refs.versions.current[lessonId] = requestVersion;
       const flight = openPlaybackSession(lessonId, {
         dataSaver,
         maxBitrateKbps,
@@ -81,6 +99,7 @@ export const usePlaybackManifest = ({
         .then(manifest => {
           if (
             !refs.mounted.current ||
+            refs.ownerGeneration.current !== ownerGeneration ||
             refs.course.current?.id !== sourceCourseId ||
             refs.versions.current[lessonId] !== requestVersion
           ) {
@@ -112,6 +131,13 @@ export const usePlaybackManifest = ({
             });
           }
 
+          setConnectionNote(current =>
+            current ===
+              'تعذّر تجديد رابط الفيديو\nسنحاول مرة أخرى' ||
+            current === 'الفيديو قيد التجهيز\nحاول بعد قليل'
+              ? ''
+              : current,
+          );
           setCourse(previous =>
             applyPlaybackManifest(previous, {
               courseId: sourceCourseId,
@@ -125,6 +151,7 @@ export const usePlaybackManifest = ({
         .catch((error: unknown) => {
           if (
             !refs.mounted.current ||
+            refs.ownerGeneration.current !== ownerGeneration ||
             refs.course.current?.id !== sourceCourseId ||
             refs.versions.current[lessonId] !== requestVersion
           ) {
@@ -132,6 +159,10 @@ export const usePlaybackManifest = ({
           }
           const code = playbackFeatureErrorCode(error).toLowerCase();
           const status = playbackManifestHttpStatus(error);
+          if (code === 'course_revision_changed') {
+            onCourseRevisionChanged();
+            return;
+          }
           if (code === 'feature_playback_disabled') {
             setConnectionNote('تشغيل الفيديو متوقف مؤقتًا للصيانة');
             setCourse(previous =>
@@ -147,7 +178,7 @@ export const usePlaybackManifest = ({
             return;
           }
           if (status === 401) {
-            setConnectionNote('انتهت جلسة الدخول\nسجّل الدخول ثم أكمل');
+            setConnectionNote('انتهى تسجيل الدخول\nسجّل الدخول ثم أكمل');
             return;
           }
           setConnectionNote(
@@ -163,17 +194,18 @@ export const usePlaybackManifest = ({
         .finally(() => {
           // Delete only the flight we own. A replacement request registered
           // during a course transition must remain awaitable by the player.
-          if (refs.flights.current.get(lessonId) === flight) {
-            refs.flights.current.delete(lessonId);
+          if (refs.flights.current.get(flightKey) === flight) {
+            refs.flights.current.delete(flightKey);
           }
         });
-      refs.flights.current.set(lessonId, flight);
+      refs.flights.current.set(flightKey, flight);
       return flight;
     },
     [
       courseId,
       dataSaver,
       getPlaybackSpeed,
+      onCourseRevisionChanged,
       playbackPreferencesReady,
       refs,
       scheduleDelayedAction,

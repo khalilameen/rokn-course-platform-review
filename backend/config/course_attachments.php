@@ -6,6 +6,17 @@ return [
     // Keep copied links short-lived and re-check entitlement on every request.
     'signed_url_minutes' => (int) env('COURSE_ATTACHMENT_SIGNED_URL_MINUTES', 30),
     'max_upload_kilobytes' => (int) env('COURSE_ATTACHMENT_MAX_UPLOAD_KILOBYTES', 51200),
+    'prompt' => [
+        'default_frequency' => 'once_per_course',
+        'at_seconds' => 20,
+        'frequencies' => [
+            'once_per_course' => 'مرة واحدة في الكورس',
+            'once_per_module' => 'مرة في كل وحدة بها مرفقات',
+        ],
+        'title' => 'مرفقات تساعدك في التطبيق',
+        'body' => 'هذه الوحدة تتضمن ملفات تساعدك على التطبيق',
+        'button_text' => 'عرض المرفقات',
+    ],
     'allowed_types' => [
         'pdf' => ['application/pdf'],
         'zip' => ['application/zip', 'application/x-zip-compressed'],

@@ -121,18 +121,18 @@
                     </div>
                     @endif
 
-                    @if($order->coupon)
+                    @if($order->coupon_id || $order->coupon_code)
                     <div class="info-row">
                         <div class="info-label">
                             <i class="fa fa-tag"></i>
                             <span>كوبون الخصم:</span>
                         </div>
                         <div class="info-value">
-                            <span class="code-badge">{{ $order->coupon->code }}</span>
+                            <span class="code-badge">{{ $order->coupon_code ?: 'كوبون #' . $order->coupon_id }}</span>
                             <div class="mt-2">
                                 <small class="text-success">
-                                    <i class="fa fa-percent"></i>
-                                    خصم: {{ $order->coupon->discount_type === 'percentage' ? $order->coupon->discount_value . '%' : number_format($order->coupon->discount_value, 2) . ' جنيه' }}
+                                    <i class="fa fa-coins"></i>
+                                    خصم: {{ number_format((float) $order->discount_amount, 0) }} عملة
                                 </small>
                             </div>
                         </div>

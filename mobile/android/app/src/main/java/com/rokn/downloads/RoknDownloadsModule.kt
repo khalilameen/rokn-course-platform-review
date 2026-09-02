@@ -97,16 +97,10 @@ class RoknDownloadsModule(
         ?: "application/octet-stream"
       request.setMimeType(resolvedMime)
 
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, safeName)
-      } else {
-        // App-specific external storage needs no dangerous permission on Android 7–9.
-        request.setDestinationInExternalFilesDir(
-          reactContext,
-          Environment.DIRECTORY_DOWNLOADS,
-          safeName,
-        )
-      }
+      // The JS boundary asks for the legacy permission only on Android 7–9.
+      // Keeping the destination public on every supported version makes a
+      // downloaded course attachment a user-owned file that survives uninstall.
+      request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, safeName)
 
       val downloadId = manager.enqueue(request)
       preferences.edit().putLong(preferenceKey, downloadId).apply()

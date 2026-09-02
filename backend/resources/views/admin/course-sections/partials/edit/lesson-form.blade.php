@@ -130,26 +130,4 @@
                         </small>
                     </div>
 
-                    <!-- Toggle Button for Additional Files -->
-                    <div class="form-group">
-                        <button type="button" id="toggleFileLinks" class="btn-modern toggle-file-links-btn">
-                            <i class="fa fa-plus-circle"></i>
-                            إضافة روابط ملفات إضافية
-                        </button>
-                    </div>
-
-                    <!-- Additional File Links -->
-                    <div id="additionalFileLinks" class="additional-file-links {{ ($lesson && ($lesson->file_link1 || $lesson->file_link2)) ? '' : 'is-hidden' }}">
-                        <div class="form-group">
-                            <label class="form-label" for="file_link1">رابط الملف الأول (اختياري)</label>
-                            <input type="url" id="file_link1" name="file_link1" class="form-control"
-                                   value="{{ old('file_link1', $lesson->file_link1 ?? '') }}" placeholder="https://...">
-                        </div>
-
-                        <div class="form-group">
-                            <label class="form-label" for="file_link2">رابط الملف الثاني (اختياري)</label>
-                            <input type="url" id="file_link2" name="file_link2" class="form-control"
-                                   value="{{ old('file_link2', $lesson->file_link2 ?? '') }}" placeholder="https://...">
-                        </div>
-                    </div>
                 </div>

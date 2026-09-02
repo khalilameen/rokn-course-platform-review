@@ -20,7 +20,7 @@ import {
   watchProjectResolution,
   openProjectInputAttachment,
 } from '../VideoPlayer/courseLearningApi';
-import {pickProjectFiles} from '../VideoPlayer/ProjectTransition';
+import {pickProjectFilesOwned} from '../VideoPlayer/ProjectTransition';
 import {
   CourseLearningModule,
   CourseProject,
@@ -41,6 +41,7 @@ import {
 } from '../../services/projectSubmissionDraft';
 import {removeLearnerDraftFile} from '../../services/learnerDraftFiles';
 import {useAppActiveState} from '../../hooks/useAppActiveState';
+import {assertAccountSessionBoundary} from '../../constants/helpers';
 
 interface ModuleProps {
   courseId: string;
@@ -347,33 +348,47 @@ const MapProjectCard = ({
             accessibilityRole="button"
             style={styles.filePicker}
             onPress={async () => {
-              const picked = await pickProjectFiles(project.submissionAllowedMimeTypes || []);
-              if (picked.length) {
-                try {
+              const cached: SelectedProjectFile[] = [];
+              try {
+                const {files: picked, ownerBoundary} =
+                  await pickProjectFilesOwned(
+                    project.submissionAllowedMimeTypes || [],
+                  );
+                assertAccountSessionBoundary(ownerBoundary);
+                if (picked.length) {
                   const maximum = Math.max(1, Math.min(5, project.submissionMaxFiles || 3));
                   const available = picked.slice(0, Math.max(0, maximum - files.length));
-                  const cached = await Promise.all(available.map(async selected => {
+                  for (const selected of available) {
                     const size = await validateProjectFile(selected);
-                    return cacheProjectDraftFile({...selected, size});
-                  }));
+                    assertAccountSessionBoundary(ownerBoundary);
+                    cached.push(
+                      await cacheProjectDraftFile(
+                        {...selected, size},
+                        ownerBoundary,
+                      ),
+                    );
+                    assertAccountSessionBoundary(ownerBoundary);
+                  }
                   setFiles(current => [...current, ...cached].slice(0, maximum));
-                } catch (error: unknown) {
-                  const code = error instanceof Error ? error.message : '';
-                  Alert.alert(
-                    code === 'LEARNER_DRAFT_STORAGE_FULL'
-                      ? 'اكتملت مساحة الملفات المعلّقة'
-                      : code === 'PROJECT_FILE_TYPE_UNSUPPORTED'
-                      ? 'صيغة الملف غير مدعومة'
-                      : code === 'PROJECT_FILE_TOO_LARGE'
-                      ? 'حجم الملف كبير'
-                      : 'تعذّر قراءة الملف',
-                    code === 'LEARNER_DRAFT_STORAGE_FULL'
-                      ? 'اتصل بالإنترنت لإرسال الملفات المعلّقة\nثم حاول مرة أخرى'
-                      : code === 'PROJECT_FILE_TYPE_UNSUPPORTED'
-                      ? `اختر ${PROJECT_SUBMISSION_FORMATS_LABEL}`
-                      : 'اختر نسخة أصغر أو حاول مرة أخرى',
-                  );
                 }
+              } catch (error: unknown) {
+                await Promise.all(cached.map(removeLearnerDraftFile));
+                const code = error instanceof Error ? error.message : '';
+                if (code === 'ACCOUNT_CHANGED_DURING_REQUEST') return;
+                Alert.alert(
+                  code === 'LEARNER_DRAFT_STORAGE_FULL'
+                    ? 'اكتملت مساحة الملفات المعلّقة'
+                    : code === 'PROJECT_FILE_TYPE_UNSUPPORTED'
+                    ? 'صيغة الملف غير مدعومة'
+                    : code === 'PROJECT_FILE_TOO_LARGE'
+                    ? 'حجم الملف كبير'
+                    : 'تعذّر قراءة الملف',
+                  code === 'LEARNER_DRAFT_STORAGE_FULL'
+                    ? 'اتصل بالإنترنت لإرسال الملفات المعلّقة\nثم حاول مرة أخرى'
+                    : code === 'PROJECT_FILE_TYPE_UNSUPPORTED'
+                    ? `اختر ${PROJECT_SUBMISSION_FORMATS_LABEL}`
+                    : 'اختر نسخة أصغر أو حاول مرة أخرى',
+                );
               }
             }}>
             <View style={styles.filePickerIcon}>
@@ -505,9 +520,7 @@ const Module = ({
                   key={attachment.id}
                   accessibilityRole="button"
                   style={styles.attachmentRow}
-                  onPress={() =>
-                    openCourseAttachment(attachment).catch(() => undefined)
-                  }>
+                  onPress={() => void openCourseAttachment(attachment)}>
                   <View style={styles.attachmentCopy}>
                     <Text style={styles.attachmentTitle} numberOfLines={2}>
                       {attachment.title}

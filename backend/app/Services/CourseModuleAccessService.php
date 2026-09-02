@@ -23,7 +23,8 @@ final class CourseModuleAccessService
 {
     public function __construct(
         private FinancialProvenanceService $provenance,
-        private CourseSectionSequenceService $sectionSequence
+        private CourseSectionSequenceService $sectionSequence,
+        private CourseRevisionLearnerReadService $revisionReads
     )
     {
     }
@@ -95,11 +96,10 @@ final class CourseModuleAccessService
         }
 
         $previous = $sections[$targetIndex - 1];
-        if (!StudentSectionProgress::query()
-            ->where('user_id', $user->id)
-            ->where('course_section_id', $previous->id)
-            ->where('is_completed', true)
-            ->exists()) {
+        if (!$this->revisionReads->completedSectionIds(
+            (int) $user->id,
+            [(int) $previous->id]
+        )->contains((int) $previous->id)) {
             return false;
         }
 
@@ -109,11 +109,10 @@ final class CourseModuleAccessService
                 && $section->getSectionType() === 'project'
             );
 
-            if ($project && !UserProjectEvaluation::query()
-                ->where('user_id', $user->id)
-                ->where('project_id', $project->sectionable_id)
-                ->where('passed', true)
-                ->exists()) {
+            if ($project && !$this->revisionReads->passedProjectIds(
+                (int) $user->id,
+                [(int) $project->sectionable_id]
+            )->contains((int) $project->sectionable_id)) {
                 return false;
             }
         }
@@ -160,11 +159,10 @@ final class CourseModuleAccessService
 
         $previous = $sections[$targetIndex - 1];
 
-        return StudentSectionProgress::query()
-            ->where('user_id', $user->id)
-            ->where('course_section_id', $previous->id)
-            ->where('is_completed', true)
-            ->exists();
+        return $this->revisionReads->completedSectionIds(
+            (int) $user->id,
+            [(int) $previous->id]
+        )->contains((int) $previous->id);
     }
 
     public function temporaryDownloadUrl(User $user, Course $course, CourseModule $module, Attachment $attachment): string

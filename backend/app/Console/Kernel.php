@@ -69,7 +69,7 @@ class Kernel extends ConsoleKernel
             ->onOneServer()
             ->runInBackground();
         $schedule->command('ai:recover-stalled-feedback --limit=200')
-            ->everyFiveMinutes()
+            ->everyMinute()
             ->withoutOverlapping(10)
             ->onOneServer()
             ->runInBackground();

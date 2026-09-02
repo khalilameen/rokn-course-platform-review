@@ -7,12 +7,13 @@ namespace App\Services;
 use App\Models\AiUsageEvent;
 use App\Models\CourseChatTurn;
 use App\Models\AiInputAttachment;
+use App\Models\Lesson;
 use App\Models\User;
+use App\Support\DatabaseCapabilities;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\CursorPaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use App\Support\BusinessClock;
 use UnexpectedValueException;
@@ -21,9 +22,13 @@ final class CourseChatTurnService
 {
     private ?bool $schemaAvailable = null;
 
+    public function __construct(
+        private readonly CourseStagedAuthoringService $stagedAuthoring
+    ) {}
+
     public function available(): bool
     {
-        return $this->schemaAvailable ??= Schema::hasTable('course_chat_turns');
+        return $this->schemaAvailable ??= DatabaseCapabilities::hasTable('course_chat_turns');
     }
 
     public function begin(
@@ -323,7 +328,7 @@ final class CourseChatTurnService
             ], true)) {
                 return;
             }
-            if (!$usage && Schema::hasTable('ai_usage_events')) {
+            if (!$usage && DatabaseCapabilities::hasTable('ai_usage_events')) {
                 $usage = AiUsageEvent::query()
                     ->where('request_id', $locked->client_request_id)
                     ->where('user_id', $locked->user_id)
@@ -344,12 +349,44 @@ final class CourseChatTurnService
         $this->transition($turn, CourseChatTurn::FAILED, $code, now());
     }
 
+    /**
+     * Close a request that was rejected before any worker owned its quota.
+     *
+     * Double taps can hold stale QUEUED models in both web requests. The
+     * conditional update prevents the losing request from failing a turn
+     * after the winner has already admitted and dispatched it.
+     */
+    public function failBeforeDispatch(?CourseChatTurn $turn, string $code): bool
+    {
+        if (!$turn || !$this->available()) {
+            return false;
+        }
+
+        return CourseChatTurn::query()
+            ->whereKey($turn->id)
+            ->where('status', CourseChatTurn::QUEUED)
+            ->where(function ($query): void {
+                $query->whereNull('admission_quota_consumed_at')
+                    ->orWhereNotNull('admission_quota_released_at');
+            })
+            ->update([
+                'status' => CourseChatTurn::FAILED,
+                'error_code' => substr($code, 0, 64),
+                'completed_at' => now(),
+                'updated_at' => now(),
+            ]) === 1;
+    }
+
     public function page(
         int $userId,
         int $courseId,
         ?int $lessonId,
         int $perPage = 20
     ): CursorPaginator {
+        $lessonAliases = $lessonId === null
+            ? []
+            : $this->stagedAuthoring->equivalentEntityIds(Lesson::class, $lessonId);
+
         return CourseChatTurn::query()
             ->where('user_id', $userId)
             ->where('course_id', $courseId)
@@ -357,7 +394,7 @@ final class CourseChatTurnService
             ->when(
                 $lessonId === null,
                 fn ($query) => $query->whereNull('lesson_id'),
-                fn ($query) => $query->where('lesson_id', $lessonId)
+                fn ($query) => $query->whereIn('lesson_id', $lessonAliases)
             )
             ->orderByDesc('id')
             ->cursorPaginate(max(1, min(50, $perPage)));
@@ -435,11 +472,11 @@ final class CourseChatTurnService
                     return 0;
                 }
 
-                $usage = Schema::hasTable('ai_usage_events')
+                $usage = DatabaseCapabilities::hasTable('ai_usage_events')
                     ? AiUsageEvent::query()
                         ->where('request_id', $turn->client_request_id)
                         ->where('user_id', $turn->user_id)
-                        ->where('course_id', $turn->course_id)
+                        ->where('enrollment_id', $turn->enrollment_id)
                         ->where('feature', 'course_chat')
                         ->lockForUpdate()
                         ->first()

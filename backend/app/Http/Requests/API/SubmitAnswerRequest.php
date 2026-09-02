@@ -25,7 +25,11 @@ final class SubmitAnswerRequest extends FormRequest
     {
         return [
             'exam_attempt_id' => 'required|integer|exists:exam_attempts,id',
-            'question_id' => 'required|integer|exists:questions,id',
+            // The attempt owns an immutable question snapshot. The authored
+            // question may be replaced by a later published revision while
+            // this learner is still answering it; lifecycle validation below
+            // checks membership in that snapshot instead of the live table.
+            'question_id' => 'required|integer|min:1',
             'selected_answer' => 'required|integer|in:1,2,3,4,5,6',
         ];
     }

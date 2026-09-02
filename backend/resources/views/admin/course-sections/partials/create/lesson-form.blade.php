@@ -96,9 +96,4 @@
                         </small>
                     </div>
 
-                    <!-- Hidden Additional File Links (Removed functionality from UI) -->
-                    <div id="additionalFileLinks" class="additional-file-links is-hidden">
-                        <input type="hidden" name="file_link1" value="">
-                        <input type="hidden" name="file_link2" value="">
-                    </div>
                 </div>

@@ -76,6 +76,7 @@ class ProjectSubmissionController extends Controller
             $isAdministrator ? 'user' : null,
             'project.section.course',
             'reviewer',
+            'reviewDecisions.reviewer',
             'aiInputAttachments',
             'feedbackThread',
         ]));

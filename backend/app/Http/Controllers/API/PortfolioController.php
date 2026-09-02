@@ -9,6 +9,7 @@ use App\Support\RoknPublicUrl;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PortfolioItemResource;
 use App\Http\Resources\PortfolioMediaResource;
+use App\Models\Course;
 use App\Models\PortfolioItem;
 use App\Models\PortfolioVideoUpload;
 use App\Models\Project;
@@ -19,15 +20,19 @@ use App\Services\CourseChatAccessService;
 use App\Services\PortfolioShareIdentityService;
 use App\Services\PortfolioVideoUploadService;
 use App\Services\SafeExternalUrl;
+use App\Services\CourseRevisionLearnerReadService;
+use App\Services\CourseStagedAuthoringService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Throwable;
 use UnexpectedValueException;
 use App\Support\DownloadFilename;
@@ -41,7 +46,9 @@ final class PortfolioController extends Controller
         private BunnyService $bunnyService,
         private CourseChatAccessService $courseAccess,
         private PortfolioShareIdentityService $portfolioShares,
-        private PortfolioVideoUploadService $videoUploads
+        private PortfolioVideoUploadService $videoUploads,
+        private CourseRevisionLearnerReadService $revisionReads,
+        private CourseStagedAuthoringService $stagedAuthoring
     ) {
     }
 
@@ -90,20 +97,38 @@ final class PortfolioController extends Controller
         $usedProjectIds = $user->portfolioItems()
             ->whereNotNull('source_project_id')
             ->pluck('source_project_id');
+        $usedCurrentProjectIds = collect($this->stagedAuthoring->currentLearnerEntityMap(
+            Project::class,
+            $usedProjectIds
+        ))->values()->unique()->values();
 
-        $evaluations = UserProjectEvaluation::query()
-            ->where('user_id', $user->id)
-            ->where('passed', true)
-            ->when($usedProjectIds->isNotEmpty(), function ($query) use ($usedProjectIds) {
-                $query->whereNotIn('project_id', $usedProjectIds);
-            })
-            ->whereHas('project.section')
+        $projects = Project::query()
+            ->whereHas('section.course', fn ($courses) => $courses
+                ->where('is_coming_soon', false)->whereNull('parent_id'))
+            ->when($usedCurrentProjectIds->isNotEmpty(), fn ($query) =>
+                $query->whereNotIn('id', $usedCurrentProjectIds)
+            )
             ->with([
-                'project.section.course:id,name_ar,name_en,image',
-                'project.section.module:id,course_id,title,title_ar,title_en,order',
-            ])
-            ->latest('updated_at')
-            ->paginate($validated['per_page'] ?? 20);
+                'section.course:id,name_ar,name_en,image',
+                'section.module:id,course_id,title,title_ar,title_en,order',
+            ])->get()->keyBy('id');
+        $eligible = $this->revisionReads
+            ->projectEvaluations((int) $user->id, $projects->keys())
+            ->filter(fn (UserProjectEvaluation $row): bool => (bool) $row->passed)
+            ->map(function (UserProjectEvaluation $row, int $currentId) use ($projects) {
+                $row->setRelation('project', $projects->get($currentId));
+                $row->project_id = $currentId;
+                return $row;
+            })->sortByDesc('updated_at')->values();
+        $perPage = (int) ($validated['per_page'] ?? 20);
+        $page = max(1, (int) $request->input('page', 1));
+        $evaluations = new LengthAwarePaginator(
+            $eligible->forPage($page, $perPage)->values(),
+            $eligible->count(),
+            $perPage,
+            $page,
+            ['path' => $request->url(), 'query' => $request->query()]
+        );
 
         return response()->json([
             'status' => 200,
@@ -192,7 +217,16 @@ final class PortfolioController extends Controller
 
         $user = auth('api')->user();
         $courseId = $request->filled('course_id') ? $request->integer('course_id') : null;
+        $requestedSourceProjectId = $request->filled('source_project_id')
+            ? $request->integer('source_project_id')
+            : null;
+        $currentSourceProjectId = $requestedSourceProjectId
+            ? $this->currentProjectId($requestedSourceProjectId)
+            : null;
         $sourceProject = null;
+        $equivalentSourceProjectIds = $currentSourceProjectId
+            ? $this->logicalProjectIds($currentSourceProjectId)
+            : [];
         $files = $request->hasFile('files') ? $request->file('files') : [];
         $fileTypes = $request->input('file_types', []);
         $fileFingerprints = [];
@@ -239,7 +273,10 @@ final class PortfolioController extends Controller
                 $request,
                 $requestFingerprint,
                 $courseId,
+                $requestedSourceProjectId,
+                $currentSourceProjectId,
                 $sourceProject,
+                $equivalentSourceProjectIds,
                 $files,
                 $fileTypes,
                 $fileFingerprints
@@ -256,21 +293,20 @@ final class PortfolioController extends Controller
             return $this->createdItemResponse($existingRequest, true);
         }
 
-        if ($request->filled('source_project_id')) {
+        if ($currentSourceProjectId) {
             if ($user->portfolioItems()
-                ->where('source_project_id', $request->integer('source_project_id'))
+                ->whereIn('source_project_id', $equivalentSourceProjectIds)
                 ->exists()) {
                 throw ValidationException::withMessages([
                     'source_project_id' => ['This project is already in your portfolio.'],
                 ]);
             }
 
-            $sourceProject = Project::with('section')->findOrFail($request->integer('source_project_id'));
-            $hasPassed = UserProjectEvaluation::query()
-                ->where('user_id', $user->id)
-                ->where('project_id', $request->integer('source_project_id'))
-                ->where('passed', true)
-                ->exists();
+            $sourceProject = $this->currentPublishedProject($currentSourceProjectId);
+            $hasPassed = $this->revisionReads->passedProjectIds(
+                (int) $user->id,
+                [$currentSourceProjectId]
+            )->contains($currentSourceProjectId);
             if (!$hasPassed || !$sourceProject->section) {
                 throw ValidationException::withMessages([
                     'source_project_id' => ['Only a passed project can be added to the portfolio.'],
@@ -362,6 +398,7 @@ final class PortfolioController extends Controller
                 $itemTitle,
                 $itemDescription,
                 $requestFingerprint,
+                $requestedSourceProjectId,
                 &$replayedAfterUpload
             ) {
                 $lockedUser = User::query()
@@ -383,12 +420,58 @@ final class PortfolioController extends Controller
                     return $existing;
                 }
 
-                if ($request->filled('source_project_id') && $lockedUser->portfolioItems()
-                    ->where('source_project_id', $request->integer('source_project_id'))
-                    ->exists()) {
+                // A publish may finish while remote media is uploading. Resolve
+                // the project again under the learner lock so the new item never
+                // stores an archived graph ID or a project removed by that publish.
+                $lockedCurrentSourceProjectId = $requestedSourceProjectId
+                    ? $this->currentProjectId($requestedSourceProjectId)
+                    : null;
+                $currentEquivalentSourceProjectIds = $lockedCurrentSourceProjectId
+                    ? $this->logicalProjectIds($lockedCurrentSourceProjectId)
+                    : [];
+                if ($currentEquivalentSourceProjectIds !== [] && $lockedUser->portfolioItems()
+                    ->whereIn('source_project_id', $currentEquivalentSourceProjectIds)->exists()) {
                     throw ValidationException::withMessages([
                         'source_project_id' => ['This project is already in your portfolio.'],
                     ]);
+                }
+
+                $lockedCourseId = $courseId;
+                if ($lockedCurrentSourceProjectId) {
+                    $lockedSourceProject = $this->currentPublishedProject($lockedCurrentSourceProjectId);
+                    $lockedCourse = Course::query()
+                        ->whereKey($lockedSourceProject->section->course_id)
+                        ->lockForUpdate()
+                        ->firstOrFail();
+                    // Publication takes the same canonical course lock. Resolve
+                    // once more after acquiring it; from here until commit the
+                    // selected project cannot be archived underneath this row.
+                    $lockedCurrentSourceProjectId = $this->currentProjectId(
+                        $requestedSourceProjectId
+                    );
+                    $lockedSourceProject = $this->currentPublishedProject(
+                        $lockedCurrentSourceProjectId
+                    );
+                    abort_unless(
+                        (int) $lockedSourceProject->section->course_id === (int) $lockedCourse->id,
+                        409
+                    );
+                    $hasPassed = $this->revisionReads->passedProjectIds(
+                        (int) $lockedUser->id,
+                        [$lockedCurrentSourceProjectId]
+                    )->contains($lockedCurrentSourceProjectId);
+                    if (!$hasPassed || !$lockedSourceProject->section) {
+                        throw ValidationException::withMessages([
+                            'source_project_id' => ['Only a passed project can be added to the portfolio.'],
+                        ]);
+                    }
+                    $projectCourseId = (int) $lockedSourceProject->section->course_id;
+                    if ($lockedCourseId && $lockedCourseId !== $projectCourseId) {
+                        throw ValidationException::withMessages([
+                            'course_id' => ['The course does not match the selected project.'],
+                        ]);
+                    }
+                    $lockedCourseId = $projectCourseId;
                 }
 
                 $item = $lockedUser->portfolioItems()->create([
@@ -396,8 +479,8 @@ final class PortfolioController extends Controller
                     'request_fingerprint' => $requestFingerprint,
                     'title' => $itemTitle,
                     'description' => $itemDescription,
-                    'course_id' => $courseId,
-                    'source_project_id' => $request->input('source_project_id'),
+                    'course_id' => $lockedCourseId,
+                    'source_project_id' => $lockedCurrentSourceProjectId,
                     'slug' => $this->portfolioItemSlug($itemTitle),
                     'role' => $request->input('role'),
                     'tools' => $request->input('tools'),
@@ -544,11 +627,11 @@ final class PortfolioController extends Controller
     public function destroy($id): JsonResponse
     {
         $user = auth('api')->user();
-        DB::transaction(function () use ($user, $id): void {
+        $deleted = DB::transaction(function () use ($user, $id): bool {
             $lockedUser = User::query()->whereKey($user->id)->lockForUpdate()->first();
             abort_if(!$lockedUser, 404);
             $item = $lockedUser->portfolioItems()->lockForUpdate()->find($id);
-            abort_if(!$item, 404);
+            if (!$item) return false;
             $item->forceFill([
                 'is_public' => false,
                 'deletion_started_at' => now(),
@@ -563,13 +646,14 @@ final class PortfolioController extends Controller
                 $media->delete();
             }
             $item->delete();
+            return true;
         }, 3);
 
         return response()->json([
             'status' => 200,
             'success' => true,
             'message' => 'تم حذف المشروع',
-            'data' => null,
+            'data' => ['already_deleted' => !$deleted],
         ]);
     }
 
@@ -934,13 +1018,13 @@ final class PortfolioController extends Controller
     public function deleteMedia($id, $mediaId): JsonResponse
     {
         $user = auth('api')->user();
-        DB::transaction(function () use ($user, $id, $mediaId): void {
+        $deleted = DB::transaction(function () use ($user, $id, $mediaId): bool {
             $lockedUser = User::query()->whereKey($user->id)->lockForUpdate()->first();
             abort_if(!$lockedUser, 404);
             $item = $lockedUser->portfolioItems()->lockForUpdate()->find($id);
-            abort_if(!$item || $item->deletion_started_at, 404);
+            if (!$item || $item->deletion_started_at) return false;
             $media = $item->mediaFiles()->lockForUpdate()->find($mediaId);
-            abort_if(!$media, 404);
+            if (!$media) return false;
             $media->forceFill([
                 'deletion_lease_id' => (string) Str::uuid(),
                 'deletion_started_at' => now(),
@@ -950,13 +1034,14 @@ final class PortfolioController extends Controller
             if (!$item->mediaFiles()->exists() && $item->expected_media_count > 0) {
                 $item->forceFill(['is_public' => false])->save();
             }
+            return true;
         }, 3);
 
         return response()->json([
             'status' => 200,
             'success' => true,
             'message' => 'تم حذف الملف',
-            'data' => null,
+            'data' => ['already_deleted' => !$deleted],
         ]);
     }
 
@@ -1030,9 +1115,9 @@ final class PortfolioController extends Controller
         }
         $validated = $request->validate([
             'portfolio_slug' => [
-                'sometimes', 'required', 'string', 'min:3', 'max:60', 'regex:/^[a-z0-9-]+$/',
-                'not_regex:/^student-[1-9][0-9]*$/',
-                Rule::unique('users', 'portfolio_slug')->ignore($user->id),
+                // Rolling clients may still send the former editable alias.
+                // It is ignored because the server owns the unlisted token.
+                'sometimes', 'nullable', 'string', 'max:60',
             ],
             'portfolio_headline' => 'nullable|string|max:160',
             'portfolio_location' => 'nullable|string|max:120',
@@ -1048,9 +1133,7 @@ final class PortfolioController extends Controller
             ],
         ]);
 
-        if (array_key_exists('portfolio_slug', $validated)) {
-            $validated['portfolio_slug'] = Str::slug((string) $validated['portfolio_slug']);
-        }
+        unset($validated['portfolio_slug']);
         $user = DB::transaction(function () use ($user, $validated): User {
             /** @var User $locked */
             $locked = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
@@ -1226,6 +1309,45 @@ final class PortfolioController extends Controller
         if ($fallback !== '') return $fallback;
 
         return 'item-' . Str::lower((string) Str::uuid());
+    }
+
+    /** @return list<int> */
+    private function logicalProjectIds(int $projectId): array
+    {
+        $currentProjectId = $this->stagedAuthoring->currentLearnerEntityMap(
+            Project::class,
+            [$projectId]
+        )[$projectId] ?? $projectId;
+
+        return $this->stagedAuthoring->equivalentEntityIds(
+            Project::class,
+            (int) $currentProjectId
+        );
+    }
+
+    private function currentProjectId(int $projectId): int
+    {
+        return (int) ($this->stagedAuthoring->currentLearnerEntityMap(
+            Project::class,
+            [$projectId]
+        )[$projectId] ?? $projectId);
+    }
+
+    private function currentPublishedProject(int $projectId): Project
+    {
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $projectId = $this->currentProjectId($projectId);
+            $project = Project::query()
+                ->whereKey($projectId)
+                ->whereHas('section.course', fn ($courses) => $courses
+                    ->where('is_coming_soon', false)
+                    ->whereNull('parent_id'))
+                ->with('section')
+                ->first();
+            if ($project) return $project;
+        }
+
+        throw (new ModelNotFoundException())->setModel(Project::class, [$projectId]);
     }
 
     private function error(string $message, int $httpStatus): JsonResponse

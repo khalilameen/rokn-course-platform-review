@@ -150,8 +150,10 @@ export const listPortfolioMediaUploads = async (
 
 export const stagePortfolioMediaUpload = async (
   entry: PortfolioMediaOutboxEntry,
+  ownerBoundary?: AccountSessionBoundary,
 ): Promise<PortfolioMediaOutboxEntry> => {
-  const boundary = await captureAccountSessionBoundary();
+  const boundary = ownerBoundary || (await captureAccountSessionBoundary());
+  assertAccountSessionBoundary(boundary);
   if (!validEntry(entry) || !(await learnerDraftFileIsReadable(entry.file))) {
     throw new Error('PORTFOLIO_MEDIA_OUTBOX_INVALID');
   }
@@ -190,8 +192,9 @@ export const stagePortfolioMediaUpload = async (
 
 export const completePortfolioMediaUpload = async (
   entry: Pick<PortfolioMediaOutboxEntry, 'clientRequestId' | 'storageKey'>,
+  ownerBoundary?: AccountSessionBoundary,
 ): Promise<void> => {
-  const boundary = await captureAccountSessionBoundary();
+  const boundary = ownerBoundary || (await captureAccountSessionBoundary());
   const key = await scopedKey(boundary, entry.storageKey);
   await withLock(async () => {
     assertAccountSessionBoundary(boundary);
@@ -211,8 +214,9 @@ export const completePortfolioMediaUpload = async (
 
 export const discardPortfolioMediaUploads = async (
   projectId: string,
+  ownerBoundary?: AccountSessionBoundary,
 ): Promise<void> => {
-  const boundary = await captureAccountSessionBoundary();
+  const boundary = ownerBoundary || (await captureAccountSessionBoundary());
   const key = await scopedKey(boundary);
   await withLock(async () => {
     assertAccountSessionBoundary(boundary);

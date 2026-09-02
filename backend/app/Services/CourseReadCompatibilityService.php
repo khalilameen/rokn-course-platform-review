@@ -61,6 +61,40 @@ final readonly class CourseReadCompatibilityService
      */
     public function detailedCourse(int $courseId, ?User $user): array
     {
+        $course = $this->loadDetailedCourse($courseId);
+        $resolution = $user
+            ? $this->courseAccess->resolveEntitlement((int) $user->id, $courseId)
+            : [
+                'entitlement' => ['has_learning_access' => false, 'access_type' => 'none'],
+                'enrollment' => null,
+            ];
+        $access = $resolution['entitlement'];
+
+        $publishedForLearning = $course->isPublishedForLearning();
+        $hasAccess = $publishedForLearning && (bool) $access['has_learning_access'];
+        $enrollment = $hasAccess ? $resolution['enrollment'] : null;
+
+        return [
+            'course' => $course,
+            // An old enrollment must never turn a draft back into live
+            // content. Announced courses still use the public short resource.
+            'has_access' => $hasAccess,
+            'access_type' => $access['access_type'],
+            'entitlement' => $access,
+            'enrollment' => $enrollment,
+            'unavailable' => !$hasAccess
+                && !$this->catalogue->isPubliclyDiscoverable((int) $course->id),
+        ];
+    }
+
+    /** Draft override for the authenticated dashboard only; presentation is shared. */
+    public function detailedCourseForAdminPreview(int $courseId): Course
+    {
+        return $this->loadDetailedCourse($courseId);
+    }
+
+    private function loadDetailedCourse(int $courseId): Course
+    {
         $course = $this->catalogue->withPublicPlanFacts(Course::query())->with([
             'photo',
             'grade',
@@ -90,29 +124,8 @@ final readonly class CourseReadCompatibilityService
         $course->loadAvg('ratings', 'rating');
         $this->loadLessonMediaState($course);
         $this->duration->attach($course);
-        $resolution = $user
-            ? $this->courseAccess->resolveEntitlement((int) $user->id, $courseId)
-            : [
-                'entitlement' => ['has_learning_access' => false, 'access_type' => 'none'],
-                'enrollment' => null,
-            ];
-        $access = $resolution['entitlement'];
 
-        $publishedForLearning = $course->isPublishedForLearning();
-        $hasAccess = $publishedForLearning && (bool) $access['has_learning_access'];
-        $enrollment = $hasAccess ? $resolution['enrollment'] : null;
-
-        return [
-            'course' => $course,
-            // An old enrollment must never turn a draft back into live
-            // content. Announced courses still use the public short resource.
-            'has_access' => $hasAccess,
-            'access_type' => $access['access_type'],
-            'entitlement' => $access,
-            'enrollment' => $enrollment,
-            'unavailable' => !$hasAccess
-                && !$this->catalogue->isPubliclyDiscoverable((int) $course->id),
-        ];
+        return $course;
     }
 
     /**

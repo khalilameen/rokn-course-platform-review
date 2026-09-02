@@ -26,9 +26,15 @@ export const deleteRemoteAccount = async (
     : isRecord(response.data)
     ? response.data
     : {};
+  const deletionStatus = String(body.deletion_status || '').trim();
+  if (
+    body.success !== true ||
+    !['completed', 'cleanup_pending'].includes(deletionStatus)
+  ) {
+    throw new Error('INVALID_ACCOUNT_DELETION_RESPONSE');
+  }
   return {
-    cleanupPending:
-      response.status === 202 || body.deletion_status === 'cleanup_pending',
+    cleanupPending: deletionStatus === 'cleanup_pending',
     message: typeof body.message === 'string' ? body.message : undefined,
   };
 };

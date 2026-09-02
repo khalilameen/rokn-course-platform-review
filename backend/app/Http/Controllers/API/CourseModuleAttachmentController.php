@@ -9,6 +9,7 @@ use App\Models\Attachment;
 use App\Models\Course;
 use App\Models\CourseModule;
 use App\Services\CourseModuleAccessService;
+use App\Services\CourseStagedAuthoringService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -21,7 +22,8 @@ final class CourseModuleAttachmentController extends Controller
         int|string $course,
         int|string $module,
         int|string $attachment,
-        CourseModuleAccessService $access
+        CourseModuleAccessService $access,
+        CourseStagedAuthoringService $revisions
     ): StreamedResponse {
         // Native/system clients do not forward the bearer token. The signed URL
         // binds an opaque encrypted owner claim to every resource key; access is
@@ -32,7 +34,10 @@ final class CourseModuleAttachmentController extends Controller
         // Resolve resources only after signature validation. Implicit route
         // binding would otherwise reveal which numeric ids exist to callers
         // that do not possess a valid capability.
-        $courseModel = Course::query()->findOrFail($course);
+        $courseModel = $revisions->canonicalFor(Course::query()->findOrFail($course));
+        $module = $revisions->currentEntityId(CourseModule::class, (int) $module) ?? (int) $module;
+        $attachment = $revisions->currentEntityId(Attachment::class, (int) $attachment)
+            ?? (int) $attachment;
         $moduleModel = CourseModule::query()
             ->whereKey($module)
             ->where('course_id', $courseModel->id)

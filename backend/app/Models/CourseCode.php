@@ -239,7 +239,7 @@ class CourseCode extends Model
 
             /** @var self|null $lockedCode */
             $lockedCode = self::query()->lockForUpdate()->find($this->getKey());
-            if (!$lockedCode || !$lockedCode->canBeUsedByUser($userId)) {
+            if (!$lockedCode) {
                 return false;
             }
 
@@ -248,6 +248,32 @@ class CourseCode extends Model
                 ? Course::query()->lockForUpdate()->find($courseId)
                 : null;
             if (!$course || !$course->isPublishedForLearning()) {
+                return false;
+            }
+
+            // A response can be lost after the durable usage row commits. A
+            // repeated tap must finish any legacy/incomplete order, bill or
+            // enrollment instead of reporting failure for an entitlement the
+            // learner already consumed. The user + code locks make this the
+            // canonical recovery path as well as the normal redeem path.
+            $existingUsage = $lockedCode->usages()
+                ->where('user_id', $userId)
+                ->orderBy('id')
+                ->first();
+            if ($existingUsage) {
+                $ledgerCount = $lockedCode->usages()->count();
+                if ((int) $lockedCode->used_count < $ledgerCount) {
+                    $lockedCode->forceFill(['used_count' => $ledgerCount])->save();
+                }
+                if (!$lockedCode->enrollUserInCourse($userId)) {
+                    throw new \RuntimeException('Course-code redemption recovery could not be completed.');
+                }
+
+                $this->setRawAttributes($lockedCode->fresh()->getAttributes(), true);
+                return true;
+            }
+
+            if (!$lockedCode->canBeUsedByUser($userId)) {
                 return false;
             }
 
@@ -410,6 +436,52 @@ class CourseCode extends Model
         // Check if order already exists for this code redemption
         $existingOrder = $this->getOrderForUser($userId);
         if ($existingOrder) {
+            if (
+                (int) $existingOrder->course_id !== $courseId
+                || $existingOrder->payment_method !== Order::PAYMENT_METHOD_COURSE_CODE
+                || $existingOrder->status !== Order::STATUS_APPROVED
+                || !in_array($existingOrder->financial_status, [
+                    null,
+                    '',
+                    Order::FINANCIAL_PENDING,
+                    Order::FINANCIAL_SETTLED,
+                ], true)
+                || (float) $existingOrder->final_amount !== 0.0
+            ) {
+                \Log::error('Existing course-code order does not match its redemption contract', [
+                    'order_id' => $existingOrder->id,
+                    'code_id' => $this->id,
+                    'user_id' => $userId,
+                    'course_id' => $courseId,
+                ]);
+                return null;
+            }
+
+            $existingOrder->forceFill([
+                'financial_status' => Order::FINANCIAL_SETTLED,
+                'approved_at' => $existingOrder->approved_at ?: now(),
+            ])->save();
+
+            // Repair rows produced by the legacy non-atomic flow. The unique
+            // order_id on bills makes this safe under retries.
+            $bill = Bill::withTrashed()->firstOrNew([
+                'order_id' => $existingOrder->id,
+            ]);
+            $bill->forceFill([
+                'user_id' => $userId,
+                'course_id' => $courseId,
+                'bill_number' => $bill->bill_number
+                    ?: Bill::numberForOrder((int) $existingOrder->id),
+                'amount' => 0,
+                'tax_amount' => 0,
+                'total_amount' => 0,
+                'payment_status' => Bill::PAYMENT_STATUS_PAID,
+                'payment_method' => Order::PAYMENT_METHOD_COURSE_CODE,
+                'paid_at' => $bill->paid_at ?: now(),
+                'notes' => 'Course code grant #' . $this->id,
+                'deleted_at' => null,
+            ])->save();
+
             return $existingOrder;
         }
 
@@ -498,7 +570,14 @@ class CourseCode extends Model
 
         $course = Course::query()->find($courseId);
 
-        return $course !== null && $course->isPublishedForLearning();
+        // An administrator retiring a commercial course unlists it instead of
+        // deleting the entitlement behind existing learners. New wallet
+        // purchases already respect catalogue visibility; access codes and
+        // grants must honor the same retirement boundary or they would keep
+        // creating enrollments after the dashboard says sales are stopped.
+        return $course !== null
+            && (bool) $course->is_catalog_visible
+            && $course->isPublishedForLearning();
     }
 
     /**
@@ -861,6 +940,7 @@ class CourseCode extends Model
     {
         return Order::where('user_id', $userId)
             ->where('course_code_id', $this->id)
+            ->orderBy('id')
             ->first();
     }
 }

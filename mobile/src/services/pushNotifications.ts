@@ -49,6 +49,22 @@ const PUSH_CHANNELS = {
 
 const PENDING_NOTIFICATION_OPEN_KEY = '@rokn/push-open-pending/v1';
 
+// Firebase can rotate twice while an earlier registration request is still in
+// flight. Keep registration mutations ordered and invalidate their ownership
+// synchronously on opt-out/logout so a slow older response cannot become the
+// locally remembered token after a newer one.
+let pushRegistrationGeneration = 0;
+let pushRegistrationTail: Promise<unknown> = Promise.resolve();
+
+const serializePushRegistration = <T>(operation: () => Promise<T>) => {
+  const result = pushRegistrationTail.then(operation, operation);
+  pushRegistrationTail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+};
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldPlaySound: false,
@@ -118,16 +134,28 @@ export const prepareNotificationChannels = async () => {
   ]);
 };
 
-const registerTokenForCurrentAccount = async (token: string) => {
+const registerTokenForCurrentAccountNow = async (
+  token: string,
+  generation = pushRegistrationGeneration,
+) => {
+  if (generation !== pushRegistrationGeneration) return false;
   const sessionToken = await currentSessionToken();
   if (!token || !sessionToken) return false;
   if (!(await getSmartRemindersEnabled())) return false;
 
   const accountScope = await getCurrentAccountStorageScope();
   const tokenKey = await pushStorageKey(PUSH_TOKEN_KEY);
+  const legacyPendingKey = await pushStorageKey(
+    LEGACY_PUSH_UNREGISTER_PENDING_KEY,
+  );
   const previousToken = await getItem<string>(tokenKey);
   const installationId = await getInstallationId();
-  if (!(await sessionStillCurrent(sessionToken, accountScope))) return false;
+  if (
+    generation !== pushRegistrationGeneration ||
+    !(await sessionStillCurrent(sessionToken, accountScope))
+  ) {
+    return false;
+  }
   try {
     await publicRequest.post('user/device-token', {
       device_token: token,
@@ -146,62 +174,92 @@ const registerTokenForCurrentAccount = async (token: string) => {
     }
     throw error;
   }
-  if (!(await sessionStillCurrent(sessionToken, accountScope))) {
+  if (
+    generation !== pushRegistrationGeneration ||
+    !(await sessionStillCurrent(sessionToken, accountScope))
+  ) {
     await removeTokenFromCapturedSession(token, sessionToken).catch(
       () => undefined,
     );
     return false;
   }
   await saveItem(tokenKey, token);
+  if (
+    generation !== pushRegistrationGeneration ||
+    !(await sessionStillCurrent(sessionToken, accountScope))
+  ) {
+    await removeTokenFromCapturedSession(token, sessionToken).catch(
+      () => undefined,
+    );
+    return false;
+  }
   // The backend now owns authenticated learning-reminder cadence. Clear any
   // guest timer left on this installation before login so it cannot double it.
   cancelLearningReminders();
-  await removeItem(
-    await pushStorageKey(LEGACY_PUSH_UNREGISTER_PENDING_KEY),
-  );
+  await removeItem(legacyPendingKey);
 
   if (previousToken && previousToken !== token) {
-    await publicRequest
-      .delete('user/device-token', {data: {device_token: previousToken}})
+    await removeTokenFromCapturedSession(previousToken, sessionToken)
       .catch(() => undefined);
   }
 
   return true;
 };
 
+const registerTokenForCurrentAccount = (
+  token: string,
+  generation = pushRegistrationGeneration,
+) =>
+  serializePushRegistration(() =>
+    registerTokenForCurrentAccountNow(token, generation),
+  );
+
 /**
  * Register only after both account authentication and the learner's explicit
  * opt-in. Calling with requestPermission=false is safe during bootstrap: it
  * never opens an OS prompt.
  */
-export const registerPushDeviceIfEligible = async ({
+export const registerPushDeviceIfEligible = ({
   requestPermission = false,
 }: {requestPermission?: boolean} = {}) => {
-  // Never mint/register a replacement while a pre-logout FCM token may still
-  // be alive. The device-only tombstone is safe to retry even for a guest.
-  if (!(await retryPendingNativePushTokenInvalidation())) return false;
-  if (!(await currentSessionToken())) return false;
-  if (!(await getSmartRemindersEnabled())) return false;
-  if (!(await permissionGranted(requestPermission))) return false;
+  const generation = pushRegistrationGeneration;
+  return serializePushRegistration(async () => {
+    if (generation !== pushRegistrationGeneration) return false;
+    // Token acquisition belongs inside the mutation queue. If a learner turns
+    // notifications off and immediately on, the new registration must mint a
+    // token after native invalidation rather than re-registering the one that
+    // the preceding opt-out just deleted.
+    if (!(await retryPendingNativePushTokenInvalidation())) return false;
+    if (!(await currentSessionToken())) return false;
+    if (!(await getSmartRemindersEnabled())) return false;
+    if (!(await permissionGranted(requestPermission))) return false;
 
-  await prepareNotificationChannels();
-  const token = await getBackendPushToken();
-  if (!token) return false;
+    await prepareNotificationChannels();
+    const token = await getBackendPushToken();
+    if (!token) return false;
 
-  return registerTokenForCurrentAccount(token);
+    return registerTokenForCurrentAccountNow(token, generation);
+  });
 };
 
-export const unregisterPushDevice = async () => {
-  const token = await getStoredPushDeviceToken();
-  let removedFromServer = !token;
-  if (token && (await currentSessionToken())) {
-    removedFromServer = await publicRequest
-      .delete('user/device-token', {data: {device_token: token}})
-      .then(() => true)
-      .catch(() => false);
-  }
-  await invalidateLocalPushDeviceRegistration();
-  return removedFromServer;
+export const unregisterPushDevice = () => {
+  pushRegistrationGeneration += 1;
+  const generation = pushRegistrationGeneration;
+  return serializePushRegistration(async () => {
+    if (generation !== pushRegistrationGeneration) return false;
+    const token = await getStoredPushDeviceToken();
+    if (generation !== pushRegistrationGeneration) return false;
+    let removedFromServer = !token;
+    if (token && (await currentSessionToken())) {
+      removedFromServer = await publicRequest
+        .delete('user/device-token', {data: {device_token: token}})
+        .then(() => true)
+        .catch(() => false);
+    }
+    if (generation !== pushRegistrationGeneration) return false;
+    await invalidateLocalPushDeviceRegistration();
+    return removedFromServer;
+  });
 };
 
 /** Read the token registered for this installation without making a request. */
@@ -209,14 +267,21 @@ export const getCurrentPushDeviceToken = async () => getStoredPushDeviceToken();
 
 /** Invalidate Firebase and clear local registration after a logout attempt. */
 export const clearCurrentPushDeviceRegistration = async () => {
-  const pendingKey = await pendingNotificationStorageKey();
+  // Invalidate async navigation/registration ownership before touching native
+  // storage. Keychain access can be slow on a locked or low-end device.
   pushNavigationGeneration += 1;
+  pushRegistrationGeneration += 1;
   pendingNotificationResponse = null;
   openNotificationByIdFlights.clear();
   responseOpenFlights.clear();
   recentlyOpenedResponses.clear();
+  const pendingKey = await pendingNotificationStorageKey();
   const [invalidation] = await Promise.allSettled([
-    invalidateLocalPushDeviceRegistration(),
+    // Wait out any old registration request after invalidating its generation,
+    // then delete native/account state as one ordered mutation. A concurrent
+    // account replacement must not let an opt-out flight resolve its storage
+    // keys against the next learner.
+    serializePushRegistration(() => invalidateLocalPushDeviceRegistration()),
     removeItem(pendingKey),
     Notifications.clearLastNotificationResponseAsync(),
     // Delivered notifications belong to the account being closed. Leaving

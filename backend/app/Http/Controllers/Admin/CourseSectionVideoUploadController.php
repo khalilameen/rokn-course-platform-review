@@ -32,6 +32,7 @@ final class CourseSectionVideoUploadController extends Controller
                 'mime' => ['required', 'string', Rule::in(BunnyDirectUploadService::MIMES)],
                 'original_name' => ['required', 'string', 'max:255'],
                 'idempotency_key' => ['required', 'uuid'],
+                'authoring_version' => ['required', 'integer', 'min:1'],
                 'section_id' => [
                     'nullable',
                     'integer',
@@ -56,7 +57,8 @@ final class CourseSectionVideoUploadController extends Controller
                     (string) $validated['mime'],
                     (string) $validated['original_name'],
                     (string) $validated['idempotency_key'],
-                    $section
+                    $section,
+                    (int) $validated['authoring_version']
                 ),
             ]);
         } catch (ValidationException $exception) {

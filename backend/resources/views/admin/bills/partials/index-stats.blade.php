@@ -51,8 +51,11 @@
                         <i class="ti-money text-white"></i>
                     </div>
                     <div class="stat-title">المبلغ المدفوع</div>
-                    <h3 class="stat-value stat-value-amount">{{ number_format($stats['total_amount'], 2) }}</h3>
+                    <h3 class="stat-value stat-value-amount">{{ number_format($stats['paid_egp'], 2) }}</h3>
                     <small class="text-muted">جنيه</small>
+                    @if($stats['paid_coins'] > 0)
+                        <div class="text-muted mt-1">{{ number_format($stats['paid_coins']) }} عملة</div>
+                    @endif
                 </div>
             </div>
         </div>
@@ -63,8 +66,11 @@
                         <i class="ti-money text-white"></i>
                     </div>
                     <div class="stat-title">المبلغ المعلق</div>
-                    <h3 class="stat-value stat-value-amount">{{ number_format($stats['pending_amount'], 2) }}</h3>
+                    <h3 class="stat-value stat-value-amount">{{ number_format($stats['pending_egp'], 2) }}</h3>
                     <small class="text-muted">جنيه</small>
+                    @if($stats['pending_coins'] > 0)
+                        <div class="text-muted mt-1">{{ number_format($stats['pending_coins']) }} عملة</div>
+                    @endif
                 </div>
             </div>
         </div>

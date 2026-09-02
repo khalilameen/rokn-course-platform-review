@@ -23,6 +23,39 @@ type NotificationDto = Parameters<typeof mapNotification>[0] & {
   id?: unknown;
 };
 
+const mapNotificationContract = (value: unknown): Notification => {
+  if (!isApiRecord(value)) {
+    throw new Error('NOTIFICATIONS_CONTRACT_INVALID');
+  }
+  const id = String(value.id ?? '').trim();
+  const title = String(value.title_ar ?? value.title ?? '').trim();
+  const message = String(value.message_ar ?? value.message ?? '').trim();
+  const type = String(value.notification_type ?? '').trim();
+  const createdAt = String(value.created_at ?? '').trim();
+  const read = firstBoolean(value.is_read);
+  if (
+    !/^\d+$/.test(id) ||
+    !title ||
+    !message ||
+    !type ||
+    !createdAt ||
+    !Number.isFinite(Date.parse(createdAt)) ||
+    read === undefined
+  ) {
+    throw new Error('NOTIFICATIONS_CONTRACT_INVALID');
+  }
+  const mapped = mapNotification(value);
+  if (
+    mapped.id !== id ||
+    !mapped.title.trim() ||
+    !mapped.description.trim() ||
+    !mapped.createdAt
+  ) {
+    throw new Error('NOTIFICATIONS_CONTRACT_INVALID');
+  }
+  return mapped;
+};
+
 type NotificationsPayloadDto = {
   data?: NotificationDto[];
   pagination?: PaginationDto;
@@ -75,23 +108,27 @@ export const getNotificationsPage = async ({
     Number.isSafeInteger(rawCurrentPage) && rawCurrentPage > 0
       ? rawCurrentPage
       : Math.max(1, Math.floor(page));
-  const notifications = items
-    .filter(
-      (item): item is NotificationDto =>
-        isApiRecord(item) && /^\d+$/.test(String(item.id ?? '').trim()),
-    )
-    .map(item => mapNotification(item));
+  // Cursor pagination is lossless only when every row is understood. Silently
+  // dropping one malformed row and accepting next_cursor would make that
+  // notification unreachable forever. Reject the page so the screen keeps its
+  // last-known-good inbox and retries the same cursor.
+  const notifications = items.map(mapNotificationContract);
+  const hasMore =
+    firstBoolean(pagination.has_more_pages) ??
+    (Number.isSafeInteger(Number(pagination.last_page)) &&
+      Number(pagination.last_page) > currentPage);
+  const nextCursor =
+    typeof pagination.next_cursor === 'string' && pagination.next_cursor
+      ? pagination.next_cursor
+      : null;
+  if (hasMore && !nextCursor) {
+    throw new Error('NOTIFICATIONS_PAGINATION_CONTRACT_INVALID');
+  }
   return {
     notifications,
     page: currentPage,
-    nextCursor:
-      typeof pagination.next_cursor === 'string' && pagination.next_cursor
-        ? pagination.next_cursor
-        : null,
-    hasMore:
-      firstBoolean(pagination.has_more_pages) ??
-      (Number.isSafeInteger(Number(pagination.last_page)) &&
-        Number(pagination.last_page) > currentPage),
+    nextCursor,
+    hasMore,
   };
 };
 
@@ -111,10 +148,10 @@ export const getNotification = async (id: string): Promise<Notification> => {
       : (data as NotificationDto)
     : null;
   if (!item) throw new Error('NOTIFICATION_CONTRACT_INVALID');
-  if (!/^\d+$/.test(String(item.id ?? '').trim())) {
+  if (String(item.id ?? '').trim() !== normalizedId) {
     throw new Error('NOTIFICATION_NOT_FOUND');
   }
-  return mapNotification(item);
+  return mapNotificationContract(item);
 };
 
 export const markNotificationRead = (id: string) => {

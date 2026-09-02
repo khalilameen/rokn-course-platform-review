@@ -80,6 +80,13 @@ export const thirdPartyFamilies = [
         modifications: 'None; active CSS and JavaScript match the 4.0.13 distribution.',
     },
     {
+        id: 'sortablejs', name: 'SortableJS', version: '1.15.0', license: 'MIT',
+        source: 'https://github.com/SortableJS/Sortable/tree/1.15.0',
+        artifacts: ['public/admin/assets/js/vendor/sortablejs/Sortable.min.js'],
+        legal: [['SortableJS 1.15.0', 'node_modules/sortablejs/LICENSE']],
+        modifications: 'None; the active JavaScript matches the pinned 1.15.0 distribution.',
+    },
+    {
         id: 'sufee', name: 'Sufee Admin Dashboard', version: '1.0.0 / commit dcae40f7', license: 'GPL-2.0-or-later file notice; upstream repository MIT notice retained',
         source: 'https://github.com/puikinsh/sufee-admin-dashboard/tree/dcae40f7d2afea4fc0e8480fa4b3558ef4d2cc38',
         artifacts: [
@@ -112,12 +119,6 @@ export const thirdPartyFamilies = [
 ];
 
 export const externalStaticAssets = [
-    {
-        name: 'SortableJS', version: '1.15.0', license: 'MIT',
-        url: 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js',
-        integrity: 'sha384-eeLEhtwdMwD3X9y+8P3Cn7Idl/M+w8H4uZqkgD/2eJVkWIN1yKzEj6XegJ9dL3q0',
-        legal: [['SortableJS 1.15.0', 'node_modules/sortablejs/LICENSE']],
-    },
     {
         name: 'Chart.js', version: '4.5.1', license: 'MIT',
         url: 'https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js',

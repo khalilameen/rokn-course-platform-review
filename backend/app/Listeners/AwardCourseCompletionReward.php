@@ -29,14 +29,15 @@ final class AwardCourseCompletionReward implements ShouldQueue
     public function handle(CourseCompleted $event): void
     {
         $user = User::query()->find($event->resolvedUserId());
-        $course = Course::query()->find($event->resolvedCourseId());
+        $course = Course::withTrashed()->find($event->resolvedCourseId());
         if (!$user || !$course) {
             return;
         }
 
         $this->rewards->awardCourseCompletion(
             $user,
-            $course
+            $course,
+            $event->rewardContract
         );
     }
 }

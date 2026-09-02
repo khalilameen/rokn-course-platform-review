@@ -14,6 +14,7 @@ import {watchProjectResolution} from '../../components/VideoPlayer/courseLearnin
 type ProjectReviewRefs = {
   loadedCourse: MutableRefObject<CourseLearningData | null>;
   mounted: MutableRefObject<boolean>;
+  ownerGeneration: MutableRefObject<number>;
   reviewWatcher: MutableRefObject<number>;
   watchedProject: MutableRefObject<string | null>;
 };
@@ -36,6 +37,7 @@ export const useProjectReview = ({
   const refreshProjectState = useCallback(
     async (projectId: string) => {
       const activeCourseId = course?.id;
+      const ownerGeneration = refs.ownerGeneration.current;
       if (!activeCourseId || isLocalDemoId(activeCourseId)) return null;
       try {
         const result = await loadCourseLearningData(activeCourseId, {
@@ -44,6 +46,7 @@ export const useProjectReview = ({
         const refreshed = await applyLocalLearningState(result.course);
         if (
           !refs.mounted.current ||
+          refs.ownerGeneration.current !== ownerGeneration ||
           refs.loadedCourse.current?.id !== activeCourseId
         ) {
           return null;
@@ -80,7 +83,6 @@ export const useProjectReview = ({
         resolve: refreshProjectState,
         beforeResolve: () => retryPendingProjectSubmissions().catch(() => []),
         isActive: () => reviewActive && refs.reviewWatcher.current === watcher,
-        maxAttempts: 4,
         initialDelayMs: 2500,
         onExhausted: () => {
           if (refs.reviewWatcher.current === watcher) {

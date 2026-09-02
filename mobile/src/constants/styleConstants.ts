@@ -7,6 +7,10 @@ import {
 } from 'react-native';
 import {BrandColors} from './brandTokens';
 const {width, height} = Dimensions.get('window');
+const statusBarHeight =
+  Platform.OS === 'android'
+    ? StatusBar.currentHeight ?? 0
+    : Number(NativeModules.StatusBarManager?.HEIGHT) || 0;
 export const phoneHeight = height;
 export const phoneWidth = width;
 export const Colors = {
@@ -47,7 +51,10 @@ export const Fonts = {
 export enum Images {}
 
 export const ScreenOptions = {
-  StatusBarHeight: NativeModules.StatusBarManager.HEIGHT,
+  // StatusBarManager is not guaranteed to be exported by every Android/new-
+  // architecture shell. Keep module evaluation safe; consumers can still use
+  // the platform value when it is available.
+  StatusBarHeight: statusBarHeight,
   HalfScreen: width / 2 - 15,
   CURRENT_RESOLUTION: Math.sqrt(height * height + width * width),
   DesignResolution: {
@@ -127,7 +134,7 @@ export function ifIphoneX<T>(iphoneXStyle: T, regularStyle: T): T {
 export function getStatusBarHeight(safe: boolean) {
   return Platform.select({
     ios: ifIphoneX(safe ? 44 : 30, 20),
-    android: StatusBar.currentHeight,
+    android: StatusBar.currentHeight ?? 0,
     default: 0,
   });
 }

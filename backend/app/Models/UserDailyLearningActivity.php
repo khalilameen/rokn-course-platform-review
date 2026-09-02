@@ -12,10 +12,12 @@ final class UserDailyLearningActivity extends Model
         'user_id',
         'activity_date',
         'qualified_seconds',
+        'reward_contract',
     ];
 
     protected $casts = [
         'activity_date' => 'date',
         'qualified_seconds' => 'integer',
+        'reward_contract' => 'array',
     ];
 }

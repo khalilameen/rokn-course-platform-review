@@ -16,6 +16,7 @@ use App\Services\AiEntitlementBudgetService;
 use App\Services\AiInputAttachmentService;
 use App\Services\AiStreamCheckpointService;
 use App\Services\CourseChatTurnService;
+use App\Services\CourseChatAccessService;
 use App\Services\OpenRouterService;
 use App\Services\PaidAiCallExecutionService;
 use Illuminate\Bus\Queueable;
@@ -77,6 +78,7 @@ final class GenerateCourseChatReply implements ShouldQueue, ShouldBeUnique
         OpenRouterService $openRouter,
         AiEntitlementBudgetService $budget,
         CourseChatTurnService $turns,
+        CourseChatAccessService $courseAccess,
         AiInputAttachmentService $attachments,
         PaidAiCallExecutionService $paidCalls,
         AiStreamCheckpointService $streamCheckpoints
@@ -92,7 +94,7 @@ final class GenerateCourseChatReply implements ShouldQueue, ShouldBeUnique
             $paidCalls->markPresented(AiUsageEvent::query()
                 ->where('request_id', $turn->client_request_id)
                 ->where('user_id', $turn->user_id)
-                ->where('course_id', $turn->course_id)
+                ->where('enrollment_id', $this->enrollmentId)
                 ->where('feature', 'course_chat')
                 ->first());
             return;
@@ -104,7 +106,7 @@ final class GenerateCourseChatReply implements ShouldQueue, ShouldBeUnique
             $existingEvent = AiUsageEvent::query()
                 ->where('request_id', $turn->client_request_id)
                 ->where('user_id', $turn->user_id)
-                ->where('course_id', $turn->course_id)
+                ->where('enrollment_id', $this->enrollmentId)
                 ->where('feature', 'course_chat')
                 ->first();
             if ($existingEvent?->status === 'reserved') {
@@ -118,8 +120,9 @@ final class GenerateCourseChatReply implements ShouldQueue, ShouldBeUnique
         if (
             !$enrollment
             || (int) $enrollment->user_id !== (int) $turn->user_id
-            || (int) $enrollment->course_id !== (int) $turn->course_id
+            || !$courseAccess->enrollmentGrantsCourse($enrollment, (int) $turn->course_id)
             || !$enrollment->isActive()
+            || !$courseAccess->enrollmentAllowsVariableCostFeatures($enrollment)
         ) {
             $turns->releaseAdmissionQuota($turn);
             $turns->fail($turn, 'chat_entitlement_unavailable');
@@ -367,7 +370,7 @@ final class GenerateCourseChatReply implements ShouldQueue, ShouldBeUnique
             ? AiUsageEvent::query()
                 ->where('request_id', $turn->client_request_id)
                 ->where('user_id', $turn->user_id)
-                ->where('course_id', $turn->course_id)
+                ->where('enrollment_id', $this->enrollmentId)
                 ->where('feature', 'course_chat')
                 ->first()
             : null;

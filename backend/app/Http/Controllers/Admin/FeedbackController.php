@@ -160,8 +160,10 @@ final class FeedbackController extends Controller
             'assigned_to' => ['nullable', Rule::exists('users', 'id')->where(fn ($q) => $q->where('role', 'admin'))],
             'resolution_kind' => ['nullable', Rule::in(['fixed', 'guidance', 'compensated', 'not_reproducible', 'duplicate'])],
         ]);
-        $statusChanged = false;
-        $version = DB::transaction(function () use ($feedback, $validated, $cases, &$statusChanged): int {
+        DB::transaction(function () use ($feedback, $validated, $cases): void {
+            if ($feedback->user_id) {
+                User::withTrashed()->whereKey($feedback->user_id)->lockForUpdate()->first();
+            }
             $locked = FeedbackReport::query()->lockForUpdate()->findOrFail($feedback->id);
             abort_if((int) $locked->version !== (int) $validated['version'], 409, 'عدّل شخص آخر هذه الحالة\nحدّث الصفحة ثم أعد المحاولة');
             $fromStatus = (string) $locked->status;
@@ -186,16 +188,14 @@ final class FeedbackController extends Controller
                 'priority' => $updates['priority'],
                 'resolution_kind' => $updates['resolution_kind'],
             ]);
-            return (int) $updates['version'];
+            if ($statusChanged && in_array($validated['status'], ['waiting_for_user', 'resolved', 'closed'], true)) {
+                $cases->notifyStatus(
+                    $locked,
+                    $validated['status'],
+                    'support-case:'.$locked->id.':status:'.$validated['status'].':v'.$updates['version']
+                );
+            }
         }, 3);
-
-        if ($statusChanged && in_array($validated['status'], ['waiting_for_user', 'resolved', 'closed'], true)) {
-            $cases->notifyStatus(
-                $feedback->fresh(),
-                $validated['status'],
-                'support-case:'.$feedback->id.':status:'.$validated['status'].':v'.$version
-            );
-        }
         return back()->with('success', 'تم تحديث الحالة');
     }
 
@@ -233,20 +233,28 @@ final class FeedbackController extends Controller
             'note' => 'required|string|min:8|max:1000',
         ]);
         if (!$feedback->order_id) return back()->with('error', 'اربط البلاغ بطلب موثّق أولًا');
-        $order = Order::query()->findOrFail($feedback->order_id);
-        abort_unless((int) $order->user_id === (int) $feedback->user_id, 422);
         $eventKey = 'support-case-compensation:'.$feedback->id.':'.hash('sha256', $validated['amount'].'|'.trim($validated['note']));
 
         try {
-            DB::transaction(function () use ($feedback, $validated): void {
+            DB::transaction(function () use ($feedback, $validated, $eventKey, $orders, $cases): void {
+                if ($feedback->user_id) {
+                    User::withTrashed()->whereKey($feedback->user_id)->lockForUpdate()->firstOrFail();
+                }
+                $order = Order::query()->lockForUpdate()->findOrFail($feedback->order_id);
                 $locked = FeedbackReport::query()->lockForUpdate()->findOrFail($feedback->id);
                 abort_if((int) $locked->version !== (int) $validated['version'], 409, 'تغيّرت الحالة\nحدّث الصفحة قبل تسجيل التعويض');
-            }, 3);
-            $orders->compensateCourseOrder(
-                $order, (int) $validated['amount'], trim($validated['note']), $eventKey, auth()->id()
-            );
-            DB::transaction(function () use ($feedback, $eventKey, $cases): void {
-                $locked = FeedbackReport::query()->lockForUpdate()->findOrFail($feedback->id);
+                abort_unless(
+                    (int) $order->id === (int) $locked->order_id
+                    && (int) $order->user_id === (int) $locked->user_id,
+                    422
+                );
+                $orders->compensateCourseOrder(
+                    $order,
+                    (int) $validated['amount'],
+                    trim($validated['note']),
+                    $eventKey,
+                    auth()->id()
+                );
                 $locked->update(['resolution_kind' => 'compensated', 'version' => (int) $locked->version + 1]);
                 $cases->event($locked, auth()->id(), 'compensated', null, null, [
                     'order_id' => $locked->order_id,

@@ -20,7 +20,9 @@ final readonly class CourseCompletionService
         private CoursePresentationService $coursePresentation,
         private LearningEvidenceService $learningEvidence,
         private CourseModuleAccessService $courseAccess,
-        private InternalSignalService $internalSignals
+        private InternalSignalService $internalSignals,
+        private CourseStagedAuthoringService $stagedAuthoring,
+        private CourseRevisionLearnerReadService $revisionReads
     ) {
     }
 
@@ -42,10 +44,10 @@ final readonly class CourseCompletionService
             return $this->failure(403, 'You are not authorized to access this course');
         }
 
-        $existingProgress = StudentSectionProgress::query()
-            ->where('user_id', $user->id)
-            ->where('course_section_id', $sectionId)
-            ->first();
+        $existingProgress = $this->revisionReads->completedSectionProgress(
+            (int) $user->id,
+            $sectionId
+        );
 
         if ($section->getSectionType() === 'project') {
             return $this->failure(
@@ -110,11 +112,10 @@ final readonly class CourseCompletionService
             ->where('course_id', $courseId)
             ->orderBy('order')
             ->get();
-        $completedSectionIds = StudentSectionProgress::query()
-            ->where('user_id', $user->id)
-            ->whereIn('course_section_id', $courseSections->pluck('id'))
-            ->where('is_completed', true)
-            ->pluck('course_section_id');
+        $completedSectionIds = $this->revisionReads->completedSectionIds(
+            (int) $user->id,
+            $courseSections->pluck('id')
+        );
         $sectionState = $this->coursePresentation->sectionLockStatus(
             $courseSections,
             $completedSectionIds,
@@ -193,11 +194,10 @@ final readonly class CourseCompletionService
         $sections = CourseSection::query()
             ->where('course_id', $section->course_id)
             ->get();
-        $completedSectionIds = StudentSectionProgress::query()
-            ->where('user_id', $user->id)
-            ->whereIn('course_section_id', $sections->pluck('id'))
-            ->where('is_completed', true)
-            ->pluck('course_section_id');
+        $completedSectionIds = $this->revisionReads->completedSectionIds(
+            (int) $user->id,
+            $sections->pluck('id')
+        );
 
         $state = $this->coursePresentation->sectionLockStatus(
             $sections,
@@ -214,11 +214,10 @@ final readonly class CourseCompletionService
             return collect();
         }
 
-        $completedSectionIds = StudentSectionProgress::query()
-            ->where('user_id', $user->id)
-            ->whereIn('course_section_id', $sections->pluck('id'))
-            ->where('is_completed', true)
-            ->pluck('course_section_id');
+        $completedSectionIds = $this->revisionReads->completedSectionIds(
+            (int) $user->id,
+            $sections->pluck('id')
+        );
 
         return $this->coursePresentation->sectionLockStatus(
             $sections,
@@ -232,14 +231,23 @@ final readonly class CourseCompletionService
 
     private function hasPassedQuiz(User $user, Course $course, CourseSection $section): bool
     {
+        $sectionIds = $this->stagedAuthoring->equivalentEntityIds(
+            CourseSection::class,
+            (int) $section->id
+        );
+        $quizIds = $this->stagedAuthoring->equivalentEntityIds(
+            \App\Models\ItemList::class,
+            (int) $section->sectionable_id
+        );
+
         return ExamAttempt::query()
             ->where('user_id', $user->id)
             ->where('course_id', $course->id)
-            ->where(function ($attempts) use ($section): void {
-                $attempts->where('section_id', $section->id)
-                    ->orWhere(function ($legacyAttempts) use ($section): void {
+            ->where(function ($attempts) use ($sectionIds, $quizIds): void {
+                $attempts->whereIn('section_id', $sectionIds)
+                    ->orWhere(function ($legacyAttempts) use ($quizIds): void {
                         $legacyAttempts->whereNull('section_id')
-                            ->where('quiz_id', $section->sectionable_id);
+                            ->whereIn('quiz_id', $quizIds);
                     });
             })
             ->where('status', ExamAttempt::STATUS_COMPLETED)

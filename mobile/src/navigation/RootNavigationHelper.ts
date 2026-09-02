@@ -3,14 +3,12 @@ import {
   createNavigationContainerRef,
 } from '@react-navigation/native';
 import {safeLoginReturnToFromRoute} from './authReturn';
-import {roknDestinationKey, type RoknDestination} from './deepLinks';
+import type {RoknDestination} from './deepLinks';
 import type {LoginReturnTo, RootNavigation, RootStackParamList} from './types';
 
 type NavigationParams = Record<string, unknown> | undefined;
 
 export const navigationRef = createNavigationContainerRef<RootStackParamList>();
-let lastExternalDestinationKey = '';
-let lastExternalDestinationAt = 0;
 
 const sameLinkableDestination = (
   name: keyof RootStackParamList,
@@ -56,18 +54,12 @@ export function navigate(
 export function openRoknDestination(destination: RoknDestination) {
   const params = 'params' in destination ? destination.params : undefined;
   if (!navigationRef.isReady()) return false;
-  const destinationKey = roknDestinationKey(destination);
-  const now = Date.now();
-  if (
-    sameLinkableDestination(destination.name, params) &&
-    destinationKey === lastExternalDestinationKey &&
-    now - lastExternalDestinationAt >= 0 &&
-    now - lastExternalDestinationAt < 1_500
-  ) {
+  if (sameLinkableDestination(destination.name, params)) {
+    // Re-delivery of the destination already on screen is a no-op regardless
+    // of timing. Resetting it after the short native dedupe window discarded
+    // scroll, selected tabs and open learner context without changing route.
     return true;
   }
-  lastExternalDestinationKey = destinationKey;
-  lastExternalDestinationAt = now;
   navigationRef.dispatch(
     CommonActions.reset({
       index: destination.name === 'Home' ? 0 : 1,

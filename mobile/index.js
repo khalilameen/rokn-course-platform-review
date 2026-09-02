@@ -14,11 +14,13 @@ import App from './App';
 import AppErrorBoundary from './src/components/ui/AppErrorBoundary';
 import Splash from './src/screens/Splash';
 import {installGlobalErrorReporting} from './src/services/operationalTelemetry';
+import {initializeSentry} from './src/services/sentryTelemetry';
 
 // Rokn's shipping interface is Arabic-first. Apply RTL before the first React
 // tree is mounted so navigation, lists and touch targets all agree on direction.
 I18nManager.allowRTL(true);
 I18nManager.forceRTL(true);
+initializeSentry();
 installGlobalErrorReporting();
 
 // AsyncStorage can be temporarily unavailable after an OS restore or while a

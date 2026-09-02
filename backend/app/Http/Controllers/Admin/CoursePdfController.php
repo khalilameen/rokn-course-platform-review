@@ -91,19 +91,34 @@ class CoursePdfController extends Controller
             $metadata = $this->filePolicy->pdf($file);
             $existingPdf = $course->pdfs()->where('content_sha256', $metadata['sha256'])->first();
             if ($existingPdf) {
-                DB::transaction(function () use ($request, $course, $existingPdf): void {
-                    CoursePdf::query()->whereKey($existingPdf->id)->lockForUpdate()->firstOrFail();
+                $existingPdf = DB::transaction(function () use (
+                    $request,
+                    $course,
+                    $metadata
+                ): ?CoursePdf {
+                    $lockedCourse = $this->authoring->lock($request, $course);
+                    $this->assertDraft($lockedCourse);
+                    $lockedPdf = CoursePdf::query()
+                        ->where('course_id', $lockedCourse->id)
+                        ->where('content_sha256', $metadata['sha256'])
+                        ->lockForUpdate()
+                        ->first();
+                    if (!$lockedPdf) return null;
                     $this->createIntents->completeRedirect(
                         $request,
                         route('admin.courses.pdfs.index', $course),
                         302,
                         CoursePdf::class,
-                        $existingPdf->id
+                        $lockedPdf->id
                     );
+
+                    return $lockedPdf;
                 }, 3);
-                return redirect()
-                    ->route('admin.courses.pdfs.index', $course)
-                    ->with('success', 'هذا الملف مضاف بالفعل');
+                if ($existingPdf) {
+                    return redirect()
+                        ->route('admin.courses.pdfs.index', $course)
+                        ->with('success', 'هذا الملف مضاف بالفعل');
+                }
             }
             $stored = $this->storePdf(
                 $file,
@@ -349,8 +364,21 @@ class CoursePdfController extends Controller
             $version = DB::transaction(function () use ($request, $course): int {
                 $lockedCourse = $this->authoring->lock($request, $course);
                 $this->assertDraft($lockedCourse);
-                CoursePdf::query()->where('course_id', $course->id)
-                    ->whereIn('id', $request->order)->orderBy('id')->lockForUpdate()->get();
+                $lockedPdfs = CoursePdf::query()
+                    ->where('course_id', $course->id)
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get(['id']);
+                $submittedIds = collect($request->order)
+                    ->map(static fn ($id): int => (int) $id)
+                    ->sort()
+                    ->values();
+                if ($lockedPdfs->pluck('id')->map(static fn ($id): int => (int) $id)
+                    ->sort()->values()->all() !== $submittedIds->all()) {
+                    throw ValidationException::withMessages([
+                        'order' => 'تغيّرت قائمة المرفقات منذ بدء السحب\nحدّث الصفحة ثم أعد الترتيب',
+                    ])->status(409);
+                }
                 foreach ($request->order as $position => $pdfId) {
                     CoursePdf::where('id', $pdfId)
                         ->where('course_id', $course->id)

@@ -28,16 +28,6 @@ final class CourseRatingController extends Controller
         /** @var User $user */
         $user = auth('api')->user();
         $course = Course::query()->findOrFail($courseId);
-        $eligibility = $this->eligibility->for($user, $course);
-        if (!$eligibility['can_rate']) {
-            $message = $eligibility['reason'] === 'watch_required'
-                ? 'شاهد مقطعًا كاملًا قبل التقييم'
-                : 'التقييم متاح لطلاب الكورس';
-
-            return $this->responses->error($message, 403, [
-                'code' => strtoupper($eligibility['reason']),
-            ]);
-        }
 
         $expectedVersion = $request->integer('version');
         $nextRating = $request->integer('rating');
@@ -50,18 +40,20 @@ final class CourseRatingController extends Controller
             $nextRating,
             $nextComment
         ): array {
-            User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
-            $inserted = 0;
-            if ($expectedVersion === 0) {
-                $inserted = DB::table('course_ratings')->insertOrIgnore([
-                    'user_id' => $user->id,
-                    'course_id' => $course->id,
-                    'rating' => $nextRating,
-                    'comment' => $nextComment,
-                    'version' => 1,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
+            // User-bound enrollment, code redemption and certificate writes
+            // take the learner before the course. Keep that global order here
+            // while also locking the publication aggregate before authorising.
+            $lockedUser = User::query()->whereKey($user->id)
+                ->lockForUpdate()->firstOrFail();
+            $lockedCourse = Course::query()->whereKey($course->id)
+                ->lockForUpdate()->firstOrFail();
+            $eligibility = $this->eligibility->for($lockedUser, $lockedCourse);
+            if (!$eligibility['can_rate']) {
+                return [
+                    'conflict' => false,
+                    'denied' => $eligibility['reason'],
+                    'rating' => null,
+                ];
             }
 
             /** @var CourseRating|null $rating */
@@ -72,27 +64,39 @@ final class CourseRatingController extends Controller
                 ->first();
 
             if (!$rating) {
-                return ['conflict' => true, 'rating' => null];
-            }
-            if ($inserted > 0) {
-                // insertOrIgnore closes the first-write race. Emit the model's
-                // catalogue invalidation event after the winning insert.
+                if ($expectedVersion !== 0) {
+                    return ['conflict' => true, 'denied' => null, 'rating' => null];
+                }
+
+                // The user row above serializes first writes for this learner.
+                // Use the model write so catalogue aggregates are invalidated;
+                // a query-builder insert followed by an unchanged save emits
+                // no creation event and leaves the first rating invisible in
+                // cached course cards.
+                $rating = new CourseRating();
+                $rating->forceFill([
+                    'user_id' => $user->id,
+                    'course_id' => $course->id,
+                    'rating' => $nextRating,
+                    'comment' => $nextComment,
+                    'version' => 1,
+                ]);
                 $rating->save();
 
-                return ['conflict' => false, 'rating' => $rating];
+                return ['conflict' => false, 'denied' => null, 'rating' => $rating];
             }
 
             $sameValue = !$rating->trashed()
                 && (int) $rating->rating === $nextRating
-                && ($rating->comment ?: null) === $nextComment;
+                && ($rating->comment !== null ? (string) $rating->comment : null) === $nextComment;
             if ((int) $rating->version !== $expectedVersion) {
                 // A transport retry after a committed response is success,
                 // while a genuinely different edit from another device is a conflict.
-                return ['conflict' => !$sameValue, 'rating' => $rating];
+                return ['conflict' => !$sameValue, 'denied' => null, 'rating' => $rating];
             }
 
             if ($sameValue) {
-                return ['conflict' => false, 'rating' => $rating];
+                return ['conflict' => false, 'denied' => null, 'rating' => $rating];
             }
 
             $rating->forceFill([
@@ -106,8 +110,18 @@ final class CourseRatingController extends Controller
                 $rating->save();
             }
 
-            return ['conflict' => false, 'rating' => $rating];
+            return ['conflict' => false, 'denied' => null, 'rating' => $rating];
         }, 3);
+
+        if ($result['denied'] !== null) {
+            $message = $result['denied'] === 'watch_required'
+                ? 'شاهد مقطعًا كاملًا قبل التقييم'
+                : 'التقييم متاح لطلاب الكورس';
+
+            return $this->responses->error($message, 403, [
+                'code' => strtoupper((string) $result['denied']),
+            ]);
+        }
 
         if ($result['conflict']) {
             return $this->responses->error(

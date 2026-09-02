@@ -53,7 +53,7 @@
                     'computer' => 'كمبيوتر فقط',
                     'mobile' => 'موبايل فقط'
                 ], null, ['class' => 'form-control-modern']) !!}
-                <small class="text-muted">حدد المنصة المتوافقة مع رابط المرفقات</small>
+                <small class="text-muted">ينطبق الاختيار على رابط المرفقات وكل الملفات المرفوعة في الوحدة</small>
             </div>
 
             <div class="form-actions mt-4">

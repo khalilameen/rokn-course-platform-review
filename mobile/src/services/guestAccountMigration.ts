@@ -14,6 +14,7 @@ import {migrateGuestProductFeedback} from './productFeedback';
 
 const PENDING_GUEST_MIGRATION_KEY = '@rokn/pending-guest-migration/v1';
 const SEARCH_HISTORY_KEY = '@rokn/search-history/v1';
+const HOME_SCROLL_KEY = '@rokn/home-scroll/v1';
 const PRODUCT_EVENTS_KEY = '@rokn/product-events/v1';
 const ATTACHMENT_PROMPT_KEY = 'course-attachment-prompt-seen:v1';
 const ACCOUNT_PREFERENCES = [
@@ -167,6 +168,46 @@ const mergeOutbox = async (guestScope: string, accountScope: string) => {
   await AsyncStorage.removeItem(sourceKey);
 };
 
+const moveHomeScroll = async (guestScope: string, accountScope: string) => {
+  const sourceKey = scopedKey(HOME_SCROLL_KEY, guestScope);
+  const targetKey = scopedKey(HOME_SCROLL_KEY, accountScope);
+  const [[, sourceRaw], [, targetRaw]] = await AsyncStorage.multiGet([
+    sourceKey,
+    targetKey,
+  ]);
+  if (sourceRaw === null) return;
+  let sourceOffset: unknown;
+  try {
+    sourceOffset = JSON.parse(sourceRaw);
+  } catch {
+    await retireCorruptGuestValue(sourceKey, sourceRaw);
+    return;
+  }
+  const normalizedOffset = Number(sourceOffset);
+  if (!Number.isFinite(normalizedOffset) || normalizedOffset < 0) {
+    await retireCorruptGuestValue(sourceKey, sourceRaw);
+    return;
+  }
+  let targetIsValid = false;
+  if (targetRaw !== null) {
+    try {
+      const targetOffset = Number(JSON.parse(targetRaw));
+      targetIsValid = Number.isFinite(targetOffset) && targetOffset >= 0;
+      if (!targetIsValid) {
+        await retireCorruptGuestValue(targetKey, targetRaw);
+      }
+    } catch {
+      await retireCorruptGuestValue(targetKey, targetRaw);
+    }
+  }
+  // A returning account keeps its own last position. A first login adopts the
+  // anonymous exploration point without carrying any search text with it.
+  if (!targetIsValid) {
+    await AsyncStorage.setItem(targetKey, JSON.stringify(normalizedOffset));
+  }
+  await AsyncStorage.removeItem(sourceKey);
+};
+
 const copyPreferences = async (guestScope: string, accountScope: string) => {
   for (const baseKey of ACCOUNT_PREFERENCES) {
     const sourceKey = scopedKey(baseKey, guestScope);
@@ -239,6 +280,7 @@ const resumeGuestAccountMigration = async (
   if (!(await migrateGuestLearningState(guestScope, accountBoundary))) return false;
   await Promise.all([
     mergeStringList(SEARCH_HISTORY_KEY, guestScope, accountScope, 7),
+    moveHomeScroll(guestScope, accountScope),
     mergeOutbox(guestScope, accountScope),
     copyPreferences(guestScope, accountScope),
     moveAttachmentPromptReceipts(guestScope, accountScope),

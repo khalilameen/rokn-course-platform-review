@@ -30,7 +30,10 @@ import {roknApiUrl} from './apiBaseUrl';
 import {secureRandomUuid} from '../utils/secureRandom';
 import {observeServerTime} from '../utils/serverClock';
 import {getInstallationId} from '../services/installationIdentity';
-import {peekSecureSession} from '../services/secureSession';
+import {
+  deleteSecureSessionIfToken,
+  peekSecureSession,
+} from '../services/secureSession';
 // Expo inlines EXPO_PUBLIC_* values at build time; each release channel uses
 // its configured Rokn host and has no hidden fallback origin.
 export const mainUrl = roknApiUrl;
@@ -214,13 +217,28 @@ export const onRejectedResponse = async (error: unknown): Promise<never> => {
           .then(module => module.quiescePrivateAttachmentDownloads())
           .catch(() => undefined),
       ]);
+      // Reauthentication can complete while the old 401 cleanup is awaiting
+      // native storage or runtime quiescence (for example a late provider
+      // callback/deep link). Never let that old response erase the newer
+      // durable session or navigate its owner back to Login.
+      const invalidated = await deleteSecureSessionIfToken(expiredToken);
+      if (!invalidated) {
+        if (handledExpiredToken === expiredToken) handledExpiredToken = null;
+        return Promise.reject(response ?? error);
+      }
       // A 401 asks for reauthentication; it is not account deletion. Keep the
       // owner's scoped progress, pending submissions and editor drafts. If a
       // different person signs in next, secureSession clears the previous
       // scope before committing the replacement profile.
       await removeItem(AsyncKeys.IS_LOGIN);
-      await removeItem(AsyncKeys.USER_DATA);
       await rotateGuestStorageScope().catch(() => undefined);
+      // All awaited cleanup belongs to the expired bearer. If a provider
+      // callback committed another session meanwhile, its synchronous Redux
+      // state and navigation now own the app.
+      if (extractApiToken(peekSecureSession().session)) {
+        return Promise.reject(response ?? error);
+      }
+      handledExpiredToken = null;
       store.dispatch(LogOut());
       navigate('Login', returnTo ? {returnTo} : undefined);
     }

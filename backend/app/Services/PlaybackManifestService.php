@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Exceptions\CourseRevisionChangedException;
 use App\Models\Lesson;
 use App\Models\LessonMediaState;
 use App\Models\PlaybackSession;
@@ -19,45 +20,38 @@ final class PlaybackManifestService
     public function __construct(
         private BunnyService $bunny,
         private CourseCompletionService $completion,
-        private PlaybackCapabilityService $capabilities
+        private PlaybackCapabilityService $capabilities,
+        private CourseStagedAuthoringService $stagedAuthoring,
+        private CourseChatAccessService $courseAccess
     ) {
     }
 
     public function issue(User $user, Lesson $lesson, array $clientContext = []): array
     {
-        [$lesson, $state] = DB::transaction(function () use ($lesson): array {
-            // Resolve the current media generation under the same short lock
-            // that synchronizes its durable readiness row. A route-bound model
-            // or an earlier request may still carry the superseded GUID.
-            $current = Lesson::query()->whereKey($lesson->id)->lockForUpdate()->firstOrFail();
-            $current->loadMissing(['courseSection.module', 'course']);
-            $state = LessonMediaState::query()->createOrFirst(
-                ['lesson_id' => $current->id],
-                [
-                    'provider' => 'bunny',
-                    'provider_media_id' => $current->bunny_video_id,
-                    'status' => 'unknown',
-                    'protocol' => 'hls',
-                    'duration_seconds' => max(0, (int) $current->duration_minutes * 60) ?: null,
-                    'available_qualities' => ['auto'],
-                ]
-            );
-            $state = LessonMediaState::query()
-                ->where('lesson_id', $current->id)
-                ->lockForUpdate()
-                ->firstOrFail();
-            if ((string) $state->provider_media_id !== (string) $current->bunny_video_id) {
-                $state->forceFill(LessonMediaState::resetForGeneration(
-                    (string) $current->bunny_video_id,
-                    'unknown'
-                ))->save();
-            }
-
-            return [$current, $state];
-        }, 3);
+        [$lesson, $state] = $this->mediaGeneration((int) $lesson->id);
 
         $section = $lesson->courseSection;
         $course = $lesson->course;
+        $graceRevision = $course && $course->is_coming_soon
+            ? $this->stagedAuthoring->activeArchiveForCourse($course)
+            : null;
+        $graceContext = $graceRevision
+            ? $this->stagedAuthoring->archivedPlaybackContinuation(
+                $user,
+                $lesson,
+                $clientContext['playback_session_id'] ?? null
+            )
+            : null;
+        $graceSession = $graceContext['session'] ?? null;
+        if ($graceRevision && !$graceSession) {
+            $canonical = $graceRevision->canonicalCourse()->firstOrFail();
+            throw new CourseRevisionChangedException(
+                (int) $canonical->id,
+                (int) ($canonical->last_published_authoring_version ?: $canonical->authoring_version)
+            );
+        }
+        $publishedOrGrace = $course
+            && ($course->isPublishedForLearning() || $graceSession !== null);
 
         // Route model binding can still resolve a legacy Lesson after its
         // section/course was removed from the authored graph. Never let the
@@ -65,7 +59,7 @@ final class PlaybackManifestService
         if (
             !$course
             || !$section
-            || !$course->isPublishedForLearning()
+            || !$publishedOrGrace
             || (int) $lesson->list_id !== (int) $course->id
             || (int) $section->course_id !== (int) $course->id
             || $section->getSectionType() !== 'lesson'
@@ -74,7 +68,17 @@ final class PlaybackManifestService
             throw new AuthorizationException('This lesson is not published.');
         }
 
-        $allowed = (bool) $lesson->is_opened && !$course->isNestedCourse();
+        // A session issued before an atomic publish may refresh its old signed
+        // media during the short archive grace. It cannot be discovered or
+        // opened as a new session, and no archived curriculum is resurrected.
+        $isPublicPreview = (bool) $lesson->is_opened && !$course->isNestedCourse();
+        $allowed = $isPublicPreview;
+        if ($graceSession !== null && !$allowed) {
+            $allowed = $this->courseAccess->hasLearningAccess(
+                (int) $user->id,
+                (int) $graceContext['canonical_course']->id
+            );
+        }
         if (!$allowed) {
             $allowed = $this->completion->canAccessSection($user, $section);
         }
@@ -91,6 +95,9 @@ final class PlaybackManifestService
         // A stale `ready` row is still playable because the signed delivery
         // URL is the data-plane source of truth, while unknown/processing rows
         // fail closed until reconciliation promotes them.
+        if ($state->status === 'failed' || $state->integrity_status === 'quarantined') {
+            throw new RuntimeException('The lesson video is unavailable.');
+        }
         if ($state->status !== 'ready') {
             throw new RuntimeException('The lesson video is still being prepared.');
         }
@@ -255,6 +262,59 @@ final class PlaybackManifestService
             'network_policy' => $networkPolicy,
             'media_status' => $state->status,
         ];
+    }
+
+    /** @return array{0:Lesson,1:LessonMediaState} */
+    private function mediaGeneration(int $lessonId): array
+    {
+        // The ordinary learner path is two non-locking reads. Re-reading the
+        // lesson after its media state proves both snapshots name the same
+        // generation without serializing every viewer on a shared row.
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            $lesson = Lesson::query()->whereKey($lessonId)->firstOrFail();
+            $state = LessonMediaState::query()->where('lesson_id', $lessonId)->first();
+            if ($state && (string) $state->provider_media_id === (string) $lesson->bunny_video_id) {
+                $verifiedLesson = Lesson::query()
+                    ->with(['courseSection.module', 'course'])
+                    ->whereKey($lessonId)
+                    ->firstOrFail();
+                if ((string) $verifiedLesson->bunny_video_id === (string) $state->provider_media_id) {
+                    return [$verifiedLesson, $state];
+                }
+            }
+
+            // Missing or mismatched state is an editorial transition, not the
+            // playback hot path. Lock only that mutable generation row, then
+            // reconcile it against a fresh lesson snapshot. The next loop
+            // performs a non-locking coherent read after commit.
+            DB::transaction(function () use ($lessonId): void {
+                $current = Lesson::query()->whereKey($lessonId)->firstOrFail();
+                LessonMediaState::query()->createOrFirst(
+                    ['lesson_id' => $lessonId],
+                    [
+                        'provider' => 'bunny',
+                        'provider_media_id' => $current->bunny_video_id,
+                        'status' => 'unknown',
+                        'protocol' => 'hls',
+                        'duration_seconds' => max(0, (int) $current->duration_minutes * 60) ?: null,
+                        'available_qualities' => ['auto'],
+                    ]
+                );
+                $lockedState = LessonMediaState::query()
+                    ->where('lesson_id', $lessonId)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+                $current = Lesson::query()->whereKey($lessonId)->firstOrFail();
+                if ((string) $lockedState->provider_media_id !== (string) $current->bunny_video_id) {
+                    $lockedState->forceFill(LessonMediaState::resetForGeneration(
+                        (string) $current->bunny_video_id,
+                        'unknown'
+                    ))->save();
+                }
+            }, 3);
+        }
+
+        throw new RuntimeException('The lesson media is changing. Try again.');
     }
 
     private function refreshAfter(?Carbon $expiresAt): ?Carbon

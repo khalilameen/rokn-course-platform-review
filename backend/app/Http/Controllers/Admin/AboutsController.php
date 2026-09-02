@@ -80,7 +80,14 @@ class AboutsController extends Controller
                     'editor_version' => 'تغيّر النص المنشور منذ فتح الصفحة\nأعد تحميلها قبل الحفظ',
                 ]);
             }
-            $about ??= About::query()->create([]);
+            $about ??= About::query()->create([
+                'about_ar' => '',
+                'about_en' => '',
+                'privacy_ar' => '',
+                'privacy_en' => '',
+                'policy_ar' => '',
+                'policy_en' => '',
+            ]);
             $about->update($validated);
         }, 3);
 

@@ -70,13 +70,28 @@ final class AppleService
             throw new Exception('Apple identity token nonce does not match.');
         }
 
-        // A shared production cache makes nonce consumption atomic across all
-        // API instances. Keep the marker only while the signed token is valid.
-        if (!Cache::add(
-            self::NONCE_CACHE_PREFIX . $expectedNonce,
-            true,
-            now()->addSeconds($expiresAt - time())
-        )) {
+        // Bind the nonce to this exact signed credential across all API
+        // instances. The mobile client retains the token until its session is
+        // durable, so an identical retry after a database/network failure must
+        // remain valid. A different token can never reuse the nonce.
+        $nonceKey = self::NONCE_CACHE_PREFIX . $expectedNonce;
+        $credentialHash = hash('sha256', $identityToken);
+        $claimedCredentialHash = Cache::get($nonceKey);
+        if ($claimedCredentialHash === null) {
+            if (Cache::add(
+                $nonceKey,
+                $credentialHash,
+                now()->addSeconds($expiresAt - time())
+            )) {
+                $claimedCredentialHash = $credentialHash;
+            } else {
+                $claimedCredentialHash = Cache::get($nonceKey);
+            }
+        }
+        if (
+            !is_string($claimedCredentialHash)
+            || !hash_equals($claimedCredentialHash, $credentialHash)
+        ) {
             throw new Exception('Apple identity token nonce was already used.');
         }
 
@@ -87,6 +102,7 @@ final class AppleService
 
         return [
             'id' => (string) $decoded->sub,
+            'identity_issued_at' => $issuedAt,
             'name' => null,
             'email' => $email,
             'email_verified' => $email !== null && in_array($verifiedClaim, [true, 1, 'true', '1'], true),

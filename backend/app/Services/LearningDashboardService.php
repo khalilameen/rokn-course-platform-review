@@ -20,7 +20,9 @@ final readonly class LearningDashboardService
         private CourseSectionSequenceService $sectionSequence,
         private CourseChatAccessService $courseAccess,
         private CertificateEligibilityService $certificateEligibility,
-        private LatestWatchResumeService $latestResume
+        private LatestWatchResumeService $latestResume,
+        private CourseRevisionLearnerReadService $revisionReads,
+        private BunnyService $bunny
     ) {
     }
 
@@ -74,10 +76,10 @@ final readonly class LearningDashboardService
         $sections = $sectionsByCourse->flatten(1);
         $sectionCourse = $sections->pluck('course_id', 'id');
         $totalByCourse = $sectionsByCourse->map->count();
-        $progressRows = StudentSectionProgress::query()
-            ->where('user_id', $user->id)
-            ->whereIn('course_section_id', $sectionCourse->keys())
-            ->get(['course_section_id', 'is_completed', 'completed_at', 'updated_at']);
+        $progressRows = $this->revisionReads->sectionProgressRows(
+            (int) $user->id,
+            $sectionCourse->keys()
+        );
         $completedSectionIds = $progressRows
             ->where('is_completed', true)
             ->pluck('course_section_id')
@@ -102,7 +104,8 @@ final readonly class LearningDashboardService
                 (int) $user->id,
                 $courseIds,
                 [
-                    'lesson:id,list_id,title,title_ar,title_en,thumbnail_path',
+                    'lesson:id,list_id,title,title_ar,title_en,thumbnail_path,duration_minutes',
+                    'lesson.mediaState:id,lesson_id,duration_seconds',
                     'courseSection:id,course_id,sectionable_type,sectionable_id,order',
                 ]
             )->filter(function (WatchingLog $log): bool {
@@ -144,15 +147,24 @@ final readonly class LearningDashboardService
             $resume = ['available' => false];
             $watchActivity = null;
             if ($resumeLog) {
-                $duration = (int) ($resumeLog->duration_seconds ?? 0);
+                $duration = max(
+                    0,
+                    (int) ($resumeLog->duration_seconds ?? 0),
+                    (int) ($resumeLog->lesson?->mediaState?->duration_seconds ?? 0),
+                    max(0, (int) ($resumeLog->lesson?->duration_minutes ?? 0)) * 60
+                );
                 $position = max(0, (int) ($resumeLog->position_seconds ?? 0));
                 $watchActivity = $resumeLog->watched_at ?? $resumeLog->updated_at;
+                $thumbnailPath = trim((string) $resumeLog->lesson?->thumbnail_path);
+                $thumbnail = $thumbnailPath !== ''
+                    ? $this->bunny->generateBunnySignedUrl($thumbnailPath)
+                    : null;
                 $resume = [
                     'available' => true,
                     'lesson_id' => (int) $resumeLog->lesson_id,
                     'course_section_id' => (int) $resumeLog->course_section_id,
                     'lesson_title' => (string) ($resumeLog->lesson?->title ?? $resumeLog->lesson_name),
-                    'thumbnail' => $resumeLog->lesson?->thumbnail_path,
+                    'thumbnail' => $thumbnail ?: ($course->image ? (string) $course->image : null),
                     'section_order' => (int) $resumeLog->courseSection?->order,
                     'position_seconds' => $position,
                     'duration_seconds' => $duration > 0 ? $duration : null,

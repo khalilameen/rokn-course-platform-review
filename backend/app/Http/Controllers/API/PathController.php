@@ -6,7 +6,6 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PathResource;
-use App\Models\Level;
 use App\Models\Path;
 use App\Models\User;
 use App\Services\ApiResponseService;
@@ -28,7 +27,6 @@ final class PathController extends Controller
 
     public function index(): JsonResource
     {
-        $levels = Level::ordered()->get();
         $paths = Path::query()
             ->whereHas('courses', fn ($courses) => $this->catalogue->constrainPublic($courses))
             ->with([
@@ -41,7 +39,7 @@ final class PathController extends Controller
             ])
             ->orderBy('id')
             ->get();
-        $paths->each->setRelation('availableLevels', $levels);
+        $paths->each(fn (Path $path) => $this->attachAvailableLevels($path));
         $this->duration->attachMany(
             $paths->flatMap(fn (Path $path) => $path->courses)->unique('id')->values()
         );
@@ -65,7 +63,7 @@ final class PathController extends Controller
                 },
             ])
             ->findOrFail($id);
-        $path->setRelation('availableLevels', Level::ordered()->get());
+        $this->attachAvailableLevels($path);
         $this->duration->attachMany($path->courses->unique('id')->values());
 
         return $this->responses->resource(
@@ -82,6 +80,27 @@ final class PathController extends Controller
         return $this->responses->success(
             $this->progress->forUser($user),
             'تم تحميل تقدمك في المسارات'
+        );
+    }
+
+    private function attachAvailableLevels(Path $path): void
+    {
+        // A level belongs in a path contract only when a real public course
+        // in that path uses it. Global levels made unrelated paths advertise
+        // unreachable steps and turned deleted/unpublished courses into
+        // phantom progression targets.
+        $path->setRelation(
+            'availableLevels',
+            $path->courses
+                ->pluck('level')
+                ->filter()
+                ->unique('id')
+                ->sortBy(fn ($level): string => sprintf(
+                    '%010d:%020d',
+                    (int) $level->order,
+                    (int) $level->id
+                ))
+                ->values()
         );
     }
 }

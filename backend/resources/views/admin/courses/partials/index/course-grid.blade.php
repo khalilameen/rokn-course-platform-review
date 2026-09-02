@@ -216,10 +216,17 @@
                                     الأقسام
                                 </a>
                                 @if(strtolower((string) auth()->user()?->role) === 'admin')
-                                    <button onclick="deleteCourse({{ $course->id }})" class="btn-card btn-card-danger">
-                                        <i class="fa fa-archive"></i>
-                                        أرشفة
-                                    </button>
+                                    @php($preservesLearnerAccess = $course->published_at !== null || (int) ($course->last_published_authoring_version ?? 0) > 0 || !$course->is_coming_soon)
+                                    @if($preservesLearnerAccess && !$course->is_catalog_visible)
+                                        <button type="button" class="btn-card btn-card-danger" disabled aria-disabled="true">
+                                            <i class="fa fa-eye-slash"></i> مخفي
+                                        </button>
+                                    @else
+                                        <button onclick="deleteCourse({{ $course->id }}, {{ $preservesLearnerAccess ? 'true' : 'false' }})" class="btn-card btn-card-danger">
+                                            <i class="fa fa-archive"></i>
+                                            {{ $preservesLearnerAccess ? 'إخفاء' : 'أرشفة' }}
+                                        </button>
+                                    @endif
                                 @endif
                                 @endif
                             </div>

@@ -11,6 +11,7 @@ use App\Models\ProjectFeedbackMessage;
 use App\Models\ProjectFeedbackThread;
 use App\Services\AiEntitlementBudgetService;
 use App\Services\CourseAccessPlanService;
+use App\Services\CourseChatAccessService;
 use App\Services\OpenRouterService;
 use App\Services\PaidAiCallExecutionService;
 use App\Services\AiInputAttachmentService;
@@ -19,20 +20,23 @@ use App\Models\AiInputAttachment;
 use App\Models\User;
 use Illuminate\Support\Str;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
+use App\Support\ProjectSubmissionEvaluationSnapshot;
 use App\Support\UnicodeText;
 use Throwable;
 
-final class GenerateProjectFeedbackReply implements ShouldQueue
+final class GenerateProjectFeedbackReply implements ShouldQueue, ShouldBeUniqueUntilProcessing
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
     public int $timeout = 45;
+    public int $uniqueFor = 600;
     public bool $failOnTimeout = true;
     public string $executionId;
 
@@ -48,8 +52,14 @@ final class GenerateProjectFeedbackReply implements ShouldQueue
         $this->onQueue((string) config('queue.channels.ai_feedback', 'ai-feedback'));
     }
 
+    public function uniqueId(): string
+    {
+        return 'project-feedback-reply:' . $this->messageId;
+    }
+
     public function handle(
         CourseAccessPlanService $plans,
+        CourseChatAccessService $courseAccess,
         AiEntitlementBudgetService $budget,
         OpenRouterService $openRouter,
         PaidAiCallExecutionService $paidCalls,
@@ -60,7 +70,13 @@ final class GenerateProjectFeedbackReply implements ShouldQueue
             ->with(['thread.enrollment', 'thread.project', 'thread.submission'])
             ->find($this->messageId);
         if (!$message || $message->role !== 'user') return;
-        if (!User::query()->whereKey($message->thread?->user_id)->where('active', true)->exists()) return;
+        if (!User::query()->whereKey($message->thread?->user_id)->where('active', true)->exists()) {
+            // A queued message must reach a terminal visible state when the
+            // learner is revoked; otherwise recovery requeues it forever and
+            // the dashboard keeps showing a reply in flight.
+            $this->markFailed($this->messageId, 'account_unavailable');
+            return;
+        }
         if ($message->status === ProjectFeedbackMessage::COMPLETED) {
             $paidCalls->markPresented(AiUsageEvent::query()
                 ->where('request_id', $message->public_id)
@@ -73,6 +89,22 @@ final class GenerateProjectFeedbackReply implements ShouldQueue
                 ->where('request_id', $message->public_id)
                 ->where('feature', 'project_followup')
                 ->first();
+            if (!$event) {
+                $claimLeaseSeconds = max(
+                    60,
+                    $this->timeout + 30,
+                    (int) config('openrouter.timeout_seconds', 45) + 30
+                );
+                if (
+                    $message->updated_at
+                    && $message->updated_at->isAfter(now()->subSeconds($claimLeaseSeconds))
+                ) {
+                    // Another worker may have claimed QUEUED -> SENT and not
+                    // created the durable reservation yet. A duplicate must
+                    // not turn that live claim into a visible failure.
+                    return;
+                }
+            }
             $accepted = trim((string) data_get($event?->metadata, 'accepted_response', ''));
             if ($event?->status === 'completed' && $accepted !== '') {
                 $this->complete(
@@ -138,7 +170,8 @@ final class GenerateProjectFeedbackReply implements ShouldQueue
         if ($message->status !== ProjectFeedbackMessage::QUEUED) return;
         $thread = $message->thread;
         $enrollment = $thread?->enrollment;
-        if (!$thread || !$enrollment || !$enrollment->isActive() || !$thread->can_reply) {
+        if (!$thread || !$enrollment || !$enrollment->isActive()
+            || !$courseAccess->enrollmentAllowsVariableCostFeatures($enrollment)) {
             $this->markFailed($this->messageId, 'entitlement_unavailable');
             return;
         }
@@ -150,17 +183,33 @@ final class GenerateProjectFeedbackReply implements ShouldQueue
             return;
         }
 
+        $evaluationSnapshot = $thread->submission
+            ? ProjectSubmissionEvaluationSnapshot::fromSubmission($thread->submission)
+            : null;
+        // Follow-up replies belong to the submitted work, not to whichever
+        // draft a moderator happens to be editing when the queue runs. New
+        // submissions carry an immutable project policy; current project data
+        // is retained only for rows created before snapshots existed.
+        $projectPolicy = $evaluationSnapshot
+            ? (array) $evaluationSnapshot['project']
+            : [
+                'updated_at' => $thread->project?->updated_at?->toIso8601String(),
+                'requirements_text' => (string) $thread->project?->requirements_text,
+                'ai_prompt' => (string) $thread->project?->ai_prompt,
+                'ai_model_type' => $thread->project?->ai_model_type,
+                'tokens_number' => (int) ($thread->project?->tokens_number ?: 500),
+            ];
         $allowed = array_values(array_filter(config('openrouter.allowed_models', [])));
-        $model = trim((string) (($terms['model_override'] ?? null) ?: $thread->project?->ai_model_type ?: config('openrouter.default_model')));
+        $model = trim((string) (($terms['model_override'] ?? null) ?: ($projectPolicy['ai_model_type'] ?? null) ?: config('openrouter.default_model')));
         if (!in_array($model, $allowed, true)) $model = (string) config('openrouter.default_model');
         $maxTokens = max(80, min(
             (int) config('openrouter.max_tokens', 500),
             (int) ($terms['max_output_tokens'] ?? 320),
-            (int) ($thread->project?->tokens_number ?: 500)
+            (int) ($projectPolicy['tokens_number'] ?? 500)
         ));
         $history = $this->boundedConversationHistory($thread, $terms);
         $requirements = UnicodeText::limit(
-            UnicodeText::clean(strip_tags((string) $thread->project?->requirements_text)),
+            UnicodeText::clean(strip_tags((string) ($projectPolicy['requirements_text'] ?? ''))),
             6000
         );
         $submission = UnicodeText::limit(
@@ -168,14 +217,14 @@ final class GenerateProjectFeedbackReply implements ShouldQueue
             6000
         );
         $moderatorDirection = UnicodeText::limit(
-            UnicodeText::clean(strip_tags((string) $thread->project?->ai_prompt)),
+            UnicodeText::clean(strip_tags((string) ($projectPolicy['ai_prompt'] ?? ''))),
             2000
         );
         $promptVersion = sha1(implode('|', [
-            (string) $thread->project?->updated_at,
+            (string) ($evaluationSnapshot['fingerprint'] ?? ($projectPolicy['updated_at'] ?? 'legacy-current-context')),
             $moderatorDirection,
             $requirements,
-            (string) $thread->feedback_level,
+            (string) $contract['project_feedback_level'],
         ]));
         $prompt = [[
             'role' => 'system',
@@ -317,13 +366,16 @@ final class GenerateProjectFeedbackReply implements ShouldQueue
                     $paidCalls,
                     $reservation,
                     $thread,
-                    $promptVersion
+                    $promptVersion,
+                    $contract
                 ): void {
                     $providerResult['request_context'] = [
+                        'course_id' => (int) $thread->course_id,
                         'project_id' => (int) $thread->project_id,
                         'submission_id' => (string) $thread->submission?->public_id,
                         'thread_id' => (string) $thread->public_id,
                         'prompt_version' => $promptVersion,
+                        'feedback_level' => (string) $contract['project_feedback_level'],
                     ];
                     $paidCalls->landSuccessfulResultForActiveUser(
                         $reservation,
@@ -337,10 +389,12 @@ final class GenerateProjectFeedbackReply implements ShouldQueue
                 }
             );
             $result['request_context'] = [
+                'course_id' => (int) $thread->course_id,
                 'project_id' => (int) $thread->project_id,
                 'submission_id' => (string) $thread->submission?->public_id,
                 'thread_id' => (string) $thread->public_id,
                 'prompt_version' => $promptVersion,
+                'feedback_level' => (string) $contract['project_feedback_level'],
             ];
             $providerResultKnown = true;
             $landingState = $paidCalls->landSuccessfulResultForActiveUser(

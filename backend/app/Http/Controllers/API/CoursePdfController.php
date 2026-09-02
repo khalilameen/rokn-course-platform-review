@@ -9,6 +9,7 @@ use App\Models\Course;
 use App\Models\CoursePdf;
 use App\Models\User;
 use App\Services\CourseModuleAccessService;
+use App\Services\CourseStagedAuthoringService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -17,9 +18,10 @@ use App\Support\DownloadFilename;
 
 final class CoursePdfController extends Controller
 {
-    public function __construct(private CourseModuleAccessService $access)
-    {
-    }
+    public function __construct(
+        private CourseModuleAccessService $access,
+        private CourseStagedAuthoringService $revisions
+    ) {}
 
     /** Get all active PDFs for an actively enrolled user. */
     public function index(Request $request, $courseId): JsonResponse
@@ -64,8 +66,10 @@ final class CoursePdfController extends Controller
             return $this->error('هذا الكورس غير مضاف إلى حسابك', 403);
         }
 
+        $currentPdfId = $this->revisions->currentEntityId(CoursePdf::class, (int) $pdfId)
+            ?? (int) $pdfId;
         $pdf = CoursePdf::query()
-            ->whereKey($pdfId)
+            ->whereKey($currentPdfId)
             ->where('course_id', $courseId)
             ->where('is_active', true)
             ->first();
@@ -91,7 +95,8 @@ final class CoursePdfController extends Controller
         $user = $this->access->userFromSignedDownloadRequest($request);
         abort_unless($user, 403);
 
-        $courseModel = Course::query()->findOrFail($course);
+        $courseModel = $this->revisions->canonicalFor(Course::query()->findOrFail($course));
+        $pdf = $this->revisions->currentEntityId(CoursePdf::class, (int) $pdf) ?? (int) $pdf;
         $pdfModel = CoursePdf::query()
             ->whereKey($pdf)
             ->where('course_id', $courseModel->id)

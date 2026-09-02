@@ -38,6 +38,10 @@ final class SendLearningNudges extends Command
             ->where('notifications_status', true)
             ->whereHas('enrollments', function ($query): void {
                 $query->where('is_active', true)
+                    // Completion is an earned immutable fact. A retention
+                    // campaign must not tell a learner to continue a course
+                    // they have already finished.
+                    ->whereNull('completed_curriculum_revision')
                     ->where(function ($expires): void {
                         $expires->whereNull('expires_at')->orWhere('expires_at', '>', now());
                     });
@@ -60,6 +64,7 @@ final class SendLearningNudges extends Command
             })
             ->with(['enrollments' => function ($query): void {
                 $query->where('is_active', true)
+                    ->whereNull('completed_curriculum_revision')
                     ->where(function ($expires): void {
                         $expires->whereNull('expires_at')->orWhere('expires_at', '>', now());
                     })
@@ -77,9 +82,17 @@ final class SendLearningNudges extends Command
 
         foreach ($students as $student) {
             /** @var CourseEnrollment|null $enrollment */
-            $enrollment = $student->enrollments->first();
+            // A newer enrollment can be a draft/retired child while an older
+            // purchased course remains playable. Do not skip the learner or
+            // deep-link a non-public graph merely because that unusable row
+            // sorted first.
+            $enrollment = $student->enrollments->first(
+                fn (CourseEnrollment $candidate): bool =>
+                    $candidate->course?->isPublishedForLearning()
+                    && !$candidate->course->isNestedCourse()
+            );
             $course = $enrollment?->course;
-            if (!$course || !$course->isPublishedForLearning() || $course->isNestedCourse()) {
+            if (!$course) {
                 continue;
             }
 

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\About;
-use Illuminate\Support\Facades\Schema;
+use App\Support\DatabaseCapabilities;
 
 final class ManagedPublicContentService
 {
@@ -18,7 +18,7 @@ final class ManagedPublicContentService
     public function body(string $page, string $locale): ?string
     {
         $field = self::FIELDS[$page][$locale === 'en' ? 'en' : 'ar'] ?? null;
-        if ($field === null || !Schema::hasTable('abouts')) {
+        if ($field === null || !DatabaseCapabilities::hasTable('abouts')) {
             return null;
         }
 

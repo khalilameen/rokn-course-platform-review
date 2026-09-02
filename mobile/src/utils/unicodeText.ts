@@ -1,5 +1,5 @@
 const DIRECTIONAL_AND_INVISIBLE_CONTROLS =
-  /[\u00AD\u034F\u061C\u180E\u200B\u200E\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g;
+  /[\u00AD\u034F\u061C\u180E\u200B\u200E\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF\uFFFC]/g;
 /* eslint-disable no-control-regex -- these are the exact unsafe C0 ranges */
 const UNSAFE_CONTROLS = new RegExp(
   '[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]',

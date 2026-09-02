@@ -11,6 +11,7 @@ import type {DemoCoinPackage} from '../demoExperience';
 import {
   firstBoolean,
   isApiRecord,
+  isResourceListPayload,
   nonNegativeNumber,
   payload,
   resourceList,
@@ -155,15 +156,6 @@ export type RewardResult = {
 const firstDefined = (...values: unknown[]) =>
   values.find(value => value !== undefined && value !== null);
 
-const optionalNonNegativeNumber = (
-  value: unknown,
-  fallback: number,
-  field: string,
-) =>
-  value === undefined || value === null
-    ? fallback
-    : requireNonNegativeNumber(value, field);
-
 const financialSnapshot = (data: WalletDto) => {
   const balance = requireNonNegativeNumber(
     firstDefined(
@@ -173,28 +165,25 @@ const financialSnapshot = (data: WalletDto) => {
     ),
     'WALLET_TOTAL_BALANCE',
   );
-  const paidBalance = optionalNonNegativeNumber(
+  const paidBalance = requireNonNegativeNumber(
     firstDefined(
       data.paid_balance,
       data.purchased_balance,
       data.breakdown?.paid_balance,
       data.breakdown?.purchased_balance,
     ),
-    0,
     'WALLET_PAID_BALANCE',
   );
-  const rewardBalance = optionalNonNegativeNumber(
+  const rewardBalance = requireNonNegativeNumber(
     firstDefined(data.reward_balance, data.breakdown?.reward_balance),
-    balance - paidBalance,
     'WALLET_REWARD_BALANCE',
   );
-  const spendableBalance = optionalNonNegativeNumber(
+  const spendableBalance = requireNonNegativeNumber(
     firstDefined(
       data.course_spendable_balance,
       data.spendable_balance,
       data.breakdown?.course_spendable_balance,
     ),
-    balance,
     'WALLET_SPENDABLE_BALANCE',
   );
 
@@ -210,35 +199,92 @@ const financialSnapshot = (data: WalletDto) => {
   return {balance, paidBalance, rewardBalance, spendableBalance};
 };
 
+const dailyRewardFlights = new Map<string, Promise<RewardResult>>();
+
 export const claimDailyReward = async (): Promise<RewardResult> => {
-  const data = payload(await publicRequest.post('rewards/daily'));
-  return {
-    awarded: requireNonNegativeNumber(data.awarded, 'REWARD_AWARDED'),
-    balance: requireNonNegativeNumber(data.balance, 'REWARD_BALANCE'),
-    rewardBalance: requireNonNegativeNumber(
-      data.reward_balance,
-      'REWARD_BUCKET_BALANCE',
-    ),
-  };
+  const boundary = await captureAccountSessionBoundary();
+  const flightKey = `${boundary.scope}:${boundary.epoch}`;
+  const existing = dailyRewardFlights.get(flightKey);
+  if (existing) return existing;
+  const flight = (async () => {
+    assertAccountSessionBoundary(boundary);
+    const data = payload(await publicRequest.post('rewards/daily'));
+    assertAccountSessionBoundary(boundary);
+    const result = {
+      awarded: requireNonNegativeNumber(data.awarded, 'REWARD_AWARDED'),
+      balance: requireNonNegativeNumber(data.balance, 'REWARD_BALANCE'),
+      rewardBalance: requireNonNegativeNumber(
+        data.reward_balance,
+        'REWARD_BUCKET_BALANCE',
+      ),
+    };
+    assertAccountSessionBoundary(boundary);
+    return result;
+  })().finally(() => {
+    if (dailyRewardFlights.get(flightKey) === flight) {
+      dailyRewardFlights.delete(flightKey);
+    }
+  });
+  dailyRewardFlights.set(flightKey, flight);
+  return flight;
 };
 
 export const getWallet = async (): Promise<WalletSnapshot> => {
+  const boundary = await captureAccountSessionBoundary();
   const data = payload<WalletDto>(await publicRequest.get('wallet'));
+  assertAccountSessionBoundary(boundary);
   const {balance, paidBalance, rewardBalance, spendableBalance} =
     financialSnapshot(data);
-  return {
+  const rewardContributionCap = requireNonNegativeNumber(
+    firstDefined(
+      data.reward_contribution_cap_per_course,
+      data.breakdown?.reward_contribution_cap_per_course,
+    ),
+    'WALLET_REWARD_CONTRIBUTION_CAP',
+  );
+  const spendPolicy = String(data.spend_policy || '').trim();
+  if (
+    spendPolicy !== 'reward_first_then_paid' ||
+    spendableBalance !==
+      paidBalance + Math.min(rewardBalance, rewardContributionCap)
+  ) {
+    // The wallet breakdown is one financial contract. Guessing a missing
+    // bucket or accepting a contradictory spendable total can make a course
+    // appear purchasable (or unaffordable) even though the server will decide
+    // differently at checkout.
+    throw new Error('API_CONTRACT_INVALID_WALLET_BREAKDOWN');
+  }
+  const seenTransactionIds = new Set<string>();
+  if (
+    !Array.isArray(data.recent_transactions) ||
+    data.recent_transactions.some(item => {
+      if (!isApiRecord(item)) return true;
+      const id = String(item.id ?? '').trim();
+      const direction = String(item.direction ?? '').toLowerCase();
+      const malformed =
+        id === '' ||
+        seenTransactionIds.has(id) ||
+        !['credit', 'debit'].includes(direction) ||
+        nonNegativeNumber(item.amount) === null ||
+        (item.category !== undefined &&
+          item.category !== null &&
+          typeof item.category !== 'string') ||
+        (item.occurred_at !== undefined &&
+          item.occurred_at !== null &&
+          typeof item.occurred_at !== 'string');
+      if (!malformed) seenTransactionIds.add(id);
+      return malformed;
+    })
+  ) {
+    throw new Error('API_CONTRACT_INVALID_WALLET_TRANSACTIONS');
+  }
+  const snapshot: WalletSnapshot = {
     balance,
     paidBalance,
     rewardBalance,
     spendableBalance,
-    rewardContributionCap: requireNonNegativeNumber(
-      firstDefined(
-        data.reward_contribution_cap_per_course,
-        data.breakdown?.reward_contribution_cap_per_course,
-      ),
-      'WALLET_REWARD_CONTRIBUTION_CAP',
-    ),
-    spendPolicy: String(data.spend_policy || 'reward_first_then_paid'),
+    rewardContributionCap,
+    spendPolicy,
     coinRules: Array.isArray(data.coin_rules)
       ? data.coin_rules.map(String).filter(Boolean)
       : typeof data.coin_rules === 'string'
@@ -247,25 +293,19 @@ export const getWallet = async (): Promise<WalletSnapshot> => {
           .map((rule: string) => rule.trim())
           .filter(Boolean)
       : [],
-    transactions: Array.isArray(data.recent_transactions)
-      ? data.recent_transactions.flatMap(item => {
-          const id = String(item.id ?? '').trim();
-          const amount = nonNegativeNumber(item.amount);
-          if (!id || amount === null) return [];
-          return [
-            {
-              id,
-              amount:
-                String(item.direction).toLowerCase() === 'debit'
-                  ? -amount
-                  : amount,
-              occurred_at: item.occurred_at,
-              category: item.category,
-            },
-          ];
-        })
-      : [],
+    transactions: data.recent_transactions.map(item => {
+      const amount = Number(item.amount);
+      return {
+        id: String(item.id).trim(),
+        amount:
+          String(item.direction).toLowerCase() === 'debit' ? -amount : amount,
+        occurred_at: item.occurred_at,
+        category: item.category,
+      };
+    }),
   };
+  assertAccountSessionBoundary(boundary);
+  return snapshot;
 };
 
 export const getCoinPackages = async (): Promise<DemoCoinPackage[]> => {
@@ -277,6 +317,9 @@ export const getCoinPackages = async (): Promise<DemoCoinPackage[]> => {
     : (() => {
         throw new Error('API_CONTRACT_INVALID_COIN_PACKAGES');
       })();
+  if (!isResourceListPayload(items)) {
+    throw new Error('API_CONTRACT_INVALID_COIN_PACKAGES');
+  }
   const packages = mapCoinPackages(items, 'API_CONTRACT_INVALID_COIN_PACKAGES');
 
   if (!IS_STORE_DISTRIBUTION) return packages;
@@ -322,12 +365,41 @@ export const getCoinTasks = async (): Promise<CoinTask[]> => {
   const response = await publicRequest.get('coin-earning-methods');
   assertAccountSessionBoundary(boundary);
   const data = payload<CoinTaskDto[] | {data?: CoinTaskDto[]}>(response);
+  if (!isResourceListPayload(data)) {
+    throw new Error('API_CONTRACT_INVALID_COIN_TASKS');
+  }
   const items = resourceList<CoinTaskDto>(data);
   const rememberedUrls = await readCoinTaskActionUrls(boundary);
-  const tasks = items.flatMap<CoinTask>(item => {
+  const seenTaskIds = new Set<string>();
+  if (
+    items.some(item => {
+      if (!isApiRecord(item)) return true;
+      const serverId = String(item.id ?? '').trim();
+      const reward = nonNegativeNumber(item.coins_amount);
+      const state = String(item.task_state ?? '');
+      const hasTitle = Boolean(
+        String(item.title_ar ?? '').trim() || String(item.title_en ?? '').trim(),
+      );
+      if (
+        !/^\d+$/.test(serverId) ||
+        seenTaskIds.has(serverId) ||
+        reward === null ||
+        reward <= 0 ||
+        !hasTitle ||
+        !['available', 'started', 'ready_to_claim', 'claimed'].includes(state) ||
+        firstBoolean(item.requires_external_visit) === undefined
+      ) {
+        return true;
+      }
+      seenTaskIds.add(serverId);
+      return false;
+    })
+  ) {
+    throw new Error('API_CONTRACT_INVALID_COIN_TASKS');
+  }
+  const tasks = items.map<CoinTask>(item => {
     const serverId = String(item.id ?? '').trim();
-    const reward = nonNegativeNumber(item.coins_amount);
-    if (!/^\d+$/.test(serverId) || reward === null || reward <= 0) return [];
+    const reward = Number(item.coins_amount);
     const state = String(item.task_state || 'available');
     const rawActionKey = String(item.action_key || '');
     const replacesNotificationReward = rawActionKey
@@ -346,28 +418,26 @@ export const getCoinTasks = async (): Promise<CoinTask[]> => {
       item.title_ar || item.title_en,
       'مهمة مكافأة',
     );
-    return [
-      {
-        id: `production-${serverId}`,
-        serverId,
-        title: truthfulTaskTitle(rawTitle, actionKey),
-        description: taskDescription(actionKey),
-        reward,
-        url: !replacesNotificationReward
-          ? item.action_url
-            ? String(item.action_url)
-            : rememberedUrls[serverId]
-          : undefined,
-        status:
-          state === 'claimed'
-            ? 'claimed'
-            : state === 'started' || state === 'ready_to_claim'
-            ? 'started'
-            : 'available',
-        actionKey,
-        requiresExternalVisit,
-      },
-    ];
+    return {
+      id: `production-${serverId}`,
+      serverId,
+      title: truthfulTaskTitle(rawTitle, actionKey),
+      description: taskDescription(actionKey),
+      reward,
+      url: !replacesNotificationReward
+        ? item.action_url
+          ? String(item.action_url)
+          : rememberedUrls[serverId]
+        : undefined,
+      status:
+        state === 'claimed'
+          ? 'claimed'
+          : state === 'started' || state === 'ready_to_claim'
+          ? 'started'
+          : 'available',
+      actionKey,
+      requiresExternalVisit,
+    };
   });
   const activeIds = new Set(
     tasks.filter(task => task.status !== 'claimed').map(task => task.serverId),
@@ -388,8 +458,23 @@ export const startCoinTask = async (task: CoinTask) => {
     await publicRequest.post(`coin-earning-methods/${task.serverId}/start`),
   );
   assertAccountSessionBoundary(boundary);
-  const status = String(data.task_state || 'started');
-  const url = data.action_url ? String(data.action_url) : task.url;
+  if (!isApiRecord(data)) {
+    throw new Error('API_CONTRACT_INVALID_COIN_TASK_START');
+  }
+  const status = String(data.task_state || '');
+  if (!['started', 'ready_to_claim', 'claimed'].includes(status)) {
+    throw new Error('API_CONTRACT_INVALID_COIN_TASK_START');
+  }
+  const actionUrl =
+    typeof data.action_url === 'string' ? data.action_url.trim() : '';
+  const url = actionUrl || task.url;
+  if (
+    status !== 'claimed' &&
+    (String(data.attempt_id || '').trim() === '' ||
+      (task.requiresExternalVisit && !actionUrl))
+  ) {
+    throw new Error('API_CONTRACT_INVALID_COIN_TASK_START');
+  }
   if (status === 'claimed') {
     await forgetCoinTaskActionUrl(task.serverId, boundary).catch(
       () => undefined,
@@ -410,6 +495,9 @@ export const claimCoinTask = async (task: CoinTask) => {
     await publicRequest.post('claim-coins', {method_id: Number(task.serverId)}),
   );
   assertAccountSessionBoundary(boundary);
+  if (!isApiRecord(data) || String(data.task_state || '') !== 'claimed') {
+    throw new Error('API_CONTRACT_INVALID_COIN_TASK_CLAIM');
+  }
   const result = {
     balance: requireNonNegativeNumber(
       data.new_balance,

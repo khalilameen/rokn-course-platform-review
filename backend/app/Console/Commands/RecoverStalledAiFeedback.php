@@ -91,23 +91,17 @@ final class RecoverStalledAiFeedback extends Command
             ->where('updated_at', '<=', $sentStaleBefore)
             ->orderBy('id')
             ->limit($limit)
-            ->get(['id', 'updated_at']);
+            ->get(['id']);
         foreach ($staleSent as $message) {
-            $claimed = ProjectFeedbackMessage::query()
-                ->whereKey($message->id)
-                ->where('status', ProjectFeedbackMessage::SENT)
-                ->where('updated_at', '<=', $sentStaleBefore)
-                ->where('updated_at', $message->updated_at)
-                ->update(['updated_at' => now()]);
-            if ($claimed !== 1) continue;
             try {
+                // The unique key collapses queued reconciliations. Do not
+                // refresh updated_at here: that timestamp is the durable SENT
+                // processing lease used by workers to distinguish a live
+                // claim from an abandoned one.
                 GenerateProjectFeedbackReply::dispatch((int) $message->id)
                     ->onQueue((string) config('queue.channels.ai_feedback', 'ai-feedback'));
                 $sentReconciliationsQueued++;
             } catch (\Throwable $exception) {
-                ProjectFeedbackMessage::query()->whereKey($message->id)->update([
-                    'updated_at' => $message->updated_at,
-                ]);
                 Log::warning('Stalled sent AI feedback could not be reconciled.', [
                     'message_id' => $message->id,
                     'exception' => $exception::class,

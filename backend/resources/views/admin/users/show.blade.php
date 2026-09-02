@@ -71,6 +71,8 @@
                         @if($user->locked_device_id && $deviceLoginPolicy === \App\Services\DeviceLoginService::POLICY_SINGLE_PERMANENT)
                             <form action="{{ route('admin.users.reset-device', $user->id) }}" method="POST" class="admin-inline-form" onsubmit="return confirm('هل أنت متأكد من إعادة تعيين جهاز الطالب؟ سيتمكن الطالب من تسجيل الدخول من جهاز آخر.')">
                                 @csrf
+                                <input type="hidden" name="state_version" value="{{ $deviceStateVersion }}">
+                                <input type="hidden" name="expected_policy" value="{{ $deviceLoginPolicy }}">
                                 <button type="submit" class="btn-action-modern btn-reset-device">
                                     <i class="fa fa-refresh"></i> إعادة تعيين الجهاز
                                 </button>
@@ -101,7 +103,7 @@
                             سيظهر الإشعار داخل التطبيق، لكن الهاتف غير مسجل لاستقبال Push حاليًا.
                         @endif
                     </div>
-                    {!! Form::open(['method' => 'POST', 'route' => ['admin.users.send_notification', $user->id], 'files' => true]) !!}
+                    {!! Form::open(['method' => 'POST', 'route' => ['admin.users.send_notification', $user->id], 'files' => true, 'id' => 'studentNotificationForm']) !!}
                         <input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">
                         <div class="notification-form">
                             <input name="title" maxlength="80" placeholder="عنوان قصير" class="notification-input notification-input--title" type="text" required>
@@ -112,6 +114,7 @@
                             </button>
                         </div>
                     {!! Form::close() !!}
+                    @include('admin.partials.course-authoring-draft', ['formId' => 'studentNotificationForm'])
                 </div>
             </div>
 
@@ -306,21 +309,19 @@
                         <span class="stat-badge stat-badge-light">
                             <i class="fa fa-shopping-bag"></i> {{ $orders->total() }} طلب
                         </span>
-                        @if($orders->count() > 0)
-                            @php
-                                $approvedCount = $orders->where('status', 'approved')->count();
-                                $pendingCount = $orders->where('status', 'pending')->count();
-                                $totalAmount = $orders->where('status', 'approved')->sum('final_amount');
-                            @endphp
+                        @if($orders->total() > 0)
                             <span class="stat-badge stat-badge-success">
-                                <i class="fa fa-check"></i> مُعتمد: {{ $approvedCount }}
+                                <i class="fa fa-check"></i> مُعتمد: {{ $orderStats['approved'] }}
                             </span>
                             <span class="stat-badge stat-badge-danger">
-                                <i class="fa fa-hourglass"></i> معلق: {{ $pendingCount }}
+                                <i class="fa fa-hourglass"></i> معلق: {{ $orderStats['pending'] }}
                             </span>
-                            <span class="stat-badge stat-badge-info">
-                                <i class="fa fa-money"></i> {{ number_format($totalAmount) }} جنيه
-                            </span>
+                            @if($orderStats['approved_coins'] > 0)
+                                <span class="stat-badge stat-badge-info"><i class="fa fa-database"></i> {{ number_format($orderStats['approved_coins']) }} عملة</span>
+                            @endif
+                            @if($orderStats['confirmed_egp'] > 0)
+                                <span class="stat-badge stat-badge-info"><i class="fa fa-money"></i> {{ number_format($orderStats['confirmed_egp'], 2) }} جنيه محصل</span>
+                            @endif
                         @endif
                     </div>
                 </div>
@@ -360,9 +361,9 @@
                                                     <span class="text-muted">غير محدد</span>
                                                 @endif
                                             </td>
-                                            <td>{{ $order->amount }} {{ $order->course->currency ?? 'جنيه' }}</td>
+                                            <td>{{ number_format($order->amount, (int) $order->total_coins > 0 ? 0 : 2) }} {{ (int) $order->total_coins > 0 ? 'عملة' : (strtoupper((string) ($order->gateway_currency ?: 'EGP')) === 'EGP' ? 'جنيه' : strtoupper((string) $order->gateway_currency)) }}</td>
                                             <td>
-                                                <strong>{{ $order->final_amount }}</strong>
+                                                <strong>{{ number_format($order->final_amount, (int) $order->total_coins > 0 ? 0 : 2) }} {{ (int) $order->total_coins > 0 ? 'عملة' : (strtoupper((string) ($order->gateway_currency ?: 'EGP')) === 'EGP' ? 'جنيه' : strtoupper((string) $order->gateway_currency)) }}</strong>
                                                 @if($order->discount_amount > 0)
                                                     <br><small class="text-success"><i class="fa fa-tag"></i> خصم: {{ $order->discount_amount }}</small>
                                                 @endif
@@ -448,27 +449,17 @@
                         <span class="stat-badge stat-badge-light">
                             <i class="fa fa-file"></i> {{ $bills->total() }} فاتورة
                         </span>
-                        @if($bills->count() > 0)
-                            @php
-                                $paidCount = $bills->where('payment_status', 'paid')->count();
-                                $pendingCount = $bills->where('payment_status', 'pending')->count();
-                                $totalPaid = $bills->where('payment_status', 'paid')->sum('total_amount');
-                                $totalPending = $bills->where('payment_status', 'pending')->sum('total_amount');
-                            @endphp
+                        @if($bills->total() > 0)
                             <span class="stat-badge stat-badge-success">
-                                <i class="fa fa-check"></i> مدفوع: {{ $paidCount }}
+                                <i class="fa fa-check"></i> مدفوع: {{ $billStats['paid'] }}
                             </span>
                             <span class="stat-badge stat-badge-danger">
-                                <i class="fa fa-hourglass"></i> معلق: {{ $pendingCount }}
+                                <i class="fa fa-hourglass"></i> معلق: {{ $billStats['pending'] }}
                             </span>
-                            <span class="stat-badge stat-badge-info">
-                                <i class="fa fa-money"></i> {{ number_format($totalPaid) }} جنيه
-                            </span>
-                            @if($totalPending > 0)
-                                <span class="stat-badge stat-badge-danger">
-                                    <i class="fa fa-exclamation"></i> معلق: {{ number_format($totalPending) }} جنيه
-                                </span>
-                            @endif
+                            @if($billStats['paid_coins'] > 0)<span class="stat-badge stat-badge-info"><i class="fa fa-database"></i> {{ number_format($billStats['paid_coins']) }} عملة</span>@endif
+                            @if($billStats['paid_egp'] > 0)<span class="stat-badge stat-badge-info"><i class="fa fa-money"></i> {{ number_format($billStats['paid_egp'], 2) }} جنيه</span>@endif
+                            @if($billStats['pending_coins'] > 0)<span class="stat-badge stat-badge-danger"><i class="fa fa-exclamation"></i> {{ number_format($billStats['pending_coins']) }} عملة معلقة</span>@endif
+                            @if($billStats['pending_egp'] > 0)<span class="stat-badge stat-badge-danger"><i class="fa fa-exclamation"></i> {{ number_format($billStats['pending_egp'], 2) }} جنيه معلق</span>@endif
                         @endif
                     </div>
                 </div>
@@ -513,9 +504,9 @@
                                                     <span class="text-muted">غير محدد</span>
                                                 @endif
                                             </td>
-                                            <td>{{ $bill->amount }}</td>
-                                            <td>{{ $bill->tax_amount }}</td>
-                                            <td><strong>{{ $bill->total_amount }}</strong></td>
+                                            <td>{{ number_format($bill->amount, $bill->isCoinDenominated() ? 0 : 2) }} {{ $bill->amountUnitLabel() }}</td>
+                                            <td>{{ number_format($bill->tax_amount, $bill->isCoinDenominated() ? 0 : 2) }} {{ $bill->amountUnitLabel() }}</td>
+                                            <td><strong>{{ number_format($bill->total_amount, $bill->isCoinDenominated() ? 0 : 2) }} {{ $bill->amountUnitLabel() }}</strong></td>
                                             <td>
                                                 @switch($bill->payment_status)
                                                     @case('pending')
@@ -581,14 +572,15 @@
             </div>
         </div>
     </div>
-</div> -->
+</div>
 
 <!-- Add Note Modal -->
 <div class="modal fade" id="addNoteModal" tabindex="-1" role="dialog" aria-labelledby="addNoteModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered" role="document">
         <div class="modal-content modal-content-modern">
-            <form method="POST" action="{{ route('admin.users.notes.store', $user->id) }}">
+            <form method="POST" action="{{ route('admin.users.notes.store', $user->id) }}" id="studentNoteForm">
                 @csrf
+                <input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">
                 <div class="modal-header modal-header-modern">
                     <h5 class="modal-title" id="addNoteModalLabel">
                         <i class="fa fa-sticky-note"></i> إضافة ملاحظة جديدة
@@ -615,6 +607,7 @@
                     </button>
                 </div>
             </form>
+            @include('admin.partials.course-authoring-draft', ['formId' => 'studentNoteForm'])
         </div>
     </div>
 </div>

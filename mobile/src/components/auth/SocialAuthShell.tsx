@@ -48,7 +48,12 @@ import {
   socialAuthFailureCode,
   socialAuthMessage,
 } from '../../services/socialAuthErrors';
-import {assertSecureSessionStorageAvailable} from '../../services/secureSession';
+import {
+  assertSecureSessionStorageAvailable,
+  deletePendingSocialAuthAttempt,
+  loadPendingSocialAuthAttempt,
+  peekSecureSession,
+} from '../../services/secureSession';
 import {reportClientError} from '../../services/operationalTelemetry';
 import {
   LOGIN_RETURN_TO_PARAMLESS_ROUTES,
@@ -63,10 +68,13 @@ import {
 } from '../../services/guestAccountMigration';
 import {runAuthenticatedStorageUpgrade} from '../../services/storageUpgrade';
 import {
+  acknowledgePendingLoginReturnTo,
+  claimPendingLoginReturnTo,
   clearPendingLoginReturnTo,
   savePendingLoginReturnTo,
 } from '../../navigation/authReturn';
 import {learnerFacingText} from '../../utils/errorPayload';
+import {serverNowMs} from '../../utils/serverClock';
 
 type LoginRoute = RouteProp<{Login: LoginRouteParams}, 'Login'>;
 
@@ -152,7 +160,11 @@ export default function SocialAuthShell() {
 
   const loadAuthMethods = useCallback(async () => {
     const generation = ++authMethodsGenerationRef.current;
-    setAuthMethods(undefined);
+    // Keep a working discovery contract visible while refreshing it. A
+    // malformed/partial 200 is a failed refresh, not an authoritative request
+    // to remove providers; only a valid explicit providers: [] response may do
+    // that.
+    setAuthMethods(current => (current === null ? undefined : current));
     const request = authMethodsRequestRef.current ?? getSocialAuthMethods();
     authMethodsRequestRef.current = request;
     try {
@@ -163,7 +175,9 @@ export default function SocialAuthShell() {
       return methods;
     } catch (error) {
       if (generation === authMethodsGenerationRef.current) {
-        setAuthMethods(null);
+        setAuthMethods(current =>
+          current === undefined ? null : current,
+        );
       }
       throw error;
     } finally {
@@ -173,7 +187,12 @@ export default function SocialAuthShell() {
     }
   }, []);
 
-  const finishAuthenticatedNavigation = () => {
+  const finishAuthenticatedNavigation = (preserveDurableReturn = false) => {
+    const retireDurableReturn = () => {
+      if (!preserveDurableReturn) {
+        void clearPendingLoginReturnTo().catch(() => undefined);
+      }
+    };
     const returnTo = route.params?.returnTo;
     if (validReturnTo(returnTo)) {
       if (isParamlessReturnTo(returnTo)) {
@@ -186,14 +205,14 @@ export default function SocialAuthShell() {
           // Returning to the mounted screen also preserves local UI intent,
           // such as the selected Saved or Portfolio tab inside Profile.
           navigation.goBack();
-          void clearPendingLoginReturnTo().catch(() => undefined);
+          retireDurableReturn();
           return;
         }
         navigation.reset({
           index: 1,
           routes: [{name: 'Home'}, {name: returnTo.name}],
         });
-        void clearPendingLoginReturnTo().catch(() => undefined);
+        retireDurableReturn();
         return;
       }
       if (returnTo.name === 'Profile') {
@@ -212,7 +231,7 @@ export default function SocialAuthShell() {
           navigation.canGoBack?.()
         ) {
           navigation.goBack();
-          void clearPendingLoginReturnTo().catch(() => undefined);
+          retireDurableReturn();
           return;
         }
       }
@@ -238,11 +257,11 @@ export default function SocialAuthShell() {
           },
         ],
       });
-      void clearPendingLoginReturnTo().catch(() => undefined);
+      retireDurableReturn();
       return;
     }
     navigation.reset({index: 0, routes: [{name: 'Home'}]});
-    void clearPendingLoginReturnTo().catch(() => undefined);
+    retireDurableReturn();
   };
 
   useEffect(() => {
@@ -252,6 +271,44 @@ export default function SocialAuthShell() {
       authIntentGenerationRef.current += 1;
     };
   }, [loadAuthMethods]);
+
+  useEffect(
+    () =>
+      navigation.addListener('beforeRemove', () => {
+        if (
+          authAttemptInFlightRef.current ||
+          extractApiToken(currentSession) ||
+          extractApiToken(peekSecureSession().session)
+        ) {
+          return;
+        }
+        // Back means the learner abandoned this login journey. Retaining its
+        // route reopened Login on the next cold start, while retaining its
+        // encrypted provider attempt allowed a late Android callback to sign
+        // in after the learner had explicitly left the screen.
+        const abandonedAt = serverNowMs();
+        authIntentGenerationRef.current += 1;
+        void claimPendingLoginReturnTo()
+          .then(claim =>
+            claim && claim.createdAt < abandonedAt
+              ? acknowledgePendingLoginReturnTo(claim.receipt)
+              : false,
+          )
+          .catch(() => undefined);
+        void loadPendingSocialAuthAttempt()
+          .then(pending => {
+            const startedAt = Date.parse(pending?.startedAt || '');
+            return pending &&
+              (pending.purpose ?? 'login') === 'login' &&
+              Number.isFinite(startedAt) &&
+              startedAt < abandonedAt
+              ? deletePendingSocialAuthAttempt(pending)
+              : false;
+          })
+          .catch(() => undefined);
+      }),
+    [currentSession, navigation],
+  );
 
   const continueWith = async (provider: SocialProvider) => {
     if (
@@ -303,14 +360,18 @@ export default function SocialAuthShell() {
         throw new Error('SESSION_STORAGE_UNAVAILABLE');
       }
       dispatch(saveLoginData(restoredSession));
-      finishAuthenticatedNavigation();
+      // Redux changes the navigator key from guest to this account. Keep the
+      // durable return until the new navigator has mounted and acknowledged
+      // its exact envelope; otherwise a fast render can replace this reset
+      // with Home after a perfectly successful OAuth exchange.
+      finishAuthenticatedNavigation(true);
     } catch (error) {
       if (!stillOwnsIntent()) return;
       const code = socialAuthFailureCode(error);
       if (code === 'LOGIN_CANCELLED') {
         await clearPendingLoginReturnTo().catch(() => undefined);
       }
-      if (code !== 'LOGIN_CANCELLED') {
+      if (code !== 'LOGIN_CANCELLED' && code !== 'LOGIN_RESUMING') {
         void reportClientError(new Error(code), {
           source: `auth.${provider}`,
         });

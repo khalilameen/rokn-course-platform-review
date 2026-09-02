@@ -1,6 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import RNFS from 'react-native-fs';
-import {Linking} from 'react-native';
 import {
   assertPendingProjectCacheCapacity,
   PROJECT_SUBMISSION_MAX_BYTES,
@@ -18,6 +17,7 @@ import {requireProductFeature} from '../../../services/productFeatures';
 import {clearAccountLearnerDraftFiles} from '../../../services/learnerDraftFiles';
 import {secureRandomUuid} from '../../../utils/secureRandom';
 import {cleanUnicodeText} from '../../../utils/unicodeText';
+import {openExternalUrlOnce} from '../../../services/systemActions';
 import type {
   CourseLearningData,
   ProjectFeedbackThread,
@@ -42,6 +42,7 @@ const PROJECT_SUBMISSION_PREFIX = '@rokn/project-submission/v2';
 const PROJECT_FILE_CACHE_DIR = `${RNFS.CachesDirectoryPath}/rokn_project_submissions`;
 const PUBLIC_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const projectAttachmentOpenFlights = new Map<string, Promise<void>>();
 
 const numericProjectId = (value: string) => {
   const normalized = String(value).trim();
@@ -234,7 +235,7 @@ export const watchProjectResolution = <T extends {status: ProjectStatus}>({
   };
 };
 
-export const openProjectInputAttachment = async ({
+const openProjectInputAttachmentInternal = async ({
   projectId: _projectId,
   threadId: _threadId,
   file,
@@ -260,7 +261,34 @@ export const openProjectInputAttachment = async ({
     };
   }
   if (!candidate.downloadUrl) throw new Error('PROJECT_ATTACHMENT_UNAVAILABLE');
-  await Linking.openURL(candidate.downloadUrl);
+  await openExternalUrlOnce(
+    candidate.downloadUrl,
+    undefined,
+    `project-input-attachment:${
+      file.serverId || file.uploadId || file.downloadUrl || ''
+    }`,
+  );
+};
+
+export const openProjectInputAttachment = (input: {
+  projectId: string;
+  threadId?: string;
+  file: import('../types').ChatAttachmentDraft;
+}) => {
+  const key = [
+    input.projectId,
+    input.threadId || 'submission',
+    input.file.serverId || input.file.uploadId || input.file.downloadUrl || '',
+  ].join(':');
+  const existing = projectAttachmentOpenFlights.get(key);
+  if (existing) return existing;
+  const flight = openProjectInputAttachmentInternal(input).finally(() => {
+    if (projectAttachmentOpenFlights.get(key) === flight) {
+      projectAttachmentOpenFlights.delete(key);
+    }
+  });
+  projectAttachmentOpenFlights.set(key, flight);
+  return flight;
 };
 
 export const sendProjectFeedbackMessage = async (

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\SocialOAuthAttempt;
+use App\Support\DatabaseCapabilities;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 
 final class SocialOAuthAttemptService
@@ -13,15 +15,21 @@ final class SocialOAuthAttemptService
         string $state,
         string $provider,
         string $returnTo,
-        ?string $codeChallenge
+        ?string $codeChallenge,
+        ?string $nonce = null
     ): SocialOAuthAttempt {
-        return SocialOAuthAttempt::query()->create([
+        $attributes = [
             'state_hash' => $this->hash($state),
             'provider' => $provider,
             'return_to' => $returnTo,
             'code_challenge' => $codeChallenge,
             'state_expires_at' => now()->addMinutes(10),
-        ]);
+        ];
+        if (DatabaseCapabilities::hasColumn('social_oauth_attempts', 'nonce_hash')) {
+            $attributes['nonce_hash'] = $nonce !== null ? $this->hash($nonce) : null;
+        }
+
+        return SocialOAuthAttempt::query()->create($attributes);
     }
 
     public function inspectState(string $state): ?SocialOAuthAttempt
@@ -30,6 +38,19 @@ final class SocialOAuthAttemptService
             ->where('state_hash', $this->hash($state))
             ->whereNull('state_consumed_at')
             ->where('state_expires_at', '>', now())
+            ->first();
+    }
+
+    /**
+     * Resolve only the callback routing/binding of a state that is no longer
+     * usable. An expired or already-consumed state must never be reopened, but
+     * its terminal redirect still has to reach the mobile attempt that owns it.
+     */
+    public function inspectKnownState(string $state, string $provider): ?SocialOAuthAttempt
+    {
+        return SocialOAuthAttempt::query()
+            ->where('state_hash', $this->hash($state))
+            ->where('provider', $provider)
             ->first();
     }
 
@@ -74,14 +95,74 @@ final class SocialOAuthAttemptService
         string $completionCode,
         string $encryptedToken
     ): void {
-        $attempt->forceFill([
+        $attributes = [
             'completion_hash' => $this->hash($completionCode),
             'encrypted_token' => $encryptedToken,
             // Match the mobile handoff window. PKCE and the one-time hash keep
             // the code constrained while a killed/slow app gets enough time
             // to resume the completed login instead of showing a false expiry.
             'completion_expires_at' => now()->addMinutes(10),
-        ])->save();
+        ];
+        if (DatabaseCapabilities::hasColumn('social_oauth_attempts', 'encrypted_completion_code')) {
+            // Retain the opaque handoff code only for this attempt's short
+            // lifetime. If the provider retries a successful callback after
+            // losing our redirect, the app receives the same PKCE-bound code.
+            $attributes['encrypted_completion_code'] = Crypt::encryptString($completionCode);
+        }
+        $attempt->forceFill($attributes)->save();
+    }
+
+    public function inspectCallbackReplay(string $state, string $provider): ?SocialOAuthAttempt
+    {
+        if (!DatabaseCapabilities::hasColumn('social_oauth_attempts', 'encrypted_completion_code')) {
+            return null;
+        }
+
+        return SocialOAuthAttempt::query()
+            ->where('state_hash', $this->hash($state))
+            ->where('provider', $provider)
+            ->whereNotNull('state_consumed_at')
+            ->whereNotNull('completion_hash')
+            ->whereNotNull('encrypted_completion_code')
+            ->where('completion_expires_at', '>', now())
+            ->first();
+    }
+
+    /**
+     * A duplicated browser callback can arrive while the first request is
+     * outside the database exchanging the provider code. Wait only for that
+     * exact claimed state; invalid, cancelled and released attempts do not
+     * consume a PHP worker for the full window.
+     */
+    public function waitForCallbackReplay(
+        string $state,
+        string $provider,
+        int $seconds
+    ): ?SocialOAuthAttempt {
+        if (!DatabaseCapabilities::hasColumn('social_oauth_attempts', 'encrypted_completion_code')) {
+            return null;
+        }
+
+        $deadline = microtime(true) + max(0, min(12, $seconds));
+        do {
+            $replay = $this->inspectCallbackReplay($state, $provider);
+            if ($replay) {
+                return $replay;
+            }
+
+            $stillProcessing = SocialOAuthAttempt::query()
+                ->where('state_hash', $this->hash($state))
+                ->where('provider', $provider)
+                ->whereNotNull('state_consumed_at')
+                ->whereNull('completion_hash')
+                ->where('state_expires_at', '>', now())
+                ->exists();
+            if (!$stillProcessing || microtime(true) >= $deadline) {
+                return null;
+            }
+
+            usleep(250_000);
+        } while (true);
     }
 
     public function inspectCompletion(string $completionCode): ?SocialOAuthAttempt
@@ -134,9 +215,14 @@ final class SocialOAuthAttemptService
 
     public function releaseCompletion(SocialOAuthAttempt $attempt): void
     {
+        if (!$attempt->completion_processing_at) {
+            return;
+        }
+
         SocialOAuthAttempt::query()
             ->whereKey($attempt->id)
             ->whereNull('completion_consumed_at')
+            ->where('completion_processing_at', $attempt->completion_processing_at)
             ->update(['completion_processing_at' => null]);
     }
 
@@ -148,6 +234,17 @@ final class SocialOAuthAttemptService
         DB::transaction(function () use ($attempt, $encryptedSessionResponse): void {
             $locked = SocialOAuthAttempt::query()->lockForUpdate()->find($attempt->id);
             if (!$locked || $locked->completion_consumed_at) return;
+            if (
+                !$attempt->completion_processing_at
+                || !$locked->completion_processing_at
+                || !$locked->completion_processing_at->equalTo($attempt->completion_processing_at)
+            ) {
+                // This worker exceeded the lease and another completion owns
+                // the row now. Its late response may still contain a valid
+                // bearer, but it cannot overwrite the new owner's replay
+                // snapshot or clear that owner's processing claim.
+                return;
+            }
 
             $locked->forceFill([
                 'completion_processing_at' => null,

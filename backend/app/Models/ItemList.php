@@ -84,7 +84,9 @@ class ItemList extends Model
     	return $this->belongsTo('App\Models\Lesson','id','quiz_id');
     }
     public function questions(){
-    	return $this->hasMany('App\Models\Question','list_id','id');
+	    	return $this->hasMany('App\Models\Question','list_id','id')
+                ->orderBy('priority')
+                ->orderBy('id');
     }
     public function category(){
         return $this->belongsTo('App\Models\Category');

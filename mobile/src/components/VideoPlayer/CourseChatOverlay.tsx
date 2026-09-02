@@ -39,6 +39,10 @@ import {
 } from '../../services/learnerDraftFiles';
 import {showMediaPickerFailure} from '../../services/mediaPickerErrors';
 import {openCourseAssistantAttachment} from './courseLearningApi';
+import {
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+} from '../../constants/helpers';
 
 interface CourseChatOverlayProps {
   visible: boolean;
@@ -142,12 +146,15 @@ const CourseChatOverlay = ({
   const attachmentPickerFlightRef = useRef(false);
   const attachmentPickerGenerationRef = useRef(0);
   const activeAttachmentCourseRef = useRef(String(course.id));
+  const activeAttachmentVisibleRef = useRef(visible);
   const upgradeAutoLoadCourseRef = useRef<string | undefined>(undefined);
   activeAttachmentCourseRef.current = String(course.id);
+  activeAttachmentVisibleRef.current = visible;
   const {
     assistantPresence,
     assistantIncluded,
     attachments,
+    chatAccessUnavailable,
     confirmUpgrade,
     input,
     loadUpgradeQuote,
@@ -157,6 +164,7 @@ const CourseChatOverlay = ({
     scholarshipAccess,
     scrollRef,
     send,
+    isSendInFlight,
     sending,
     stop,
     setInput,
@@ -194,7 +202,7 @@ const CourseChatOverlay = ({
     return () => {
       attachmentPickerGenerationRef.current += 1;
     };
-  }, [course.id]);
+  }, [course.id, visible]);
 
   useEffect(() => {
     if (upgradeAutoLoadCourseRef.current !== String(course.id)) {
@@ -203,6 +211,7 @@ const CourseChatOverlay = ({
     if (
       visible &&
       !assistantIncluded &&
+      !chatAccessUnavailable &&
       !upgradeQuote &&
       !upgradeLoading &&
       !upgradeError &&
@@ -213,6 +222,7 @@ const CourseChatOverlay = ({
     }
   }, [
     assistantIncluded,
+    chatAccessUnavailable,
     course.id,
     loadUpgradeQuote,
     upgradeError,
@@ -225,17 +235,22 @@ const CourseChatOverlay = ({
     if (
       !course.chatAttachmentsEnabled ||
       attachments.length >= attachmentLimit ||
-      attachmentPickerFlightRef.current
+      attachmentPickerFlightRef.current ||
+      sending ||
+      isSendInFlight()
     )
       return;
     const pickerCourseId = String(course.id);
     const pickerGeneration = attachmentPickerGenerationRef.current;
     const ownsPicker = () =>
+      activeAttachmentVisibleRef.current &&
       activeAttachmentCourseRef.current === pickerCourseId &&
       attachmentPickerGenerationRef.current === pickerGeneration;
     attachmentPickerFlightRef.current = true;
     const selected: import('./types').ChatAttachmentDraft[] = [];
     try {
+      const pickerBoundary = await captureAccountSessionBoundary();
+      assertAccountSessionBoundary(pickerBoundary);
       const result = await DocumentPicker.getDocumentAsync({
         type: [
           'image/jpeg',
@@ -249,6 +264,7 @@ const CourseChatOverlay = ({
         multiple: true,
         copyToCacheDirectory: true,
       });
+      assertAccountSessionBoundary(pickerBoundary);
       if (result.canceled) return;
       if (!ownsPicker()) return;
       const remaining = Math.max(0, attachmentLimit - attachments.length);
@@ -262,7 +278,9 @@ const CourseChatOverlay = ({
             size: asset.size,
           },
           8 * 1024 * 1024,
+          pickerBoundary,
         );
+        assertAccountSessionBoundary(pickerBoundary);
         selected.push({
           uri: cached.uri,
           name: cached.fileName || asset.name,
@@ -293,6 +311,11 @@ const CourseChatOverlay = ({
     } catch (error: unknown) {
       await Promise.all(selected.map(removeLearnerDraftFile));
       if (!ownsPicker()) return;
+      if (
+        error instanceof Error &&
+        error.message === 'ACCOUNT_CHANGED_DURING_REQUEST'
+      )
+        return;
       showMediaPickerFailure(
         error instanceof Error && error.message === 'LEARNER_DRAFT_STORAGE_FULL'
           ? error.message
@@ -301,6 +324,19 @@ const CourseChatOverlay = ({
     } finally {
       if (ownsPicker()) attachmentPickerFlightRef.current = false;
     }
+  };
+
+  const sendCurrentMessage = () => {
+    // The picker returns before its selected files are copied into our durable
+    // draft registry. Sending during that window would submit the previous
+    // attachment set and leave the newly picked files on the next message.
+    if (attachmentPickerFlightRef.current) return;
+    send();
+  };
+
+  const retryMessage = (clientRequestId: string) => {
+    if (attachmentPickerFlightRef.current) return;
+    retry(clientRequestId);
   };
 
   useEffect(
@@ -385,20 +421,24 @@ const CourseChatOverlay = ({
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}>
               <Text style={styles.entitlementTitle}>
-                {planLimitReached
+                {chatAccessUnavailable
+                  ? 'Rokn AI غير متاح الآن'
+                  : planLimitReached
                   ? 'استخدمت مساحة الأسئلة في اختيارك الحالي'
                   : scholarshipAccess
                   ? 'الكورس كامل متاح بمنحتك'
                   : 'Rokn AI غير متاح مع هذا الوصول'}
               </Text>
               <Text style={styles.entitlementText}>
-                {planLimitReached
+                {chatAccessUnavailable
+                  ? 'أغلق الشات وحدّث الكورس قبل المحاولة مرة أخرى'
+                  : planLimitReached
                   ? 'تقدمك وإجاباتك محفوظة\nانتقل إلى الفئة التالية وادفع فرق السعر فقط'
                   : scholarshipAccess
                   ? 'محتوى الكورس متاح لك كاملًا\nيمكنك إضافة Rokn AI أو الشهادة دون أن تخسر منحتك'
                   : 'محتوى الكورس متاح لك\nراجع فئات الكورس لإضافة Rokn AI'}
               </Text>
-              {upgradeQuote && (
+              {!chatAccessUnavailable && upgradeQuote && (
                 <View style={styles.upgradeCard}>
                   <View style={styles.upgradeRow}>
                     <Text style={styles.upgradeLabel}>
@@ -428,12 +468,12 @@ const CourseChatOverlay = ({
                   )}
                 </View>
               )}
-              {!!upgradeError && (
+              {!chatAccessUnavailable && !!upgradeError && (
                 <Text accessibilityRole="alert" style={styles.upgradeError}>
                   {upgradeError}
                 </Text>
               )}
-              <Pressable
+              {!chatAccessUnavailable && <Pressable
                 accessibilityRole="button"
                 disabled={upgradeLoading}
                 onPress={() =>
@@ -457,7 +497,7 @@ const CourseChatOverlay = ({
                       : 'راجع خيارات Rokn AI'}
                   </Text>
                 )}
-              </Pressable>
+              </Pressable>}
             </ScrollView>
           ) : (
             <>
@@ -489,7 +529,7 @@ const CourseChatOverlay = ({
                     ) : (
                       <>
                         <Text selectable={false} style={styles.bubbleText}>
-                          {message.text}
+                          {cleanUnicodeText(message.text)}
                         </Text>
                         {message.attachments?.map(file => (
                           <Pressable
@@ -507,17 +547,20 @@ const CourseChatOverlay = ({
                             <Text
                               numberOfLines={1}
                               style={styles.messageAttachment}>
-                              {file.name}
+                              {cleanUnicodeText(file.name, false)}
                             </Text>
                           </Pressable>
                         ))}
-                        {!!message.text && (
+                        {!!cleanUnicodeText(message.text) && (
                           <Pressable
                             accessibilityRole="button"
                             accessibilityLabel="نسخ الرسالة"
                             hitSlop={6}
                             onPress={() =>
-                              copyMessage(message.id, message.text)
+                              copyMessage(
+                                message.id,
+                                cleanUnicodeText(message.text),
+                              )
                             }>
                             <Text style={styles.copyText}>
                               {copiedMessageId === message.id ? 'تم' : 'نسخ'}
@@ -531,7 +574,9 @@ const CourseChatOverlay = ({
                             <Pressable
                               accessibilityRole="button"
                               disabled={sending}
-                              onPress={() => retry(message.clientRequestId!)}>
+                              onPress={() =>
+                                retryMessage(message.clientRequestId!)
+                              }>
                               <Text style={styles.retryText}>
                                 {[
                                   'chat_answer_in_progress',
@@ -569,6 +614,7 @@ const CourseChatOverlay = ({
                         accessibilityRole="button"
                         accessibilityLabel={`حذف ${file.name}`}
                         onPress={() => {
+                          if (isSendInFlight()) return;
                           setAttachments(current =>
                             current.filter(
                               item => item.uploadId !== file.uploadId,
@@ -605,7 +651,7 @@ const CourseChatOverlay = ({
                   placeholderTextColor="rgba(255,255,255,.42)"
                   multiline
                   style={styles.input}
-                  onSubmitEditing={() => send()}
+                  onSubmitEditing={sendCurrentMessage}
                   blurOnSubmit={false}
                 />
                 {course.chatAttachmentsEnabled && attachmentLimit > 0 && (
@@ -630,7 +676,7 @@ const CourseChatOverlay = ({
                     styles.sendButton,
                     (!hasSendableInput || sending) && styles.sendButtonDisabled,
                   ]}
-                  onPress={send}>
+                  onPress={sendCurrentMessage}>
                   <SendIcon />
                 </Pressable>
               </View>

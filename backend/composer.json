@@ -19,6 +19,7 @@
         "khaled.alshamaa/ar-php": "^7.0",
         "kreait/firebase-php": "^7.24.1",
         "laravel/framework": "^12.61.1",
+        "laravel/nightwatch": "^1.30",
         "laravel/tinker": "^2.10",
         "laravel/ui": "^4.6.3",
         "league/flysystem-aws-s3-v3": "^3.25",
@@ -26,6 +27,7 @@
         "nesbot/carbon": "^3.8.4",
         "pusher/pusher-php-server": "^7.2",
         "rokn/form-compat": "^1.0",
+        "sentry/sentry-laravel": "^4.27",
         "zircote/swagger-php": "^4.11"
     },
     "require-dev": {

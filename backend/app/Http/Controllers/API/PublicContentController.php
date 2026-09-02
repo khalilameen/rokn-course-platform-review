@@ -48,11 +48,6 @@ final class PublicContentController extends Controller
         $managedBody = $managedContent->body($page, $locale);
         $payload['managed_body'] = $managedBody;
         $payload['source'] = $managedBody !== null ? 'dashboard' : 'application';
-        $payload['revision'] = hash('sha256', implode('|', [
-            $page,
-            $locale,
-            (string) ($managedBody ?? ''),
-        ]));
 
         if ($page === 'contact') {
             $settings = $publicSettings->snapshot();
@@ -68,6 +63,14 @@ final class PublicContentController extends Controller
                 ],
             ];
         }
+
+        // Hash the representation the client actually receives. Translation
+        // updates and changed support contacts are content changes too; a hash
+        // of only the optional dashboard body produced false 304/stale pages.
+        $payload['revision'] = hash('sha256', json_encode(
+            $payload,
+            JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        ));
 
         return $responses->success($payload, 'تم تحميل الصفحة')->withHeaders([
             'Cache-Control' => 'public, max-age=60, stale-if-error=300',

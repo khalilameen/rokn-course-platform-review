@@ -15,6 +15,7 @@ class CourseCompleted
     public ?int $userId = null;
     public ?int $courseId = null;
     public ?int $curriculumRevision = null;
+    public ?array $rewardContract = null;
 
     /** Rolling-deploy compatibility for events emitted by the previous release. */
     public User|int|null $user = null;
@@ -28,12 +29,14 @@ class CourseCompleted
     public function __construct(
         User|int $user,
         Course|int $course,
-        ?int $curriculumRevision = null
+        ?int $curriculumRevision = null,
+        ?array $rewardContract = null
     )
     {
         $this->userId = $user instanceof User ? (int) $user->getKey() : $user;
         $this->courseId = $course instanceof Course ? (int) $course->getKey() : $course;
         $this->curriculumRevision = $curriculumRevision;
+        $this->rewardContract = $rewardContract;
     }
 
     public function resolvedUserId(): int

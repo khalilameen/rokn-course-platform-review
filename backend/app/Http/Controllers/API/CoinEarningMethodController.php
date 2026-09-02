@@ -9,7 +9,6 @@ use App\Http\Resources\CoinEarningMethodResource;
 use App\Models\CoinEarningMethod;
 use App\Models\Setting;
 use App\Models\UserCoinTaskAttempt;
-use App\Models\WalletTransaction;
 use App\Services\AcquisitionRewardTombstoneService;
 use App\Services\StudentNotificationService;
 use App\Services\WalletService;
@@ -35,11 +34,15 @@ final class CoinEarningMethodController extends Controller
                 $query->whereNull('action_key')
                     ->orWhere('action_key', '!=', 'register');
             })
+            ->withCount('userEarnings')
             ->latest()
             ->get()
-            ->filter(fn (CoinEarningMethod $method): bool =>
-                $method->hasUsableDestination() && $method->hasClaimCapacity()
-            )
+            ->filter(function (CoinEarningMethod $method): bool {
+                $hasCapacity = $method->total_claim_limit === null
+                    || (int) $method->user_earnings_count < (int) $method->total_claim_limit;
+
+                return $method->hasUsableDestination() && $hasCapacity;
+            })
             ->values();
         $setting = Setting::first() ?? new Setting();
         $user = auth('api')->user();
@@ -202,6 +205,7 @@ final class CoinEarningMethodController extends Controller
             return $this->error('المهمة غير متاحة', 404, 'task_unavailable');
         }
         if ($this->tombstones->userHasConsumedMethod($user, $method)) {
+            $freshUser = $user->fresh();
             return response()->json([
                 'status' => 200,
                 'success' => true,
@@ -209,7 +213,7 @@ final class CoinEarningMethodController extends Controller
                 'data' => [
                     'already_claimed' => true,
                     'earned_amount' => 0,
-                    'new_balance' => (int) $user->wallet_coins,
+                    'new_balance' => (int) $freshUser->wallet_coins,
                     'task_state' => 'claimed',
                 ],
             ]);
@@ -283,7 +287,7 @@ final class CoinEarningMethodController extends Controller
                     ]);
                 }
 
-                $transaction = $walletService->credit(
+                $transaction = $walletService->creditRewardWithinConfiguredCap(
                     $user->id,
                     (int) $lockedMethod->coins_amount,
                     'task_reward',
@@ -293,13 +297,15 @@ final class CoinEarningMethodController extends Controller
                         'action_key' => $lockedMethod->action_key,
                         'campaign_key' => $lockedMethod->campaign_key,
                         'reward_timezone' => \App\Support\BusinessClock::timezoneName(),
-                    ],
-                    WalletTransaction::BUCKET_REWARD
+                    ]
                 );
+                if (!$transaction) {
+                    throw new \DomainException('reward_balance_full');
+                }
 
                 $user->coinEarnings()->firstOrCreate(
                     ['coin_earning_method_id' => $lockedMethod->id],
-                    ['amount' => $lockedMethod->coins_amount]
+                    ['amount' => $transaction->amount]
                 );
                 $attempt->update([
                     'status' => UserCoinTaskAttempt::STATUS_CLAIMED,
@@ -308,7 +314,7 @@ final class CoinEarningMethodController extends Controller
 
                 return [
                     'already_claimed' => false,
-                    'earned_amount' => (int) $lockedMethod->coins_amount,
+                    'earned_amount' => (int) $transaction->amount,
                     'new_balance' => $transaction->balance_after,
                 ];
             });
@@ -319,6 +325,7 @@ final class CoinEarningMethodController extends Controller
                     'task_not_started' => "ابدأ المهمة أولًا\nثم عد لاستلام المكافأة",
                     'task_quota_reached' => 'انتهت مكافآت هذه الحملة',
                     'task_unavailable' => 'هذه المهمة غير متاحة الآن',
+                    'reward_balance_full' => "استخدم بعض عملات المكافآت أولًا\nثم استلم هذه المكافأة",
                     default => 'أكمل المهمة ثم عد لاستلام المكافأة',
                 },
                 409,

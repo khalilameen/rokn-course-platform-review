@@ -71,7 +71,11 @@ class Photo extends Model
         }
         $increment = static function (): void {
             try {
-                Cache::add('courses:catalog-revision', 1, now()->addYears(10));
+                Cache::add(
+                    'courses:catalog-revision',
+                    max(1, (int) floor(microtime(true) * 1000)),
+                    now()->addYears(10)
+                );
                 Cache::increment('courses:catalog-revision');
             } catch (\Throwable) {
                 // Image persistence must not depend on the cache service.

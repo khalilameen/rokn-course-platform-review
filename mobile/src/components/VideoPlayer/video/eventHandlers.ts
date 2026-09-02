@@ -269,7 +269,9 @@ export const createVideoEventHandlers = (
     }
     if (event.isBuffering && context.isVisible) {
       const timeoutMs = context.recoveryAttempts.current ? 7000 : 12_000;
-      context.longBufferTimer.current = setTimeout(() => {
+      const timer = setTimeout(() => {
+        if (context.longBufferTimer.current !== timer) return;
+        context.longBufferTimer.current = null;
         if (!context.ownsPlayback()) return;
         if (context.bufferingStartedAt.current !== null) {
           context.bufferDurationMs.current += Math.max(
@@ -300,6 +302,7 @@ export const createVideoEventHandlers = (
           },
         });
       }, timeoutMs);
+      context.longBufferTimer.current = timer;
     }
   },
   onError: event => {

@@ -323,6 +323,8 @@
             ['ترقيات المسار الكامل', $counts['grant_upgrades'], 'fa-certificate'],
             ['مشاريع تنتظر المراجعة', $counts['pending_projects'], 'fa-tasks'],
             ['شهادات صادرة', $counts['certificates'], 'fa-certificate'],
+            ['شهادات معلقة', $counts['certificates_pending'], 'fa-clock-o'],
+            ['شهادات ملغاة', $counts['certificates_revoked'], 'fa-ban'],
             ['أعمال Portfolio', $counts['portfolio_items'], 'fa-briefcase'],
         ] as [$label, $value, $icon])
             <div class="col-xl-3 col-md-4 col-sm-6 mb-3">

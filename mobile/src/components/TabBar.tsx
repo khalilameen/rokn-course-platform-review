@@ -25,6 +25,7 @@ import {
   rtlRowStyle,
 } from '../constants/designSystem';
 import {formatArabicDisplayText} from '../constants/arabicFormatting';
+import {selectRootTab} from '../navigation/journeyNavigation';
 
 const TabBar: FC = () => {
   const route = useRoute();
@@ -41,7 +42,7 @@ const TabBar: FC = () => {
           accessibilityState={{selected: active === 'Home'}}
           style={[styles.tabCon]}
           onPress={() => {
-            navigation?.navigate('Home');
+            selectRootTab(navigation, 'Home');
           }}>
           <View style={styles.tabSpace}>
             <HomeIcon
@@ -67,7 +68,7 @@ const TabBar: FC = () => {
           accessibilityState={{selected: active === 'MyCorner'}}
           style={[styles.tabCon]}
           onPress={() => {
-            navigation?.navigate('MyCorner');
+            selectRootTab(navigation, 'MyCorner');
           }}>
           <View style={styles.tabSpace}>
             <MyCornerIcon
@@ -94,7 +95,7 @@ const TabBar: FC = () => {
           accessibilityState={{selected: active === 'Wallet'}}
           style={[styles.tabCon]}
           onPress={() => {
-            navigation?.navigate('Wallet');
+            selectRootTab(navigation, 'Wallet');
           }}>
           <View style={styles.tabSpace}>
             <MyWalletIcon
@@ -121,7 +122,7 @@ const TabBar: FC = () => {
           accessibilityState={{selected: active === 'Profile'}}
           style={[styles.tabCon]}
           onPress={() => {
-            navigation?.navigate('Profile');
+            selectRootTab(navigation, 'Profile');
           }}>
           <View style={styles.tabSpace}>
             <FullNameIcon

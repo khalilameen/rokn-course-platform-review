@@ -205,6 +205,7 @@ class NotificationsController extends Controller
         }
 
         $imageUrl = null;
+        $imagePath = null;
         if ($request->hasFile('image')) {
             $image = $request->file('image');
             $imagePath = app(StoredFileDeletionService::class)->storeTrackedUpload(
@@ -220,59 +221,67 @@ class NotificationsController extends Controller
             $imageUrl = PublicDiskUrl::from($imagePath);
         }
         $campaign = null;
-        DB::transaction(function () use (
-            $notificationType,
-            $titleAr,
-            $titleEn,
-            $messageAr,
-            $messageEn,
-            $link,
-            $courseId,
-            $audience,
-            $deliveryKey,
-            $imageUrl,
-            $scheduledAt,
-            $createIntents,
-            $request,
-            &$campaign
-        ): void {
-            $queued = NotificationService::notifyGeneric($notificationType, [], [
-                'title_ar'   => $titleAr,
-                'title_en'   => $titleEn,
-                'message_ar' => $messageAr,
-                'message_en' => $messageEn,
-                'link' => $link,
-                'notifiable_type' => $courseId ? Course::class : null,
-                'notifiable_id' => $courseId,
-                'course_id' => $courseId,
-                'audience' => $audience,
-                'delivery_key' => $deliveryKey,
-                'image_url' => $imageUrl,
-                'action_label_ar' => $courseId
-                    ? ($audience === 'enrolled' ? 'أكمل من مكانك' : 'تفاصيل الكورس')
-                    : 'افتح ركن',
-                'action_label_en' => $courseId
-                    ? ($audience === 'enrolled' ? 'Continue learning' : 'View course')
-                    : 'Open Rokn',
-                'scheduled_at' => $scheduledAt,
-            ]);
-            if (!$queued && (!Schema::hasTable('notification_campaigns')
-                || !NotificationCampaign::query()->where('delivery_key', $deliveryKey)->exists())) {
-                throw ValidationException::withMessages([
-                    'notification_kind' => ['هذا النوع متوقف حاليًا من إعدادات الإشعارات'],
-                ]);
-            }
-            $campaign = Schema::hasTable('notification_campaigns')
-                ? NotificationCampaign::query()->where('delivery_key', $deliveryKey)->first()
-                : null;
-            $createIntents->completeRedirect(
+        $committed = false;
+        try {
+            DB::transaction(function () use (
+                $notificationType,
+                $titleAr,
+                $titleEn,
+                $messageAr,
+                $messageEn,
+                $link,
+                $courseId,
+                $audience,
+                $deliveryKey,
+                $imageUrl,
+                $scheduledAt,
+                $createIntents,
                 $request,
-                route('admin.notifications.index'),
-                302,
-                $campaign ? NotificationCampaign::class : null,
-                $campaign?->id
-            );
-        }, 3);
+                &$campaign
+            ): void {
+                $queued = NotificationService::notifyGeneric($notificationType, [], [
+                    'title_ar'   => $titleAr,
+                    'title_en'   => $titleEn,
+                    'message_ar' => $messageAr,
+                    'message_en' => $messageEn,
+                    'link' => $link,
+                    'notifiable_type' => $courseId ? Course::class : null,
+                    'notifiable_id' => $courseId,
+                    'course_id' => $courseId,
+                    'audience' => $audience,
+                    'delivery_key' => $deliveryKey,
+                    'image_url' => $imageUrl,
+                    'action_label_ar' => $courseId
+                        ? ($audience === 'enrolled' ? 'أكمل من مكانك' : 'تفاصيل الكورس')
+                        : 'افتح ركن',
+                    'action_label_en' => $courseId
+                        ? ($audience === 'enrolled' ? 'Continue learning' : 'View course')
+                        : 'Open Rokn',
+                    'scheduled_at' => $scheduledAt,
+                ]);
+                if (!$queued && (!Schema::hasTable('notification_campaigns')
+                    || !NotificationCampaign::query()->where('delivery_key', $deliveryKey)->exists())) {
+                    throw ValidationException::withMessages([
+                        'notification_kind' => ['هذا النوع متوقف حاليًا من إعدادات الإشعارات'],
+                    ]);
+                }
+                $campaign = Schema::hasTable('notification_campaigns')
+                    ? NotificationCampaign::query()->where('delivery_key', $deliveryKey)->first()
+                    : null;
+                $createIntents->completeRedirect(
+                    $request,
+                    route('admin.notifications.index'),
+                    302,
+                    $campaign ? NotificationCampaign::class : null,
+                    $campaign?->id
+                );
+            }, 3);
+            $committed = true;
+        } finally {
+            if (!$committed && is_string($imagePath) && $imagePath !== '') {
+                app(StoredFileDeletionService::class)->deleteOrQueue('public', $imagePath);
+            }
+        }
 
         return redirect()->route('admin.notifications.index')->with(
             'success',

@@ -311,10 +311,10 @@ export const CoursePurchaseDialog = ({
                     <Pressable
                       accessibilityRole="button"
                       accessibilityState={{
-                        disabled: codeBusy,
+                        disabled: codeBusy || couponBusy || busy,
                         selected: plan.code === selectedPlan?.code,
                       }}
-                      disabled={codeBusy}
+                      disabled={codeBusy || couponBusy || busy}
                       key={plan.code}
                       onPress={() => onSelectPlan(plan)}
                       style={({pressed}) => [
@@ -322,7 +322,7 @@ export const CoursePurchaseDialog = ({
                         plan.code === selectedPlan?.code &&
                           styles.planCardSelected,
                         pressed && styles.pressed,
-                        codeBusy && styles.disabled,
+                        (codeBusy || couponBusy || busy) && styles.disabled,
                       ]}>
                       <View style={styles.planHeader}>
                         <Text style={styles.planName}>{plan.name}</Text>

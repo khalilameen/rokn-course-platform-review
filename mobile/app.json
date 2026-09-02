@@ -21,7 +21,8 @@
       "expo-secure-store",
       "expo-apple-authentication",
       "./plugins/withNotificationManifestOverrides",
-      "expo-iap"
+      "expo-iap",
+      "@sentry/react-native"
     ],
     "splash": {
       "image": "./src/assets/images/logo.png",

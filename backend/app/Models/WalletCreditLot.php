@@ -47,7 +47,10 @@ final class WalletCreditLot extends Model
 
     public function sourceOrder()
     {
-        return $this->belongsTo(Order::class, 'source_order_id');
+        // A source checkout is immutable financial provenance. If an old
+        // operational order is soft-deleted, reports and reversals must still
+        // be able to attribute the coins it funded.
+        return $this->belongsTo(Order::class, 'source_order_id')->withTrashed();
     }
 
     public function creditTransaction()

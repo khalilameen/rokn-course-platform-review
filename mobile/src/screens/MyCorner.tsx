@@ -1,8 +1,9 @@
 import {useFocusEffect, useNavigation} from '@react-navigation/native';
 import type {RootNavigation} from '../navigation/types';
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
+import {useSelector} from 'react-redux';
 import TabBar from '../components/TabBar';
 import {Container, Content} from '../components/containers/Containers';
 import {
@@ -54,6 +55,15 @@ import {LOCAL_DEMO_ENABLED} from '../config/runtime';
 import {friendlyNetworkMessage} from '../services/networkExperience';
 import {roknCalendarDay, shiftRoknCalendarDay} from '../constants/roknCalendar';
 import {serverNow} from '../utils/serverClock';
+import {
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+  extractApiToken,
+  extractUserProfile,
+} from '../constants/helpers';
+import type {RootState} from '../store/store';
+import {openGuestLogin} from '../navigation/journeyNavigation';
+import {useAppActiveState} from '../hooks/useAppActiveState';
 
 const juniorBadgeImage = require('../assets/images/badges/junior.png');
 const midLevelBadgeImage = require('../assets/images/badges/mid-level.png');
@@ -104,7 +114,15 @@ const currentStreakFromDays = (activeDays: string[]) => {
 
 export default function MyCorner() {
   const navigation = useNavigation<RootNavigation>();
+  const appIsActive = useAppActiveState();
   const {largeText} = useResponsiveLayout();
+  const storedUser = useSelector((state: RootState) => state.auth.userData);
+  const storedProfile = extractUserProfile(storedUser);
+  const hasStoredToken = Boolean(extractApiToken(storedUser));
+  const identityKey = hasStoredToken
+    ? String(storedProfile.id ?? storedProfile.user_id ?? 'authenticated')
+    : 'guest';
+  const dataOwnerRef = useRef(identityKey);
   const [experience, setExperience] = useState<DemoExperienceState | null>(
     null,
   );
@@ -129,12 +147,58 @@ export default function MyCorner() {
         : () => undefined,
     [],
   );
+  useEffect(() => {
+    // A mounted navigation tree can survive logout followed by another login.
+    // Never keep the previous learner's dashboard visible while the new
+    // account is being resolved.
+    setServerSession(null);
+    setLearningDashboard(null);
+    setDashboardError('');
+    setDashboardLoading(false);
+    setWatchHistory(null);
+    setWatchHistoryError('');
+    setWatchHistoryLoading(false);
+    setSelectedPathId(null);
+    setLearning({
+      completedSections: [],
+      passedProjects: [],
+      activityDays: [],
+    });
+    dataOwnerRef.current = identityKey;
+  }, [identityKey]);
   useFocusEffect(
     useCallback(() => {
+      if (!appIsActive) return () => undefined;
       let active = true;
-      (async () => {
+      void (async () => {
+        const boundary = await captureAccountSessionBoundary().catch(
+          () => null,
+        );
         const sessionAvailable = await hasSession();
         if (!active) return;
+        if (!boundary) {
+          setServerSession(sessionAvailable);
+          setDashboardLoading(false);
+          setWatchHistoryLoading(false);
+          if (sessionAvailable) {
+            setDashboardError('تعذّر تجهيز بيانات ركني\nحاول مرة أخرى');
+            setWatchHistoryError('تعذّر تجهيز سجل المشاهدة');
+          }
+          return;
+        }
+        const stillOwned = () => {
+          if (!active) return false;
+          try {
+            assertAccountSessionBoundary(boundary);
+            return true;
+          } catch {
+            setDashboardLoading(false);
+            setWatchHistoryLoading(false);
+            setDashboardError('تغيّر الحساب\nافتح ركني من جديد');
+            return false;
+          }
+        };
+        if (!stillOwned()) return;
         setServerSession(sessionAvailable);
         if (!sessionAvailable) {
           setLearningDashboard(null);
@@ -143,7 +207,7 @@ export default function MyCorner() {
           setWatchHistoryError('');
           setWatchHistoryLoading(false);
           const state = await getLocalLearningState();
-          if (active) {
+          if (stillOwned()) {
             setLearning({
               completedSections: state.completedSections,
               passedProjects: state.passedProjects,
@@ -155,22 +219,22 @@ export default function MyCorner() {
         setWatchHistoryLoading(true);
         getWatchHistory(6)
           .then(history => {
-            if (!active) return;
+            if (!stillOwned()) return;
             setWatchHistory(history);
             setWatchHistoryError('');
           })
           .catch(error => {
-            if (!active) return;
+            if (!stillOwned()) return;
             setWatchHistoryError(friendlyNetworkMessage(error, 'سجل المشاهدة'));
           })
           .finally(() => {
-            if (active) setWatchHistoryLoading(false);
+            if (stillOwned()) setWatchHistoryLoading(false);
           });
         const cachedDashboard = await getCachedLearningDashboard().catch(
           () => null,
         );
-        if (!active) return;
-        if (active && cachedDashboard) {
+        if (!stillOwned()) return;
+        if (cachedDashboard) {
           setLearningDashboard(cachedDashboard);
           setLearning({
             completedSections: [],
@@ -181,7 +245,7 @@ export default function MyCorner() {
         setDashboardLoading(!cachedDashboard);
         try {
           const dashboard = await getLearningDashboard();
-          if (active) {
+          if (stillOwned()) {
             setLearningDashboard(dashboard);
             setLearning({
               completedSections: [],
@@ -191,7 +255,7 @@ export default function MyCorner() {
             setDashboardError(dashboard.partialError || '');
           }
         } catch (error) {
-          if (active) {
+          if (stillOwned()) {
             if (!cachedDashboard) {
               setLearning({
                 completedSections: [],
@@ -206,13 +270,20 @@ export default function MyCorner() {
             );
           }
         } finally {
-          if (active) setDashboardLoading(false);
+          if (stillOwned()) setDashboardLoading(false);
         }
-      })();
+      })().catch(error => {
+        if (!active) return;
+        setDashboardLoading(false);
+        setWatchHistoryLoading(false);
+        setDashboardError(
+          `${friendlyNetworkMessage(error, 'كورساتك')}\nتقدمك محفوظ`,
+        );
+      });
       return () => {
         active = false;
       };
-    }, []),
+    }, [appIsActive, identityKey]),
   );
   const demoHasAccess = Boolean(
     experience?.purchasedCourseIds.includes(DEMO_COURSE_ID),
@@ -328,6 +399,19 @@ export default function MyCorner() {
     Number.isFinite(learningDashboard?.currentStreakDays)
       ? Math.max(0, Number(learningDashboard?.currentStreakDays))
       : currentStreakFromDays(learning.activityDays);
+  if (dataOwnerRef.current !== identityKey) {
+    return (
+      <Container noPadding>
+        <Content noPadding>
+          <ResponsiveFrame>
+            <HeaderWithBack hasArrow={false} title="ركني" />
+            <LearningDashboardSkeleton />
+          </ResponsiveFrame>
+        </Content>
+        <TabBar />
+      </Container>
+    );
+  }
   return (
     <Container noPadding>
       <Content noPadding>
@@ -357,9 +441,7 @@ export default function MyCorner() {
               actionLabel="تسجيل الدخول"
               description="سجّل الدخول لحفظ تقدمك ومتابعته من أي جهاز"
               onAction={() =>
-                navigation.navigate('Login', {
-                  returnTo: {name: 'MyCorner'},
-                })
+                openGuestLogin(navigation, {name: 'MyCorner'})
               }
               state="empty"
               title="ستظهر كورساتك هنا"

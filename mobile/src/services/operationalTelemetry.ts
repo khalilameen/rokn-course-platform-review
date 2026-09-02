@@ -9,6 +9,7 @@ import {
   readDurableOutbox,
 } from './durableOutbox';
 import {sha256Hex} from '../utils/sha256';
+import {captureSentryDiagnostic} from './sentryTelemetry';
 
 const endpoint = `${roknApiUrl}client-events`;
 const TELEMETRY_OUTBOX_KEY = '@rokn/client-events-outbox/v1';
@@ -200,6 +201,14 @@ export const reportClientError = (error: Error, context: ErrorContext = {}) => {
     error_code: errorCodeFor(error, source),
     occurred_at: new Date(now).toISOString(),
   };
+
+  captureSentryDiagnostic(error, {
+    clientEventId: eventId,
+    eventName: payload.event_name,
+    errorCode: payload.error_code,
+    source,
+    fatal: Boolean(context.fatal),
+  });
 
   const task = (async () => {
     const errorFingerprint = sha256Hex(fingerprintSource);

@@ -3,7 +3,6 @@
 namespace App\Http\Resources;
 
 use App\Models\ExamAttempt;
-use App\Models\StudentSectionProgress;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Str;
 
@@ -165,19 +164,19 @@ class StudentProfileResource extends JsonResource
                 ->selectRaw('SUM(CASE WHEN status = ? AND is_passed = ? THEN 1 ELSE 0 END) as passed_count', [ExamAttempt::STATUS_COMPLETED, 1])
                 ->selectRaw('AVG(CASE WHEN status = ? THEN score_percentage ELSE NULL END) as average_score', [ExamAttempt::STATUS_COMPLETED])
                 ->first();
-            $progress = StudentSectionProgress::query()
-                ->where('user_id', $user->id)
-                ->selectRaw('COUNT(*) as accessed_count')
-                ->selectRaw('SUM(CASE WHEN is_completed = ? THEN 1 ELSE 0 END) as completed_count', [1])
-                ->first();
+            $currentSectionIds = \App\Models\CourseSection::query()
+                ->whereIn('course_id', $courses->pluck('id'))
+                ->pluck('id');
+            $progress = app(\App\Services\CourseRevisionLearnerReadService::class)
+                ->sectionProgressRows((int) $user->id, $currentSectionIds);
 
             $user->setAttribute('profile_orders_count', $user->orders()->count());
             $user->setAttribute('profile_exam_attempts_count', (int) ($exam?->attempts_count ?? 0));
             $user->setAttribute('profile_completed_exams_count', (int) ($exam?->completed_count ?? 0));
             $user->setAttribute('profile_passed_exams_count', (int) ($exam?->passed_count ?? 0));
             $user->setAttribute('profile_average_exam_score', (float) ($exam?->average_score ?? 0));
-            $user->setAttribute('profile_accessed_sections_count', (int) ($progress?->accessed_count ?? 0));
-            $user->setAttribute('profile_completed_sections_count', (int) ($progress?->completed_count ?? 0));
+            $user->setAttribute('profile_accessed_sections_count', $progress->count());
+            $user->setAttribute('profile_completed_sections_count', $progress->where('is_completed', true)->count());
         } catch (\Throwable $exception) {
             report($exception);
             foreach ([

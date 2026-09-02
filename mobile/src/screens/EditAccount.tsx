@@ -1,6 +1,6 @@
 import {useNavigation} from '@react-navigation/native';
 import type {RootNavigation} from '../navigation/types';
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {
   Alert,
   Image,
@@ -23,6 +23,8 @@ import {
 import HeaderWithBack from '../components/view/HeaderWithBack';
 import {
   AsyncKeys,
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
   extractApiToken,
   extractUserProfile,
   getCurrentAccountStorageScope,
@@ -37,13 +39,7 @@ import {
 } from '../constants/designSystem';
 import {saveLoginData} from '../store/reducers/auth';
 import {updateSecureSessionForOwner} from '../services/secureSession';
-import {
-  getPortfolioProfile,
-  getProfile,
-  hasSession,
-  updatePortfolioProfile,
-  updateProfile,
-} from '../services/roknApi';
+import {getProfile, hasSession, updateProfile} from '../services/roknApi';
 import type {RootState} from '../store/store';
 import {asRecord, learnerErrorMessage} from '../utils/errorPayload';
 import {
@@ -67,9 +63,6 @@ export default function EditAccount() {
     !hasStoredToken && user.job_title === 'مصمم واجهات ومستقل'
       ? ''
       : user.job_title ?? '',
-  );
-  const [username, setUsername] = useState(
-    user.portfolio_slug ?? user.username ?? '',
   );
   const [email, setEmail] = useState(user.email ?? '');
   const storedAvatar = user.avatar || user.profile_image;
@@ -97,21 +90,6 @@ export default function EditAccount() {
   const profileRequestRef = useRef<{fingerprint: string; id: string} | null>(
     null,
   );
-  const normalizedUsername = useMemo(
-    () =>
-      username
-        .trim()
-        .replace(/^@/, '')
-        .toLowerCase()
-        .replace(/[._\s]+/g, '-')
-        .replace(/[^a-z0-9-]/g, '')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, ''),
-    [username],
-  );
-  const usernameValid =
-    normalizedUsername.length >= 3 && normalizedUsername.length <= 30;
-
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -131,7 +109,6 @@ export default function EditAccount() {
     profileRequestRef.current = null;
     setName('');
     setJobTitle('');
-    setUsername('');
     setEmail('');
     setAvatar(require('../assets/images/default-avatar.png'));
     setProfileRevision(0);
@@ -151,10 +128,10 @@ export default function EditAccount() {
         return;
       }
       const accountScope = await getCurrentAccountStorageScope();
-      const [profileResult, portfolioResult] = await Promise.allSettled([
-        getProfile(),
-        getPortfolioProfile(),
-      ]);
+      const profileResult = await getProfile().then(
+        value => ({status: 'fulfilled' as const, value}),
+        reason => ({status: 'rejected' as const, reason}),
+      );
       if (!active || (await getCurrentAccountStorageScope()) !== accountScope) {
         return;
       }
@@ -163,20 +140,12 @@ export default function EditAccount() {
         setName(profile.name);
         setJobTitle(profile.jobTitle);
         setEmail(profile.email);
-        if (profile.portfolioSlug) setUsername(profile.portfolioSlug);
         if (profile.avatar) setAvatar({uri: profile.avatar});
         setProfileRevision(profile.profileRevision);
       }
-      if (active && portfolioResult.status === 'fulfilled') {
-        setUsername(portfolioResult.value.slug);
-      }
       if (active) {
         setHydrationState(
-          profileResult.status === 'fulfilled' &&
-            (Boolean(profileResult.value.portfolioSlug) ||
-              portfolioResult.status === 'fulfilled')
-            ? 'ready'
-            : 'error',
+          profileResult.status === 'fulfilled' ? 'ready' : 'error',
         );
       }
     })();
@@ -186,14 +155,20 @@ export default function EditAccount() {
   }, [identityKey, reloadProfile]);
 
   const chooseAvatar = async () => {
-    if (pickerFlightRef.current || saving) return;
+    if (pickerFlightRef.current || saveFlightRef.current) return;
     pickerFlightRef.current = true;
+    let cachedSelection:
+      | {uri: string; type?: string; fileName?: string; size?: number}
+      | undefined;
     try {
+      const pickerBoundary = await captureAccountSessionBoundary();
+      assertAccountSessionBoundary(pickerBoundary);
       const result = await launchImageLibrary({
         mediaType: 'photo',
         selectionLimit: 1,
         quality: 0.8,
       });
+      assertAccountSessionBoundary(pickerBoundary);
       if (!mountedRef.current) return;
       if (result.errorCode === 'permission') {
         showMediaPickerFailure(result.errorCode);
@@ -218,18 +193,29 @@ export default function EditAccount() {
             size: asset.fileSize,
           },
           2 * 1024 * 1024,
+          pickerBoundary,
         );
+        cachedSelection = cached;
+        assertAccountSessionBoundary(pickerBoundary);
         if (!mountedRef.current) {
           await removeLearnerDraftFile(cached);
+          cachedSelection = undefined;
           return;
         }
         const previous = avatarUpload;
         setAvatar({uri: cached.uri});
         setAvatarUpload(cached);
+        cachedSelection = undefined;
         profileRequestRef.current = null;
         await removeLearnerDraftFile(previous);
       }
     } catch (error: unknown) {
+      await removeLearnerDraftFile(cachedSelection);
+      if (
+        error instanceof Error &&
+        error.message === 'ACCOUNT_CHANGED_DURING_REQUEST'
+      )
+        return;
       if (mountedRef.current) {
         showMediaPickerFailure(
           typeof error === 'object' && error && 'errorCode' in error
@@ -247,7 +233,7 @@ export default function EditAccount() {
       serverSession !== true ||
       hydrationState !== 'ready' ||
       !name.trim() ||
-      !usernameValid ||
+      pickerFlightRef.current ||
       saveFlightRef.current
     )
       return;
@@ -255,8 +241,10 @@ export default function EditAccount() {
     setSaving(true);
     let remoteProfileSaved = false;
     try {
-      const accountScope = await getCurrentAccountStorageScope();
+      const accountBoundary = await captureAccountSessionBoundary();
+      const accountScope = accountBoundary.scope;
       const sessionAtStart = await getItem(AsyncKeys.USER_DATA);
+      assertAccountSessionBoundary(accountBoundary);
       const ownerAtStart = extractUserProfile(sessionAtStart);
       const expectedOwner = String(
         ownerAtStart.id ?? ownerAtStart.user_id ?? '',
@@ -266,10 +254,10 @@ export default function EditAccount() {
       }
       let remoteAvatar = storedAvatar;
       if (serverSession) {
+        assertAccountSessionBoundary(accountBoundary);
         const requestFingerprint = JSON.stringify([
           name.trim(),
           jobTitle.trim(),
-          normalizedUsername,
           avatarUpload?.uri || '',
           avatarUpload?.size || 0,
           profileRevision,
@@ -284,30 +272,16 @@ export default function EditAccount() {
           name: name.trim(),
           jobTitle: jobTitle.trim(),
           avatar: avatarUpload,
-          portfolioSlug: normalizedUsername,
           portfolioHeadline: jobTitle.trim(),
           clientRequestId: profileRequestRef.current.id,
           expectedProfileRevision: profileRevision,
         });
-        // During a rolling deploy an older API may ignore the new multipart
-        // fields. Keep that short transition functional, while the current API
-        // saves the whole form atomically in the request above.
-        const portfolio =
-          profile.portfolioSlug === normalizedUsername
-            ? {
-                slug: profile.portfolioSlug,
-                headline: profile.portfolioHeadline,
-              }
-            : await updatePortfolioProfile({
-                slug: normalizedUsername,
-                headline: jobTitle.trim(),
-              });
+        assertAccountSessionBoundary(accountBoundary);
         if (avatarUpload && !profile.avatar) {
           throw new Error('PROFILE_AVATAR_NOT_PERSISTED');
         }
         remoteAvatar = profile.avatar || remoteAvatar;
         setProfileRevision(profile.profileRevision);
-        setUsername(portfolio.slug);
         remoteProfileSaved = true;
       }
       if ((await getCurrentAccountStorageScope()) !== accountScope) {
@@ -323,8 +297,6 @@ export default function EditAccount() {
             ...activeUser,
             name: name.trim(),
             job_title: jobTitle.trim(),
-            username: normalizedUsername,
-            portfolio_slug: normalizedUsername,
             avatar: remoteAvatar,
             profile_image: remoteAvatar,
           };
@@ -348,6 +320,13 @@ export default function EditAccount() {
         navigation.goBack();
       }
     } catch (error: unknown) {
+      if (
+        error instanceof Error &&
+        (error.message === 'ACCOUNT_CHANGED_DURING_REQUEST' ||
+          error.message === 'ACCOUNT_CHANGED_DURING_PROFILE_UPDATE')
+      ) {
+        return;
+      }
       if (mountedRef.current) {
         if (remoteProfileSaved) {
           profileRequestRef.current = null;
@@ -356,7 +335,7 @@ export default function EditAccount() {
           setAvatarUpload(undefined);
           Alert.alert(
             'حُفظت التغييرات',
-            'سيُحدّث الحساب تلقائيًا',
+            'ستظهر عند فتح الصفحة من جديد',
           );
         } else {
           Alert.alert(
@@ -367,7 +346,13 @@ export default function EditAccount() {
       }
     } finally {
       saveFlightRef.current = false;
-      if (mountedRef.current) setSaving(false);
+      if (mountedRef.current) {
+        setSaving(false);
+      } else {
+        await removeLearnerDraftFile(avatarUploadRef.current).catch(
+          () => undefined,
+        );
+      }
     }
   };
 
@@ -433,30 +418,6 @@ export default function EditAccount() {
                   style={styles.input}
                   value={jobTitle}
                 />
-                <Text style={styles.label}>اسم المستخدم</Text>
-                <View style={styles.usernameRow}>
-                  <Text style={styles.at}>@</Text>
-                  <TextInput
-                    accessibilityLabel="اسم المستخدم"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    onChangeText={setUsername}
-                    style={[styles.input, styles.usernameInput]}
-                    value={username}
-                  />
-                </View>
-                <Text
-                  accessibilityLiveRegion="polite"
-                  style={[
-                    styles.hint,
-                    !!username && !usernameValid && styles.invalidHint,
-                  ]}>
-                  {username && !usernameValid
-                    ? 'استخدم من ٣ إلى ٣٠ حرفًا إنجليزيًا أو رقمًا أو شرطة'
-                    : `سيكون رابطك العام rokn.app/@${
-                        normalizedUsername || 'username'
-                      }`}
-                </Text>
                 <Text style={styles.label}>البريد المرتبط بالحساب</Text>
                 <View style={[styles.input, styles.readonly]}>
                   <Text numberOfLines={1} style={styles.readonlyText}>
@@ -471,8 +432,7 @@ export default function EditAccount() {
                 disable={
                   saving ||
                   hydrationState !== 'ready' ||
-                  !name.trim() ||
-                  !usernameValid
+                  !name.trim()
                 }
                 loader={saving}
                 onPress={save}
@@ -521,16 +481,12 @@ const styles = StyleSheet.create({
     borderColor: Palette.line,
     paddingHorizontal: Spacing.md,
   },
-  usernameRow: {flexDirection: 'row', alignItems: 'center'},
-  at: {...Type.bodyStrong, color: Palette.textMuted, marginEnd: Spacing.xs},
-  usernameInput: {flex: 1},
   hint: {
     ...Type.caption,
     ...textDirection,
     color: Palette.textFaint,
     marginTop: Spacing.xs,
   },
-  invalidHint: {color: Palette.danger},
   readonly: {justifyContent: 'center', opacity: 0.72},
   readonlyText: {...Type.body, ...textDirection, color: Palette.textMuted},
 });

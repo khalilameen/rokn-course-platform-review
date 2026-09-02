@@ -8,11 +8,11 @@ use App\Http\Controllers\Controller;
 use App\Models\CourseEnrollment;
 use App\Models\Order;
 use App\Models\Bill;
-use App\Models\StudentSectionProgress;
 use App\Models\PaymentMethod;
 use App\Services\CourseChatAccessService;
 use App\Services\CourseSectionSequenceService;
 use App\Services\LatestWatchResumeService;
+use App\Services\CourseRevisionLearnerReadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -21,7 +21,8 @@ final class CourseAuthorizationController extends Controller
     public function __construct(
         private readonly CourseChatAccessService $courseAccess,
         private readonly CourseSectionSequenceService $sectionSequence,
-        private readonly LatestWatchResumeService $latestResume
+        private readonly LatestWatchResumeService $latestResume,
+        private readonly CourseRevisionLearnerReadService $revisionReads
     ) {
     }
 
@@ -99,9 +100,10 @@ final class CourseAuthorizationController extends Controller
 
         $progressRows = collect();
         if (!empty($allSectionIds)) {
-            $progressRows = StudentSectionProgress::where('user_id', $user->id)
-                ->whereIn('course_section_id', $allSectionIds)
-                ->get(['course_section_id', 'is_completed', 'created_at', 'updated_at']);
+            $progressRows = $this->revisionReads->sectionProgressRows(
+                (int) $user->id,
+                $allSectionIds
+            );
         }
 
         $completedSectionIds = $progressRows

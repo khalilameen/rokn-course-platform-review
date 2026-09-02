@@ -129,6 +129,23 @@ class CoursePublishingService
 
         $this->auditAccessPlans($course, $issues, $warnings);
 
+        // A certificate wording is an editorial claim, not a cosmetic
+        // fallback. If a configured key was removed or its text is empty,
+        // stop publication instead of silently issuing the generic wording.
+        $certificateTemplateKey = trim((string) $course->getRawOriginal(
+            'certificate_text_template_key'
+        ));
+        $certificateTemplate = data_get(
+            (array) config('certificate.text_templates', []),
+            $certificateTemplateKey
+        );
+        if (
+            !is_array($certificateTemplate)
+            || trim((string) ($certificateTemplate['text'] ?? '')) === ''
+        ) {
+            $issues[] = 'اختر صياغة شهادة صالحة قبل النشر.';
+        }
+
         $lessons = $course->modules
             ->flatMap(fn ($module) => $module->sections)
             ->merge($course->sections)
@@ -169,6 +186,38 @@ class CoursePublishingService
             $issues[] = 'انقل كل أجزاء الكورس إلى وحدات؛ توجد أجزاء غير مرتبطة بوحدة.';
         }
 
+        // The player keys progression, playback and submissions by these
+        // immutable identities. Reusing one content row in two places (or
+        // publishing an orphan) makes one paid step overwrite another.
+        $moduleIds = [];
+        $sectionIds = [];
+        $contentIds = [];
+        foreach ($course->modules as $module) {
+            $moduleId = (int) $module->id;
+            if ($moduleId < 1 || isset($moduleIds[$moduleId])) {
+                $issues[] = 'توجد وحدة بهوية مفقودة أو مكررة؛ أعد حفظ خريطة الكورس.';
+            }
+            $moduleIds[$moduleId] = true;
+
+            foreach ($module->sections as $section) {
+                $sectionId = (int) $section->id;
+                if ($sectionId < 1 || isset($sectionIds[$sectionId])) {
+                    $issues[] = 'توجد خطوة بهوية مفقودة أو مكررة؛ أعد حفظ خريطة الكورس.';
+                }
+                $sectionIds[$sectionId] = true;
+
+                $type = $section->getSectionType();
+                $contentId = (int) $section->sectionable_id;
+                $contentKey = $type . ':' . $contentId;
+                if ($contentId < 1 || $section->sectionable === null) {
+                    $issues[] = 'توجد خطوة غير مرتبطة بمحتواها؛ احذفها أو أعد إضافتها.';
+                } elseif (isset($contentIds[$contentKey])) {
+                    $issues[] = 'نفس المحتوى مضاف أكثر من مرة؛ احذف النسخة المكررة قبل النشر.';
+                }
+                $contentIds[$contentKey] = true;
+            }
+        }
+
         foreach ($course->modules->sortBy('order')->values() as $index => $module) {
             $moduleLabel = trim((string) ($module->title_ar ?: $module->title_en)) ?: 'الوحدة ' . ($index + 1);
             if (trim((string) ($module->title_ar ?: $module->title_en)) === '') {
@@ -184,6 +233,12 @@ class CoursePublishingService
                 if (!$this->storedFileExists((string) $attachment->storage_disk, (string) $attachment->file_path)) {
                     $issues[] = "{$moduleLabel}: المرفق «{$attachment->title}» غير موجود في التخزين";
                 }
+            }
+            if (
+                trim((string) $module->attachments_link) !== ''
+                && SafeExternalUrl::sanitize($module->attachments_link) === null
+            ) {
+                $issues[] = "{$moduleLabel}: رابط المرفقات غير صالح";
             }
             if (SafeExternalUrl::sanitize($module->attachments_link) !== null) {
                 // A single external link may point to a bundle containing several files.
@@ -336,12 +391,13 @@ class CoursePublishingService
             $issues[] = 'نافذة المرفقات مفعلة لكن الكورس لا يحتوي على مرفقات.';
         }
         if ($course->attachment_prompt_enabled && $attachmentsCount > 0) {
-            if (
-                trim((string) $course->attachment_prompt_title) === ''
-                || trim((string) $course->attachment_prompt_body) === ''
-                || trim((string) $course->attachment_prompt_button_text) === ''
-            ) {
-                $issues[] = 'أكمل عنوان نافذة المرفقات ونصها واسم زر التحميل.';
+            $promptFrequency = (string) ($course->attachment_prompt_frequency
+                ?: config('course_attachments.prompt.default_frequency', 'once_per_course'));
+            if (!array_key_exists(
+                $promptFrequency,
+                (array) config('course_attachments.prompt.frequencies', [])
+            )) {
+                $issues[] = 'اختر متى يتكرر تنبيه المرفقات.';
             }
             $orderedModules = $course->modules->sortBy('order')->values();
             $promptModule = $course->activePdfs->isNotEmpty()

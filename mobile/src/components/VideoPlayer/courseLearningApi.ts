@@ -20,8 +20,10 @@ export {
   retryPendingPlaybackPositions,
   retryPendingSectionCompletions,
   savePlaybackPosition,
+  subscribeCourseRevisionChanges,
 } from './courseLearning/playback';
 export type {
+  CourseRevisionChange,
   PlaybackClientPreference,
   PlaybackEvidenceContext,
   PlaybackManifest,

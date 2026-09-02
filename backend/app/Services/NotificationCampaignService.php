@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Jobs\SendStudentNotification;
 use App\Models\NotificationCampaign;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
@@ -114,16 +115,27 @@ final class NotificationCampaignService
             return true;
         }
 
-        try {
-            dispatch($job)->afterCommit();
-        } catch (\Throwable $exception) {
-            $campaign->forceFill([
-                'status' => NotificationCampaign::STATUS_FAILED,
-                'failed_at' => now(),
-                'failure_code' => 'queue_' . substr(hash('sha256', $exception::class), 0, 12),
-            ])->save();
-            throw $exception;
-        }
+        // A queue connection can fail when the commit callback actually runs,
+        // after the campaign and its image reference are already durable. Do
+        // not turn that committed campaign into a false failed form submit (or
+        // let the controller delete its image). Persist a retryable dead letter
+        // while keeping the dashboard request successful and truthful.
+        DB::afterCommit(static function () use ($job, $campaign): void {
+            try {
+                dispatch($job);
+            } catch (\Throwable $exception) {
+                NotificationCampaign::query()
+                    ->whereKey($campaign->getKey())
+                    ->where('status', NotificationCampaign::STATUS_QUEUED)
+                    ->update([
+                        'status' => NotificationCampaign::STATUS_FAILED,
+                        'failed_at' => now(),
+                        'failure_code' => 'queue_' . substr(hash('sha256', $exception::class), 0, 12),
+                        'updated_at' => now(),
+                    ]);
+                report($exception);
+            }
+        });
         return true;
     }
 

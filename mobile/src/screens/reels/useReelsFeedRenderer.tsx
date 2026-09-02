@@ -18,6 +18,7 @@ import type {
 } from '../../components/VideoPlayer/playbackTelemetry';
 import type {RootNavigation} from '../../navigation/types';
 import {isLocalDemoId} from '../../config/runtime';
+import {openGuestLogin} from '../../navigation/journeyNavigation';
 
 export type ReelsNavigation = RootNavigation;
 
@@ -152,15 +153,13 @@ export const useReelsFeedRenderer = ({
             if (isLocalDemoId(course.id) || serverSession === true) {
               return true;
             }
-            navigation.navigate('Login', {
-              returnTo: {
-                name: 'Reels',
-                params: {
-                  courseId: course.id,
-                  reelId: reel?.id,
-                  preview,
-                  previewCount,
-                },
+            openGuestLogin(navigation, {
+              name: 'Reels',
+              params: {
+                courseId: course.id,
+                reelId: reel?.id,
+                preview,
+                previewCount,
               },
             });
             return false;
@@ -170,15 +169,13 @@ export const useReelsFeedRenderer = ({
               setChatVisible(true);
               return;
             }
-            navigation.navigate('Login', {
-              returnTo: {
-                name: 'Reels',
-                params: {
-                  courseId: course.id,
-                  reelId: reel?.id,
-                  preview,
-                  previewCount,
-                },
+            openGuestLogin(navigation, {
+              name: 'Reels',
+              params: {
+                courseId: course.id,
+                reelId: reel?.id,
+                preview,
+                previewCount,
               },
             });
           }}

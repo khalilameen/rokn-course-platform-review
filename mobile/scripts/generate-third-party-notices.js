@@ -44,6 +44,7 @@ const ALLOWED_LICENSES = new Set([
   'BlueOak-1.0.0',
   'CC-BY-4.0',
   'CC0-1.0',
+  'FSL-1.1-MIT',
   'ISC',
   'MIT',
   'MPL-2.0',
@@ -66,6 +67,7 @@ const CANONICAL_LICENSE_SOURCES = {
   ],
   'CC-BY-4.0': ['node_modules/caniuse-lite', 'LICENSE'],
   'CC0-1.0': ['node_modules/mdn-data', 'LICENSE'],
+  'FSL-1.1-MIT': ['node_modules/@sentry/cli', 'LICENSE'],
   ISC: ['node_modules/@isaacs/ttlcache', 'LICENSE'],
   MIT: ['node_modules/@babel/code-frame', 'LICENSE'],
   'MPL-2.0': ['node_modules/lightningcss', 'LICENSE'],
@@ -142,6 +144,14 @@ const LEGAL_FILE_ABSENCE_ALLOWLIST = new Set([
   '@react-native/js-polyfills@0.83.10',
   '@react-native/normalize-colors@0.83.10',
   '@react-native/virtualized-lists@0.83.10',
+  '@sentry/cli-darwin@2.58.4',
+  '@sentry/cli-linux-arm@2.58.4',
+  '@sentry/cli-linux-arm64@2.58.4',
+  '@sentry/cli-linux-i686@2.58.4',
+  '@sentry/cli-linux-x64@2.58.4',
+  '@sentry/cli-win32-arm64@2.58.4',
+  '@sentry/cli-win32-i686@2.58.4',
+  '@sentry/cli-win32-x64@2.58.4',
   'agent-base@6.0.2',
   'babel-plugin-react-compiler@1.0.0',
   'babel-preset-expo@55.0.25',
@@ -194,6 +204,7 @@ const LEGAL_FILE_ABSENCE_ALLOWLIST = new Set([
   'react-devtools-core@6.1.5',
   'stream-buffers@2.2.0',
   'structured-headers@0.4.1',
+  'tr46@0.0.3',
 ]);
 
 const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);

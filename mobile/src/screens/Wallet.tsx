@@ -6,7 +6,8 @@ import {
   useRoute,
 } from '@react-navigation/native';
 import type {RootNavigation, RootRoute} from '../navigation/types';
-import {learnerErrorMessage} from '../utils/errorPayload';
+import {openGuestLogin} from '../navigation/journeyNavigation';
+import {errorCode, learnerErrorMessage} from '../utils/errorPayload';
 import {formatRoknRelativeDate} from '../utils/dateTime';
 import {
   ActivityIndicator,
@@ -14,6 +15,7 @@ import {
   Alert,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -55,6 +57,7 @@ import {
 } from '../services/coinCheckout';
 import {openExternalUrlOnce} from '../services/systemActions';
 import {
+  claimDailyReward,
   getCoinPackages,
   getCoinTasks,
   getWallet,
@@ -79,10 +82,131 @@ import {
 import {LOCAL_DEMO_ENABLED} from '../config/runtime';
 import {trustedExternalTaskUrl} from '../services/externalTaskUrlPolicy';
 import {useReducedMotion} from '../hooks/useReducedMotion';
+import {useSelector} from 'react-redux';
+import {
+  accountScopedStorageKey,
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+  extractApiToken,
+  extractUserProfile,
+  getItem,
+  saveItem,
+  type AccountSessionBoundary,
+} from '../constants/helpers';
+import type {RootState} from '../store/store';
+
+const WALLET_CACHE_KEY = '@rokn/wallet-cache/v1';
+let walletCacheWriteTail: Promise<void> = Promise.resolve();
+
+type WalletCache = {
+  version: 1;
+  wallet?: WalletSnapshot;
+  packages?: DemoCoinPackage[];
+  tasks?: CoinTask[];
+};
+
+const isNonNegativeFinite = (value: unknown) =>
+  Number.isFinite(Number(value)) && Number(value) >= 0;
+
+const validCachedWallet = (value: unknown): value is WalletSnapshot => {
+  if (!value || typeof value !== 'object') return false;
+  const wallet = value as WalletSnapshot;
+  return (
+    isNonNegativeFinite(wallet.balance) &&
+    isNonNegativeFinite(wallet.paidBalance) &&
+    isNonNegativeFinite(wallet.rewardBalance) &&
+    isNonNegativeFinite(wallet.spendableBalance) &&
+    isNonNegativeFinite(wallet.rewardContributionCap) &&
+    Number(wallet.paidBalance) + Number(wallet.rewardBalance) ===
+      Number(wallet.balance) &&
+    Number(wallet.spendableBalance) <= Number(wallet.balance) &&
+    typeof wallet.spendPolicy === 'string' &&
+    Array.isArray(wallet.coinRules) &&
+    wallet.coinRules.every(rule => typeof rule === 'string') &&
+    Array.isArray(wallet.transactions) &&
+    wallet.transactions.every(
+      item =>
+        item &&
+        typeof item.id === 'string' &&
+        item.id.length > 0 &&
+        Number.isFinite(Number(item.amount)) &&
+        (item.occurred_at === undefined ||
+          typeof item.occurred_at === 'string') &&
+        (item.category === undefined || typeof item.category === 'string'),
+    )
+  );
+};
+
+const validCachedPackages = (value: unknown): value is DemoCoinPackage[] =>
+  Array.isArray(value) &&
+  value.every(
+    item =>
+      item &&
+      typeof item.id === 'string' &&
+      item.id.length > 0 &&
+      isNonNegativeFinite(item.coins) &&
+      Number(item.coins) > 0 &&
+      isNonNegativeFinite(item.price) &&
+      Number(item.price) > 0 &&
+      typeof item.label === 'string',
+  );
+
+const validCachedTasks = (value: unknown): value is CoinTask[] =>
+  Array.isArray(value) &&
+  value.every(
+    item =>
+      item &&
+      typeof item.id === 'string' &&
+      /^\d+$/.test(item.serverId) &&
+      typeof item.title === 'string' &&
+      isNonNegativeFinite(item.reward) &&
+      Number(item.reward) > 0 &&
+      ['available', 'started', 'claimed'].includes(item.status) &&
+      typeof item.actionKey === 'string' &&
+      typeof item.requiresExternalVisit === 'boolean' &&
+      (item.url === undefined || typeof item.url === 'string'),
+  );
+
+const readWalletCache = async (boundary: AccountSessionBoundary) => {
+  await walletCacheWriteTail.catch(() => undefined);
+  assertAccountSessionBoundary(boundary);
+  const key = await accountScopedStorageKey(WALLET_CACHE_KEY, boundary);
+  const cached = await getItem<Partial<WalletCache>>(key);
+  assertAccountSessionBoundary(boundary);
+  if (cached?.version !== 1) return null;
+  return {
+    version: 1 as const,
+    ...(validCachedWallet(cached.wallet) ? {wallet: cached.wallet} : {}),
+    ...(validCachedPackages(cached.packages)
+      ? {packages: cached.packages}
+      : {}),
+    ...(validCachedTasks(cached.tasks) ? {tasks: cached.tasks} : {}),
+  };
+};
+
+const saveWalletCache = async (
+  boundary: AccountSessionBoundary,
+  cache: WalletCache,
+) => {
+  const write = walletCacheWriteTail.catch(() => undefined).then(async () => {
+    assertAccountSessionBoundary(boundary);
+    const key = await accountScopedStorageKey(WALLET_CACHE_KEY, boundary);
+    await saveItem(key, cache);
+    assertAccountSessionBoundary(boundary);
+  });
+  walletCacheWriteTail = write.catch(() => undefined);
+  return write;
+};
 
 export default function Wallet() {
   const navigation = useNavigation<RootNavigation>();
   const route = useRoute<RootRoute<'Wallet'>>();
+  const storedUser = useSelector((state: RootState) => state.auth.userData);
+  const storedProfile = extractUserProfile(storedUser);
+  const hasStoredToken = Boolean(extractApiToken(storedUser));
+  const identityKey = hasStoredToken
+    ? String(storedProfile.id ?? storedProfile.user_id ?? 'authenticated')
+    : 'guest';
   const interruptedReturnTo = route.params?.returnTo;
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
@@ -99,6 +223,7 @@ export default function Wallet() {
   const [remoteTasks, setRemoteTasks] = useState<CoinTask[]>([]);
   const [serverSession, setServerSession] = useState<boolean | null>(null);
   const [remoteLoading, setRemoteLoading] = useState(false);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
   const [remoteError, setRemoteError] = useState('');
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [taskLoadingIds, setTaskLoadingIds] = useState<string[]>([]);
@@ -106,47 +231,195 @@ export default function Wallet() {
   const [walletModal, setWalletModal] = useState<'breakdown' | 'rules' | null>(
     null,
   );
-  const checkoutFlightRef = useRef(false);
+  const checkoutFlightRef = useRef<symbol | null>(null);
   const taskFlightsRef = useRef(new Set<string>());
   const walletRefreshRequestRef = useRef(0);
+  const manualRefreshFlightRef = useRef<symbol | null>(null);
+  const walletDataOwnerRef = useRef(identityKey);
+  const remoteWalletRef = useRef<WalletSnapshot | null>(null);
+  const remotePackagesRef = useRef<DemoCoinPackage[]>([]);
+  const remoteTasksRef = useRef<CoinTask[]>([]);
+  const packagesKnownRef = useRef(false);
+  const tasksKnownRef = useRef(false);
+  remoteWalletRef.current = remoteWallet;
+  remotePackagesRef.current = remotePackages;
+  remoteTasksRef.current = remoteTasks;
+
+  const walletOwnerIsCurrent = useCallback(
+    (boundary: AccountSessionBoundary) => {
+      try {
+        assertAccountSessionBoundary(boundary);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [],
+  );
+
+  const updateRemoteTask = useCallback(
+    (taskId: string, update: Partial<Pick<CoinTask, 'status' | 'url'>>) => {
+      // Task mutations can be followed immediately by a partial wallet
+      // refresh. Keep the recovery snapshot in lockstep with the rendered
+      // state instead of waiting for React to commit another render first.
+      const nextTasks = remoteTasksRef.current.map(task =>
+        task.id === taskId ? {...task, ...update} : task,
+      );
+      remoteTasksRef.current = nextTasks;
+      setRemoteTasks(nextTasks);
+    },
+    [],
+  );
 
   const refreshWallet = useCallback(async () => {
     const requestId = ++walletRefreshRequestRef.current;
+    setRemoteLoading(true);
+    let boundary: AccountSessionBoundary;
+    try {
+      boundary = await captureAccountSessionBoundary();
+    } catch {
+      if (requestId === walletRefreshRequestRef.current) {
+        setRemoteLoading(false);
+        setRemoteError('تعذّر فتح المحفظة\nأعد المحاولة');
+      }
+      return;
+    }
     let sessionAvailable = false;
     try {
       sessionAvailable = await hasSession();
     } catch {
-      if (requestId === walletRefreshRequestRef.current) {
+      if (
+        requestId === walletRefreshRequestRef.current &&
+        walletOwnerIsCurrent(boundary)
+      ) {
         setRemoteLoading(false);
         setRemoteError('تعذّر فتح المحفظة\nأعد فتح الشاشة');
       }
       return;
     }
-    if (requestId !== walletRefreshRequestRef.current) return;
+    if (
+      requestId !== walletRefreshRequestRef.current ||
+      !walletOwnerIsCurrent(boundary)
+    ) {
+      return;
+    }
     setServerSession(sessionAvailable);
     if (!sessionAvailable) {
       setRemoteLoading(false);
       return;
     }
-    setRemoteLoading(true);
+    const cached = await readWalletCache(boundary).catch(() => null);
+    if (
+      requestId !== walletRefreshRequestRef.current ||
+      !walletOwnerIsCurrent(boundary)
+    ) {
+      return;
+    }
+    if (cached?.wallet && !remoteWalletRef.current) {
+      remoteWalletRef.current = cached.wallet;
+      setRemoteWallet(cached.wallet);
+    }
+    if (cached?.packages && !packagesKnownRef.current) {
+      packagesKnownRef.current = true;
+      remotePackagesRef.current = cached.packages;
+      setRemotePackages(cached.packages);
+    }
+    if (cached?.tasks && !tasksKnownRef.current) {
+      tasksKnownRef.current = true;
+      remoteTasksRef.current = cached.tasks;
+      setRemoteTasks(cached.tasks);
+    }
+    // Daily credit is an idempotent server mutation. Resolve it before reading
+    // the financial snapshot so entering Wallet while Home's claim is still in
+    // flight cannot leave the visible balance one mutation behind.
+    await claimDailyReward().catch(() => undefined);
+    if (
+      requestId !== walletRefreshRequestRef.current ||
+      !walletOwnerIsCurrent(boundary)
+    ) {
+      return;
+    }
     const [walletResult, packagesResult, tasksResult] =
       await Promise.allSettled([
         getWallet(),
         getCoinPackages(),
         getCoinTasks(),
       ]);
-    if (requestId !== walletRefreshRequestRef.current) return;
-    if (walletResult.status === 'fulfilled')
+    if (
+      requestId !== walletRefreshRequestRef.current ||
+      !walletOwnerIsCurrent(boundary)
+    ) {
+      return;
+    }
+    if (walletResult.status === 'fulfilled') {
+      remoteWalletRef.current = walletResult.value;
       setRemoteWallet(walletResult.value);
-    if (packagesResult.status === 'fulfilled')
+    }
+    if (packagesResult.status === 'fulfilled') {
+      packagesKnownRef.current = true;
+      remotePackagesRef.current = packagesResult.value;
       setRemotePackages(packagesResult.value);
-    if (tasksResult.status === 'fulfilled') setRemoteTasks(tasksResult.value);
+    }
+    if (tasksResult.status === 'fulfilled') {
+      tasksKnownRef.current = true;
+      remoteTasksRef.current = tasksResult.value;
+      setRemoteTasks(tasksResult.value);
+    }
+    const nextCache: WalletCache = {
+      version: 1,
+      ...(remoteWalletRef.current ? {wallet: remoteWalletRef.current} : {}),
+      ...(packagesKnownRef.current
+        ? {packages: remotePackagesRef.current}
+        : {}),
+      ...(tasksKnownRef.current ? {tasks: remoteTasksRef.current} : {}),
+    };
+    void saveWalletCache(boundary, nextCache).catch(() => undefined);
     const failed = [walletResult, packagesResult, tasksResult].some(
       result => result.status === 'rejected',
     );
     setRemoteError(failed ? 'تعذّر تحديث بعض البيانات\nاسحب لعرض أحدثها' : '');
     setRemoteLoading(false);
-  }, []);
+  }, [identityKey, walletOwnerIsCurrent]);
+
+  const refreshWalletManually = useCallback(async () => {
+    const operation = Symbol('wallet-manual-refresh');
+    manualRefreshFlightRef.current = operation;
+    setManualRefreshing(true);
+    try {
+      await refreshWallet();
+    } finally {
+      if (manualRefreshFlightRef.current === operation) {
+        manualRefreshFlightRef.current = null;
+        setManualRefreshing(false);
+      }
+    }
+  }, [refreshWallet]);
+
+  useEffect(() => {
+    // Do not expose the previous learner's balance, packages or reward state
+    // while a new account is being resolved in the same navigation tree.
+    walletRefreshRequestRef.current += 1;
+    checkoutFlightRef.current = null;
+    manualRefreshFlightRef.current = null;
+    taskFlightsRef.current.clear();
+    setServerSession(null);
+    setRemoteWallet(null);
+    setRemotePackages([]);
+    setRemoteTasks([]);
+    setRemoteError('');
+    setRemoteLoading(false);
+    setManualRefreshing(false);
+    setCheckoutLoading(null);
+    setTaskLoadingIds([]);
+    setTaskOpenRetryIds([]);
+    setWalletModal(null);
+    remoteWalletRef.current = null;
+    remotePackagesRef.current = [];
+    remoteTasksRef.current = [];
+    packagesKnownRef.current = false;
+    tasksKnownRef.current = false;
+    walletDataOwnerRef.current = identityKey;
+  }, [identityKey]);
 
   useEffect(() => {
     const unsubscribe = LOCAL_DEMO_ENABLED
@@ -291,24 +564,38 @@ export default function Wallet() {
     return 'ابدأ';
   };
 
-  const runTaskAction = async (task: DemoCoinTask | CoinTask) => {
+  const runTaskAction = async (
+    task: DemoCoinTask | CoinTask,
+    boundary: AccountSessionBoundary,
+  ) => {
+    if (!walletOwnerIsCurrent(boundary)) return;
     if (
       isRemoteTask(task) &&
       task.status === 'started' &&
       (isWhatsAppTask(task) || taskOpenRetryIds.includes(task.id))
     ) {
       try {
-        const resumed = task.url
-          ? {status: 'started', url: task.url}
-          : await startCoinTask(task);
+        // A remembered URL is recovery data, not authority. Re-enter the
+        // server-owned attempt first so a deleted/changed/already-claimed task
+        // cannot reopen yesterday's external destination after foreground or
+        // process recovery.
+        const resumed = await startCoinTask(task);
+        if (!walletOwnerIsCurrent(boundary)) return;
+        if (resumed.status === 'claimed') {
+          updateRemoteTask(task.id, {status: 'claimed'});
+          await refreshWallet();
+          return;
+        }
         const safeActionUrl = trustedExternalTaskUrl(resumed.url);
         if (!safeActionUrl) {
           Alert.alert('تعذّر فتح المهمة', 'رابط المهمة غير متاح');
           return;
         }
         await openExternalUrlOnce(safeActionUrl);
+        if (!walletOwnerIsCurrent(boundary)) return;
         setTaskOpenRetryIds(current => current.filter(id => id !== task.id));
       } catch (error: unknown) {
+        if (!walletOwnerIsCurrent(boundary)) return;
         setTaskOpenRetryIds(current =>
           current.includes(task.id) ? current : [...current, task.id],
         );
@@ -323,23 +610,17 @@ export default function Wallet() {
       let remoteStartRecorded = false;
       try {
         const started = await startCoinTask(task);
+        if (!walletOwnerIsCurrent(boundary)) return;
         if (started.status === 'claimed') {
-          setRemoteTasks(current =>
-            current.map(item =>
-              item.id === task.id ? {...item, status: 'claimed'} : item,
-            ),
-          );
+          updateRemoteTask(task.id, {status: 'claimed'});
           await refreshWallet();
           return;
         }
         remoteStartRecorded = true;
-        setRemoteTasks(current =>
-          current.map(item =>
-            item.id === task.id
-              ? {...item, status: 'started', url: started.url || item.url}
-              : item,
-          ),
-        );
+        updateRemoteTask(task.id, {
+          status: 'started',
+          url: started.url || task.url,
+        });
         const safeActionUrl = trustedExternalTaskUrl(started.url);
         if (!safeActionUrl) {
           Alert.alert('ربط واتساب غير متاح', 'حاول مرة أخرى لاحقًا');
@@ -347,6 +628,7 @@ export default function Wallet() {
         }
         await openExternalUrlOnce(safeActionUrl);
       } catch (error: unknown) {
+        if (!walletOwnerIsCurrent(boundary)) return;
         if (remoteStartRecorded) {
           setTaskOpenRetryIds(current =>
             current.includes(task.id) ? current : [...current, task.id],
@@ -365,28 +647,23 @@ export default function Wallet() {
         let actionUrl = task.url;
         if (isRemoteTask(task)) {
           const started = await startCoinTask(task);
+          if (!walletOwnerIsCurrent(boundary)) return;
           actionUrl = started.url;
           if (started.status === 'claimed') {
-            setRemoteTasks(current =>
-              current.map(item =>
-                item.id === task.id ? {...item, status: 'claimed'} : item,
-              ),
-            );
+            updateRemoteTask(task.id, {status: 'claimed'});
             await refreshWallet();
             return;
           }
           remoteStartRecorded = true;
-          setRemoteTasks(current =>
-            current.map(item =>
-              item.id === task.id
-                ? {...item, status: 'started', url: actionUrl || item.url}
-                : item,
-            ),
-          );
+          updateRemoteTask(task.id, {
+            status: 'started',
+            url: actionUrl || task.url,
+          });
         } else {
           // Persist the immutable attempt before opening either the in-app guide
           // or an external task destination.
           await beginDemoTask(task.id);
+          if (!walletOwnerIsCurrent(boundary)) return;
         }
         if (isCoinGuideTask(task)) {
           setWalletModal('rules');
@@ -402,8 +679,10 @@ export default function Wallet() {
             return;
           }
           await openExternalUrlOnce(safeActionUrl);
+          if (!walletOwnerIsCurrent(boundary)) return;
         }
       } catch (error: unknown) {
+        if (!walletOwnerIsCurrent(boundary)) return;
         if (remoteStartRecorded) {
           setTaskOpenRetryIds(current =>
             current.includes(task.id) ? current : [...current, task.id],
@@ -419,16 +698,18 @@ export default function Wallet() {
     try {
       if (isRemoteTask(task)) {
         await claimCoinTask(task);
-        setRemoteTasks(current =>
-          current.map(item =>
-            item.id === task.id ? {...item, status: 'claimed'} : item,
-          ),
-        );
+        if (!walletOwnerIsCurrent(boundary)) return;
+        updateRemoteTask(task.id, {status: 'claimed'});
+        // The claim response confirms the mutation but does not carry a full
+        // paid/reward/spendable snapshot. Never add its delta to a wallet that
+        // may already have refreshed in the background; that can credit the
+        // same task twice locally. Reload the authoritative bucket snapshot.
         await refreshWallet();
       } else {
         await claimDemoTask(task.id);
       }
     } catch (error: unknown) {
+      if (!walletOwnerIsCurrent(boundary)) return;
       if (isRemoteTask(task)) void refreshWallet();
       Alert.alert(
         'تعذّر تأكيد المكافأة',
@@ -438,33 +719,69 @@ export default function Wallet() {
   };
 
   const handleTask = async (task: DemoCoinTask | CoinTask) => {
-    if (task.status === 'claimed' || taskFlightsRef.current.has(task.id))
+    let boundary: AccountSessionBoundary;
+    try {
+      boundary = await captureAccountSessionBoundary();
+    } catch {
       return;
-    taskFlightsRef.current.add(task.id);
+    }
+    const operationKey = `${boundary.scope}:${boundary.epoch}:${task.id}`;
+    if (
+      task.status === 'claimed' ||
+      taskFlightsRef.current.has(operationKey)
+    ) {
+      return;
+    }
+    taskFlightsRef.current.add(operationKey);
     setTaskLoadingIds(current => [...current, task.id]);
     try {
-      await runTaskAction(task);
+      await runTaskAction(task, boundary);
     } finally {
-      taskFlightsRef.current.delete(task.id);
-      setTaskLoadingIds(current => current.filter(id => id !== task.id));
+      if (walletOwnerIsCurrent(boundary)) {
+        setTaskLoadingIds(current => current.filter(id => id !== task.id));
+      }
+      taskFlightsRef.current.delete(operationKey);
     }
   };
 
   const startCheckout = async (item: DemoCoinPackage) => {
+    let boundary: AccountSessionBoundary;
+    try {
+      boundary = await captureAccountSessionBoundary();
+    } catch {
+      Alert.alert(
+        'تعذّر فتح الدفع',
+        'تحقق من الاتصال\nثم حاول مرة أخرى',
+      );
+      return;
+    }
     if (checkoutLoading || checkoutFlightRef.current) return;
-    checkoutFlightRef.current = true;
+    const operation = Symbol('wallet-checkout');
+    checkoutFlightRef.current = operation;
     setCheckoutLoading(item.id);
     try {
       const result = await openCoinCheckout(item, {
         returnTo: interruptedReturnTo || {name: 'Wallet'},
       });
+      if (!walletOwnerIsCurrent(boundary)) return;
       if (result.success) {
-        if (!result.demo) await refreshWallet();
+        if (!result.demo) {
+          // Foreground recovery and the checkout callback can both observe
+          // the same settled order. Applying its delta to an already-refreshed
+          // snapshot would display and cache the credit twice. Financial
+          // balance always comes back from the authoritative wallet snapshot.
+          await refreshWallet();
+        }
+        if (!walletOwnerIsCurrent(boundary)) return;
         Alert.alert(
           'تم شحن الرصيد',
           `أضفنا ${formatArabicNumber(result.coinsAdded)} عملة ركن إلى رصيدك`,
         );
         if (interruptedReturnTo) {
+          // This hand-off belongs to the checkout which just settled. Leaving
+          // it on the Wallet route makes a later, unrelated top-up jump back
+          // into an old course or chat after the learner presses Back here.
+          navigation.setParams({returnTo: undefined});
           navigation.dispatch(
             CommonActions.navigate(
               interruptedReturnTo.name,
@@ -478,21 +795,71 @@ export default function Wallet() {
             'أُغلقت صفحة الدفع',
             'إن أكملت الدفع فسيظهر الرصيد تلقائيًا',
           );
+        } else {
+          Alert.alert('لم يكتمل الدفع', 'يمكنك المحاولة مرة أخرى');
         }
       } else if (result.pending) {
         Alert.alert('العملية قيد التأكيد', 'سنحدّث رصيدك فور تأكيد الدفع');
+      } else {
+        Alert.alert('لم يكتمل الدفع', 'يمكنك المحاولة مرة أخرى');
       }
-    } catch {
-      void refreshWallet();
+    } catch (error) {
+      if (!walletOwnerIsCurrent(boundary)) return;
+      const packageCatalogueChanged = [
+        'package_terms_changed',
+        'package_not_available',
+      ].includes(errorCode(error));
+      if (packageCatalogueChanged) {
+        // Never leave the rejected package DTO tappable. Keep checkout's
+        // single-flight ownership until the authoritative catalogue refresh
+        // completes, then require a new explicit selection.
+        setRemotePackages([]);
+        remotePackagesRef.current = [];
+        packagesKnownRef.current = false;
+        await saveWalletCache(boundary, {
+          version: 1,
+          ...(remoteWalletRef.current
+            ? {wallet: remoteWalletRef.current}
+            : {}),
+          ...(tasksKnownRef.current ? {tasks: remoteTasksRef.current} : {}),
+        }).catch(() => undefined);
+        await refreshWallet();
+        if (!walletOwnerIsCurrent(boundary)) return;
+      } else {
+        void refreshWallet();
+      }
       Alert.alert(
-        'تعذّر تأكيد حالة الدفع',
-        'حدّث الرصيد قبل المحاولة مرة أخرى',
+        packageCatalogueChanged
+          ? 'تغيّرت تفاصيل الباقة'
+          : 'تعذّر تأكيد حالة الدفع',
+        packageCatalogueChanged
+          ? 'راجع باقات الشحن\nثم اختر الباقة من جديد'
+          : 'حدّث الرصيد قبل المحاولة مرة أخرى',
       );
     } finally {
-      checkoutFlightRef.current = false;
-      setCheckoutLoading(null);
+      if (checkoutFlightRef.current === operation) {
+        checkoutFlightRef.current = null;
+        setCheckoutLoading(null);
+      }
     }
   };
+
+  if (walletDataOwnerRef.current !== identityKey) {
+    return (
+      <Container noPadding>
+        <Content noPadding>
+          <ResponsiveFrame>
+            <HeaderWithBack hasArrow={false} title="المحفظة" />
+            <PremiumCard style={styles.unavailableCard}>
+              <ActivityIndicator color={Palette.primary} />
+              <Text style={styles.remoteNote}>جارٍ فتح محفظتك</Text>
+            </PremiumCard>
+          </ResponsiveFrame>
+        </Content>
+        <TabBar />
+      </Container>
+    );
+  }
 
   if (serverSession === false && !LOCAL_DEMO_ENABLED) {
     return (
@@ -504,9 +871,7 @@ export default function Wallet() {
               actionLabel="تسجيل الدخول"
               description="سجّل الدخول لعرض رصيدك ومكافآتك من أي جهاز"
               onAction={() =>
-                navigation.navigate('Login', {
-                  returnTo: {name: 'Wallet'},
-                })
+                openGuestLogin(navigation, {name: 'Wallet'})
               }
               state="empty"
               title="رصيدك مرتبط بحسابك"
@@ -522,6 +887,13 @@ export default function Wallet() {
     <Container noPadding>
       <Content
         noPadding
+        refreshControl={
+          <RefreshControl
+            onRefresh={() => void refreshWalletManually()}
+            refreshing={manualRefreshing}
+            tintColor={Palette.primary}
+          />
+        }
         paddingBottom={Math.max(Spacing.xl, insets.bottom + Spacing.md)}>
         <ResponsiveFrame>
           <HeaderWithBack hasArrow={false} title="المحفظة" />
@@ -709,7 +1081,8 @@ export default function Wallet() {
               })
             ) : (
               <Text style={styles.remoteNote}>
-                {usingRemoteWallet && remoteLoading
+                {serverSession === null ||
+                (usingRemoteWallet && remoteLoading)
                   ? 'جارٍ تحديث المهام المتاحة'
                   : usingRemoteWallet && remoteError
                   ? 'تعذّر تحميل المهام\nحاول التحديث لاحقًا'

@@ -101,12 +101,13 @@
                                     </thead>
                                     <tbody>
                                         @foreach($examResults as $result)
+                                            @php($quizSnapshot = $result->quizSnapshot())
                                             <tr>
                                                 <td>
-                                                    <strong>{{ $result->quiz->title }}</strong>
-                                                    @if($result->quiz->description)
+                                                    <strong>{{ $quizSnapshot['title'] }}</strong>
+                                                    @if($quizSnapshot['description'])
                                                         <br>
-                                                        <small class="text-muted">{{ Str::limit($result->quiz->description, 50) }}</small>
+                                                        <small class="text-muted">{{ Str::limit($quizSnapshot['description'], 50) }}</small>
                                                     @endif
                                                     @if($result->attempt_number > 1)
                                                         <br>

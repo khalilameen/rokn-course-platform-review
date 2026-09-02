@@ -51,11 +51,23 @@ document.addEventListener('DOMContentLoaded', function () {
     const list = root.querySelector('.attachment-list');
     const csrf = @json(csrf_token());
     let request = null;
+    let cancelRequested = false;
+    let uploadBodySent = false;
+    let reconciliationPending = false;
 
     const versionInput = () => document.querySelector('[name="authoring_version"]');
     const setVersion = value => document.querySelectorAll('[name="authoring_version"]').forEach(input => {
         input.value = String(value);
     });
+    const currentVersion = () => Number(versionInput()?.value || 0);
+    const reconcileStalePage = message => {
+        window.RoknAdminRequest.blockMutationsUntilReload();
+        reconciliationPending = true;
+        status.textContent = String(message || 'تغيّر الكورس أثناء العملية\nنعيد تحميل أحدث نسخة');
+        status.className = 'small mt-2 attachment-status text-muted';
+        upload.disabled = true;
+        window.setTimeout(() => window.location.reload(), 700);
+    };
     const showError = payload => {
         const first = payload?.errors && Object.values(payload.errors).flat().find(Boolean);
         status.textContent = String(first || payload?.message || 'تعذر رفع الملف');
@@ -78,7 +90,7 @@ document.addEventListener('DOMContentLoaded', function () {
     };
 
     upload.addEventListener('click', function () {
-        if (request || !file.files?.[0]) {
+        if (window.RoknAdminRequest.mutationsAreBlocked() || request || !file.files?.[0]) {
             if (!file.files?.[0]) showError({message: 'اختر الملف أولًا'});
             return;
         }
@@ -88,7 +100,11 @@ document.addEventListener('DOMContentLoaded', function () {
         body.append('name', name.value.trim());
         body.append('attachable_type', @json($attachmentType));
         body.append('attachable_id', @json((string) $attachmentOwner->getKey()));
-        body.append('authoring_version', versionInput()?.value || '0');
+        const expectedVersion = currentVersion();
+        body.append('authoring_version', String(expectedVersion));
+        cancelRequested = false;
+        uploadBodySent = false;
+        reconciliationPending = false;
         request = new XMLHttpRequest();
         request.open('POST', root.dataset.storeUrl, true);
         request.timeout = 300000;
@@ -96,11 +112,15 @@ document.addEventListener('DOMContentLoaded', function () {
         progress.classList.remove('d-none');
         cancel.classList.remove('d-none');
         upload.disabled = true;
+        bar.style.width = '0%';
         status.textContent = 'جاري الرفع';
         status.className = 'small mt-2 attachment-status text-muted';
         request.upload.onprogress = event => {
             if (!event.lengthComputable) return;
             bar.style.width = `${Math.round(event.loaded / event.total * 100)}%`;
+        };
+        request.upload.onload = () => {
+            uploadBodySent = true;
         };
         request.onload = () => {
             let payload;
@@ -110,40 +130,79 @@ document.addEventListener('DOMContentLoaded', function () {
                 payload = {message: 'انتهت الجلسة\nأعد تحميل الصفحة'};
             }
             if (request.status >= 200 && request.status < 300) {
-                setVersion(payload.authoring_version);
+                let resultingVersion;
+                try {
+                    resultingVersion = window.RoknAdminRequest.requireAuthoringVersion(payload, expectedVersion, false);
+                    if (!payload.attachment || !Number.isSafeInteger(Number(payload.attachment.id)) || Number(payload.attachment.id) < 1 || typeof payload.delete_url !== 'string' || !payload.delete_url) {
+                        throw new window.RoknAdminRequest.AdminRequestError('وصل رد غير مكتمل بعد الرفع', 200, 'invalid_authoring_response');
+                    }
+                } catch (error) {
+                    reconcileStalePage(error.message);
+                    return;
+                }
+                setVersion(resultingVersion);
                 if (!list.querySelector(`[data-attachment-id="${payload.attachment.id}"]`)) addRow(payload);
                 status.textContent = payload.message;
                 status.className = 'small mt-2 attachment-status text-success';
                 file.value = '';
                 name.value = '';
-            } else showError(payload);
+            } else {
+                showError(payload);
+                if (request.status === 409 || payload?.errors?.authoring_version) {
+                    reconcileStalePage(status.textContent);
+                }
+            }
         };
-        request.onerror = () => showError({message: 'انقطع الاتصال\nحاول مرة أخرى'});
-        request.ontimeout = () => showError({message: 'استغرق الرفع وقتًا طويلًا\nتحقق من الاتصال ثم حاول مرة أخرى'});
+        const reconcileUnknownUpload = () => {
+            if (!uploadBodySent) {
+                showError({message: 'انقطع الاتصال قبل اكتمال الرفع\nحاول مرة أخرى'});
+                return;
+            }
+            reconcileStalePage('انقطع الرد بعد الرفع\nنعيد تحميل قائمة المرفقات');
+        };
+        request.onerror = reconcileUnknownUpload;
+        request.ontimeout = reconcileUnknownUpload;
         request.onabort = () => {
-            status.textContent = 'توقف الرفع';
-            status.className = 'small mt-2 attachment-status text-muted';
+            if (cancelRequested && !uploadBodySent) {
+                status.textContent = 'تم إيقاف الرفع';
+                status.className = 'small mt-2 attachment-status text-muted';
+                return;
+            }
+            reconcileStalePage('نتحقق من حالة الرفع');
         };
         request.onloadend = () => {
             request = null;
-            upload.disabled = false;
+            cancelRequested = false;
+            uploadBodySent = false;
+            upload.disabled = reconciliationPending;
             cancel.classList.add('d-none');
         };
         request.send(body);
     });
-    cancel.addEventListener('click', () => request?.abort());
+    cancel.addEventListener('click', () => {
+        if (!request) return;
+        cancelRequested = true;
+        request.abort();
+    });
+
+    window.addEventListener('beforeunload', event => {
+        if (!request) return;
+        event.preventDefault();
+        event.returnValue = '';
+    });
 
     list.addEventListener('click', async event => {
         const button = event.target.closest('.attachment-delete');
-        if (!button || button.disabled) return;
+        if (!button || button.disabled || window.RoknAdminRequest.mutationsAreBlocked()) return;
         button.disabled = true;
         try {
+            const expectedVersion = currentVersion();
             const payload = await window.RoknAdminRequest.request(button.dataset.deleteUrl, {
                 method: 'DELETE',
                 headers: {'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf},
-                body: JSON.stringify({authoring_version: Number(versionInput()?.value || 0)}),
+                body: JSON.stringify({authoring_version: expectedVersion}),
             });
-            setVersion(payload.authoring_version);
+            setVersion(window.RoknAdminRequest.requireAuthoringVersion(payload, expectedVersion, true));
             button.closest('[data-attachment-id]')?.remove();
             status.textContent = payload.message;
             status.className = 'small mt-2 attachment-status text-success';
@@ -152,7 +211,10 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         } catch (payload) {
             if (payload.code !== 'cancelled') showError(payload);
-            button.disabled = false;
+            if (payload.code === 'mutation_outcome_unknown' || payload.code === 'invalid_authoring_response' || payload.status === 409) {
+                reconcileStalePage(payload.message);
+            }
+            if (!reconciliationPending) button.disabled = false;
         }
     });
 });

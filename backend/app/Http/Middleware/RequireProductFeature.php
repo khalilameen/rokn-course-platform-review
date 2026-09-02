@@ -35,7 +35,7 @@ final class RequireProductFeature
             ], 503, ['Retry-After' => '300']);
         }
 
-        $subject = auth('api')->id() ?? $request->ip();
+        $subject = $this->features->subjectForRequest($request);
         if (!$this->features->enabled($feature, $subject)) {
             return response()->json([
                 'status' => 503,

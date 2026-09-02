@@ -32,6 +32,7 @@ interface contentProps {
   refreshControl?: ScrollViewProps['refreshControl'];
   paddingBottom?: number;
   onScroll?: ScrollViewProps['onScroll'];
+  onScrollBeginDrag?: ScrollViewProps['onScrollBeginDrag'];
   scrollEventThrottle?: number;
 }
 export const Container: FC<containerProps> = ({children, style, noPadding}) => {
@@ -64,6 +65,7 @@ export const Content: FC<contentProps> = ({
   refreshControl,
   paddingBottom,
   onScroll,
+  onScrollBeginDrag,
   scrollEventThrottle,
 }) => {
   const contentRef = useRef<ScrollView>(null);
@@ -83,6 +85,7 @@ export const Content: FC<contentProps> = ({
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="interactive"
       onScroll={onScroll}
+      onScrollBeginDrag={onScrollBeginDrag}
       scrollEventThrottle={scrollEventThrottle}
       contentContainerStyle={[
         styles.scrollContent,

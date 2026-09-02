@@ -3,8 +3,6 @@
 namespace App\Http\Resources;
 
 use Illuminate\Http\Resources\Json\JsonResource;
-use App\Models\StudentSectionProgress;
-use App\Models\UserProjectEvaluation;
 use App\Models\CourseModule;
 use App\Services\BunnyService;
 use App\Models\CourseRating;
@@ -15,7 +13,11 @@ use App\Services\CoursePresentationService;
 use App\Services\CourseChatAccessService;
 use App\Services\CourseAccessPlanService;
 use App\Services\CourseRatingEligibilityService;
+use App\Services\CourseStagedAuthoringService;
+use App\Services\CourseRevisionLearnerReadService;
+use App\Services\SafeExternalUrl;
 use App\Models\CourseEnrollment;
+use App\Models\User;
 use App\Models\ProjectSubmission;
 use App\Models\AiInputAttachment;
 use Illuminate\Support\Facades\URL;
@@ -38,9 +40,11 @@ class CourseResource extends BaseCourseResource
         'project_token_budget' => 0,
     ];
     private bool $learningContextProvided = false;
+    private bool $projectReplyRiskAllowed = false;
     private Collection $resolvedCompletedSectionIds;
     private ?array $resolvedEntitlement = null;
     private ?CourseEnrollment $resolvedEnrollment = null;
+    private ?User $dashboardPreviewUser = null;
 
     /** Reuse the access/progress work already performed by the details query. */
     public function withLearningContext(
@@ -57,6 +61,29 @@ class CourseResource extends BaseCourseResource
     }
 
     /**
+     * Render the learner contract for an authenticated dashboard preview.
+     *
+     * This context exists only for this resource instance. It deliberately
+     * starts with no learner progress and never creates an enrollment or
+     * changes the course publication state.
+     *
+     * @param array<string, mixed> $planContract
+     */
+    public function withDashboardPreviewContext(User $actor, array $planContract): static
+    {
+        $this->dashboardPreviewUser = $actor;
+        $this->projectFeedbackContract = $planContract;
+        $this->projectReplyRiskAllowed = (bool) (
+            $planContract['project_thread_reply_enabled'] ?? false
+        );
+        $this->projectFeedbackLevel = (string) (
+            $planContract['project_feedback_level'] ?? 'pass_only'
+        );
+
+        return $this;
+    }
+
+    /**
      * Transform the resource into an array.
      * Full course resource with sensitive data and section lock status for authorized users
      *
@@ -68,7 +95,11 @@ class CourseResource extends BaseCourseResource
         $baseData = parent::toArray($request);
 
         // Get current user
-        $user = auth('api')->user();
+        $user = $this->dashboardPreviewUser ?? auth('api')->user();
+        // A dashboard actor supplies identity only so the entitled resource
+        // follows the same branch as the app. Their own progress, attempts and
+        // submissions must never leak into a fresh-student preview.
+        $learnerStateUser = $this->dashboardPreviewUser ? null : $user;
         $sections = $this->relationLoaded('sections') ? $this->sections : collect();
         $completedSectionIds = $this->learningContextProvided
             ? $this->resolvedCompletedSectionIds
@@ -79,24 +110,32 @@ class CourseResource extends BaseCourseResource
             ->filter()
             ->unique()
             ->values();
-        $this->projectEvaluations = ($user && $projectIds->isNotEmpty())
-            ? UserProjectEvaluation::query()
-                ->where('user_id', $user->id)
-                ->whereIn('project_id', $projectIds)
-                ->get()
-                ->keyBy('project_id')
+        $revisionReads = app(CourseRevisionLearnerReadService::class);
+        $this->projectEvaluations = ($learnerStateUser && $projectIds->isNotEmpty())
+            ? $revisionReads->projectEvaluations((int) $learnerStateUser->id, $projectIds)
             : collect();
-        if ($user && $projectIds->isNotEmpty()) {
+        if ($learnerStateUser && $projectIds->isNotEmpty()) {
+            $stagedAuthoring = app(CourseStagedAuthoringService::class);
+            $projectAliases = collect($stagedAuthoring->equivalentEntityMap(Project::class, $projectIds));
+            $aliasToCurrent = $projectAliases->flatMap(fn (array $aliases, int $currentId) =>
+                collect($aliases)->mapWithKeys(fn (int $alias): array => [$alias => $currentId])
+            );
             $latestSubmissionIds = ProjectSubmission::query()
                 ->selectRaw('MAX(id)')
-                ->where('user_id', $user->id)
-                ->whereIn('project_id', $projectIds)
+                ->where('user_id', $learnerStateUser->id)
+                ->whereIn('project_id', $aliasToCurrent->keys())
                 ->groupBy('project_id');
-            $this->projectSubmissions = ProjectSubmission::query()
+            $submissions = ProjectSubmission::query()
                 ->whereIn('id', $latestSubmissionIds)
                 ->with(['aiInputAttachments', 'feedbackThread'])
-                ->get()
-                ->keyBy('project_id');
+                ->orderByDesc('id')->get();
+            $this->projectSubmissions = collect();
+            foreach ($submissions as $submission) {
+                $currentId = (int) ($aliasToCurrent->get((int) $submission->project_id) ?? 0);
+                if ($currentId > 0 && !$this->projectSubmissions->has($currentId)) {
+                    $this->projectSubmissions->put($currentId, $submission);
+                }
+            }
         } else {
             $this->projectSubmissions = collect();
         }
@@ -106,17 +145,46 @@ class CourseResource extends BaseCourseResource
             ->filter()
             ->unique()
             ->values();
-        $this->passedQuizAttempts = ($user && $quizIds->isNotEmpty())
-            ? ExamAttempt::query()
-                ->where('user_id', $user->id)
+        if ($learnerStateUser && $quizIds->isNotEmpty()) {
+            $stagedAuthoring ??= app(CourseStagedAuthoringService::class);
+            $quizSections = $sections->where('sectionable_type', \App\Models\ItemList::class);
+            $quizAliasToCurrent = collect($stagedAuthoring->equivalentEntityMap(
+                \App\Models\ItemList::class,
+                $quizSections->pluck('sectionable_id')
+            ))->flatMap(fn (array $aliases, int $currentId) =>
+                collect($aliases)->mapWithKeys(fn (int $alias): array => [$alias => $currentId])
+            );
+            $sectionAliasToCurrent = collect($stagedAuthoring->equivalentEntityMap(
+                \App\Models\CourseSection::class,
+                $quizSections->pluck('id')
+            ))->flatMap(fn (array $aliases, int $currentId) =>
+                collect($aliases)->mapWithKeys(fn (int $alias): array => [$alias => $currentId])
+            );
+            $this->passedQuizAttempts = ExamAttempt::query()
+                ->where('user_id', $learnerStateUser->id)
                 ->where('course_id', $this->id)
-                ->whereIn('quiz_id', $quizIds)
+                ->whereIn('quiz_id', $quizAliasToCurrent->keys())
                 ->where('status', ExamAttempt::STATUS_COMPLETED)
                 ->where('is_passed', true)
                 ->get(['id', 'quiz_id', 'section_id', 'score_percentage'])
-            : collect();
+                ->each(function (ExamAttempt $attempt) use ($quizAliasToCurrent, $sectionAliasToCurrent): void {
+                    $attempt->quiz_id = $quizAliasToCurrent->get((int) $attempt->quiz_id, $attempt->quiz_id);
+                    if ($attempt->section_id !== null) {
+                        $attempt->section_id = $sectionAliasToCurrent->get(
+                            (int) $attempt->section_id,
+                            $attempt->section_id
+                        );
+                    }
+                });
+        } else {
+            $this->passedQuizAttempts = collect();
+        }
         $this->sectionAccessStates = app(CoursePresentationService::class)
-            ->sectionLockStatus($sections, $completedSectionIds, $user ? (int) $user->id : null)
+            ->sectionLockStatus(
+                $sections,
+                $completedSectionIds,
+                $learnerStateUser ? (int) $learnerStateUser->id : null
+            )
             ->keyBy('section_id');
         $sectionsById = $sections->keyBy('id');
         $this->orderedSections = $this->sectionAccessStates->keys()
@@ -144,11 +212,23 @@ class CourseResource extends BaseCourseResource
                 $terms = $plans->termsForEnrollment($enrollment);
                 if ($terms) {
                     $this->projectFeedbackContract = $plans->publicPayloadFromTerms($terms);
-                    $this->projectFeedbackLevel = (string) (
-                        $this->projectFeedbackContract['project_feedback_level']
-                        ?? 'pass_only'
-                    );
+                    $variableCostAllowed = app(CourseChatAccessService::class)
+                        ->enrollmentAllowsVariableCostFeatures($enrollment);
+                    $this->projectReplyRiskAllowed = (bool) (
+                        $this->projectFeedbackContract['project_thread_reply_enabled'] ?? false
+                    ) && $variableCostAllowed;
+                    $this->projectFeedbackLevel = $variableCostAllowed
+                        ? (string) ($this->projectFeedbackContract['project_feedback_level'] ?? 'pass_only')
+                        : 'pass_only';
                 }
+            }
+            if ($this->dashboardPreviewUser) {
+                $this->projectFeedbackLevel = (string) (
+                    $this->projectFeedbackContract['project_feedback_level'] ?? 'pass_only'
+                );
+                $this->projectReplyRiskAllowed = (bool) (
+                    $this->projectFeedbackContract['project_thread_reply_enabled'] ?? false
+                );
             }
         }
 
@@ -159,14 +239,27 @@ class CourseResource extends BaseCourseResource
                 : $moduleAccess->hasCourseAccess($user, $this->resource))
             : false;
 
+        $promptFrequency = (string) ($this->attachment_prompt_frequency
+            ?: config('course_attachments.prompt.default_frequency', 'once_per_course'));
+        if (!array_key_exists(
+            $promptFrequency,
+            (array) config('course_attachments.prompt.frequencies', [])
+        )) {
+            $promptFrequency = 'once_per_course';
+        }
         $baseData['attachment_prompt'] = [
             'enabled' => $hasCourseAccess && (bool) $this->attachment_prompt_enabled,
-            'at_seconds' => max(0, (int) ($this->attachment_prompt_at_seconds ?? 20)),
-            'title' => trim((string) $this->attachment_prompt_title) ?: 'مرفقات تساعدك في التطبيق',
+            'at_seconds' => max(0, (int) (
+                $this->attachment_prompt_at_seconds
+                ?? config('course_attachments.prompt.at_seconds', 20)
+            )),
+            'title' => trim((string) $this->attachment_prompt_title)
+                ?: (string) config('course_attachments.prompt.title'),
             'body' => trim((string) $this->attachment_prompt_body)
-                ?: 'هذه الوحدة تتضمن ملفات تساعدك على التطبيق',
-            'button_text' => trim((string) $this->attachment_prompt_button_text) ?: 'عرض المرفقات',
-            'frequency' => 'once_per_course',
+                ?: (string) config('course_attachments.prompt.body'),
+            'button_text' => trim((string) $this->attachment_prompt_button_text)
+                ?: (string) config('course_attachments.prompt.button_text'),
+            'frequency' => $promptFrequency,
         ];
 
         // Add enrollment information
@@ -187,7 +280,7 @@ class CourseResource extends BaseCourseResource
                 ->where('course_id', $this->id)
                 ->first();
             $ratingEligibility = app(CourseRatingEligibilityService::class)
-                ->for($user, $this->resource, $hasCourseAccess);
+                ->for($user, $this->resource, $hasCourseAccess, $userRating !== null);
         }
 
         $baseData['user_rating'] = $userRating && !$userRating->trashed() ? [
@@ -221,6 +314,7 @@ class CourseResource extends BaseCourseResource
                     && (bool) ($section->sectionable?->is_opened ?? false);
                 $sectionData = [
                     'id' => $section->id,
+                    'content_id' => $section->sectionable_id,
                     'title' => $section->title,
                     'type' => $section->getSectionType(),
                     'order' => $section->order,
@@ -267,13 +361,15 @@ class CourseResource extends BaseCourseResource
                     'is_locked' => $moduleIsLocked,
                     'attachments_count' => $module->attachments->count()
                         + $moduleSections->sum(fn ($section) => $section->attachments->count())
-                        + $coursePdfs->count(),
+                        + $coursePdfs->count()
+                        + (SafeExternalUrl::sanitize($module->attachments_link) !== null ? 1 : 0),
                     'sections' => $moduleSections->map(function($section) use ($hasCourseAccess, $moduleAccess, $user, $module) {
                         $isLocked = $this->isSectionLockedFromState($section);
                         $isPreview = $section->getSectionType() === 'lesson'
                             && (bool) ($section->sectionable?->is_opened ?? false);
                         $sectionData = [
                             'id' => $section->id,
+                            'content_id' => $section->sectionable_id,
                             'title' => $section->title,
                             'type' => $section->getSectionType(),
                             'order' => $section->order,
@@ -300,7 +396,7 @@ class CourseResource extends BaseCourseResource
                 ];
 
                 if ($hasCourseAccess && !$moduleIsLocked && $user) {
-                    $moduleData['attachments_link'] = $module->attachments_link;
+                    $moduleData['attachments_link'] = SafeExternalUrl::sanitize($module->attachments_link);
                     $moduleAttachments = $module->attachments->map(
                         fn ($attachment) => $this->attachmentPayload(
                             $attachment,
@@ -396,10 +492,10 @@ class CourseResource extends BaseCourseResource
         }
 
         // Single query to get all completed sections for this user in this course
-        return StudentSectionProgress::where('user_id', $user->id)
-            ->whereIn('course_section_id', $courseSectionIds)
-            ->where('is_completed', true)
-            ->pluck('course_section_id');
+        return app(CourseRevisionLearnerReadService::class)->completedSectionIds(
+            (int) $user->id,
+            $courseSectionIds
+        );
     }
 
     protected function isSectionLockedFromState($section): bool
@@ -453,7 +549,9 @@ class CourseResource extends BaseCourseResource
                         'bunny_video_url' => null,
                         'bunny_video_expires_at' => null,
                     ];
-                $fallbackVideo = $isPreview && $section->sectionable->bunny_video_id
+                $fallbackVideo = $isPreview
+                    && !empty($videoData['bunny_video_url'])
+                    && $section->sectionable->bunny_video_id
                     ? $bunnyService->getFallbackVideo((string) $section->sectionable->bunny_video_id)
                     : null;
 
@@ -464,8 +562,11 @@ class CourseResource extends BaseCourseResource
                 $content['fallback_video_url'] = $fallbackVideo['url'] ?? null;
                 $content['priority'] = $section->sectionable->priority ?? null;
                 $content['is_opened'] = $section->sectionable->is_opened ?? true;
-                $content['duration_minutes'] = (int)($section->sectionable->duration_minutes ?? 0);
-                $content['duration_seconds'] = $this->lessonDurationSeconds($section->sectionable) ?: null;
+                $durationSeconds = $this->lessonDurationSeconds($section->sectionable);
+                $content['duration_minutes'] = $durationSeconds > 0
+                    ? (int) ceil($durationSeconds / 60)
+                    : max(0, (int) ($section->sectionable->duration_minutes ?? 0));
+                $content['duration_seconds'] = $durationSeconds ?: null;
                 $content['thumbnail_url'] = $section->sectionable->thumbnail_path
                     ? $bunnyService->generateBunnySignedUrl($section->sectionable->thumbnail_path)
                     : null;
@@ -516,8 +617,10 @@ class CourseResource extends BaseCourseResource
                         // query/message explosion on long course maps.
                         'feedback_thread' => $submission->feedbackThread ? [
                             'id' => (string) $submission->feedbackThread->public_id,
-                            'feedback_level' => (string) $submission->feedbackThread->feedback_level,
-                            'can_reply' => (bool) $submission->feedbackThread->can_reply,
+                            'feedback_level' => $this->projectFeedbackLevel,
+                            'can_reply' => $submission->feedbackThread->status === 'ready'
+                                && $this->projectReplyRiskAllowed
+                                && (bool) ($this->projectFeedbackContract['project_thread_reply_enabled'] ?? false),
                             'status' => (string) $submission->feedbackThread->status,
                             'remaining_messages' => 0,
                             'messages' => [],
@@ -527,10 +630,10 @@ class CourseResource extends BaseCourseResource
                         'level' => $this->projectFeedbackLevel,
                         'report_enabled' => (bool) (
                             $this->projectFeedbackContract['project_report_enabled'] ?? false
-                        ),
+                        ) && $this->projectFeedbackLevel !== 'pass_only',
                         'reply_enabled' => (bool) (
                             $this->projectFeedbackContract['project_thread_reply_enabled'] ?? false
-                        ),
+                        ) && $this->projectReplyRiskAllowed,
                         'message_limit' => max(0, (int) (
                             $this->projectFeedbackContract['project_message_limit'] ?? 0
                         )),

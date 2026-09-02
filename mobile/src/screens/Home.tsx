@@ -50,6 +50,8 @@ import {
   accountScopedStorageKey,
   assertAccountSessionBoundary,
   captureAccountSessionBoundary,
+  extractApiToken,
+  extractUserProfile,
   getItem,
   normalizeText,
   saveItem,
@@ -83,6 +85,10 @@ import {
   getPendingWelcomeBonus,
 } from '../services/pendingWelcomeBonus';
 import {serverNowMs} from '../utils/serverClock';
+import {openGuestLogin} from '../navigation/journeyNavigation';
+import {useAppActiveState} from '../hooks/useAppActiveState';
+import {useSelector} from 'react-redux';
+import type {RootState} from '../store/store';
 
 const QUICK_SEARCHES = [
   'العمل الحر',
@@ -96,6 +102,13 @@ const homeReceiptKey = (path: string, boundary?: AccountSessionBoundary) =>
   accountScopedStorageKey(`@rokn/home-receipt/${path}`, boundary);
 const homeScrollKey = (boundary?: AccountSessionBoundary) =>
   accountScopedStorageKey('@rokn/home-scroll/v1', boundary);
+
+let pendingGuestHomeExplorationHandoff: {
+  scope: string;
+  offset?: number;
+  query?: string;
+  createdAt: number;
+} | null = null;
 
 const saveHomeReceipt = async (path: string, value: unknown) => {
   const boundary = await captureAccountSessionBoundary();
@@ -114,6 +127,13 @@ const isWithinCooldown = (receipt: unknown, cooldownHours: number) => {
 const Home = () => {
   const navigation = useNavigation<RootNavigation>();
   const screenFocused = useIsFocused();
+  const appIsActive = useAppActiveState();
+  const storedUser = useSelector((state: RootState) => state.auth.userData);
+  const storedProfile = extractUserProfile(storedUser);
+  const hasStoredToken = Boolean(extractApiToken(storedUser));
+  const identityKey = hasStoredToken
+    ? String(storedProfile.id ?? storedProfile.user_id ?? 'authenticated')
+    : 'guest';
   const {t} = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
@@ -138,8 +158,93 @@ const Home = () => {
   );
   const searchBlurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchHistoryGenerationRef = useRef(0);
+  const searchQueryRef = useRef(searchQuery);
   const homeScrollRef = useRef<ScrollView | null>(null);
   const scrollSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const homeScrollBoundaryRef = useRef<AccountSessionBoundary | null>(null);
+  const homeScrollBoundaryFlightRef = useRef<
+    Promise<AccountSessionBoundary> | null
+  >(null);
+  const homeScrollBoundaryGenerationRef = useRef(0);
+  const latestHomeScrollOffsetRef = useRef<number | null>(null);
+  const homeScrollUserMovedRef = useRef(false);
+  const homeScrollWriteTailRef = useRef<Promise<void>>(Promise.resolve());
+  const dailyRewardFlightRef = useRef<{
+    identityKey: string;
+    promise: Promise<boolean>;
+  } | null>(null);
+  const courseNavigationFlightRef = useRef(false);
+  searchQueryRef.current = searchQuery;
+
+  useEffect(() => {
+    if (screenFocused) courseNavigationFlightRef.current = false;
+  }, [screenFocused]);
+
+  const openCourseDetailsOnce = useCallback(
+    (course: Pick<DemoCourse, 'id' | 'coinPrice' | 'title' | 'description'>) => {
+      if (courseNavigationFlightRef.current) return false;
+      courseNavigationFlightRef.current = true;
+      navigation.navigate('CourseDetails', {
+        courseId: course.id,
+        coinPrice: course.coinPrice,
+        title: course.title,
+        description: course.description,
+      });
+      return true;
+    },
+    [navigation],
+  );
+
+  useEffect(() => {
+    homeScrollBoundaryGenerationRef.current += 1;
+    homeScrollBoundaryRef.current = null;
+    homeScrollBoundaryFlightRef.current = null;
+    homeScrollUserMovedRef.current = false;
+  }, [identityKey]);
+
+  const getHomeScrollBoundary = useCallback(() => {
+    if (homeScrollBoundaryRef.current) {
+      return Promise.resolve(homeScrollBoundaryRef.current);
+    }
+    if (homeScrollBoundaryFlightRef.current) {
+      return homeScrollBoundaryFlightRef.current;
+    }
+    const generation = homeScrollBoundaryGenerationRef.current;
+    const flight = captureAccountSessionBoundary()
+      .then(boundary => {
+        if (generation !== homeScrollBoundaryGenerationRef.current) {
+          throw new Error('HOME_SCROLL_OWNER_CHANGED');
+        }
+        homeScrollBoundaryRef.current = boundary;
+        return boundary;
+      })
+      .catch(error => {
+        if (homeScrollBoundaryFlightRef.current === flight) {
+          homeScrollBoundaryFlightRef.current = null;
+        }
+        throw error;
+      });
+    homeScrollBoundaryFlightRef.current = flight;
+    return flight;
+  }, []);
+
+  const persistLatestHomeScroll = useCallback(() => {
+    const offset = latestHomeScrollOffsetRef.current;
+    if (offset === null || !Number.isFinite(offset)) return;
+    void getHomeScrollBoundary()
+      .then(owner => {
+        const write = homeScrollWriteTailRef.current
+          .catch(() => undefined)
+          .then(async () => {
+            assertAccountSessionBoundary(owner);
+            await saveItem(await homeScrollKey(owner), offset);
+            assertAccountSessionBoundary(owner);
+          });
+        homeScrollWriteTailRef.current = write.catch(() => undefined);
+        return write;
+      })
+      .catch(() => undefined);
+  }, [getHomeScrollBoundary]);
 
   const demoCourse = useMemo<DemoCourse>(
     () => ({
@@ -173,11 +278,20 @@ const Home = () => {
     remoteCourses,
     staleNotice,
     usingLocalDemo,
-  } = useHomeCatalogue({active: screenFocused, demoCatalogue, searchQuery});
+  } = useHomeCatalogue({
+    active: screenFocused,
+    demoCatalogue,
+    identityKey,
+    searchQuery,
+  });
 
   useEffect(() => {
     let active = true;
     const historyGeneration = ++searchHistoryGenerationRef.current;
+    // Home survives guest -> login and account switches. Search history is
+    // account-owned, so reload it with the identity instead of retaining the
+    // previous owner's chips until the screen is remounted.
+    setSearchHistory([]);
     void getSearchHistory()
       .then(history => {
         if (
@@ -188,6 +302,15 @@ const Home = () => {
         }
       })
       .catch(() => undefined);
+
+    return () => {
+      active = false;
+      searchHistoryGenerationRef.current += 1;
+    };
+  }, [identityKey]);
+
+  useEffect(() => {
+    let active = true;
     void trackProductEvent({event_name: 'home_viewed', screen_key: 'home'});
     const unsubscribe = LOCAL_DEMO_ENABLED
       ? subscribeDemoExperience(state => {
@@ -196,7 +319,6 @@ const Home = () => {
       : () => undefined;
     return () => {
       active = false;
-      searchHistoryGenerationRef.current += 1;
       unsubscribe();
       if (searchBlurTimerRef.current) {
         clearTimeout(searchBlurTimerRef.current);
@@ -204,23 +326,78 @@ const Home = () => {
       if (scrollSaveTimerRef.current) {
         clearTimeout(scrollSaveTimerRef.current);
       }
+      const owner = homeScrollBoundaryRef.current;
+      const offset = latestHomeScrollOffsetRef.current;
+      const activeQuery = searchQueryRef.current;
+      if (
+        owner?.scope.startsWith('guest-') &&
+        ((offset !== null && Number.isFinite(offset)) || activeQuery.trim())
+      ) {
+        pendingGuestHomeExplorationHandoff = {
+          scope: owner.scope,
+          ...(offset !== null && Number.isFinite(offset)
+            ? {offset: Math.max(0, offset)}
+            : {}),
+          ...(activeQuery.trim() ? {query: activeQuery.slice(0, 240)} : {}),
+          createdAt: Date.now(),
+        };
+      }
+      persistLatestHomeScroll();
     };
-  }, []);
+  }, [persistLatestHomeScroll]);
 
   useEffect(() => {
     let active = true;
-    void captureAccountSessionBoundary()
+    void getHomeScrollBoundary()
       .then(async boundary => {
-        const offset = await getItem<number>(await homeScrollKey(boundary));
+        let offset = await getItem<number>(await homeScrollKey(boundary));
         assertAccountSessionBoundary(boundary);
-        if (!active || !Number.isFinite(Number(offset))) return;
-        setScrollRestoreOffset(Math.max(0, Number(offset)));
+        const handoff = pendingGuestHomeExplorationHandoff;
+        const canAdoptHandoff = Boolean(
+          boundary.scope.startsWith('user-') &&
+            handoff?.scope.startsWith('guest-') &&
+            handoff.scope !== boundary.scope &&
+            Date.now() - handoff.createdAt < 5 * 60 * 1000,
+        );
+        if (
+          canAdoptHandoff &&
+          handoff &&
+          Number.isFinite(Number(handoff.offset))
+        ) {
+          offset = Number(handoff.offset);
+          await saveItem(await homeScrollKey(boundary), offset);
+          assertAccountSessionBoundary(boundary);
+        }
+        if (canAdoptHandoff && handoff?.query) {
+          setSearchQuery(handoff.query);
+        }
+        if (boundary.scope.startsWith('user-')) {
+          pendingGuestHomeExplorationHandoff = null;
+        }
+        if (
+          !active ||
+          homeScrollUserMovedRef.current ||
+          !Number.isFinite(Number(offset))
+        )
+          return;
+        const restoredOffset = Math.max(0, Number(offset));
+        latestHomeScrollOffsetRef.current = restoredOffset;
+        setScrollRestoreOffset(restoredOffset);
       })
       .catch(() => undefined);
     return () => {
       active = false;
     };
-  }, []);
+  }, [getHomeScrollBoundary]);
+
+  useEffect(() => {
+    if (screenFocused && appIsActive) return;
+    if (scrollSaveTimerRef.current) {
+      clearTimeout(scrollSaveTimerRef.current);
+      scrollSaveTimerRef.current = null;
+    }
+    persistLatestHomeScroll();
+  }, [appIsActive, persistLatestHomeScroll, screenFocused]);
 
   const commitSearch = useCallback((rawQuery: string) => {
     const query = rawQuery.trim().replace(/\s+/g, ' ');
@@ -228,11 +405,16 @@ const Home = () => {
     const historyGeneration = ++searchHistoryGenerationRef.current;
     setSearchQuery(query);
     setSearchFocused(false);
-    void rememberSearch(query).then(history => {
-      if (historyGeneration === searchHistoryGenerationRef.current) {
-        setSearchHistory(history);
-      }
-    });
+    void rememberSearch(query)
+      .then(history => {
+        if (historyGeneration === searchHistoryGenerationRef.current) {
+          setSearchHistory(history);
+        }
+      })
+      // An account can change while AsyncStorage is in flight. The storage
+      // boundary deliberately rejects that stale write; it must not become an
+      // unhandled promise rejection that destabilizes the home screen.
+      .catch(() => undefined);
     void trackProductEvent({
       event_name: 'search_submitted',
       screen_key: 'search',
@@ -243,32 +425,79 @@ const Home = () => {
   const clearRecentSearches = useCallback(() => {
     searchHistoryGenerationRef.current += 1;
     setSearchHistory([]);
-    void clearSearchHistory();
+    void clearSearchHistory().catch(() => undefined);
   }, []);
 
   useEffect(() => {
     // Account rewards come from the API; the local demo mirrors the event shape.
+    if (!screenFocused || !appIsActive) return;
     if (serverSession === true) {
-      void claimDailyReward().catch(() => undefined);
-    } else if (serverSession === false && LOCAL_DEMO_ENABLED) {
+      let active = true;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      let retryIndex = 0;
+      const retryDelays = [5_000, 20_000, 60_000];
+      const attempt = () => {
+        const existing = dailyRewardFlightRef.current;
+        const promise =
+          existing?.identityKey === identityKey
+            ? existing.promise
+            : claimDailyReward().then(
+                () => true,
+                () => false,
+              );
+        if (existing?.identityKey !== identityKey) {
+          dailyRewardFlightRef.current = {identityKey, promise};
+          void promise.finally(() => {
+            if (dailyRewardFlightRef.current?.promise === promise) {
+              dailyRewardFlightRef.current = null;
+            }
+          });
+        }
+        void promise.then(success => {
+          if (!active || success || retryIndex >= retryDelays.length) return;
+          const delay = retryDelays[retryIndex];
+          retryIndex += 1;
+          timer = setTimeout(attempt, delay);
+        });
+      };
+      attempt();
+      return () => {
+        active = false;
+        if (timer) clearTimeout(timer);
+      };
+    }
+    if (serverSession === false && LOCAL_DEMO_ENABLED) {
       void claimDemoDailyReward().catch(() => undefined);
     }
-  }, [serverSession]);
+    return undefined;
+  }, [appIsActive, identityKey, screenFocused, serverSession]);
 
   useEffect(() => {
     let active = true;
+    // Home is intentionally kept mounted through social login and account
+    // replacement. Every overlay below belongs to one account journey; never
+    // let a prompt, campaign or welcome receipt survive into the next owner.
+    setBonusChecked(false);
+    setWelcomeBonus(null);
+    setWelcomeMessage(null);
+    setGuestPrompt(null);
+    setRewardPrompt(null);
+    setCampaign(null);
+    setCampaignImageFailed(false);
     void getPendingWelcomeBonus()
       .then(value => {
         if (!active) return;
         const amount = Number(value || 0);
-        if (amount > 0) setWelcomeBonus(amount);
+        setWelcomeBonus(amount > 0 ? amount : null);
         setBonusChecked(true);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (active) setBonusChecked(true);
+      });
     return () => {
       active = false;
     };
-  }, []);
+  }, [identityKey]);
 
   const dismissWelcomeBonus = () => {
     setWelcomeBonus(null);
@@ -311,7 +540,7 @@ const Home = () => {
           setWelcomeMessage(message);
         } else if (active) {
           setWelcomeBonus(null);
-          void clearPendingWelcomeBonus();
+          void clearPendingWelcomeBonus().catch(() => undefined);
         }
         return;
       }
@@ -352,7 +581,13 @@ const Home = () => {
     return () => {
       active = false;
     };
-  }, [bonusChecked, catalogueLoading, serverSession, welcomeBonus]);
+  }, [
+    bonusChecked,
+    catalogueLoading,
+    identityKey,
+    serverSession,
+    welcomeBonus,
+  ]);
 
   const dismissGuestPrompt = () => {
     const message = guestPrompt;
@@ -367,7 +602,7 @@ const Home = () => {
 
   const openGuestPrompt = () => {
     dismissGuestPrompt();
-    navigation.navigate('Login');
+    openGuestLogin(navigation);
   };
 
   const dismissRewardPrompt = () => {
@@ -457,6 +692,7 @@ const Home = () => {
   }, [
     bonusChecked,
     catalogueLoading,
+    identityKey,
     serverSession,
     remoteCourses,
     welcomeBonus,
@@ -489,12 +725,13 @@ const Home = () => {
     }
     if (open && current.courseId) {
       const target = catalogue.find(item => item.id === current.courseId);
-      navigation.navigate('CourseDetails', {
-        courseId: current.courseId,
+      const opened = openCourseDetailsOnce({
+        id: current.courseId,
         coinPrice: target?.coinPrice,
-        title: target?.title,
-        description: target?.description,
+        title: target?.title || current.title,
+        description: target?.description || current.description,
       });
+      if (!opened) return;
       void trackProductEvent({
         event_name: 'notification_opened',
         source: 'notification',
@@ -588,18 +825,14 @@ const Home = () => {
       handleCatalogueScroll(event);
       if (searchQuery.trim()) return;
       const offset = Math.max(0, event.nativeEvent.contentOffset.y);
-      const boundary = captureAccountSessionBoundary();
+      latestHomeScrollOffsetRef.current = offset;
       if (scrollSaveTimerRef.current) clearTimeout(scrollSaveTimerRef.current);
       scrollSaveTimerRef.current = setTimeout(() => {
-        void boundary
-          .then(async owner => {
-            await saveItem(await homeScrollKey(owner), offset);
-            assertAccountSessionBoundary(owner);
-          })
-          .catch(() => undefined);
+        scrollSaveTimerRef.current = null;
+        persistLatestHomeScroll();
       }, 600);
     },
-    [handleCatalogueScroll, searchQuery],
+    [handleCatalogueScroll, persistLatestHomeScroll, searchQuery],
   );
 
   useEffect(() => {
@@ -625,16 +858,11 @@ const Home = () => {
 
   const openCourse = (course: DemoCourse) => {
     if (course.published === false) return;
+    if (!openCourseDetailsOnce(course)) return;
     void trackProductEvent({
       event_name: 'course_opened',
       screen_key: 'home',
       course_id: course.id,
-    });
-    navigation.navigate('CourseDetails', {
-      courseId: course.id,
-      coinPrice: course.coinPrice,
-      title: course.title,
-      description: course.description,
     });
   };
 
@@ -644,6 +872,9 @@ const Home = () => {
         controls={bindHomeScroll}
         noPadding
         onScroll={handleHomeScroll}
+        onScrollBeginDrag={() => {
+          homeScrollUserMovedRef.current = true;
+        }}
         scrollEventThrottle={250}>
         <ResponsiveFrame>
           <View style={styles.topView}>
@@ -840,7 +1071,9 @@ const Home = () => {
         campaign={campaign}
         campaignImageFailed={campaignImageFailed}
         onCampaignImageError={() => setCampaignImageFailed(true)}
-        onDismissCampaign={open => void dismissCampaign(open)}
+        onDismissCampaign={open => {
+          void dismissCampaign(open).catch(() => undefined);
+        }}
         onDismissWelcome={dismissWelcomeBonus}
         onOpenWelcome={openWelcomeBonus}
         guestPrompt={guestPrompt}

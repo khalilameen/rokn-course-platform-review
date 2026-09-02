@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\Course;
+use App\Models\CourseAuthoringRevision;
 use App\Models\CourseEnrollment;
 use App\Models\Order;
 use App\Models\Project;
@@ -15,10 +16,14 @@ use App\Models\UserDailyLearningActivity;
 use App\Models\WalletTransaction;
 use Carbon\CarbonImmutable;
 use App\Support\BusinessClock;
+use App\Support\DatabaseCapabilities;
 use Illuminate\Support\Facades\DB;
 
 final class LearningRewardService
 {
+    private const DEFAULT_REWARD_BALANCE_CAP = 1200;
+    private const DEFAULT_REWARD_CONTRIBUTION_PER_COURSE = 1200;
+
     public function __construct(
         private readonly WalletService $wallet
     ) {
@@ -75,36 +80,64 @@ final class LearningRewardService
         $dailyRule = RewardRule::activeFor('daily_checkin');
         $streakRule = RewardRule::activeFor('streak_milestone');
         $today = $this->rewardNow()->toDateString();
-        DB::table('user_reward_checkins')->insertOrIgnore([
-            'user_id' => $user->id,
-            'checkin_date' => $today,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        $transaction = $dailyRule ? $this->award(
+        $contracts = DB::transaction(function () use (
             $user,
-            (int) $dailyRule->coins_amount,
+            $today,
+            $dailyRule,
+            $streakRule
+        ): array {
+            DB::table('user_reward_checkins')->insertOrIgnore([
+                'user_id' => $user->id,
+                'checkin_date' => $today,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $checkin = DB::table('user_reward_checkins')
+                ->where('user_id', $user->id)
+                ->where('checkin_date', $today)
+                ->lockForUpdate()
+                ->first();
+            if (!$checkin->rules_snapshotted_at) {
+                DB::table('user_reward_checkins')->where('id', $checkin->id)->update([
+                    'daily_rule_snapshot' => $this->encodeRuleSnapshot($dailyRule),
+                    'streak_rule_snapshot' => $this->encodeRuleSnapshot($streakRule),
+                    'rules_snapshotted_at' => now(),
+                    'updated_at' => now(),
+                ]);
+                $checkin = DB::table('user_reward_checkins')->where('id', $checkin->id)->first();
+            }
+
+            return [
+                'daily' => $this->decodeRuleSnapshot($checkin->daily_rule_snapshot),
+                'streak' => $this->decodeRuleSnapshot($checkin->streak_rule_snapshot),
+            ];
+        }, 3);
+
+        $dailyContract = $contracts['daily'];
+        $transaction = $dailyContract ? $this->award(
+            $user,
+            (int) $dailyContract['coins_amount'],
             'daily_learning_reward',
             "daily-learning:{$user->id}:{$today}",
-            (int) ($dailyRule->rolling_30_day_cap ?? $dailyRule->coins_amount),
-            $dailyRule,
-            ['activity_date' => $today, 'reward_rule_id' => $dailyRule->id]
+            (int) $dailyContract['rolling_30_day_cap'],
+            RewardRule::query()->find($dailyContract['rule_id']),
+            ['activity_date' => $today, 'reward_rule_id' => $dailyContract['rule_id']]
         ) : null;
 
         $streakDays = $this->currentCheckinStreak((int) $user->id);
-        $milestoneDays = max(2, (int) ($streakRule?->interval_count ?? 7));
+        $streakContract = $contracts['streak'];
+        $milestoneDays = max(2, (int) ($streakContract['interval_count'] ?? 7));
         $streakTransaction = null;
-        if ($streakRule && $streakDays > 0 && $streakDays % $milestoneDays === 0) {
+        if ($streakContract && $streakDays > 0 && $streakDays % $milestoneDays === 0) {
             $streakTransaction = $this->award(
                 $user,
-                (int) $streakRule->coins_amount,
+                (int) $streakContract['coins_amount'],
                 'streak_reward',
                 "streak-reward:{$user->id}:{$today}",
-                (int) ($streakRule->rolling_30_day_cap ?? $streakRule->coins_amount),
-                $streakRule,
+                (int) $streakContract['rolling_30_day_cap'],
+                RewardRule::query()->find($streakContract['rule_id']),
                 [
-                    'reward_rule_id' => $streakRule->id,
+                    'reward_rule_id' => $streakContract['rule_id'],
                     'milestone_days' => $streakDays,
                     'configured_interval_days' => $milestoneDays,
                 ]
@@ -135,7 +168,7 @@ final class LearningRewardService
             return $this->result($user, null);
         }
         $today = $this->rewardNow()->toDateString();
-        $activity = DB::transaction(function () use ($user, $today, $seconds) {
+        $activity = DB::transaction(function () use ($user, $today, $seconds, $rule) {
             // One atomic insert protects the daily row from concurrent player
             // heartbeats. The previous select-then-create sequence could race
             // and violate the (user, day) unique key under normal playback.
@@ -143,25 +176,40 @@ final class LearningRewardService
                 'user_id' => $user->id,
                 'activity_date' => $today,
                 'qualified_seconds' => 0,
+                'reward_contract' => null,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
 
             $activity = UserDailyLearningActivity::query()
                 ->where('user_id', $user->id)
-                ->whereDate('activity_date', $today)
+                ->where('activity_date', $today)
                 ->lockForUpdate()
                 ->firstOrFail();
-            $activity->increment('qualified_seconds', $seconds);
+            if (!is_array($activity->reward_contract)) {
+                $activity->reward_contract = [
+                    'rule_id' => (int) $rule->id,
+                    'slot_seconds' => max(60, (int) $rule->interval_count * 60),
+                    'coins_per_slot' => max(0, (int) $rule->coins_amount),
+                    'daily_cap' => max(0, (int) ($rule->daily_cap ?? $rule->coins_amount)),
+                    'rolling_30_day_cap' => max(
+                        0,
+                        (int) ($rule->rolling_30_day_cap ?? $rule->coins_amount)
+                    ),
+                ];
+            }
+            $activity->qualified_seconds = (int) $activity->qualified_seconds + $seconds;
+            $activity->save();
 
             return $activity->fresh();
         });
 
-        $slotSeconds = max(60, (int) $rule->interval_count * 60);
+        $contract = (array) $activity->reward_contract;
+        $slotSeconds = max(60, (int) ($contract['slot_seconds'] ?? 60));
         $earnedSlots = intdiv((int) $activity->qualified_seconds, $slotSeconds);
-        $coinsPerSlot = max(0, (int) $rule->coins_amount);
+        $coinsPerSlot = max(0, (int) ($contract['coins_per_slot'] ?? 0));
         $dailySlots = $coinsPerSlot > 0
-            ? intdiv(max(0, (int) ($rule->daily_cap ?? $coinsPerSlot)), $coinsPerSlot)
+            ? intdiv(max(0, (int) ($contract['daily_cap'] ?? 0)), $coinsPerSlot)
             : 0;
         $targetSlots = min($earnedSlots, $dailySlots);
         $creditedSlots = WalletTransaction::query()
@@ -171,71 +219,93 @@ final class LearningRewardService
             ->count();
 
         $last = null;
+        $sourceRule = RewardRule::query()->find((int) ($contract['rule_id'] ?? 0));
         for ($sequence = $creditedSlots + 1; $sequence <= $targetSlots; $sequence++) {
             $last = $this->award(
                 $user,
                 $coinsPerSlot,
                 'study_reward',
                 "study-reward:{$user->id}:{$today}:{$sequence}",
-                (int) ($rule->rolling_30_day_cap ?? $coinsPerSlot),
-                $rule,
+                (int) ($contract['rolling_30_day_cap'] ?? 0),
+                $sourceRule,
                 [
-                    'reward_rule_id' => $rule->id,
+                    'reward_rule_id' => (int) ($contract['rule_id'] ?? 0),
                     'activity_date' => $today,
                     'qualified_seconds' => (int) $activity->qualified_seconds,
                     'sequence' => $sequence,
+                    'reward_contract' => $contract,
                 ]
             );
         }
 
+        $rewardedSlots = WalletTransaction::query()
+            ->where('user_id', $user->id)
+            ->where('category', 'study_reward')
+            ->where('idempotency_key', 'like', "study-reward:{$user->id}:{$today}:%")
+            ->count();
+
         return $this->result($user, $last, [
             'qualified_seconds_today' => (int) $activity->qualified_seconds,
-            'rewarded_slots_today' => max($creditedSlots, $targetSlots),
+            'rewarded_slots_today' => $rewardedSlots,
         ]);
     }
 
-    public function awardFirstProject(User $user, Project $project): array
+    public function awardFirstProject(
+        User $user,
+        Project|int $project,
+        ?array $rewardContract = null,
+        ?int $courseId = null
+    ): array
     {
-        $course = $project->course;
+        $projectId = $project instanceof Project ? (int) $project->id : (int) $project;
+        $course = $courseId ? Course::withTrashed()->find($courseId) : null;
+        $course ??= $project instanceof Project ? $project->course : null;
         if ($course && $this->usesInstitutionalGrant($user, $course)) {
             return $this->result($user, null, ['excluded_for_grant' => true]);
         }
 
         $rule = RewardRule::activeFor('first_project_passed');
-        if (!$rule) {
+        $contract = $this->achievementContract($rewardContract, $rule);
+        if (!$contract) {
             return $this->result($user, null);
         }
         $transaction = $this->award(
             $user,
-            (int) $rule->coins_amount,
+            (int) $contract['coins_amount'],
             'first_project_reward',
             "first-project-reward:{$user->id}",
-            (int) ($rule->rolling_30_day_cap ?? $rule->coins_amount),
-            $rule,
-            ['project_id' => $project->id, 'reward_rule_id' => $rule->id]
+            (int) $contract['rolling_30_day_cap'],
+            RewardRule::query()->find((int) $contract['rule_id']),
+            ['project_id' => $projectId, 'reward_rule_id' => $contract['rule_id']]
         );
 
         return $this->result($user, $transaction);
     }
 
-    public function awardCourseCompletion(User $user, Course $course): array
+    public function awardCourseCompletion(
+        User $user,
+        Course $course,
+        ?array $rewardContract = null
+    ): array
     {
+        $course = $this->canonicalRewardCourse($course);
         if ($this->usesInstitutionalGrant($user, $course)) {
             return $this->result($user, null, ['excluded_for_grant' => true]);
         }
 
         $rule = RewardRule::activeFor('course_completed');
-        if (!$rule) {
+        $contract = $this->achievementContract($rewardContract, $rule);
+        if (!$contract) {
             return $this->result($user, null);
         }
         $transaction = $this->award(
             $user,
-            (int) $rule->coins_amount,
+            (int) $contract['coins_amount'],
             'course_completion_reward',
             "course-completion-reward:{$user->id}:{$course->id}",
-            (int) ($rule->rolling_30_day_cap ?? $rule->coins_amount),
-            $rule,
-            ['course_id' => $course->id, 'reward_rule_id' => $rule->id]
+            (int) $contract['rolling_30_day_cap'],
+            RewardRule::query()->find((int) $contract['rule_id']),
+            ['course_id' => $course->id, 'reward_rule_id' => $contract['rule_id']]
         );
 
         return $this->result($user, $transaction);
@@ -326,14 +396,26 @@ final class LearningRewardService
 
     private function settings(): Setting
     {
-        return Setting::query()->firstOrCreate([]);
+        $settings = Setting::query()->first();
+        if ($settings) {
+            return $settings;
+        }
+
+        // Public configuration and reward reads must never create the global
+        // settings row. Apart from making GET mutate state, firstOrCreate([])
+        // could race on a fresh installation because the table has no natural
+        // singleton key. The dashboard remains the sole explicit creator; the
+        // service uses the same migration defaults until that first save.
+        return (new Setting())->forceFill([
+            'reward_balance_cap' => self::DEFAULT_REWARD_BALANCE_CAP,
+            'max_reward_contribution_per_course' => self::DEFAULT_REWARD_CONTRIBUTION_PER_COURSE,
+        ]);
     }
 
     private function currentCheckinStreak(int $userId): int
     {
         $dates = DB::table('user_reward_checkins')
             ->where('user_id', $userId)
-            ->where('checkin_date', '>=', $this->rewardNow()->subDays(365)->toDateString())
             ->orderByDesc('checkin_date')
             ->pluck('checkin_date')
             ->map(fn ($date): string => (string) $date)
@@ -362,8 +444,63 @@ final class LearningRewardService
         return BusinessClock::now();
     }
 
+    private function encodeRuleSnapshot(?RewardRule $rule): ?string
+    {
+        if (!$rule) {
+            return null;
+        }
+
+        return json_encode([
+            'rule_id' => (int) $rule->id,
+            'coins_amount' => max(0, (int) $rule->coins_amount),
+            'interval_count' => max(1, (int) $rule->interval_count),
+            'daily_cap' => $rule->daily_cap === null ? null : max(0, (int) $rule->daily_cap),
+            'rolling_30_day_cap' => max(
+                0,
+                (int) ($rule->rolling_30_day_cap ?? $rule->coins_amount)
+            ),
+        ], JSON_THROW_ON_ERROR);
+    }
+
+    /** @return array<string,int|null>|null */
+    private function decodeRuleSnapshot(mixed $snapshot): ?array
+    {
+        if (is_string($snapshot) && $snapshot !== '') {
+            $snapshot = json_decode($snapshot, true, 8, JSON_THROW_ON_ERROR);
+        }
+
+        return is_array($snapshot) ? $snapshot : null;
+    }
+
+    /** @return array<string,int|null>|null */
+    private function achievementContract(?array $snapshot, ?RewardRule $fallback): ?array
+    {
+        if ($snapshot !== null) {
+            return [
+                'rule_id' => max(0, (int) ($snapshot['rule_id'] ?? 0)),
+                'coins_amount' => max(0, (int) ($snapshot['coins_amount'] ?? 0)),
+                'rolling_30_day_cap' => max(
+                    0,
+                    (int) ($snapshot['rolling_30_day_cap'] ?? $snapshot['coins_amount'] ?? 0)
+                ),
+            ];
+        }
+        if (!$fallback) return null;
+
+        return [
+            'rule_id' => (int) $fallback->id,
+            'coins_amount' => max(0, (int) $fallback->coins_amount),
+            'rolling_30_day_cap' => max(
+                0,
+                (int) ($fallback->rolling_30_day_cap ?? $fallback->coins_amount)
+            ),
+        ];
+    }
+
     private function usesInstitutionalGrant(User $user, Course $course): bool
     {
+        $course = $this->canonicalRewardCourse($course);
+
         return CourseEnrollment::query()
             ->where('user_id', $user->id)
             ->where('course_id', $course->id)
@@ -377,5 +514,23 @@ final class LearningRewardService
                     && $order->payment_method === Order::PAYMENT_METHOD_COURSE_CODE
                     && (bool) $order->courseCode?->isInstitutionalGrant();
             });
+    }
+
+    private function canonicalRewardCourse(Course $course): Course
+    {
+        if (!DatabaseCapabilities::hasTable('course_authoring_revisions')) {
+            return $course;
+        }
+
+        $archive = CourseAuthoringRevision::query()
+            ->where('revision_course_id', $course->id)
+            ->where('status', CourseAuthoringRevision::ARCHIVED)
+            ->latest('id')
+            ->first();
+        if ($archive) {
+            $course = Course::withTrashed()->find($archive->canonical_course_id) ?? $course;
+        }
+
+        return $course;
     }
 }

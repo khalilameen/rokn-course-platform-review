@@ -137,7 +137,19 @@ export type LearningPathProgress = {
 const mapPathLevel = (
   level?: LearningPathLevelDto | null,
 ): LearningPathLevel | undefined => {
-  if (level?.id === null || level?.id === undefined) return undefined;
+  if (level === null || level === undefined) return undefined;
+  if (
+    !isApiRecord(level) ||
+    level.id === null ||
+    level.id === undefined ||
+    !/^\d+$/.test(String(level.id).trim()) ||
+    (!String(level.name_ar || '').trim() &&
+      !String(level.name_en || '').trim()) ||
+    !Number.isSafeInteger(Number(level.order)) ||
+    Number(level.order) < 0
+  ) {
+    throw new Error('LEARNING_PATHS_CONTRACT_INVALID');
+  }
   return {
     id: String(level.id),
     name: String(level.name_ar || level.name_en || 'المستوى التالي'),
@@ -155,34 +167,42 @@ const getLearningPaths = async (): Promise<LearningPathProgress[]> => {
   if (!isResourceListPayload(data)) {
     throw new Error('LEARNING_PATHS_CONTRACT_INVALID');
   }
-  return resourceList<LearningPathDto>(data).flatMap(item => {
+  return resourceList<LearningPathDto>(data).map(item => {
     if (
       !isApiRecord(item) ||
       !isApiRecord(item.path) ||
       item.path.id === null ||
       item.path.id === undefined
     ) {
-      return [];
+      throw new Error('LEARNING_PATHS_CONTRACT_INVALID');
     }
     const currentLevel = mapPathLevel(item.current_level);
     const nextLevel = mapPathLevel(item.next_level);
     const seenLevelIds = new Set<string>();
+    if (!isResourceListPayload(item.levels)) {
+      throw new Error('LEARNING_PATHS_CONTRACT_INVALID');
+    }
     const upcomingLevels = resourceList<LearningPathLevelDto>(item.levels)
-      .map(mapPathLevel)
-      .filter((level): level is LearningPathLevel => {
+      .map(level => {
+        const mapped = mapPathLevel(level);
         if (
-          !level ||
-          level.id === currentLevel?.id ||
-          seenLevelIds.has(level.id)
+          !mapped ||
+          mapped.id === currentLevel?.id ||
+          seenLevelIds.has(mapped.id)
         ) {
-          return false;
+          throw new Error('LEARNING_PATHS_CONTRACT_INVALID');
         }
-        seenLevelIds.add(level.id);
-        return true;
+        seenLevelIds.add(mapped.id);
+        return mapped;
       })
       .sort((left, right) => left.order - right.order);
-    return [
-      {
+    if (
+      nextLevel &&
+      upcomingLevels[0]?.id !== nextLevel.id
+    ) {
+      throw new Error('LEARNING_PATHS_CONTRACT_INVALID');
+    }
+    return {
         id: String(item.path.id),
         title: String(
           item.path.title ||
@@ -206,8 +226,7 @@ const getLearningPaths = async (): Promise<LearningPathProgress[]> => {
           Number(item.completed_sections) || 0,
         ),
         totalSections: Math.max(0, Number(item.total_sections) || 0),
-      },
-    ];
+      };
   });
 };
 
@@ -227,45 +246,48 @@ const normalizeCachedLearningDashboard = (
   value: unknown,
 ): LearningDashboard | null => {
   if (!isRecord(value)) return null;
-  const courses = Array.isArray(value.courses)
-    ? value.courses.filter(
-        (course): course is LearningCourse =>
-          isRecord(course) &&
-          typeof course.id === 'string' &&
-          course.id.length > 0 &&
-          typeof course.title === 'string' &&
-          Number.isFinite(course.progress) &&
-          Number.isFinite(course.completedSections) &&
-          Number.isFinite(course.totalSections),
-      )
-    : [];
-  const paths = Array.isArray(value.paths)
-    ? value.paths.filter(
-        (path): path is LearningPathProgress =>
-          isRecord(path) &&
-          typeof path.id === 'string' &&
-          path.id.length > 0 &&
-          typeof path.title === 'string' &&
-          Array.isArray(path.upcomingLevels) &&
-          Number.isFinite(path.progress) &&
-          Number.isFinite(path.remainingToNextLevel),
-      )
-    : [];
-  const badges = Array.isArray(value.badges)
-    ? value.badges.filter(
-        (badge): badge is LearningDashboard['badges'][number] =>
-          isRecord(badge) &&
-          typeof badge.id === 'string' &&
-          badge.id.length > 0 &&
-          typeof badge.title === 'string',
-      )
-    : [];
-  const activityDays = Array.isArray(value.activityDays)
-    ? value.activityDays.filter(
-        (day): day is string =>
-          typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day),
-      )
-    : [];
+  if (
+    !Array.isArray(value.courses) ||
+    value.courses.some(
+      course =>
+        !isRecord(course) ||
+        typeof course.id !== 'string' ||
+        course.id.length === 0 ||
+        typeof course.title !== 'string' ||
+        !Number.isFinite(course.progress) ||
+        !Number.isFinite(course.completedSections) ||
+        !Number.isFinite(course.totalSections),
+    ) ||
+    !Array.isArray(value.paths) ||
+    value.paths.some(
+      path =>
+        !isRecord(path) ||
+        typeof path.id !== 'string' ||
+        path.id.length === 0 ||
+        typeof path.title !== 'string' ||
+        !Array.isArray(path.upcomingLevels) ||
+        !Number.isFinite(path.progress) ||
+        !Number.isFinite(path.remainingToNextLevel),
+    ) ||
+    !Array.isArray(value.badges) ||
+    value.badges.some(
+      badge =>
+        !isRecord(badge) ||
+        typeof badge.id !== 'string' ||
+        badge.id.length === 0 ||
+        typeof badge.title !== 'string',
+    ) ||
+    !Array.isArray(value.activityDays) ||
+    value.activityDays.some(
+      day => typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day),
+    )
+  ) {
+    return null;
+  }
+  const courses = value.courses as LearningCourse[];
+  const paths = value.paths as LearningPathProgress[];
+  const badges = value.badges as LearningDashboard['badges'];
+  const activityDays = value.activityDays as string[];
   const currentStreakDays = Number(value.currentStreakDays);
   if (!Number.isFinite(currentStreakDays)) return null;
   return {
@@ -447,23 +469,24 @@ const readSavedLessonsCache = async (
         Number(parsed.savedAt),
         SAVED_LESSONS_CACHE_TTL_MS,
       ) ||
-      !Array.isArray(parsed.lessons)
+      !Array.isArray(parsed.lessons) ||
+      parsed.lessons.some(
+        lesson =>
+          !isRecord(lesson) ||
+          typeof lesson.id !== 'string' ||
+          lesson.id.length === 0 ||
+          typeof lesson.folderId !== 'string' ||
+          lesson.folderId.length === 0 ||
+          typeof lesson.courseId !== 'string' ||
+          lesson.courseId.length === 0 ||
+          typeof lesson.title !== 'string' ||
+          typeof lesson.courseTitle !== 'string' ||
+          typeof lesson.duration !== 'string',
+      )
     ) {
       return null;
     }
-    return parsed.lessons.filter(
-      (lesson): lesson is SavedLesson =>
-        isRecord(lesson) &&
-        typeof lesson.id === 'string' &&
-        lesson.id.length > 0 &&
-        typeof lesson.folderId === 'string' &&
-        lesson.folderId.length > 0 &&
-        typeof lesson.courseId === 'string' &&
-        lesson.courseId.length > 0 &&
-        typeof lesson.title === 'string' &&
-        typeof lesson.courseTitle === 'string' &&
-        typeof lesson.duration === 'string',
-    );
+    return parsed.lessons as SavedLesson[];
   } catch {
     return null;
   }
@@ -491,22 +514,53 @@ export const getSavedLessonsPage = async (
       throw new Error('SAVED_LESSONS_CONTRACT_INVALID');
     }
     const data = rawData as SavedLessonsPayloadDto;
-    const lessons = resourceList<SavedLessonDto>(data.lessons).flatMap(
-      lesson => {
-        if (lesson?.id === null || lesson?.id === undefined) return [];
+    const rawLessons = resourceList<SavedLessonDto>(data.lessons);
+    if (
+      rawLessons.some(lesson => {
+        if (!isApiRecord(lesson)) return true;
+        const lessonId = String(lesson.id ?? '').trim();
         const courseId = String(
           lesson.course?.id ?? lesson.course_id ?? '',
         ).trim();
-        if (!courseId) return [];
+        const memberships = resourceList<SavedFolderDto>(
+          lesson.folder_memberships,
+        );
+        const durationSeconds = Number(lesson.duration_seconds);
+        return (
+          !/^\d+$/.test(lessonId) ||
+          !/^\d+$/.test(courseId) ||
+          !String(lesson.title || '').trim() ||
+          !isRecord(lesson.course) ||
+          !String(lesson.course.title || '').trim() ||
+          !String(lesson.image || lesson.course.image || '').trim() ||
+          !Number.isSafeInteger(durationSeconds) ||
+          durationSeconds < 1 ||
+          !isResourceListPayload(lesson.folder_memberships) ||
+          memberships.length === 0 ||
+          memberships.some(
+            folder =>
+              !isApiRecord(folder) ||
+              !/^\d+$/.test(String(folder.id ?? '').trim()) ||
+              !String(folder.name || '').trim(),
+          )
+        );
+      })
+    ) {
+      throw new Error('SAVED_LESSONS_CONTRACT_INVALID');
+    }
+    const lessons = rawLessons.flatMap(
+      lesson => {
+        const courseId = String(
+          lesson.course?.id ?? lesson.course_id ?? '',
+        ).trim();
         return resourceList<SavedFolderDto>(lesson.folder_memberships)
-          .filter(folder => folder?.id !== null && folder?.id !== undefined)
           .map(folder => ({
             id: String(lesson.id),
             folderId: String(folder.id),
-            folderName: String(folder.name || 'المشاهدة لاحقًا'),
+            folderName: String(folder.name),
             courseId,
-            title: String(lesson.title || 'مقطع محفوظ'),
-            courseTitle: String(lesson.course?.title || 'كورس ركن'),
+            title: String(lesson.title),
+            courseTitle: String(lesson.course?.title),
             duration: (() => {
               const seconds = Math.max(
                 0,
@@ -527,7 +581,16 @@ export const getSavedLessonsPage = async (
           }));
       },
     );
-    const pagination = data?.pagination || {};
+    const pagination = data?.pagination;
+    if (
+      !isRecord(pagination) ||
+      !Number.isSafeInteger(Number(pagination.current_page)) ||
+      Number(pagination.current_page) < 1 ||
+      !Number.isSafeInteger(Number(pagination.last_page)) ||
+      Number(pagination.last_page) < Number(pagination.current_page)
+    ) {
+      throw new Error('SAVED_LESSONS_CONTRACT_INVALID');
+    }
     const currentPage = Math.max(
       1,
       Number(pagination.current_page ?? safePage) || safePage,
@@ -563,6 +626,7 @@ export const getSavedLessonsPage = async (
         ? await readSavedLessonsCache(capturedCacheKey)
         : null;
     if (cached) {
+      assertAccountSessionBoundary(accountBoundary);
       return {
         lessons: cached,
         page: 1,
@@ -579,6 +643,59 @@ export const getSavedLessonsPage = async (
 export const getSavedLessons = async (): Promise<SavedLesson[]> =>
   (await getSavedLessonsPage()).lessons;
 
+const filterSavedLessonsCache = async (
+  keep: (lesson: SavedLesson) => boolean,
+  ownerBoundary?: Awaited<ReturnType<typeof captureAccountSessionBoundary>>,
+) => {
+  const accountBoundary =
+    ownerBoundary || (await captureAccountSessionBoundary());
+  const capturedCacheKey = await accountScopedStorageKey(
+    SAVED_LESSONS_CACHE_KEY,
+    accountBoundary,
+  );
+  assertAccountSessionBoundary(accountBoundary);
+  const cached = await readSavedLessonsCache(capturedCacheKey);
+  if (!cached) return;
+  assertAccountSessionBoundary(accountBoundary);
+  await AsyncStorage.setItem(
+    capturedCacheKey,
+    JSON.stringify({
+      version: 2,
+      savedAt: serverNowMs(),
+      lessons: cached.filter(keep),
+    }),
+  );
+  assertAccountSessionBoundary(accountBoundary);
+};
+
+export const removeSavedLessonFromCache = (
+  folderId: string,
+  lessonId: string,
+  ownerBoundary?: Awaited<ReturnType<typeof captureAccountSessionBoundary>>,
+) =>
+  filterSavedLessonsCache(
+    lesson => lesson.folderId !== folderId || lesson.id !== lessonId,
+    ownerBoundary,
+  );
+
+export const removeSavedFolderFromCache = (
+  folderId: string,
+  ownerBoundary?: Awaited<ReturnType<typeof captureAccountSessionBoundary>>,
+) =>
+  filterSavedLessonsCache(
+    lesson => lesson.folderId !== folderId,
+    ownerBoundary,
+  );
+
+export const removeSavedLessonEverywhereFromCache = (
+  lessonId: string,
+  ownerBoundary?: Awaited<ReturnType<typeof captureAccountSessionBoundary>>,
+) =>
+  filterSavedLessonsCache(
+    lesson => lesson.id !== lessonId,
+    ownerBoundary,
+  );
+
 export const deleteSavedLesson = async (folderId: string, lessonId: string) => {
   const normalizedFolderId = String(folderId).trim();
   const normalizedLessonId = String(lessonId).trim();
@@ -586,30 +703,15 @@ export const deleteSavedLesson = async (folderId: string, lessonId: string) => {
     throw new Error('INVALID_SAVED_LESSON_ROUTE');
   }
   const accountBoundary = await captureAccountSessionBoundary();
-  const capturedCacheKey = await accountScopedStorageKey(
-    SAVED_LESSONS_CACHE_KEY,
-    accountBoundary,
-  );
   const response = await publicRequest.delete(
     `saved-folders/${normalizedFolderId}/lessons/${normalizedLessonId}`,
   );
   assertAccountSessionBoundary(accountBoundary);
-  const cached = await readSavedLessonsCache(capturedCacheKey);
-  if (cached) {
-    assertAccountSessionBoundary(accountBoundary);
-    await AsyncStorage.setItem(
-      capturedCacheKey,
-      JSON.stringify({
-        version: 2,
-        savedAt: serverNowMs(),
-        lessons: cached.filter(
-          lesson =>
-            lesson.folderId !== normalizedFolderId ||
-            lesson.id !== normalizedLessonId,
-        ),
-      }),
-    ).catch(() => undefined);
-  }
+  await removeSavedLessonFromCache(
+    normalizedFolderId,
+    normalizedLessonId,
+    accountBoundary,
+  ).catch(() => undefined);
   assertAccountSessionBoundary(accountBoundary);
   return response;
 };

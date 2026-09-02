@@ -32,13 +32,15 @@ const rememberOpen = (url: string) => {
 export const openExternalUrlOnce = async (
   value: string,
   fallbackUrl?: string,
+  stableDedupeKey?: string,
 ): Promise<void> => {
   const url = normalizedUrl(value);
   if (!url) throw new Error('EXTERNAL_URL_UNAVAILABLE');
+  const dedupeKey = normalizedUrl(stableDedupeKey || '') || url;
 
   const now = Date.now();
-  if (now - (recentOpens.get(url) || 0) < OPEN_DEDUPE_MS) return;
-  const existing = openFlights.get(url);
+  if (now - (recentOpens.get(dedupeKey) || 0) < OPEN_DEDUPE_MS) return;
+  const existing = openFlights.get(dedupeKey);
   if (existing) return existing;
 
   const flight = (async () => {
@@ -47,16 +49,16 @@ export const openExternalUrlOnce = async (
         throw new Error('EXTERNAL_APP_UNAVAILABLE');
       }
       await Linking.openURL(url);
-      rememberOpen(url);
+      rememberOpen(dedupeKey);
     } catch (error) {
       const fallback = normalizedUrl(fallbackUrl || '');
       if (!fallback || fallback === url) throw error;
       await Linking.openURL(fallback);
-      rememberOpen(url);
+      rememberOpen(dedupeKey);
     }
-  })().finally(() => openFlights.delete(url));
+  })().finally(() => openFlights.delete(dedupeKey));
 
-  openFlights.set(url, flight);
+  openFlights.set(dedupeKey, flight);
   return flight;
 };
 

@@ -99,7 +99,10 @@ final class RecoverPendingCertificate implements ShouldQueue, ShouldBeUnique
         // are resolved at execution time instead of being revived from stale
         // serialized snapshots.
         $user = User::query()->find($certificate->user_id);
-        $course = Course::query()->find($certificate->course_id);
+        // Retirement removes a course from the catalogue, not the achievement
+        // already earned from it. Recovery rebuilds from immutable certificate
+        // snapshots and therefore must still resolve a soft-deleted course.
+        $course = Course::withTrashed()->find($certificate->course_id);
         $project = $certificate->project_id
             ? Project::query()->find($certificate->project_id)
             : null;

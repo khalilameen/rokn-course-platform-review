@@ -15,9 +15,10 @@ use Illuminate\Support\Facades\DB;
 
 final readonly class ExamLifecycleService
 {
-    public function __construct(private CourseCompletionService $courseCompletion)
-    {
-    }
+    public function __construct(
+        private CourseCompletionService $courseCompletion,
+        private CourseStagedAuthoringService $stagedAuthoring
+    ) {}
 
     /**
      * @return array{authorized: bool, resumed: bool, attempt: ExamAttempt|null}
@@ -48,7 +49,7 @@ final readonly class ExamLifecycleService
                         'choice6',
                         'priority',
                         'right_answer'
-                    )->with('photo')->orderBy('priority');
+                    )->with('photo')->orderBy('priority')->orderBy('id');
                 }])
                 ->findOrFail($quizId);
 
@@ -56,12 +57,17 @@ final readonly class ExamLifecycleService
                 return ['authorized' => false, 'resumed' => false, 'attempt' => null];
             }
 
+            $quizAliases = $this->stagedAuthoring->equivalentEntityIds(ItemList::class, $quizId);
+            $sectionAliases = $sectionId === null
+                ? []
+                : $this->stagedAuthoring->equivalentEntityIds(CourseSection::class, $sectionId);
+
             $existingAttempt = ExamAttempt::query()
                 ->where('user_id', $user->getKey())
-                ->where('quiz_id', $quizId)
+                ->whereIn('quiz_id', $quizAliases)
                 ->when(
                     $sectionId !== null,
-                    fn ($attempts) => $attempts->where('section_id', $sectionId),
+                    fn ($attempts) => $attempts->whereIn('section_id', $sectionAliases),
                     fn ($attempts) => $attempts->whereNull('section_id')
                 )
                 ->when(
@@ -74,12 +80,26 @@ final readonly class ExamLifecycleService
                 ->first();
 
             if ($existingAttempt !== null) {
+                // Materialize only this learner's active pointer. Publishing
+                // never scans or locks the shared attempts table.
+                $existingAttempt->forceFill([
+                    'quiz_id' => $quizId,
+                    'section_id' => $sectionId,
+                ])->save();
                 return ['authorized' => true, 'resumed' => true, 'attempt' => $existingAttempt];
+            }
+
+            // Draft rows may exist while a moderator is still authoring. A
+            // new immutable attempt is created only from a complete, answerable
+            // question set; an already-open attempt above remains resumable
+            // from its own snapshot even if the live quiz changes later.
+            if (!$this->quizCanStart($quiz)) {
+                return ['authorized' => false, 'resumed' => false, 'attempt' => null];
             }
 
             $lastAttempt = ExamAttempt::query()
                 ->where('user_id', $user->getKey())
-                ->where('quiz_id', $quizId)
+                ->whereIn('quiz_id', $quizAliases)
                 ->orderByDesc('attempt_number')
                 ->lockForUpdate()
                 ->first();
@@ -209,7 +229,7 @@ final readonly class ExamLifecycleService
 
     public function end(User $user, int $attemptId, mixed $securitySummary): ?ExamAttempt
     {
-        return DB::transaction(function () use ($user, $attemptId, $securitySummary): ?ExamAttempt {
+        $attempt = DB::transaction(function () use ($user, $attemptId, $securitySummary): ?ExamAttempt {
             $attempt = ExamAttempt::query()
                 ->whereKey($attemptId)
                 ->where('user_id', $user->getKey())
@@ -244,6 +264,30 @@ final readonly class ExamLifecycleService
 
             return $attempt;
         }, 3);
+
+        // The attempt owns an immutable question snapshot, so a publish may
+        // safely remap its section identity while it is open. Completing a
+        // passed attempt also closes progression server-side; a lost mobile
+        // follow-up cannot leave the next section locked.
+        if (
+            $attempt
+            && $attempt->isCompleted()
+            && (bool) $attempt->is_passed
+            && $attempt->course_id !== null
+            && $attempt->section_id !== null
+        ) {
+            $currentSectionId = $this->stagedAuthoring->currentLearnerEntityMap(
+                CourseSection::class,
+                [(int) $attempt->section_id]
+            )[(int) $attempt->section_id] ?? (int) $attempt->section_id;
+            $this->courseCompletion->complete(
+                $user,
+                (int) $attempt->course_id,
+                $currentSectionId
+            );
+        }
+
+        return $attempt;
     }
 
     private function hasQuizAccess(
@@ -290,6 +334,35 @@ final readonly class ExamLifecycleService
             ->first();
 
         return $enrollment?->isActive() === true;
+    }
+
+    private function quizCanStart(ItemList $quiz): bool
+    {
+        if ($quiz->questions->isEmpty()) {
+            return false;
+        }
+
+        $ids = [];
+        foreach ($quiz->questions as $question) {
+            $questionId = (int) $question->id;
+            $rightAnswer = (int) $question->right_answer;
+            $rightChoice = $rightAnswer >= 1 && $rightAnswer <= 6
+                ? trim((string) $question->{"choice{$rightAnswer}"})
+                : '';
+            if (
+                $questionId <= 0
+                || isset($ids[$questionId])
+                || trim((string) $question->question) === ''
+                || trim((string) $question->choice1) === ''
+                || trim((string) $question->choice2) === ''
+                || $rightChoice === ''
+            ) {
+                return false;
+            }
+            $ids[$questionId] = true;
+        }
+
+        return true;
     }
 
     /**

@@ -91,7 +91,7 @@
     },
     {
       "path": "public/admin/assets/css/course-pdfs-index.css",
-      "sha256": "6c3385137e62ad2dcdce76b378cf6af48cde0d5d49ad19d84faf1383e7bfaea3",
+      "sha256": "18dd385203344f1b729014364acae40ecca0e7f8f9b815ac51b65b54bb0e9628",
       "classification": "first_party"
     },
     {
@@ -111,7 +111,7 @@
     },
     {
       "path": "public/admin/assets/css/course-sections-index.css",
-      "sha256": "2628c4bc7d57fea1946b5081986089545c010fb65db0a4943c5076d80ea217e3",
+      "sha256": "15b6b4d5101d1b5b17f36843643fa53af9ae67ef35f322090eb7b09071c912b5",
       "classification": "first_party"
     },
     {
@@ -121,7 +121,7 @@
     },
     {
       "path": "public/admin/assets/css/course-studio.css",
-      "sha256": "8dc152bcb02f962d5f3f6b7a594489e46405adea811969d37632dd3ac7efde49",
+      "sha256": "ce00ceeba583b50a90bca0e9c313e16d3b0c49e9824347bd5e0a46b8179c6e62",
       "classification": "first_party"
     },
     {
@@ -394,7 +394,7 @@
     },
     {
       "path": "public/admin/assets/js/request.js",
-      "sha256": "edec096afc3f8db8a66618316608dafc9e6793595ea5dd64e053345dd919d180",
+      "sha256": "9003e267eca6c1d25802338d3a61e1580cf74bcc3c8c15657f768b5ba0383270",
       "classification": "first_party"
     },
     {
@@ -408,6 +408,12 @@
       "sha256": "00501810e93307a8882a74d864e7547fd1458deea539361dc1124ac133799a4b",
       "classification": "third_party",
       "family": "select2"
+    },
+    {
+      "path": "public/admin/assets/js/vendor/sortablejs/Sortable.min.js",
+      "sha256": "8a9889aecc2f011e15031fed87eeb35ac75e62655a7b4889ba247ee8ea872474",
+      "classification": "third_party",
+      "family": "sortablejs"
     },
     {
       "path": "public/admin/assets/scss/style.css",

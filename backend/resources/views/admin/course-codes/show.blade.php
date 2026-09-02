@@ -259,10 +259,10 @@
                 <div class="col-md-12">
                     <div class="info-card">
                         <div class="info-card-header">
-                            <h4><i class="fa fa-history"></i> سجل الاستخدام ({{ $courseCode->usages->count() }})</h4>
+                            <h4><i class="fa fa-history"></i> سجل الاستخدام ({{ $usageHistory->total() }})</h4>
                         </div>
                         <div class="info-card-body course-code-info-body--flush">
-                            @if($courseCode->usages->count() > 0)
+                            @if($usageHistory->count() > 0)
                                 <div class="usage-table-wrapper">
                                     <div class="table-responsive">
                                         <table class="usage-table">
@@ -271,15 +271,15 @@
                                                     <th width="50">#</th>
                                                     <th>المستخدم</th>
                                                     <th>تاريخ الاستخدام</th>
-                                                    <th>عنوان IP</th>
-                                                    <th>المتصفح</th>
+                                                    <th>بصمة الشبكة</th>
+                                                    <th>بصمة الجهاز</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                @foreach($courseCode->usages as $index => $usage)
+                                                @foreach($usageHistory as $index => $usage)
                                                     <tr>
                                                         <td>
-                                                            <strong>{{ $index + 1 }}</strong>
+                                                            <strong>{{ ($usageHistory->firstItem() ?? 1) + $index }}</strong>
                                                         </td>
                                                         <td>
                                                             @if($usage->user)
@@ -325,6 +325,9 @@
                                         </table>
                                     </div>
                                 </div>
+                                @if($usageHistory->hasPages())
+                                    <div class="p-3">{{ $usageHistory->links() }}</div>
+                                @endif
                             @else
                                 <div class="empty-state">
                                     <i class="fa fa-inbox"></i>

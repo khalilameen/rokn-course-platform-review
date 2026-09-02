@@ -6,6 +6,7 @@ namespace App\Jobs;
 
 use App\Models\StudentNotification;
 use App\Models\User;
+use App\Models\UserDeviceToken;
 use App\Models\NotificationPushDelivery;
 use App\Services\FcmNotificationService;
 use App\Services\NotificationDeliveryPolicy;
@@ -326,6 +327,31 @@ final class SendUserPushNotification implements ShouldQueue, ShouldBeUnique
                 ])->save();
                 continue;
             }
+
+            // The relation was loaded before this loop. A login to another
+            // account, logout, token rotation, or opt-out may have won while
+            // this job waited in the queue. Resolve the mutable ownership and
+            // consent again at the provider boundary instead of sending from
+            // a stale Eloquent snapshot.
+            $currentUser = User::query()->find($user->id);
+            $currentToken = UserDeviceToken::query()
+                ->whereKey($token->id)
+                ->where('user_id', $user->id)
+                ->where('device_token', (string) $token->device_token)
+                ->first();
+            if (!$currentUser
+                || !NotificationDeliveryPolicy::allowsPush(
+                    $currentUser,
+                    (string) $notification->notification_type
+                )
+                || !$currentToken) {
+                $delivery->forceFill([
+                    'status' => NotificationPushDelivery::STATUS_SUPERSEDED,
+                    'failed_at' => now(),
+                    'failure_code' => $currentToken ? 'preference_disabled' : 'token_unbound',
+                ])->save();
+                continue;
+            }
             if ((int) $delivery->attempts >= $this->tries) {
                 $delivery->forceFill([
                     'status' => NotificationPushDelivery::STATUS_FAILED,
@@ -352,8 +378,8 @@ final class SendUserPushNotification implements ShouldQueue, ShouldBeUnique
             if ($claimed !== 1) continue;
 
             $result = FcmNotificationService::sendToDeviceDetailed(
-                $user,
-                $token,
+                $currentUser,
+                $currentToken,
                 (string) $notification->title_ar,
                 (string) $notification->title_en,
                 (string) $notification->message_ar,

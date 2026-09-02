@@ -145,24 +145,6 @@
                                         </a>
                                     </div>
                                 @endif
-                                @if($section->sectionable->file_link1)
-                                    <div class="detail-item">
-                                        <div class="detail-label">رابط الملف الأول</div>
-                                        <a href="{{ $section->sectionable->file_link1 }}" target="_blank" class="detail-value url">
-                                            فتح الملف
-                                            <i class="fa fa-file ml-1"></i>
-                                        </a>
-                                    </div>
-                                @endif
-                                @if($section->sectionable->file_link2)
-                                    <div class="detail-item">
-                                        <div class="detail-label">رابط الملف الثاني</div>
-                                        <a href="{{ $section->sectionable->file_link2 }}" target="_blank" class="detail-value url">
-                                            فتح الملف
-                                            <i class="fa fa-file ml-1"></i>
-                                        </a>
-                                    </div>
-                                @endif
                             </div>
 
                             @if($section->sectionable->description)

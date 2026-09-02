@@ -152,18 +152,36 @@ class QuestionController extends Controller
         $payload = $this->validatedPayload($request);
         $request->validate(['editor_version' => 'required|string|size:64']);
         $this->assertStandaloneQuiz((int) $payload['list_id']);
-        DB::transaction(function () use ($request, $question, $payload): void {
+        $imagePath = null;
+        if ($request->hasFile('image')) {
+            $file = $request->file('image');
+            $sha = hash_file('sha256', $file->getRealPath());
+            if (!is_string($sha) || $sha === '') {
+                throw new \RuntimeException('Question image could not be fingerprinted.');
+            }
+            $imagePath = app(\App\Services\StoredFileDeletionService::class)->storeTrackedUpload(
+                $file,
+                'questions',
+                'public',
+                60,
+                'question-update|'.$question->id.'|'.(string) $request->input('editor_version').'|'.$sha
+            );
+        }
+        DB::transaction(function () use ($request, $question, $payload, $imagePath): void {
             $locked = Question::query()->whereKey($question->id)->lockForUpdate()->firstOrFail();
             $this->assertEditorVersion($locked, (string) $request->input('editor_version'));
             $this->assertStandaloneQuiz((int) $locked->list_id);
             $this->assertStandaloneQuiz((int) $payload['list_id']);
             $locked->update($payload);
+            if ($imagePath !== null) {
+                $oldPhotos = $locked->allPhotos()->where('type', 'featured')->get();
+                $newPhoto = $locked->allPhotos()->firstOrCreate([
+                    'path' => $imagePath,
+                    'type' => 'featured',
+                ]);
+                $oldPhotos->where('id', '!=', $newPhoto->id)->each->delete();
+            }
         }, 3);
-        
-        if ($request->hasFile('image')) {
-            $file = $request->file('image');
-            $question->replaceImage($file, 'questions', 'featured');
-        }
 
         return redirect()->route('admin.questions.index')->with('success', 'تم التحديث بنجاح');
     }
@@ -198,7 +216,7 @@ class QuestionController extends Controller
         }
         if ($normalized !== []) $request->merge($normalized);
 
-        return $request->validate([
+        $payload = $request->validate([
             'title' => 'required|string|max:255',
             'list_id' => 'required|integer|exists:lists,id',
             'priority' => 'nullable|integer|min:0|max:100000',
@@ -213,6 +231,14 @@ class QuestionController extends Controller
             'right_answer' => 'required|integer|min:1|max:6',
             'image' => 'nullable|image|mimes:jpeg,jpg,png,webp,gif|max:4096',
         ]);
+        $rightChoice = 'choice'.(int) $payload['right_answer'];
+        if (trim((string) ($payload[$rightChoice] ?? '')) === '') {
+            throw ValidationException::withMessages([
+                'right_answer' => 'الإجابة الصحيحة يجب أن تشير إلى اختيار مكتوب',
+            ]);
+        }
+
+        return $payload;
     }
 
     private function assertStandaloneQuiz(int $quizId): void

@@ -32,7 +32,8 @@ class CertificateService
     public function __construct(
         private readonly FinancialProvenanceService $financialProvenance,
         private readonly CourseChatAccessService $courseAccess,
-        private readonly CertificateEligibilityService $eligibility
+        private readonly CertificateEligibilityService $eligibility,
+        private readonly CourseStagedAuthoringService $stagedAuthoring
     ) {
     }
 
@@ -43,7 +44,8 @@ class CertificateService
         User $user,
         Course $course,
         ?Project $project = null,
-        ?string $requestedHolderName = null
+        ?string $requestedHolderName = null,
+        bool $renderArtifact = true
     ): ?Certificate
     {
         $certificate = Certificate::where('user_id', $user->id)
@@ -68,14 +70,7 @@ class CertificateService
                 return null;
             }
         } else {
-            $enrollment = CourseEnrollment::query()
-                ->where('user_id', $user->id)
-                ->where('course_id', $course->id)
-            ->where('is_active', true)
-            ->where(function ($query): void {
-                $query->whereNull('expires_at')->orWhere('expires_at', '>', now());
-            })
-            ->first();
+            $enrollment = $this->eligibility->enrollmentFor($user, $course);
             if (
                 !$enrollment
                 || $this->financialProvenance->enrollmentHasActiveHold($enrollment, ['course'])
@@ -97,7 +92,12 @@ class CertificateService
             'certificate_text_template_key',
             'certificate_text',
         ]);
-        $textTemplate = $this->textTemplateForCourse($course);
+        $textTemplate = $supportsTextSnapshots
+            ? $this->selectedTextTemplateForCourse($course)
+            : $this->resolvedTextTemplateForCourse($course);
+        if ($supportsTextSnapshots && $textTemplate === null) {
+            return null;
+        }
         $requestedHolderName = UnicodeText::limit(
             UnicodeText::clean($requestedHolderName, false),
             120
@@ -174,7 +174,12 @@ class CertificateService
 
                     $course = $lockedCourse;
                     $verificationLevel = $this->verificationLevel($lockedUser, $lockedCourse);
-                    $textTemplate = $this->textTemplateForCourse($lockedCourse);
+                    $textTemplate = $supportsTextSnapshots
+                        ? $this->selectedTextTemplateForCourse($lockedCourse)
+                        : $this->resolvedTextTemplateForCourse($lockedCourse);
+                    if ($supportsTextSnapshots && $textTemplate === null) {
+                        return null;
+                    }
                     $createAttributes = [
                         'public_id'    => (string) Str::uuid(),
                         'user_id'      => $lockedUser->id,
@@ -233,6 +238,15 @@ class CertificateService
             $this->fillMissingTextSnapshot($certificate, $textTemplate);
         }
 
+        // The HTTP request only reserves the immutable credential. Rendering
+        // is intentionally queue-backed: image composition and remote storage
+        // must not hold an app request open or turn a healthy issue action into
+        // a client timeout. The recovery job calls this method with the default
+        // and owns the generation lease below.
+        if (!$renderArtifact) {
+            return $certificate->fresh();
+        }
+
         $leaseId = (string) Str::uuid();
         $certificate = DB::transaction(function () use ($certificate, $leaseId): ?Certificate {
             $locked = Certificate::query()->lockForUpdate()->find($certificate->id);
@@ -250,7 +264,13 @@ class CertificateService
             ) {
                 return null;
             }
-            $locked->forceFill(['generation_lease_id' => $leaseId])->save();
+            // A legacy pending row may not have an issue date. Claim the date
+            // under the generation lease so every retry prints and reports the
+            // same immutable value.
+            $locked->forceFill([
+                'generation_lease_id' => $leaseId,
+                'generated_at' => $locked->generated_at ?? now(),
+            ])->save();
             return $locked->fresh();
         }, 3);
         if (!$certificate) {
@@ -260,12 +280,11 @@ class CertificateService
         // The issue date is credential history, not the time of an artifact
         // recovery. Retrying a pending or lost image keeps the original date.
         $previousPath = trim((string) $certificate->image_path);
-        $generatedAt = $certificate->generated_at ?? now();
         $filePath = $this->createCertificateImage(
             $user,
             $course,
             $certificate,
-            $generatedAt,
+            $certificate->generated_at,
             $leaseId
         );
 
@@ -342,16 +361,21 @@ class CertificateService
         // A course may contain several graduation projects. The certificate
         // label describes the strongest verified evidence in that course, not
         // whichever project happened to be returned first by a legacy query.
-        $humanReviewed = ProjectSubmission::query()
+        $graduationProjectIds = Project::query()
+            ->where('is_graduation_project', true)
+            ->whereHas('section', fn ($sections) => $sections->where('course_id', $course->id))
+            ->pluck('id');
+        $equivalentProjectIds = $graduationProjectIds->flatMap(
+            fn ($projectId) => $this->stagedAuthoring->equivalentEntityIds(
+                Project::class,
+                (int) $projectId
+            )
+        )->unique()->values();
+        $humanReviewed = $equivalentProjectIds->isNotEmpty() && ProjectSubmission::query()
             ->where('user_id', $user->id)
+            ->whereIn('project_id', $equivalentProjectIds)
             ->where('review_status', ProjectSubmission::STATUS_PASSED)
             ->where('review_source', 'admin_manual')
-            ->whereHas('project', function ($projects) use ($course): void {
-                $projects->where('is_graduation_project', true)
-                    ->whereHas('section', fn ($sections) =>
-                        $sections->where('course_id', $course->id)
-                    );
-            })
             ->exists();
 
         return $humanReviewed ? 'reviewed_project' : 'completion';
@@ -487,14 +511,14 @@ class CertificateService
             $profileUrl = RoknPublicUrl::certificate((string) $certificate->public_id);
             $qrSize     = $positions['qr_code']['size'];
             $qrPng      = $this->generateQrCode($profileUrl, $qrSize);
-
-            if ($qrPng) {
-                $qrImage = Image::make($qrPng);
-                // Position the QR so its centre aligns with the configured point
-                $qrX = (int)($width  * $positions['qr_code']['x']) - (int)($qrImage->width()  / 2);
-                $qrY = (int)($height * $positions['qr_code']['y']) - (int)($qrImage->height() / 2);
-                $img->insert($qrImage, 'top-left', max(0, $qrX), max(0, $qrY));
+            if (!$qrPng) {
+                throw new \RuntimeException('Certificate QR code could not be generated.');
             }
+            $qrImage = Image::make($qrPng);
+            // Position the QR so its centre aligns with the configured point
+            $qrX = (int)($width  * $positions['qr_code']['x']) - (int)($qrImage->width()  / 2);
+            $qrY = (int)($height * $positions['qr_code']['y']) - (int)($qrImage->height() / 2);
+            $img->insert($qrImage, 'top-left', max(0, $qrX), max(0, $qrY));
 
             // ----- Save -----
             // Public certificate images must not be enumerable by numeric user/course IDs.
@@ -680,35 +704,64 @@ class CertificateService
         $certificate->refresh();
     }
 
-    /** @return array{key:string,text:string} */
-    private function textTemplateForCourse(Course $course): array
+    /**
+     * Resolve the same editorial wording used by certificate issuance.
+     *
+     * Dashboard preview calls this method as well so a moderator never
+     * reviews a parallel approximation of the learner's certificate text.
+     *
+     * @return array{key:string,text:string}
+     */
+    public function resolvedTextTemplateForCourse(Course $course): array
     {
-        $templates = (array) config('certificate.text_templates', []);
-        $defaultKey = trim((string) config(
+        $selected = $this->selectedTextTemplateForCourse($course);
+        if ($selected !== null) {
+            return $selected;
+        }
+
+        $default = $this->configuredTextTemplate((string) config(
             'certificate.default_text_template_key',
             'completion'
         ));
-        if (!isset($templates[$defaultKey]) || !is_array($templates[$defaultKey])) {
-            $defaultKey = 'completion';
+        if ($default === null) {
+            throw new \LogicException('Certificate text templates are not configured.');
         }
 
+        return $default;
+    }
+
+    /**
+     * Resolve the exact moderator selection without substituting another
+     * claim. Issuance and publish validation use this strict form; the public
+     * resolver above only supplies the configured default for an unsaved
+     * draft/rolling-deployment preview.
+     *
+     * @return array{key:string,text:string}|null
+     */
+    public function selectedTextTemplateForCourse(Course $course): ?array
+    {
         $selectedKey = trim((string) $course->getRawOriginal(
             'certificate_text_template_key'
         ));
-        if (!isset($templates[$selectedKey]) || !is_array($templates[$selectedKey])) {
-            $selectedKey = $defaultKey;
+
+        return $this->configuredTextTemplate($selectedKey);
+    }
+
+    /** @return array{key:string,text:string}|null */
+    private function configuredTextTemplate(string $key): ?array
+    {
+        $key = trim($key);
+        $template = data_get((array) config('certificate.text_templates', []), $key);
+        if ($key === '' || !is_array($template)) {
+            return null;
         }
 
         $text = UnicodeText::limit(
-            UnicodeText::clean(data_get($templates, $selectedKey.'.text'), false),
+            UnicodeText::clean($template['text'] ?? null, false),
             255
         );
-        if ($text === '') {
-            $selectedKey = 'completion';
-            $text = 'تقديرًا لإتمام متطلبات كورس';
-        }
 
-        return ['key' => $selectedKey, 'text' => $text];
+        return $text === '' ? null : ['key' => $key, 'text' => $text];
     }
 
     private function holderName(User $user): string

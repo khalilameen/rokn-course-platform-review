@@ -27,7 +27,8 @@ class CouponController extends Controller
             ->with('course:id,name_ar')
             ->withCount('redemptions')
             ->latest()
-            ->get();
+            ->paginate(25)
+            ->withQueryString();
         $editorVersions = $coupons->mapWithKeys(fn (Coupon $coupon): array => [
             $coupon->id => $this->editorVersion($coupon),
         ]);

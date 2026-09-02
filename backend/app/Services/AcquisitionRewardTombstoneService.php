@@ -65,6 +65,27 @@ final class AcquisitionRewardTombstoneService
         return $rewardKey !== '' && in_array($rewardKey, $this->consumedRewardKeys($user), true);
     }
 
+    public function identityHasConsumed(string $provider, string $identifier, string $rewardKey): bool
+    {
+        $provider = strtolower(trim($provider));
+        $identifier = trim($identifier);
+        if (
+            $provider === ''
+            || $identifier === ''
+            || $rewardKey === ''
+            || ! Schema::hasTable('deleted_social_reward_tombstones')
+        ) {
+            return false;
+        }
+
+        $tombstone = DeletedSocialRewardTombstone::query()
+            ->where('provider', $provider)
+            ->where('identity_hmac', $this->identityHmac($provider, $identifier))
+            ->first();
+
+        return in_array($rewardKey, $tombstone?->consumed_reward_keys ?? [], true);
+    }
+
     /** @return list<string> */
     public function consumedRewardKeys(User $user): array
     {
@@ -124,6 +145,23 @@ final class AcquisitionRewardTombstoneService
                 'provider' => 'email',
                 'identifier' => $email,
             ]);
+        }
+
+        if (Schema::hasTable('user_whatsapp_connections')) {
+            $whatsAppPhone = trim((string) DB::table('user_whatsapp_connections')
+                ->where('user_id', $user->id)
+                ->where('ownership_verified', true)
+                ->whereNotNull('verified_at')
+                ->value('phone_e164'));
+            if ($whatsAppPhone !== '') {
+                // A verified WhatsApp number is an acquisition identity too.
+                // Store only its keyed HMAC so deleting and recreating an
+                // account cannot replay the one-time linking reward.
+                $identities->push([
+                    'provider' => 'whatsapp',
+                    'identifier' => $whatsAppPhone,
+                ]);
+            }
         }
 
         return $identities

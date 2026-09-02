@@ -23,6 +23,7 @@
     <server name="KASHIER_TEST_SECRET_KEY" value="test-dashboard-key-not-a-secret"/>
     <server name="KASHIER_TEST_MID" value="MID-TEST-000"/>
     <server name="LOG_CHANNEL" value="null"/>
+    <server name="NIGHTWATCH_ENABLED" value="false"/>
   </php>
   <source>
     <include>

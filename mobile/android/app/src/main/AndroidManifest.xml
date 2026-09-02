@@ -4,10 +4,13 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- Keep dependencies from reintroducing legacy broad storage access. -->
+    <!-- Android 7–9 require this only when the learner explicitly downloads a
+         course attachment into the public Downloads folder. Android 10+ uses
+         scoped storage and never sees the permission. -->
     <uses-permission
       android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-      tools:node="remove"
+      android:maxSdkVersion="28"
+      tools:node="replace"
       tools:ignore="ScopedStorage" />
 
     <queries>

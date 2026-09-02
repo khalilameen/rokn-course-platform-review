@@ -157,11 +157,19 @@ class CourseCodeController extends Controller
      */
     public function show(CourseCode $courseCode)
     {
-        $courseCode->load(['course', 'lesson', 'usages.user']);
+        $courseCode->load(['course', 'lesson']);
+        $usageHistory = $courseCode->usages()
+            ->with('user:id,name,email')
+            ->orderByDesc('used_at')
+            ->orderByDesc('id')
+            ->paginate(50)
+            ->withQueryString();
         $designSettings = $this->getDesignSettings();
         $editorVersion = $this->editorVersion($courseCode);
 
-        return view('admin.course-codes.show', compact('courseCode', 'designSettings', 'editorVersion'));
+        return view('admin.course-codes.show', compact(
+            'courseCode', 'usageHistory', 'designSettings', 'editorVersion'
+        ));
     }
 
     /**
@@ -465,10 +473,17 @@ class CourseCodeController extends Controller
             $courseCodes = $this->filteredQuery($request, false)
                 ->orderByDesc('created_at')
                 ->orderByDesc('id')
+                ->limit(501)
                 ->get();
 
             if ($courseCodes->isEmpty()) {
                 return back()->with('error', 'لا توجد أكواد للتصدير');
+            }
+            if ($courseCodes->count() > 500) {
+                return back()->with(
+                    'error',
+                    'نتيجة PDF أكبر من 500 كود\nضيّق البحث أو استخدم تصدير CSV للسجل الكامل'
+                );
             }
 
             // Transform the data for PDF

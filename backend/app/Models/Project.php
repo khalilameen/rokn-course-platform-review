@@ -85,7 +85,9 @@ class Project extends Model
      */
     public function evaluationForUser(int $userId)
     {
-        return $this->evaluations()->where('user_id', $userId)->first();
+        return app(\App\Services\CourseRevisionLearnerReadService::class)
+            ->projectEvaluations($userId, [(int) $this->id])
+            ->get((int) $this->id);
     }
 
     /**

@@ -5,6 +5,7 @@ import {
   assertAccountSessionBoundary,
   captureAccountSessionBoundary,
   extractApiToken,
+  extractUserProfile,
   getItem,
   removeItem,
   saveItem,
@@ -93,10 +94,15 @@ export const useSettingsPreferences = ({
   const {dirtyKeys: privacyDirtyKeys, queue: queuePrivacyPreferenceSync} =
     usePrivacyPreferenceSync();
   const preferenceRevisionRef = useRef<Record<string, number>>({});
+  const profile = extractUserProfile(userData);
+  const accountIdentity = hasAuthenticatedAccount
+    ? String(profile.id ?? profile.user_id ?? 'authenticated')
+    : 'guest';
 
   const markPreferenceMutation = (key: string) => {
-    preferenceRevisionRef.current[key] =
-      (preferenceRevisionRef.current[key] || 0) + 1;
+    const revision = (preferenceRevisionRef.current[key] || 0) + 1;
+    preferenceRevisionRef.current[key] = revision;
+    return revision;
   };
 
   const enqueuePreferenceWrite = <T>(
@@ -116,6 +122,18 @@ export const useSettingsPreferences = ({
       }),
     );
   };
+
+  useEffect(() => {
+    preferenceRevisionRef.current = {};
+    privacyDirtyKeys.clear();
+    setChoiceModal(null);
+    setNotificationPrimer(false);
+    setQuality('auto');
+    setNotifications(false);
+    setMarketingNotifications(false);
+    setWatchHistory(true);
+    setReminderHour(20);
+  }, [accountIdentity, privacyDirtyKeys]);
 
   useEffect(() => {
     let active = true;
@@ -264,7 +282,12 @@ export const useSettingsPreferences = ({
     return () => {
       active = false;
     };
-  }, [hasAuthenticatedAccount, privacyDirtyKeys, queuePrivacyPreferenceSync]);
+  }, [
+    accountIdentity,
+    hasAuthenticatedAccount,
+    privacyDirtyKeys,
+    queuePrivacyPreferenceSync,
+  ]);
 
   useEffect(() => {
     if (!hasAuthenticatedAccount) return;
@@ -282,10 +305,16 @@ export const useSettingsPreferences = ({
         assertAccountSessionBoundary(boundary);
       })
       .catch(() => undefined);
-  }, [hasAuthenticatedAccount]);
+  }, [accountIdentity, hasAuthenticatedAccount]);
 
   const updatePreference = (key: string, value: boolean) => {
-    markPreferenceMutation(key);
+    const revision = markPreferenceMutation(key);
+    const previousValue =
+      key === REMINDER_ENABLED_KEY
+        ? notifications
+        : key === WATCH_HISTORY_ENABLED_KEY
+        ? watchHistory
+        : marketingNotifications;
     if (
       key === WATCH_HISTORY_ENABLED_KEY ||
       key === MARKETING_NOTIFICATIONS_KEY
@@ -300,7 +329,8 @@ export const useSettingsPreferences = ({
 
     return enqueuePreferenceWrite(async boundary => {
       if (key === REMINDER_ENABLED_KEY) {
-        await setSmartRemindersEnabled(value);
+        const stored = await setSmartRemindersEnabled(value);
+        if (!stored) throw new Error('SETTINGS_STORAGE_WRITE_FAILED');
       } else if (
         key === WATCH_HISTORY_ENABLED_KEY ||
         key === MARKETING_NOTIFICATIONS_KEY
@@ -314,14 +344,29 @@ export const useSettingsPreferences = ({
           throw new Error('SETTINGS_STORAGE_WRITE_FAILED');
         }
       } else {
-        await saveItem(key, value);
+        const stored = await saveItem(key, value);
+        if (!stored) throw new Error('SETTINGS_STORAGE_WRITE_FAILED');
       }
       assertAccountSessionBoundary(boundary);
       if (key === REMINDER_ENABLED_KEY && extractApiToken(userData)) {
         try {
-          await updateNotificationStatus(value);
-        } catch {
-          // The local reminder remains active until the next server sync.
+          const remoteValue = await updateNotificationStatus(value);
+          if (remoteValue !== value) {
+            throw new Error('SETTINGS_REMOTE_WRITE_FAILED');
+          }
+        } catch (error) {
+          // Enabling without the matching server preference leaves a switch
+          // that looks active but can never receive a remote notification.
+          // Keep disabling available offline: unregistering the device below
+          // is sufficient to stop delivery and the server can catch up later.
+          if (value) {
+            await setSmartRemindersEnabled(previousValue).catch(
+              () => undefined,
+            );
+            throw error instanceof Error
+              ? error
+              : new Error('SETTINGS_REMOTE_WRITE_FAILED');
+          }
         }
         assertAccountSessionBoundary(boundary);
       }
@@ -335,24 +380,47 @@ export const useSettingsPreferences = ({
         });
         assertAccountSessionBoundary(boundary);
       }
-    }).catch(error => {
-      if (
-        error instanceof Error &&
-        error.message === 'SETTINGS_STORAGE_WRITE_FAILED'
-      ) {
+    })
+      .then(() => true)
+      .catch(error => {
+        if (preferenceRevisionRef.current[key] === revision) {
+          if (key === REMINDER_ENABLED_KEY) setNotifications(previousValue);
+          if (key === WATCH_HISTORY_ENABLED_KEY) {
+            setWatchHistory(previousValue);
+          }
+          if (key === MARKETING_NOTIFICATIONS_KEY) {
+            setMarketingNotifications(previousValue);
+          }
+          if (
+            key === WATCH_HISTORY_ENABLED_KEY ||
+            key === MARKETING_NOTIFICATIONS_KEY
+          ) {
+            privacyDirtyKeys.delete(key);
+          }
+        }
+        if (
+          error instanceof Error &&
+          error.message === 'ACCOUNT_CHANGED_DURING_REQUEST'
+        ) {
+          return false;
+        }
         Alert.alert(
           'لم يُحفظ التغيير',
-          'تعذّر حفظ الإعداد على الجهاز\nحاول مرة أخرى',
+          error instanceof Error &&
+            error.message === 'SETTINGS_STORAGE_WRITE_FAILED'
+            ? 'تعذّر حفظ الإعداد على الجهاز\nحاول مرة أخرى'
+            : 'تعذّر إكمال التغيير الآن\nحاول مرة أخرى',
         );
-      }
-    });
+        return false;
+      });
   };
 
   const updateNotifications = async (value: boolean) => {
     if (value) {
       setNotificationPrimer(true);
     } else {
-      await updatePreference(REMINDER_ENABLED_KEY, false);
+      const saved = await updatePreference(REMINDER_ENABLED_KEY, false);
+      if (!saved) return;
       cancelLearningReminders();
       await unregisterPushDevice().catch(() => undefined);
     }
@@ -363,7 +431,8 @@ export const useSettingsPreferences = ({
     const granted = await enableSmartReminders();
     assertAccountSessionBoundary(boundary);
     if (!granted) return false;
-    await updatePreference(REMINDER_ENABLED_KEY, true);
+    const saved = await updatePreference(REMINDER_ENABLED_KEY, true);
+    if (!saved) return false;
     assertAccountSessionBoundary(boundary);
     await registerPushDeviceIfEligible({requestPermission: false}).catch(
       () => false,
@@ -373,12 +442,29 @@ export const useSettingsPreferences = ({
   };
 
   const updateReminderHour = (hour: number) => {
-    markPreferenceMutation('REMINDER_HOUR');
+    const revision = markPreferenceMutation('REMINDER_HOUR');
+    const previousHour = reminderHour;
     setReminderHour(hour);
     setChoiceModal(null);
-    return enqueuePreferenceWrite(() => setSmartReminderHour(hour)).catch(
-      () => undefined,
-    );
+    return enqueuePreferenceWrite(async () => {
+      const stored = await setSmartReminderHour(hour);
+      if (!stored) throw new Error('SETTINGS_STORAGE_WRITE_FAILED');
+    }).catch(error => {
+      if (preferenceRevisionRef.current.REMINDER_HOUR === revision) {
+        setReminderHour(previousHour);
+      }
+      if (
+        !(
+          error instanceof Error &&
+          error.message === 'ACCOUNT_CHANGED_DURING_REQUEST'
+        )
+      ) {
+        Alert.alert(
+          'لم يُحفظ التغيير',
+          'تعذّر حفظ وقت التذكير\nحاول مرة أخرى',
+        );
+      }
+    });
   };
 
   const selectChoice = (key: string) => {
@@ -387,13 +473,15 @@ export const useSettingsPreferences = ({
       return;
     }
     const normalizedQuality = normalizeStoredQuality(key);
-    markPreferenceMutation('VIDEO_QUALITY');
+    const revision = markPreferenceMutation('VIDEO_QUALITY');
+    const previousQuality = quality;
     setQuality(normalizedQuality);
     void enqueuePreferenceWrite(async boundary => {
-      await saveItem(
+      const stored = await saveItem(
         await accountScopedStorageKey('VIDEO_QUALITY', boundary),
         normalizedQuality,
       );
+      if (!stored) throw new Error('SETTINGS_STORAGE_WRITE_FAILED');
       assertAccountSessionBoundary(boundary);
       if (hasAuthenticatedAccount) {
         await updatePlaybackPreferences({
@@ -401,7 +489,23 @@ export const useSettingsPreferences = ({
         });
         assertAccountSessionBoundary(boundary);
       }
-    }).catch(() => undefined);
+    }).catch(error => {
+      const storageFailure =
+        error instanceof Error &&
+        error.message === 'SETTINGS_STORAGE_WRITE_FAILED';
+      if (
+        storageFailure &&
+        preferenceRevisionRef.current.VIDEO_QUALITY === revision
+      ) {
+        setQuality(previousQuality);
+      }
+      if (storageFailure) {
+        Alert.alert(
+          'لم يُحفظ التغيير',
+          'تعذّر حفظ جودة الفيديو\nحاول مرة أخرى',
+        );
+      }
+    });
     setChoiceModal(null);
   };
 

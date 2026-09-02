@@ -382,7 +382,7 @@ export const CourseIntro = ({
             {formatArabicRatings(ratingsCount)}
           </Text>
         ) : (
-          <Text style={styles.socialProofText}>جديد</Text>
+          <Text style={styles.socialProofText}>لا توجد تقييمات</Text>
         )}
         {studentsCount > 0 && <View style={styles.socialProofDot} />}
         {studentsCount > 0 && (
@@ -392,39 +392,37 @@ export const CourseIntro = ({
         )}
       </View>
     )}
-    <View onLayout={onPrimaryActionLayout} style={styles.priceAndAction}>
-      <Pressable
-        accessibilityRole="button"
-        disabled={!pageReady}
-        onPress={handlePrimaryAction}
-        style={({pressed}) => [
-          styles.primaryButton,
-          pressed && styles.primaryButtonPressed,
-          !pageReady && styles.disabled,
-        ]}>
-        {remoteError ? (
-          <Text style={styles.primaryButtonText}>تعذّر تحميل التفاصيل</Text>
-        ) : !pageReady ? (
-          <ActivityIndicator color={Palette.text} />
-        ) : (
-          <Text style={styles.primaryButtonText}>{primaryActionLabel}</Text>
-        )}
-      </Pressable>
-      {!owned && hasPreview && pageReady && CAN_START_COIN_CHECKOUT && (
+    {!remoteError && (
+      <View onLayout={onPrimaryActionLayout} style={styles.priceAndAction}>
         <Pressable
-          accessibilityLabel="شاهد مجانًا"
           accessibilityRole="button"
-          onPress={onPreview}
+          disabled={!pageReady}
+          onPress={handlePrimaryAction}
           style={({pressed}) => [
-            styles.previewButton,
-            pressed && styles.pressed,
+            styles.primaryButton,
+            pressed && styles.primaryButtonPressed,
+            !pageReady && styles.disabled,
           ]}>
-          <Text style={styles.previewButtonText}>
-            شاهد مجانًا
-          </Text>
+          {!pageReady ? (
+            <ActivityIndicator color={Palette.text} />
+          ) : (
+            <Text style={styles.primaryButtonText}>{primaryActionLabel}</Text>
+          )}
         </Pressable>
-      )}
-    </View>
+        {!owned && hasPreview && pageReady && CAN_START_COIN_CHECKOUT && (
+          <Pressable
+            accessibilityLabel="شاهد مجانًا"
+            accessibilityRole="button"
+            onPress={onPreview}
+            style={({pressed}) => [
+              styles.previewButton,
+              pressed && styles.pressed,
+            ]}>
+            <Text style={styles.previewButtonText}>شاهد مجانًا</Text>
+          </Pressable>
+        )}
+      </View>
+    )}
   </View>
 );
 

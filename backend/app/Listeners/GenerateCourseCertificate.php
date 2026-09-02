@@ -11,14 +11,13 @@ use App\Models\Course;
 use App\Models\Certificate;
 use App\Models\Order;
 use App\Models\Project;
-use App\Models\StudentSectionProgress;
-use App\Models\UserProjectEvaluation;
 use App\Models\User;
 use App\Services\CertificateService;
 use App\Services\CourseChatAccessService;
 use App\Services\CourseSectionSequenceService;
 use App\Services\CurriculumCompletionService;
 use App\Services\FinancialProvenanceService;
+use App\Services\CourseRevisionLearnerReadService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
 
@@ -42,7 +41,8 @@ final class GenerateCourseCertificate implements ShouldQueue
         private readonly CourseChatAccessService $courseAccess,
         private readonly FinancialProvenanceService $financialProvenance,
         private readonly CourseSectionSequenceService $sectionSequence,
-        private readonly CurriculumCompletionService $curriculumCompletion
+        private readonly CurriculumCompletionService $curriculumCompletion,
+        private readonly CourseRevisionLearnerReadService $revisionReads
     ) {
     }
 
@@ -91,12 +91,9 @@ final class GenerateCourseCertificate implements ShouldQueue
                     return;
                 }
 
-                $completedSections = StudentSectionProgress::query()
-                    ->where('user_id', $user->id)
-                    ->whereIn('course_section_id', $sectionIds)
-                    ->where('is_completed', true)
-                    ->distinct('course_section_id')
-                    ->count('course_section_id');
+                $completedSections = $this->revisionReads
+                    ->completedSectionIds((int) $user->id, $sectionIds)
+                    ->count();
 
                 // Rolling compatibility for a completion emitted before the
                 // revision marker existed. Only current, complete evidence may
@@ -133,11 +130,10 @@ final class GenerateCourseCertificate implements ShouldQueue
                 : null;
 
             if ($graduationProject) {
-                $passed = UserProjectEvaluation::query()
-                    ->where('user_id', $user->id)
-                    ->where('project_id', $graduationProject->id)
-                    ->where('passed', true)
-                    ->exists();
+                $passed = $this->revisionReads->passedProjectIds(
+                    (int) $user->id,
+                    [(int) $graduationProject->id]
+                )->contains((int) $graduationProject->id);
                 if (!$passed) {
                     return;
                 }

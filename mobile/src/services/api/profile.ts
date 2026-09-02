@@ -1,9 +1,17 @@
 import {publicRequest} from '../../constants/api';
+import {
+  accountScopedStorageKey,
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+  getItem,
+  saveItem,
+} from '../../constants/helpers';
 import {uploadPortfolioVideo} from '../portfolioVideoUpload';
 import {
   ApiRecord,
   firstBoolean,
   isApiRecord,
+  isResourceListPayload,
   payload,
   resourceList,
 } from './common';
@@ -20,6 +28,13 @@ type PortfolioCourseDto = {name?: unknown; id?: unknown; image?: unknown};
 type PortfolioItemDto = ApiRecord & {
   media?: unknown;
   course?: PortfolioCourseDto;
+};
+
+const PORTFOLIO_CACHE_KEY = '@rokn/portfolio-cache/v1';
+
+type PortfolioCache = {
+  version: 1;
+  items: PortfolioItemDto[];
 };
 type EligibleProjectDto = ApiRecord & {
   course?: {id?: unknown; title?: unknown; title_en?: unknown; image?: unknown};
@@ -345,15 +360,58 @@ export type WatchHistory = {
  */
 export const getWatchHistory = async (limit = 6): Promise<WatchHistory> => {
   const safeLimit = Math.max(1, Math.min(6, Math.trunc(limit) || 6));
+  const accountBoundary = await captureAccountSessionBoundary();
   const data = payload(
     await publicRequest.get('user/watch-history', {
       params: {per_page: safeLimit},
     }),
   );
+  assertAccountSessionBoundary(accountBoundary);
+  if (
+    !isApiRecord(data) ||
+    !isResourceListPayload(data.items) ||
+    firstBoolean(data.tracking_enabled) === undefined
+  ) {
+    throw new Error('WATCH_HISTORY_CONTRACT_INVALID');
+  }
+  const rawItems = resourceList<WatchHistoryDto>(data.items);
+  const identities = new Set<string>();
+  if (
+    rawItems.some(item => {
+      if (!isApiRecord(item)) return true;
+      const courseId = String(item.course_id ?? '').trim();
+      const lessonId = String(item.lesson_id ?? '').trim();
+      const identity = `${courseId}:${lessonId}`;
+      const position = Number(item.position_seconds);
+      const rawDuration = item.duration_seconds;
+      const duration = rawDuration === null ? null : Number(rawDuration);
+      const watchedAt = String(item.watched_at || '').trim();
+      if (
+        !/^\d+$/.test(courseId) ||
+        !/^\d+$/.test(lessonId) ||
+        identities.has(identity) ||
+        !String(item.course_title || item.course_title_en || '').trim() ||
+        !String(item.lesson_title || '').trim() ||
+        !Number.isSafeInteger(position) ||
+        position < 0 ||
+        (duration !== null &&
+          (!Number.isSafeInteger(duration) || duration < 1)) ||
+        firstBoolean(item.is_completed) === undefined ||
+        !watchedAt ||
+        !Number.isFinite(Date.parse(watchedAt))
+      ) {
+        return true;
+      }
+      identities.add(identity);
+      return false;
+    })
+  ) {
+    throw new Error('WATCH_HISTORY_CONTRACT_INVALID');
+  }
   const seenLessons = new Set<string>();
   const items: WatchHistoryItem[] = [];
 
-  for (const item of resourceList<WatchHistoryDto>(data.items)) {
+  for (const item of rawItems) {
     const courseId = item?.course_id;
     const lessonId = item?.lesson_id;
     if (courseId === null || courseId === undefined) continue;
@@ -388,12 +446,10 @@ export const getWatchHistory = async (limit = 6): Promise<WatchHistory> => {
     items.push({
       id: String(item.id ?? lessonKey),
       courseId: String(courseId),
-      courseTitle: String(
-        item.course_title || item.course_title_en || 'كورس ركن',
-      ),
+      courseTitle: String(item.course_title || item.course_title_en),
       courseImage: item.course_image ? String(item.course_image) : undefined,
       lessonId: String(lessonId),
-      lessonTitle: String(item.lesson_title || 'مقطع من الكورس'),
+      lessonTitle: String(item.lesson_title),
       lessonThumbnail: item.lesson_thumbnail
         ? String(item.lesson_thumbnail)
         : undefined,
@@ -407,8 +463,9 @@ export const getWatchHistory = async (limit = 6): Promise<WatchHistory> => {
     if (items.length >= safeLimit) break;
   }
 
+  assertAccountSessionBoundary(accountBoundary);
   return {
-    trackingEnabled: firstBoolean(data.tracking_enabled) ?? true,
+    trackingEnabled: firstBoolean(data.tracking_enabled)!,
     items,
   };
 };
@@ -436,10 +493,27 @@ export const updatePortfolioProfile = async ({
   };
 };
 
-const portfolioMedia = (value: unknown): PortfolioMedia[] =>
-  resourceList<PortfolioMediaDto>(value)
-    .filter(item => item.id !== null && item.id !== undefined)
-    .map(item => {
+const portfolioMedia = (value: unknown): PortfolioMedia[] => {
+  if (!isResourceListPayload(value)) {
+    throw new Error('PORTFOLIO_MEDIA_CONTRACT_INVALID');
+  }
+  const items = resourceList<PortfolioMediaDto>(value);
+  if (
+    items.some(
+      item =>
+        !isApiRecord(item) ||
+        item.id === null ||
+        item.id === undefined ||
+        !/^\d+$/.test(String(item.id).trim()) ||
+        !['image', 'video'].includes(String(item.file_type).toLowerCase()) ||
+        !['ready', 'processing', 'failed'].includes(
+          String(item.status).toLowerCase(),
+        ),
+    )
+  ) {
+    throw new Error('PORTFOLIO_MEDIA_CONTRACT_INVALID');
+  }
+  return items.map(item => {
       const type =
         String(item.file_type).toLowerCase() === 'video' ? 'video' : 'image';
       const statusValue = String(item.status || '').toLowerCase();
@@ -475,6 +549,7 @@ const portfolioMedia = (value: unknown): PortfolioMedia[] =>
           : undefined,
       };
     });
+};
 
 const portfolioItem = (
   item: PortfolioItemDto,
@@ -514,22 +589,99 @@ const portfolioItem = (
   };
 };
 
+const portfolioMutationItem = (
+  value: unknown,
+  expectedId?: string,
+): PortfolioItem => {
+  if (!isApiRecord(value)) {
+    throw new Error('PORTFOLIO_ITEM_CONTRACT_INVALID');
+  }
+  const id = String(value.id ?? '').trim();
+  if (!id || (expectedId !== undefined && id !== String(expectedId).trim())) {
+    throw new Error('PORTFOLIO_ITEM_CONTRACT_INVALID');
+  }
+  const uploadState = String(value.upload_state || '');
+  if (
+    typeof value.title !== 'string' ||
+    !Object.prototype.hasOwnProperty.call(value, 'description') ||
+    !isResourceListPayload(value.media) ||
+    !['draft', 'uploading', 'ready', 'deleting'].includes(uploadState) ||
+    !Number.isFinite(Number(value.uploaded_media_count)) ||
+    !Number.isFinite(Number(value.expected_media_count))
+  ) {
+    throw new Error('PORTFOLIO_ITEM_CONTRACT_INVALID');
+  }
+
+  return portfolioItem(value as PortfolioItemDto);
+};
+
+const isValidPortfolioList = (
+  items: unknown[],
+): items is PortfolioItemDto[] => {
+  const ids = new Set<string>();
+  return items.every(item => {
+    if (!isApiRecord(item)) return false;
+    const id = String(item.id ?? '').trim();
+    if (!/^\d+$/.test(id) || ids.has(id)) return false;
+    try {
+      portfolioMutationItem(item, id);
+      ids.add(id);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+};
+
 export const getPortfolio = async (): Promise<PortfolioItem[]> => {
+  const boundary = await captureAccountSessionBoundary();
   const data = payload(
     await publicRequest.get('portfolio', {params: {summary: 1}}),
   );
+  assertAccountSessionBoundary(boundary);
+  if (!isResourceListPayload(data)) {
+    throw new Error('PORTFOLIO_LIST_CONTRACT_INVALID');
+  }
   const items = resourceList<PortfolioItemDto>(data);
-  return items
-    .filter(item => item.id !== null && item.id !== undefined)
-    .map(item => portfolioItem(item));
+  if (!isValidPortfolioList(items)) {
+    throw new Error('PORTFOLIO_LIST_CONTRACT_INVALID');
+  }
+  const portfolio = items.map(item => portfolioItem(item));
+  const cacheKey = await accountScopedStorageKey(PORTFOLIO_CACHE_KEY, boundary);
+  try {
+    await saveItem(cacheKey, {
+      version: 1,
+      items,
+    } satisfies PortfolioCache);
+  } catch {
+    // Cache durability must not turn a valid server response into a page error.
+    // Account changes remain authoritative and are re-thrown by the boundary.
+    assertAccountSessionBoundary(boundary);
+  }
+  assertAccountSessionBoundary(boundary);
+  return portfolio;
+};
+
+export const getCachedPortfolio = async (): Promise<PortfolioItem[]> => {
+  const boundary = await captureAccountSessionBoundary();
+  const cacheKey = await accountScopedStorageKey(PORTFOLIO_CACHE_KEY, boundary);
+  const cached = await getItem<Partial<PortfolioCache>>(cacheKey);
+  assertAccountSessionBoundary(boundary);
+  if (
+    cached?.version !== 1 ||
+    !Array.isArray(cached.items) ||
+    !isValidPortfolioList(cached.items)
+  ) {
+    return [];
+  }
+  return cached.items.map(item => portfolioItem(item));
 };
 
 export const getPortfolioItem = async (id: string): Promise<PortfolioItem> => {
+  const boundary = await captureAccountSessionBoundary();
   const data = payload(await publicRequest.get(`portfolio/${id}`));
-  if (!isApiRecord(data) || data.id === null || data.id === undefined) {
-    throw new Error('PORTFOLIO_ITEM_CONTRACT_INVALID');
-  }
-  return portfolioItem(data as PortfolioItemDto);
+  assertAccountSessionBoundary(boundary);
+  return portfolioMutationItem(data, id);
 };
 
 export const createPortfolioItem = async ({
@@ -563,26 +715,14 @@ export const createPortfolioItem = async ({
       },
     ),
   );
-  return portfolioItem(data as PortfolioItemDto, {
-    title,
-    summary,
-    skills: [],
-    courseId,
-    sourceProjectId,
-    featured: false,
-    media: [],
-    uploadState: expectedMediaCount > 0 ? 'draft' : 'ready',
-    uploadedMediaCount: 0,
-    expectedMediaCount,
-  });
+  return portfolioMutationItem(data);
 };
 
 export const finalizePortfolioItem = async (
   id: string,
 ): Promise<PortfolioItem> => {
   const data = payload(await publicRequest.post(`portfolio/${id}/finalize`));
-  if (!isApiRecord(data)) throw new Error('PORTFOLIO_ITEM_CONTRACT_INVALID');
-  return portfolioItem(data as PortfolioItemDto);
+  return portfolioMutationItem(data, id);
 };
 
 export const updatePortfolioItem = async (
@@ -595,15 +735,7 @@ export const updatePortfolioItem = async (
       description: input.summary,
     }),
   );
-  if (!isApiRecord(data)) throw new Error('PORTFOLIO_ITEM_CONTRACT_INVALID');
-  return portfolioItem(data as PortfolioItemDto, {
-    id,
-    title: input.title,
-    summary: input.summary,
-    uploadState: 'ready',
-    uploadedMediaCount: 0,
-    expectedMediaCount: 0,
-  });
+  return portfolioMutationItem(data, id);
 };
 
 export const appendPortfolioMedia = async (
@@ -663,20 +795,31 @@ export const getEligibleProjects = async (): Promise<EligibleProject[]> => {
       params: {per_page: 50},
     }),
   );
-  return resourceList<EligibleProjectDto>(data.items)
-    .filter(hasEligibleCourse)
-    .map(item => ({
+  if (!isApiRecord(data) || !isResourceListPayload(data.items)) {
+    throw new Error('PORTFOLIO_ELIGIBLE_PROJECTS_CONTRACT_INVALID');
+  }
+  const items = resourceList<EligibleProjectDto>(data.items);
+  if (items.some(item => !isApiRecord(item) || !hasEligibleCourse(item))) {
+    throw new Error('PORTFOLIO_ELIGIBLE_PROJECTS_CONTRACT_INVALID');
+  }
+  return items.map(item => {
+    const course = item.course;
+    if (!course) {
+      throw new Error('PORTFOLIO_ELIGIBLE_PROJECTS_CONTRACT_INVALID');
+    }
+    return {
       projectId: String(item.project_id),
-      courseId: String(item.course.id),
+      courseId: String(course.id),
       title: String(item.title || 'مشروع تطبيقي'),
       summary: String(item.requirements || ''),
       courseName: String(
-        item.course.title || item.course.title_en || 'كورس ركن',
+        course.title || course.title_en || 'كورس ركن',
       ),
-      courseImage: item.course.image ? String(item.course.image) : undefined,
+      courseImage: course.image ? String(course.image) : undefined,
       moduleName: item.module?.title ? String(item.module.title) : undefined,
       passedAt: item.passed_at ? String(item.passed_at) : undefined,
-    }));
+    };
+  });
 };
 
 export const deletePortfolioItem = async (id: string): Promise<void> => {

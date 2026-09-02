@@ -1024,6 +1024,21 @@ class BunnyService
         ];
 
         if ($lesson->video_source_type === 'bunny' && !empty($lesson->bunny_video_id)) {
+            $state = $lesson->relationLoaded('mediaState')
+                ? $lesson->mediaState
+                : $lesson->mediaState()->first();
+            // Public previews used to bypass the playback control plane and
+            // receive a signed URL while Bunny was still processing, missing,
+            // or quarantined. The player then surfaced Bunny's raw domain
+            // error. Only a coherently reconciled generation is playable.
+            if (
+                !$state
+                || (string) $state->provider_media_id !== (string) $lesson->bunny_video_id
+                || $state->status !== 'ready'
+                || $state->integrity_status === 'quarantined'
+            ) {
+                return $data;
+            }
             // Get signed embed URL for Bunny video
             $signedUrl = $this->getVideo($lesson->bunny_video_id);
             if ($signedUrl) {

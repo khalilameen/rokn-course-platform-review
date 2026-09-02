@@ -79,7 +79,7 @@ final readonly class CourseAssessmentService
                 'questions' => function (Relation $questions): void {
                     $questions->select(self::QUESTION_COLUMNS)
                         ->with('photo')
-                        ->orderBy('priority');
+                        ->orderBy('priority')->orderBy('id');
                 },
             ])
             ->where('type', 'quiz')
@@ -98,7 +98,7 @@ final readonly class CourseAssessmentService
                         'questions' => function (Relation $questions): void {
                             $questions->select(self::QUESTION_COLUMNS)
                                 ->with('photo')
-                                ->orderBy('priority');
+                                ->orderBy('priority')->orderBy('id');
                         },
                     ]);
                 },

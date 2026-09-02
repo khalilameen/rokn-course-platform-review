@@ -25,10 +25,12 @@ type CatalogueRequest = {
 export const useHomeCatalogue = ({
   active,
   demoCatalogue,
+  identityKey,
   searchQuery,
 }: {
   active: boolean;
   demoCatalogue: DemoCourse[];
+  identityKey: string;
   searchQuery: string;
 }) => {
   const [remoteCourses, setRemoteCourses] = useState<DemoCourse[] | null>(null);
@@ -45,8 +47,11 @@ export const useHomeCatalogue = ({
   const previouslyFocusedRef = useRef(active);
   const requestId = useRef(0);
   const requestController = useRef<AbortController | null>(null);
+  const dataOwnerRef = useRef(identityKey);
+  const refreshFlight = useRef<Promise<void> | null>(null);
   const loadingMoreRef = useRef(false);
   const loadedQuery = useRef('');
+  const requestedQuery = useRef('');
   const browseCatalogue = useRef<DemoCourse[]>([]);
   const catalogueRevision = useRef<number | undefined>(undefined);
   const lastAttemptAt = useRef(0);
@@ -68,12 +73,17 @@ export const useHomeCatalogue = ({
       requestController.current?.abort();
       const controller = new AbortController();
       requestController.current = controller;
+      requestedQuery.current = normalizeText(query);
       lastAttemptAt.current = Date.now();
       loadingMoreRef.current = append;
       const currentRequestId = ++requestId.current;
 
+      if (!append) setLoadMoreError('');
       if (blocking) {
-        setLoading(true);
+        const needsBlockingState =
+          normalizeText(query) !== '' || browseCatalogue.current.length === 0;
+        setLoading(needsBlockingState);
+        setError('');
         // A refresh or search must never erase a catalogue the learner can
         // already use. Keep the last good snapshot until the replacement is
         // confirmed; only a true first load owns the empty skeleton state.
@@ -190,11 +200,33 @@ export const useHomeCatalogue = ({
         }
       }
     },
-    [],
+    [identityKey],
   );
 
   useEffect(() => {
     let mounted = true;
+
+    dataOwnerRef.current = identityKey;
+    requestController.current?.abort();
+    requestController.current = null;
+    requestId.current += 1;
+    loadingMoreRef.current = false;
+    refreshFlight.current = null;
+    loadedQuery.current = '';
+    requestedQuery.current = '';
+    browseCatalogue.current = [];
+    catalogueRevision.current = undefined;
+    lastAttemptAt.current = 0;
+    lastSuccessfulLoadAt.current = 0;
+    setRemoteCourses(null);
+    setServerSession(null);
+    setLoading(true);
+    setLoadingMore(false);
+    setPage(1);
+    setHasMore(false);
+    setError('');
+    setStaleNotice('');
+    setLoadMoreError('');
 
     void getCachedPublishedCourses()
       .then(cached => {
@@ -204,10 +236,13 @@ export const useHomeCatalogue = ({
           setRemoteCourses(cached);
           setLoading(false);
         }
-        void load({blocking: cached.length === 0});
+        void load({
+          query: activeQuery.current,
+          blocking: cached.length === 0 || activeQuery.current !== '',
+        });
       })
       .catch(() => {
-        if (mounted) void load();
+        if (mounted) void load({query: activeQuery.current});
       });
 
     return () => {
@@ -217,7 +252,7 @@ export const useHomeCatalogue = ({
       requestId.current += 1;
       loadingMoreRef.current = false;
     };
-  }, [load]);
+  }, [identityKey, load]);
 
   useEffect(
     () =>
@@ -232,7 +267,9 @@ export const useHomeCatalogue = ({
     [],
   );
 
+  const ownerMatches = dataOwnerRef.current === identityKey;
   const catalogue = useMemo<DemoCourse[]>(() => {
+    if (!ownerMatches) return [];
     if (
       !loading &&
       serverSession === false &&
@@ -249,9 +286,17 @@ export const useHomeCatalogue = ({
       return browseCatalogue.current;
     }
     return remoteCourses ?? [];
-  }, [demoCatalogue, loading, searchQuery, serverSession, remoteCourses]);
+  }, [
+    demoCatalogue,
+    loading,
+    ownerMatches,
+    searchQuery,
+    serverSession,
+    remoteCourses,
+  ]);
 
   const usingLocalDemo =
+    ownerMatches &&
     LOCAL_DEMO_ENABLED &&
     serverSession === false &&
     !remoteCourses?.length &&
@@ -315,6 +360,11 @@ export const useHomeCatalogue = ({
     if (serverSession === null || usingLocalDemo) return undefined;
     const query = normalizeText(searchQuery);
     if (query === loadedQuery.current) return undefined;
+    if (
+      requestController.current &&
+      query === requestedQuery.current
+    )
+      return undefined;
 
     requestController.current?.abort();
     requestController.current = null;
@@ -322,25 +372,36 @@ export const useHomeCatalogue = ({
     loadingMoreRef.current = false;
     catalogueRevision.current = undefined;
     setLoading(true);
+    setLoadMoreError('');
     const timer = setTimeout(() => {
       void load({query, page: 1, append: false, blocking: true});
     }, 350);
     return () => clearTimeout(timer);
   }, [load, serverSession, searchQuery, usingLocalDemo]);
 
-  const refresh = useCallback(
-    () =>
-      load({
-        query: normalizeText(searchQuery),
-        page: 1,
-        append: false,
-        blocking: true,
-      }),
-    [load, searchQuery],
-  );
+  const refresh = useCallback(() => {
+    if (refreshFlight.current) return refreshFlight.current;
+    const flight = load({
+      query: normalizeText(searchQuery),
+      page: 1,
+      append: false,
+      blocking: true,
+    }).finally(() => {
+      if (refreshFlight.current === flight) refreshFlight.current = null;
+    });
+    refreshFlight.current = flight;
+    return flight;
+  }, [load, searchQuery]);
 
   const loadMore = useCallback(() => {
-    if (loading || loadingMore || !hasMore || usingLocalDemo) return;
+    if (
+      loading ||
+      loadingMore ||
+      requestController.current ||
+      !hasMore ||
+      usingLocalDemo
+    )
+      return;
     void load({
       query: loadedQuery.current,
       page: page + 1,
@@ -363,19 +424,19 @@ export const useHomeCatalogue = ({
   );
 
   return {
-    browseCatalogue: browseCatalogue.current,
+    browseCatalogue: ownerMatches ? browseCatalogue.current : [],
     catalogue,
-    error,
+    error: ownerMatches ? error : '',
     handleScroll,
     loadMore,
-    loading,
-    loadingMore,
-    loadMoreError,
-    loadedSearchQuery: loadedQuery.current,
-    serverSession,
+    loading: loading || !ownerMatches,
+    loadingMore: ownerMatches ? loadingMore : false,
+    loadMoreError: ownerMatches ? loadMoreError : '',
+    loadedSearchQuery: ownerMatches ? loadedQuery.current : '',
+    serverSession: ownerMatches ? serverSession : null,
     refresh,
-    remoteCourses,
-    staleNotice,
+    remoteCourses: ownerMatches ? remoteCourses : null,
+    staleNotice: ownerMatches ? staleNotice : '',
     usingLocalDemo,
   };
 };

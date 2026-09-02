@@ -3,6 +3,7 @@
 @section('page.title', 'تفاصيل نتيجة الامتحان')
 
 @section('content')
+@php($quizSnapshot = $examAttempt->quizSnapshot())
 <div class="content mt-3 admin-page exam-results-page">
     <div class="animated fadeIn">
         <div class="row">
@@ -32,10 +33,10 @@
                                     معلومات الطالب
                                 </h5>
                                 <div class="info-group">
-                                    <strong>الاسم:</strong> {{ $examAttempt->user->name }}
+                                    <strong>الاسم:</strong> {{ $examAttempt->user?->name ?? 'حساب محذوف' }}
                                 </div>
                                 <div class="info-group">
-                                    <strong>البريد الإلكتروني:</strong> {{ $examAttempt->user->email }}
+                                    <strong>البريد الإلكتروني:</strong> {{ $examAttempt->user?->email ?? '—' }}
                                 </div>
                             </div>
 
@@ -45,9 +46,12 @@
                                     <i class="fa fa-file-text mr-2"></i>
                                     معلومات الامتحان
                                 </h5>
-                                @if($examAttempt->description)
+                                <div class="info-group">
+                                    <strong>الاختبار:</strong> {{ $quizSnapshot['title'] }}
+                                </div>
+                                @if($quizSnapshot['description'])
                                     <div class="info-group">
-                                        <strong>الوصف:</strong> {{ $examAttempt->quiz->description }}
+                                        <strong>الوصف:</strong> {{ $quizSnapshot['description'] }}
                                     </div>
                                 @endif
                                 <div class="info-group">

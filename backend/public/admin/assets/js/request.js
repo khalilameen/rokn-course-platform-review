@@ -3,6 +3,7 @@
 
     const latestControllers = new Map();
     const mutationTails = new Map();
+    let mutationsBlockedUntilReload = false;
 
     class AdminRequestError extends Error {
         constructor(message, status, code) {
@@ -46,6 +47,8 @@
     const request = async (url, options) => {
         const settings = options || {};
         const {timeout, signal, ...fetchSettings} = settings;
+        const method = String(fetchSettings.method || 'GET').toUpperCase();
+        const mutationOutcomeMayBeUnknown = !['GET', 'HEAD', 'OPTIONS'].includes(method);
         const controller = new AbortController();
         const externalSignal = signal;
         let timedOut = false;
@@ -80,9 +83,21 @@
             if (error instanceof AdminRequestError) throw error;
             if (controller.signal.aborted) {
                 if (!timedOut) throw new AdminRequestError('', 0, 'cancelled');
-                throw new AdminRequestError(fallbackMessage(408), 408, 'request_timeout');
+                throw new AdminRequestError(
+                    mutationOutcomeMayBeUnknown
+                        ? 'انقطع الرد بعد إرسال التعديل\nنعيد تحميل أحدث حالة قبل المحاولة'
+                        : fallbackMessage(408),
+                    408,
+                    mutationOutcomeMayBeUnknown ? 'mutation_outcome_unknown' : 'request_timeout'
+                );
             }
-            throw new AdminRequestError(fallbackMessage(0), 0, 'network_unavailable');
+            throw new AdminRequestError(
+                mutationOutcomeMayBeUnknown
+                    ? 'انقطع الرد بعد إرسال التعديل\nنعيد تحميل أحدث حالة قبل المحاولة'
+                    : fallbackMessage(0),
+                0,
+                mutationOutcomeMayBeUnknown ? 'mutation_outcome_unknown' : 'network_unavailable'
+            );
         } finally {
             window.clearTimeout(timer);
             externalSignal?.removeEventListener('abort', abortFromCaller);
@@ -100,18 +115,49 @@
 
     const serializeMutation = (key, operation) => {
         const previous = mutationTails.get(key) || Promise.resolve();
-        const current = previous.catch(() => undefined).then(operation);
+        const current = previous.catch(() => undefined).then(() => {
+            if (mutationsBlockedUntilReload) {
+                throw new AdminRequestError('', 0, 'cancelled');
+            }
+            return operation();
+        });
         mutationTails.set(key, current);
         return current.finally(() => {
             if (mutationTails.get(key) === current) mutationTails.delete(key);
         });
     };
 
+    const requireAuthoringVersion = (payload, expectedVersion, requireAdvance) => {
+        const expected = Number(expectedVersion);
+        const received = Number(payload && payload.authoring_version);
+        const invalid = !Number.isSafeInteger(expected) || expected < 1 ||
+            !Number.isSafeInteger(received) || received < expected ||
+            (requireAdvance === true && received <= expected);
+        if (invalid) {
+            throw new AdminRequestError(
+                'وصل رد غير مكتمل بعد الحفظ\nنعيد تحميل أحدث نسخة قبل المتابعة',
+                200,
+                'invalid_authoring_response'
+            );
+        }
+        return received;
+    };
+
+    const blockMutationsUntilReload = () => {
+        mutationsBlockedUntilReload = true;
+        document.documentElement.setAttribute('data-authoring-reconciliation', 'required');
+    };
+
+    const mutationsAreBlocked = () => mutationsBlockedUntilReload;
+
     window.RoknAdminRequest = Object.freeze({
         AdminRequestError,
+        blockMutationsUntilReload,
         fallbackMessage,
         latest,
+        mutationsAreBlocked,
         request,
+        requireAuthoringVersion,
         serializeMutation,
     });
 })(window);

@@ -136,6 +136,25 @@ class ProductOperationsController extends Controller
                 }
             });
 
+        $issuedCertificates = Certificate::query()
+            ->where(function ($query): void {
+                $query->whereNull('status')->orWhere('status', 'active');
+            })
+            ->whereNull('revoked_at')
+            ->whereNotNull('image_path')
+            ->where('image_path', '<>', '')
+            ->where('image_path', '<>', 'pending');
+        $pendingCertificates = Certificate::query()
+            ->where(function ($query): void {
+                $query->whereNull('status')->orWhere('status', 'active');
+            })
+            ->whereNull('revoked_at')
+            ->where('image_path', 'pending');
+        $revokedCertificates = Certificate::query()
+            ->where(function ($query): void {
+                $query->where('status', 'revoked')->orWhereNotNull('revoked_at');
+            });
+
         $counts = [
             'courses' => $courses->count(),
             'published' => $courses->where('is_coming_soon', false)->count(),
@@ -151,7 +170,9 @@ class ProductOperationsController extends Controller
             'grant_claims' => CourseGrantClaim::query()->count(),
             'grant_upgrades' => (clone $grantUpgradeOrders)->count(),
             'pending_projects' => ProjectSubmission::query()->where('review_status', ProjectSubmission::STATUS_PENDING)->count(),
-            'certificates' => Certificate::query()->count(),
+            'certificates' => $issuedCertificates->count(),
+            'certificates_pending' => $pendingCertificates->count(),
+            'certificates_revoked' => $revokedCertificates->count(),
             'portfolio_items' => PortfolioItem::query()->count(),
             'notifications' => StudentNotification::query()->count(),
             'legacy_public_attachments' => $legacyPublicAttachments,

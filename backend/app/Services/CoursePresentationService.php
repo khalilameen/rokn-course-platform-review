@@ -23,7 +23,8 @@ final readonly class CoursePresentationService
     public function __construct(
         private CourseChatAccessService $chatAccess,
         private CourseSectionSequenceService $sectionSequence,
-        private CertificateEligibilityService $certificateEligibility
+        private CertificateEligibilityService $certificateEligibility,
+        private CourseRevisionLearnerReadService $revisionReads
     )
     {
     }
@@ -78,11 +79,10 @@ final readonly class CoursePresentationService
     ): BaseCourseResource {
         $completedSectionIds = collect();
         if ($user && $hasAccess) {
-            $completedSectionIds = StudentSectionProgress::query()
-                ->where('user_id', $user->id)
-                ->whereIn('course_section_id', $course->sections->pluck('id'))
-                ->where('is_completed', true)
-                ->pluck('course_section_id');
+            $completedSectionIds = $this->revisionReads->completedSectionIds(
+                (int) $user->id,
+                $course->sections->pluck('id')
+            );
             $resource = (new CourseResource($course))->withLearningContext(
                 $completedSectionIds,
                 $resolvedEntitlement,
@@ -123,6 +123,39 @@ final readonly class CoursePresentationService
     }
 
     /**
+     * Build the exact entitled learner resource for a dashboard-only preview.
+     * No enrollment, progress row or publication flag is written.
+     *
+     * @param array<string, mixed> $planContract
+     */
+    public function dashboardPreview(
+        Course $course,
+        User $actor,
+        array $planContract,
+        string $accessType
+    ): CourseResource {
+        $entitlement = $planContract + [
+            'has_learning_access' => true,
+            'access_type' => $accessType,
+            'chat_available' => (bool) ($planContract['chat_enabled'] ?? false),
+            'certificate_available' => (bool) ($planContract['certificate_enabled'] ?? false),
+            'project_feedback_level' => (string) (
+                $planContract['project_feedback_level'] ?? 'pass_only'
+            ),
+        ];
+
+        return (new CourseResource($course))
+            ->withLearningContext(collect(), $entitlement, null)
+            ->withDashboardPreviewContext($actor, $planContract)
+            ->withEntitlement(
+                $accessType,
+                (bool) $entitlement['chat_available'],
+                (bool) $entitlement['certificate_available'],
+                false
+            );
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function progressPayload(
@@ -132,11 +165,10 @@ final readonly class CoursePresentationService
         int $userId
     ): array {
         $learningSections = $this->sectionSequence->learning($course->sections);
-        $completedSectionIds = StudentSectionProgress::query()
-            ->where('user_id', $userId)
-            ->whereIn('course_section_id', $learningSections->pluck('id'))
-            ->where('is_completed', true)
-            ->pluck('course_section_id');
+        $completedSectionIds = $this->revisionReads->completedSectionIds(
+            $userId,
+            $learningSections->pluck('id')
+        );
         $totalSections = $learningSections->count();
         $completedSections = $completedSectionIds->count();
         $progressPercentage = $totalSections > 0
@@ -204,11 +236,7 @@ final readonly class CoursePresentationService
             $projectIds = $projectsByModule->pluck('sectionable_id')->filter();
             $passedProjectIds = $projectIds->isEmpty()
                 ? collect()
-                : UserProjectEvaluation::query()
-                    ->where('user_id', $userId)
-                    ->whereIn('project_id', $projectIds)
-                    ->where('passed', true)
-                    ->pluck('project_id');
+                : $this->revisionReads->passedProjectIds($userId, $projectIds);
 
             foreach ($sections->pluck('module_id')->filter()->unique() as $moduleId) {
                 $projectSection = $projectsByModule->get($moduleId);
@@ -279,11 +307,10 @@ final readonly class CoursePresentationService
             'sections' => fn ($sections) => $sections->orderBy('order'),
         ])->findOrFail($courseId);
         $learningSections = $this->sectionSequence->learning($course->sections);
-        $completedSectionIds = StudentSectionProgress::query()
-            ->where('user_id', $userId)
-            ->whereIn('course_section_id', $learningSections->pluck('id'))
-            ->where('is_completed', true)
-            ->pluck('course_section_id');
+        $completedSectionIds = $this->revisionReads->completedSectionIds(
+            $userId,
+            $learningSections->pluck('id')
+        );
         $totalSections = $learningSections->count();
         $completedSections = $completedSectionIds->count();
 

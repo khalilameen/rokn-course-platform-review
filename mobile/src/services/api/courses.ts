@@ -16,6 +16,7 @@ import {
   ApiRecord,
   firstBoolean,
   isApiRecord,
+  isResourceListPayload,
   payload,
   resourceList,
   valueAsBoolean,
@@ -32,7 +33,7 @@ const numericRouteId = (value: string, field: string) => {
 const CATALOGUE_CACHE_KEY = '@rokn/catalogue-page/v4';
 const CATALOGUE_CACHE_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 const CATALOGUE_CACHE_PAGE_LIMIT = 4;
-const COURSE_DETAILS_CACHE_KEY = '@rokn/course-details/v3';
+const COURSE_DETAILS_CACHE_KEY = '@rokn/course-details/v4';
 const COURSE_DETAILS_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const COURSE_DETAILS_CACHE_LIMIT = 8;
 let courseDetailsCacheTail: Promise<void> = Promise.resolve();
@@ -57,6 +58,27 @@ const nonNegativeNumberOr = (value: unknown, fallback: number): number => {
   return Number.isFinite(parsed) ? Math.max(0, parsed) : fallback;
 };
 
+const displayText = (value: unknown): string =>
+  typeof value === 'string' || typeof value === 'number'
+    ? String(value).trim()
+    : '';
+
+const displayImageUrl = (value: unknown): string | undefined => {
+  const candidate = displayText(value);
+  return /^(?:https?:\/\/|file:\/\/|content:\/\/)/i.test(candidate)
+    ? candidate
+    : undefined;
+};
+
+const usableCourseTags = (value: unknown): CourseTagDto[] =>
+  Array.isArray(value)
+    ? value.filter(
+        (tag): tag is CourseTagDto =>
+          isApiRecord(tag) &&
+          Boolean(displayText(tag.name_ar) || displayText(tag.name_en)),
+      )
+    : [];
+
 const courseUserRating = (value: unknown): number | null => {
   const raw = isApiRecord(value) ? value.rating : value;
   const rating = Number(raw);
@@ -76,6 +98,9 @@ type CourseResumeDto = {
   available?: unknown;
   lesson_id?: unknown;
   lesson_title?: unknown;
+  position_seconds?: unknown;
+  duration_seconds?: unknown;
+  progress_percentage?: unknown;
   last_lesson?: CourseLessonDto;
   next_lesson?: CourseLessonDto;
   last_watched_at?: unknown;
@@ -205,16 +230,15 @@ export type CourseDetails = {
 };
 
 type CourseDetailsCacheRecord = {
-  version: 3;
+  version: 4;
   savedAt: number;
   course: CourseDetails;
 };
 
 const courseCategory = (course: CourseDto): DemoCourse['category'] => {
-  const labels = (Array.isArray(course?.tags) ? course.tags : [])
-    .filter(isApiRecord)
-    .flatMap(tag => [tag.name_ar, tag.name_en])
-    .filter(Boolean)
+  const labels = usableCourseTags(course?.tags)
+    .flatMap(tag => [displayText(tag.name_ar), displayText(tag.name_en)])
+    .filter(label => label.length > 0)
     .join(' ')
     .toLowerCase();
   if (labels.includes('لغة') || labels.includes('language')) return 'language';
@@ -278,14 +302,58 @@ export const getLearningCourses = async (): Promise<CourseProgress[]> => {
     throw new Error('LEARNING_COURSES_CONTRACT_INVALID');
   }
   const data = rawData;
-  return resourceList<CourseDto>(data.items)
-    .filter(
-      item =>
-        isApiRecord(item) &&
-        item.course_id !== null &&
-        item.course_id !== undefined,
+  const items = resourceList<CourseDto>(data.items);
+  if (
+    items.some(
+      item => {
+        if (!isApiRecord(item)) return true;
+        const courseId = String(item.course_id ?? '').trim();
+        const progress = Number(item.progress_percentage);
+        const completed = Number(item.completed_sections);
+        const total = Number(item.total_sections);
+        const resume = isApiRecord(item.resume) ? item.resume : null;
+        const resumeAvailable = resume
+          ? firstBoolean(resume.available)
+          : undefined;
+        const next = item.next_section;
+        return (
+          !/^\d+$/.test(courseId) ||
+          !displayText(item.title) ||
+          !Number.isFinite(progress) ||
+          progress < 0 ||
+          progress > 100 ||
+          !Number.isSafeInteger(completed) ||
+          completed < 0 ||
+          !Number.isSafeInteger(total) ||
+          total < 1 ||
+          completed > total ||
+          !String(item.access_type || '').trim() ||
+          firstBoolean(item.chat_available) === undefined ||
+          firstBoolean(item.certificate_available) === undefined ||
+          !resume ||
+          resumeAvailable === undefined ||
+          (resumeAvailable &&
+            (!stableCourseContentId(resume.lesson_id) ||
+              !String(resume.lesson_title || '').trim() ||
+              !Number.isFinite(Number(resume.position_seconds)) ||
+              Number(resume.position_seconds) < 0)) ||
+          (next !== null &&
+            (!isApiRecord(next) ||
+              !stableCourseContentId(next.id) ||
+              !String(next.title || '').trim() ||
+              !['lesson', 'project', 'quiz'].includes(
+                String(next.type || '').toLowerCase(),
+              )))
+        );
+      },
     )
-    .map(item => {
+  ) {
+    // A partially mapped learning dashboard is worse than a failed refresh:
+    // the learner sees a purchased course disappear. Reject the whole
+    // snapshot so the account-scoped last-known-good dashboard remains usable.
+    throw new Error('LEARNING_COURSES_CONTRACT_INVALID');
+  }
+  return items.map(item => {
       const resume = item.resume || item.learning_resume || {};
       const lastLesson =
         resume.last_lesson ||
@@ -299,8 +367,8 @@ export const getLearningCourses = async (): Promise<CourseProgress[]> => {
         resume.next_lesson || item.next_lesson || item.next_section || {};
       return {
         id: String(item.course_id),
-        title: String(item.title || 'كورس ركن'),
-        imageUrl: item.image ? String(item.image) : undefined,
+        title: displayText(item.title) || 'كورس ركن',
+        imageUrl: displayImageUrl(item.image),
         progress: Math.min(
           100,
           nonNegativeNumberOr(item.progress_percentage, 0),
@@ -368,7 +436,163 @@ export const getLearningCourses = async (): Promise<CourseProgress[]> => {
     });
 };
 
+const stableCourseContentId = (value: unknown): string => {
+  const id = String(value ?? '').trim();
+  return /^[1-9]\d*$/.test(id) ? id : '';
+};
+
+const hasValidCourseModuleContract = (rawModules: unknown): boolean => {
+  if (!Array.isArray(rawModules) || rawModules.length === 0) return false;
+  const moduleIds = new Set<string>();
+  const sectionIds = new Set<string>();
+  const contentIds = new Set<string>();
+
+  return rawModules.every(rawModule => {
+    if (!isApiRecord(rawModule)) return false;
+    const moduleId = stableCourseContentId(rawModule.id);
+    if (
+      !moduleId ||
+      moduleIds.has(moduleId) ||
+      !String(rawModule.title || '').trim()
+    )
+      return false;
+    moduleIds.add(moduleId);
+    if (!Array.isArray(rawModule.sections) || !rawModule.sections.length) {
+      return false;
+    }
+
+    let projectCount = 0;
+    return rawModule.sections.every(rawSection => {
+      if (!isApiRecord(rawSection)) return false;
+      const type = String(
+        rawSection.type || rawSection.section_type || '',
+      ).toLowerCase();
+      if (!['lesson', 'video', 'reel', 'quiz', 'project'].includes(type)) {
+        return false;
+      }
+      if (type === 'project' && ++projectCount > 1) return false;
+
+      const sectionId = stableCourseContentId(rawSection.id);
+      if (
+        !sectionId ||
+        sectionIds.has(sectionId) ||
+        !String(rawSection.title || '').trim()
+      )
+        return false;
+      sectionIds.add(sectionId);
+      const content = isApiRecord(rawSection.content)
+        ? rawSection.content
+        : isApiRecord(rawSection.sectionable)
+        ? rawSection.sectionable
+        : isApiRecord(rawSection.lesson)
+        ? rawSection.lesson
+        : {};
+      const contentId = stableCourseContentId(
+        content.id ||
+          rawSection.content_id ||
+          rawSection.lesson_id ||
+          rawSection.quiz_id ||
+          rawSection.project_id,
+      );
+      const identityType = ['lesson', 'video', 'reel'].includes(type)
+        ? 'lesson'
+        : type;
+      const contentKey = `${identityType}:${contentId}`;
+      if (!contentId || contentIds.has(contentKey)) return false;
+      contentIds.add(contentKey);
+      return true;
+    });
+  });
+};
+
+const assertCourseDetailsContract = (course: unknown): CourseDto => {
+  if (!isApiRecord(course)) {
+    throw new Error('API_CONTRACT_INVALID_COURSE_DETAILS');
+  }
+  const id = stableCourseContentId(course.id);
+  const title = displayText(course.title);
+  const comingSoon = firstBoolean(course.is_coming_soon);
+  const ratingsCount = Number(course.ratings_count);
+  const ratingAverageRaw = course.average_rating ?? course.ratings_avg_rating;
+  const ratingAverage =
+    ratingAverageRaw === null ? null : Number(ratingAverageRaw);
+  const studentsCount = Number(
+    isApiRecord(course.metadata)
+      ? course.metadata.students_count
+      : course.students_count,
+  );
+  if (
+    !id ||
+    !title ||
+    comingSoon === undefined ||
+    !Number.isSafeInteger(ratingsCount) ||
+    ratingsCount < 0 ||
+    (ratingsCount === 0 && ratingAverage !== null) ||
+    (ratingsCount > 0 &&
+      (ratingAverage === null ||
+        !Number.isFinite(ratingAverage) ||
+        ratingAverage < 1 ||
+        ratingAverage > 5)) ||
+    !Number.isSafeInteger(studentsCount) ||
+    studentsCount < 0
+  ) {
+    throw new Error('API_CONTRACT_INVALID_COURSE_DETAILS');
+  }
+
+  if (!comingSoon) {
+    const durationMinutes = normalizeCourseDurationMinutes(course);
+    const plans = course.access_plans;
+    const planCodes = new Set<string>();
+    const validPlans =
+      Array.isArray(plans) &&
+      plans.length === 3 &&
+      plans.every(plan => {
+        if (!isApiRecord(plan)) return false;
+        const code = String(plan.code || '').trim().toLowerCase();
+        const price = Number(plan.price_coins);
+        const minimumPaid = Number(plan.minimum_paid_coins);
+        const feedback = String(plan.project_feedback_level || '');
+        const booleans = [
+          plan.chat_enabled,
+          plan.project_report_enabled,
+          plan.project_thread_reply_enabled,
+          plan.project_output_enabled,
+          plan.certificate_enabled,
+        ];
+        if (
+          !['basic', 'guided', 'mentor'].includes(code) ||
+          planCodes.has(code) ||
+          !String(plan.name || plan.name_ar || '').trim() ||
+          !Number.isSafeInteger(price) ||
+          price < 0 ||
+          !Number.isSafeInteger(minimumPaid) ||
+          minimumPaid < 0 ||
+          minimumPaid > price ||
+          !['pass_only', 'report', 'enhanced'].includes(feedback) ||
+          booleans.some(value => firstBoolean(value) === undefined)
+        ) {
+          return false;
+        }
+        planCodes.add(code);
+        return true;
+      });
+    if (
+      !validPlans ||
+      durationMinutes === null ||
+      durationMinutes <= 0 ||
+      !hasValidCourseModuleContract(course.modules)
+    ) {
+      throw new Error('API_CONTRACT_INVALID_COURSE_DETAILS');
+    }
+  }
+
+  return course as CourseDto;
+};
+
 const courseModules = (course: CourseDto): CourseModulePreview[] => {
+  if (!hasValidCourseModuleContract(course?.modules)) {
+    throw new Error('API_CONTRACT_INVALID_COURSE_CONTENT');
+  }
   let reelNumber = 0;
   return (Array.isArray(course?.modules) ? course.modules : []).flatMap(
     module => {
@@ -433,7 +657,11 @@ const courseModules = (course: CourseDto): CourseModulePreview[] => {
             reelNumber: currentReelNumber,
             reelId:
               type === 'reel'
-                ? String(content?.id || section?.lesson_id || sectionId)
+                ? String(
+                    content?.id ||
+                      section?.lesson_id ||
+                      section?.content_id,
+                  )
                 : undefined,
           } as CourseModulePreview['items'][number],
         ];
@@ -455,7 +683,11 @@ const courseModules = (course: CourseDto): CourseModulePreview[] => {
 };
 
 const mapCourseDetails = (course: CourseDto): CourseDetails => {
-  const modules = courseModules(course);
+  const verifiedCourse = assertCourseDetailsContract(course);
+  const modules = valueAsBoolean(verifiedCourse.is_coming_soon)
+    ? []
+    : courseModules(verifiedCourse);
+  course = verifiedCourse;
   const teacher = Array.isArray(course?.teachers) ? course.teachers[0] : null;
   const durationMinutes = normalizeCourseDurationMinutes(course);
   const planOrder: Record<string, number> = {basic: 0, guided: 1, mentor: 2};
@@ -530,16 +762,17 @@ const mapCourseDetails = (course: CourseDto): CourseDetails => {
     );
   return {
     id: String(course.id ?? '').trim(),
-    title: String(course.title || 'كورس ركن'),
-    description: String(course.description || ''),
-    imageUrl: course.image ? String(course.image) : undefined,
+    title: displayText(course.title) || 'كورس ركن',
+    description: displayText(course.description),
+    imageUrl: displayImageUrl(course.image),
     price:
       accessPlans.length > 0
         ? Math.min(...accessPlans.map(plan => plan.priceCoins))
         : null,
-    instructor: String(teacher?.name || 'فريق ركن'),
-    instructorBio: String(teacher?.bio || teacher?.job_title || ''),
-    instructorImage: teacher?.image ? String(teacher.image) : undefined,
+    instructor: displayText(teacher?.name) || 'فريق ركن',
+    instructorBio:
+      displayText(teacher?.bio) || displayText(teacher?.job_title),
+    instructorImage: displayImageUrl(teacher?.image),
     owned:
       String(course?.access_type || 'none').toLowerCase() !== 'none' ||
       valueAsBoolean(course?.enrollment?.is_active),
@@ -624,23 +857,25 @@ const mapPublishedCourses = (
 ): DemoCourse[] => {
   const learningByCourse = new Map(learningResult.map(item => [item.id, item]));
   const seenCourseIds = new Set<string>();
-  return items
-    .filter(item => {
-      if (!isApiRecord(item)) return false;
-      const rawId = item?.id ?? item?.course_id;
-      if (
-        rawId === null ||
-        rawId === undefined ||
-        String(item.title || '').trim().length === 0
-      ) {
-        return false;
-      }
-      const id = String(rawId);
-      if (seenCourseIds.has(id)) return false;
-      seenCourseIds.add(id);
-      return true;
-    })
-    .map(item => {
+  for (const item of items) {
+    if (!isApiRecord(item)) {
+      throw new Error('COURSE_CATALOGUE_CONTRACT_INVALID');
+    }
+    const rawId = item.id ?? item.course_id;
+    const id = String(rawId ?? '').trim();
+    if (
+      !/^\d+$/.test(id) ||
+      seenCourseIds.has(id) ||
+      !displayText(item.title)
+    ) {
+      // Never make one malformed row look like a shorter valid page. That
+      // silently hides a course and advances pagination past it. The caller
+      // keeps its account-scoped last-known-good catalogue and retries.
+      throw new Error('COURSE_CATALOGUE_CONTRACT_INVALID');
+    }
+    seenCourseIds.add(id);
+  }
+  return items.map(item => {
       const courseId = item.id ?? item.course_id;
       const learning = learningByCourse.get(String(courseId));
       const badgeLabel = String(
@@ -649,24 +884,28 @@ const mapPublishedCourses = (
       const badgeTone = String(
         item?.catalog_badge?.tone || item?.badge_tone || 'blue',
       );
-      const homeRows = (Array.isArray(item?.tags) ? item.tags : [])
-        .filter(isApiRecord)
-        .filter(tag => valueAsBoolean(tag.show_on_home))
+      const homeRows = usableCourseTags(item?.tags)
+        .filter(
+          tag =>
+            valueAsBoolean(tag.show_on_home) && /^\d+$/.test(displayText(tag.id)),
+        )
         .map(tag => ({
-          id: String(tag.id),
-          title: String(tag.name_ar || tag.name_en || '').trim(),
+          id: displayText(tag.id),
+          title: displayText(tag.name_ar) || displayText(tag.name_en),
           order: nonNegativeNumberOr(tag.home_order, 100),
         }))
         .filter(row => row.title.length > 0);
+      const imageUrl = displayImageUrl(item.image);
       return {
         id: String(courseId),
-        title: String(item.title),
-        description: String(item.description || ''),
-        instructor: String(
-          item.teacher_name || item.teachers?.[0]?.name || 'فريق ركن',
-        ),
-        image: item.image
-          ? {uri: String(item.image)}
+        title: displayText(item.title),
+        description: displayText(item.description),
+        instructor:
+          displayText(item.teacher_name) ||
+          displayText(item.teachers?.[0]?.name) ||
+          'فريق ركن',
+        image: imageUrl
+          ? {uri: imageUrl}
           : require('../../assets/images/courseSlider.jpg'),
         label:
           badgeLabel ||
@@ -727,6 +966,7 @@ const readCatalogueCache = async (
   page: number,
   scopedBaseKey?: string,
   expectedRevision?: number,
+  allowStale = false,
 ): Promise<PublishedCoursesPage | null> => {
   if (page > CATALOGUE_CACHE_PAGE_LIMIT) return null;
   try {
@@ -749,7 +989,9 @@ const readCatalogueCache = async (
       cached.revision < 1 ||
       (expectedRevision !== undefined &&
         cached.revision !== expectedRevision) ||
-      !isServerTimestampFresh(cached.savedAt, CATALOGUE_CACHE_MAX_AGE_MS)
+      !isServerTimestampFresh(cached.savedAt, Number.MAX_SAFE_INTEGER) ||
+      (!allowStale &&
+        !isServerTimestampFresh(cached.savedAt, CATALOGUE_CACHE_MAX_AGE_MS))
     ) {
       return null;
     }
@@ -858,7 +1100,21 @@ export const getPublishedCoursesPage = async ({
     ]);
     assertAccountSessionBoundary(accountBoundary);
     const data = payload(catalogueResponse);
-    const responseRevision = Math.max(1, Number(data?.catalogue_revision) || 1);
+    // Older production deployments predate catalogue generations. Treat a
+    // genuinely absent generation as the legacy baseline so a rolling
+    // backend/mobile release cannot blank the public home screen. Once the
+    // server declares a generation it remains strict: malformed values and
+    // page-to-page changes are still rejected below.
+    const declaredRevision = data?.catalogue_revision;
+    const responseRevision =
+      declaredRevision === undefined || declaredRevision === null
+        ? 1
+        : Number(declaredRevision);
+    if (!Number.isSafeInteger(responseRevision) || responseRevision < 1) {
+      // A declared generation is a contract, not a hint. Never let a corrupt
+      // value overwrite the last-known-good cache or advance pagination.
+      throw new Error('COURSE_CATALOGUE_CONTRACT_INVALID');
+    }
     if (
       safePage > 1 &&
       expectedRevision !== undefined &&
@@ -870,24 +1126,42 @@ export const getPublishedCoursesPage = async ({
       changed.code = 'catalogue_changed';
       throw changed;
     }
-    const items = normalizedSearch
-      ? resourceList(data.items).map(item => ({...item, _compact_search: true}))
+    const listPayload = normalizedSearch
+      ? data?.items
       : Array.isArray(data)
       ? data
-      : resourceList(data.courses);
+      : data?.courses;
+    if (!isResourceListPayload(listPayload)) {
+      throw new Error('COURSE_CATALOGUE_CONTRACT_INVALID');
+    }
+    const items = normalizedSearch
+      ? resourceList(listPayload).map(item => ({
+          ...item,
+          _compact_search: true,
+        }))
+      : resourceList(listPayload);
     const pagination = (data?.pagination || {}) as {
       current_page?: unknown;
       last_page?: unknown;
       total?: unknown;
     };
-    const currentPage = Math.max(
-      1,
-      Number(pagination.current_page ?? safePage) || safePage,
-    );
-    const lastPage = Math.max(
-      currentPage,
-      Number(pagination.last_page ?? currentPage) || currentPage,
-    );
+    const currentPage = Number(pagination.current_page);
+    const lastPage = Number(pagination.last_page);
+    const total = Number(pagination.total);
+    if (
+      !Number.isSafeInteger(currentPage) ||
+      currentPage < 1 ||
+      currentPage !== safePage ||
+      !Number.isSafeInteger(lastPage) ||
+      lastPage < 1 ||
+      !Number.isSafeInteger(total) ||
+      total < 0
+    ) {
+      // Pagination is one contract: guessing only one missing field advances
+      // the cursor past data the learner never received. Keep the previous
+      // complete page and retry the same request instead.
+      throw new Error('COURSE_CATALOGUE_CONTRACT_INVALID');
+    }
     let mappedCourses = mapPublishedCourses(items, learningSnapshot.courses);
     if (sessionAvailable && !learningSnapshot.available) {
       // Catalogue availability and entitlement availability are independent.
@@ -900,6 +1174,7 @@ export const getPublishedCoursesPage = async ({
             safePage,
             scopedCatalogueCacheKey,
             expectedRevision,
+            true,
           );
       const previousById = new Map(
         (previous?.courses || []).map(course => [course.id, course]),
@@ -917,7 +1192,7 @@ export const getPublishedCoursesPage = async ({
       courses: mappedCourses,
       page: currentPage,
       hasMore: currentPage < lastPage,
-      total: Math.max(0, Number(pagination.total ?? items.length) || 0),
+      total,
       revision: responseRevision,
     };
     // Keep the device cache bounded to catalogue pages.
@@ -945,12 +1220,26 @@ export const getPublishedCoursesPage = async ({
     assertAccountSessionBoundary(accountBoundary);
     const candidate = error as {
       code?: unknown;
-      response?: {status?: unknown; data?: {code?: unknown}};
+      status?: unknown;
+      data?: {code?: unknown; data?: {code?: unknown}};
+      response?: {
+        status?: unknown;
+        data?: {code?: unknown; data?: {code?: unknown}};
+      };
     };
+    const responseStatus = Number(
+      candidate?.status ?? candidate?.response?.status ?? 0,
+    );
+    const responseCode = String(
+      candidate?.data?.code ??
+        candidate?.data?.data?.code ??
+        candidate?.response?.data?.code ??
+        candidate?.response?.data?.data?.code ??
+        '',
+    );
     const catalogueChanged =
       candidate?.code === 'catalogue_changed' ||
-      (Number(candidate?.response?.status) === 409 &&
-        candidate?.response?.data?.code === 'catalogue_changed');
+      (responseStatus === 409 && responseCode === 'catalogue_changed');
     if (catalogueChanged && safePage > 1) {
       const replacement = await getPublishedCoursesPage({
         page: 1,
@@ -958,6 +1247,7 @@ export const getPublishedCoursesPage = async ({
         search: normalizedSearch,
         signal,
       });
+      assertAccountSessionBoundary(accountBoundary);
       return {...replacement, reset: true};
     }
     if (!normalizedSearch) {
@@ -965,7 +1255,9 @@ export const getPublishedCoursesPage = async ({
         safePage,
         scopedCatalogueCacheKey,
         expectedRevision,
+        true,
       );
+      assertAccountSessionBoundary(accountBoundary);
       if (cached) return cached;
     }
     throw error;
@@ -983,6 +1275,8 @@ export const getCachedPublishedCourses = async (): Promise<DemoCourse[]> =>
     const cached = await readCatalogueCache(
       1,
       await accountScopedStorageKey(CATALOGUE_CACHE_KEY, boundary),
+      undefined,
+      true,
     );
     assertAccountSessionBoundary(boundary);
     return cached?.courses ?? [];
@@ -1101,6 +1395,7 @@ const touchCourseDetailsCache = async (
 const readCourseDetailsCache = async (
   courseId: string,
   scopedBaseKey?: string,
+  allowStale = false,
 ): Promise<CourseDetails | null> => {
   try {
     const raw = await AsyncStorage.getItem(
@@ -1109,11 +1404,13 @@ const readCourseDetailsCache = async (
     if (!raw) return null;
     const cached = JSON.parse(raw) as CourseDetailsCacheRecord;
     if (
-      cached.version !== 3 ||
-      !isServerTimestampFresh(
-        cached.savedAt,
-        COURSE_DETAILS_CACHE_MAX_AGE_MS,
-      ) ||
+      cached.version !== 4 ||
+      !isServerTimestampFresh(cached.savedAt, Number.MAX_SAFE_INTEGER) ||
+      (!allowStale &&
+        !isServerTimestampFresh(
+          cached.savedAt,
+          COURSE_DETAILS_CACHE_MAX_AGE_MS,
+        )) ||
       !cached.course ||
       cached.course.id !== courseId ||
       typeof cached.course.title !== 'string' ||
@@ -1181,7 +1478,7 @@ export const getCourseDetails = async (
       throw new Error('API_CONTRACT_INVALID_COURSE_DETAILS_ID');
     }
     const record: CourseDetailsCacheRecord = {
-      version: 3,
+      version: 4,
       savedAt: serverNowMs(),
       course,
     };
@@ -1214,6 +1511,7 @@ export const getCourseDetails = async (
     const cached = await readCourseDetailsCache(
       normalizedCourseId,
       scopedDetailsCacheKey,
+      true,
     );
     if (cached) {
       await touchCourseDetailsCache(
@@ -1234,6 +1532,40 @@ export type CourseRatingResult = {
   ratingsCount: number;
 };
 
+const mapCourseRatingMutation = (
+  value: unknown,
+  expectedRating: number | null,
+): CourseRatingResult => {
+  if (!isApiRecord(value)) {
+    throw new Error('COURSE_RATING_CONTRACT_INVALID');
+  }
+  const version = Number(value.version);
+  const ratingsCount = Number(value.ratings_count);
+  const rating = value.rating === null ? null : Number(value.rating);
+  const average = value.average_rating === null
+    ? null
+    : Number(value.average_rating);
+  if (
+    !Number.isSafeInteger(version) ||
+    version < (expectedRating === null ? 0 : 1) ||
+    !Number.isSafeInteger(ratingsCount) ||
+    ratingsCount < 0 ||
+    rating !== expectedRating ||
+    (average !== null &&
+      (!Number.isFinite(average) || average < 1 || average > 5)) ||
+    (ratingsCount === 0 && average !== null) ||
+    (ratingsCount > 0 && average === null)
+  ) {
+    throw new Error('COURSE_RATING_CONTRACT_INVALID');
+  }
+  return {
+    rating,
+    version,
+    averageRating: average,
+    ratingsCount,
+  };
+};
+
 export const rateCourse = async (
   courseId: string,
   rating: number,
@@ -1252,13 +1584,7 @@ export const rateCourse = async (
       version: Math.max(0, Math.floor(version)),
     }),
   );
-  const average = Number(data.average_rating);
-  return {
-    rating: Math.min(5, Math.max(1, Number(data.rating) || rating)),
-    version: Math.max(0, Number(data.version) || 0),
-    averageRating: average > 0 ? average : null,
-    ratingsCount: Math.max(0, Number(data.ratings_count) || 0),
-  };
+  return mapCourseRatingMutation(data, rating);
 };
 
 export const deleteCourseRating = async (
@@ -1274,13 +1600,7 @@ export const deleteCourseRating = async (
       data: {version: Math.max(1, Math.floor(version))},
     }),
   );
-  const average = Number(data.average_rating);
-  return {
-    rating: null,
-    version: Math.max(0, Number(data.version) || 0),
-    averageRating: average > 0 ? average : null,
-    ratingsCount: Math.max(0, Number(data.ratings_count) || 0),
-  };
+  return mapCourseRatingMutation(data, null);
 };
 
 /** Demo sessions have no bearer token and cannot call authenticated APIs. */
@@ -1291,11 +1611,22 @@ export const hasSession = async () => {
 
 export const getOwnedCourseIds = async (): Promise<Set<string>> => {
   const profile = payload(await publicRequest.get('user/profile'));
-  return new Set(
-    resourceList<CourseDto>(profile.courses)
-      .filter(course => course?.id !== null && course?.id !== undefined)
-      .map(course => String(course.id)),
-  );
+  if (!isApiRecord(profile) || !isResourceListPayload(profile.courses)) {
+    throw new Error('OWNED_COURSES_CONTRACT_INVALID');
+  }
+  const courses = resourceList<CourseDto>(profile.courses);
+  if (
+    courses.some(
+      course =>
+        !isApiRecord(course) ||
+        course.id === null ||
+        course.id === undefined ||
+        !/^\d+$/.test(String(course.id).trim()),
+    )
+  ) {
+    throw new Error('OWNED_COURSES_CONTRACT_INVALID');
+  }
+  return new Set(courses.map(course => String(course.id)));
 };
 
 export type ProductionCourseModulePreview = CourseModulePreview;

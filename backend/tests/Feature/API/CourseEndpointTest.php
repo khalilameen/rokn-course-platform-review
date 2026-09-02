@@ -42,6 +42,19 @@ class CourseEndpointTest extends ApiTestCase
             ->assertJsonPath('success', true);
     }
 
+    public function test_legacy_published_course_without_new_catalogue_relations_stays_discoverable(): void
+    {
+        DB::table('classification_course')->where('course_id', $this->courseId)->delete();
+        DB::table('course_teacher')->where('course_id', $this->courseId)->delete();
+        DB::table('courses')->where('id', $this->courseId)->update(['teacher_id' => null]);
+
+        $this->getJson('/api/v1/courses/list')
+            ->assertOk()
+            ->assertJsonPath('data.courses.0.id', $this->courseId)
+            ->assertJsonPath('data.courses.0.tags', [])
+            ->assertJsonPath('data.courses.0.teachers', []);
+    }
+
     public function test_mobile_catalogue_uses_revisioned_shared_cache(): void
     {
         Cache::flush();

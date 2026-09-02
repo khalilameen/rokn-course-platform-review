@@ -659,6 +659,8 @@ assert(
     previewProfile?.env?.EXPO_PUBLIC_BUILD_PROFILE === 'test' &&
     previewProfile?.env?.EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS === '1' &&
     previewProfile?.env?.EXPO_PUBLIC_ENABLE_LOCAL_DEMO === '0' &&
+    previewProfile?.env?.ORG_GRADLE_PROJECT_reactNativeArchitectures ===
+      'armeabi-v7a,arm64-v8a,x86_64' &&
     previewProfile?.android?.buildType === 'apk' &&
     previewProfile?.buildArtifactPaths?.includes('artifacts/eas/**/*'),
   'The distributed preview must exercise the live API and remote feature flags without synthetic content.',
@@ -681,6 +683,9 @@ assert(
       'direct' &&
     directProductionProfile?.env?.ORG_GRADLE_PROJECT_roknBuildProfile ===
       'production' &&
+    directProductionProfile?.env
+      ?.ORG_GRADLE_PROJECT_reactNativeArchitectures ===
+      'armeabi-v7a,arm64-v8a' &&
     directProductionProfile?.env?.ORG_GRADLE_PROJECT_roknEnableMinify ===
       'true' &&
     directProductionProfile?.env
@@ -690,7 +695,7 @@ assert(
 assert(
   androidReleaseScript.includes('ROKN_ANDROID_APP_SIGNING_SHA256') &&
     androidReleaseScript.includes("'Rokn-internal-test.apk'") &&
-    androidReleaseScript.includes("'arm64-v8a,x86_64'") &&
+    androidReleaseScript.includes("'armeabi-v7a,arm64-v8a,x86_64'") &&
     androidReleaseScript.includes('publicDistributionEligible') &&
     easEvidenceScript.includes("'production-direct'") &&
     easEvidenceScript.includes('ROKN_ANDROID_APP_SIGNING_SHA256') &&
@@ -742,6 +747,9 @@ assert(
     ?.ORG_GRADLE_PROJECT_roknDistributionChannel === 'play' &&
     eas.build?.['production-play']?.env?.ORG_GRADLE_PROJECT_roknBuildProfile ===
       'production' &&
+    eas.build?.['production-play']?.env
+      ?.ORG_GRADLE_PROJECT_reactNativeArchitectures ===
+      'armeabi-v7a,arm64-v8a,x86,x86_64' &&
     eas.build?.['production-play']?.env?.ORG_GRADLE_PROJECT_roknEnableMinify ===
       'true' &&
     eas.build?.['production-play']?.env

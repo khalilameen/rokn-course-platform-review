@@ -17,6 +17,7 @@ import {
   reportPlaybackSessionEvent,
   saveLessonToFolder,
   SavedFolderOption,
+  subscribeCourseRevisionChanges,
   submitProjectAttempt,
   toggleWatchLater,
   unlockAfterProject,
@@ -35,8 +36,9 @@ import {
 import {
   claimDemoCourseCompletionReward,
   claimDemoFirstProjectReward,
+  DEMO_COURSE_ID,
 } from '../services/demoExperience';
-import {isLocalDemoId} from '../config/runtime';
+import {isLocalDemoId, LOCAL_DEMO_ENABLED} from '../config/runtime';
 import NotificationPermissionPrimer from '../components/ui/NotificationPermissionPrimer';
 import {
   ReelsConnectionNote,
@@ -64,13 +66,33 @@ import {
 import {useProjectReview} from './reels/useProjectReview';
 import {selectPrimaryViewableItem} from '../components/VideoPlayer/courseLearning/viewability';
 import {useReelsProgress} from './reels/useReelsProgress';
+import {
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+  extractApiToken,
+  extractUserProfile,
+} from '../constants/helpers';
+import {useSelector} from 'react-redux';
+import type {RootState} from '../store/store';
 
 const Reels = () => {
   const route = useRoute();
   const navigation = useNavigation<ReelsNavigation>();
   const isScreenFocused = useIsFocused();
   const params = (route.params || {}) as ReelsRouteParams;
+  const storedUser = useSelector((state: RootState) => state.auth.userData);
+  const storedProfile = extractUserProfile(storedUser);
+  const hasStoredToken = Boolean(extractApiToken(storedUser));
+  const identityKey = hasStoredToken
+    ? String(storedProfile.id ?? storedProfile.user_id ?? 'authenticated')
+    : 'guest';
   const previewMode = params.preview === true;
+  const requestedCourseId = String(
+    params.courseId || (LOCAL_DEMO_ENABLED ? DEMO_COURSE_ID : ''),
+  );
+  const requestedCourseViewKey = `${requestedCourseId}:${
+    previewMode ? 'preview' : 'learning'
+  }`;
   const insets = useSafeAreaInsets();
   const listRef = useRef<FlatList<CourseFeedItem>>(null);
   const positionsRef = useRef<Record<string, number>>({});
@@ -85,10 +107,20 @@ const Reels = () => {
   const scrollOffsetRef = useRef(0);
   const scrollDirectionRef = useRef<1 | -1>(1);
   const [layout, setLayout] = useState({width: 0, height: 0});
-  const [course, setCourse] = useState<CourseLearningData | null>(null);
+  const [loadedCourse, setCourse] = useState<CourseLearningData | null>(null);
+  const loadedCourseOwnerRef = useRef(identityKey);
+  const requestedCourseRef = useRef(requestedCourseViewKey);
+  const course =
+    loadedCourseOwnerRef.current === identityKey &&
+    requestedCourseRef.current === requestedCourseViewKey &&
+    String(loadedCourse?.id || '') === requestedCourseId
+      ? loadedCourse
+      : null;
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [connectionNote, setConnectionNote] = useState('');
+  const [courseRevisionRefreshing, setCourseRevisionRefreshing] =
+    useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [serverSession, setServerSession] = useState<boolean | null>(null);
   frameHeightRef.current = layout.height;
@@ -101,7 +133,7 @@ const Reels = () => {
     playbackPreferencesReady,
     playbackSpeed,
     selectedQuality,
-  } = usePlaybackPreferences(serverSession);
+  } = usePlaybackPreferences(serverSession, identityKey);
   const [manifestRefreshNonce, setManifestRefreshNonce] = useState(0);
   const [savedLessons, setSavedLessons] = useState<Set<string>>(new Set());
   const [savingLessons, setSavingLessons] = useState<Set<string>>(new Set());
@@ -146,15 +178,69 @@ const Reels = () => {
   } | null>(null);
   const manifestFlightsRef = useRef(new Map<string, Promise<void>>());
   const manifestVersionsRef = useRef<Record<string, number>>({});
+  const courseRevisionReloadRef = useRef<Promise<void> | null>(null);
+  const courseRevisionPendingRef = useRef(false);
+  const routeNavigationFlightRef = useRef(false);
+  const courseRevisionReloadHandlerRef = useRef<
+    (lessonId?: string) => void
+  >(() => undefined);
   const playbackRuntimeRef = useRef<Record<string, PlaybackRuntimeMetrics>>({});
   const playbackDurationRef = useRef<Record<string, number>>({});
   const closedPlaybackSessionsRef = useRef(new Set<string>());
   const activeReelRef = useRef<CourseReel | undefined>(undefined);
   const loadedCourseRef = useRef<CourseLearningData | null>(null);
+  const accountViewGenerationRef = useRef(0);
   const loadRequestRef = useRef(0);
   const loadAbortRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
   const delayedActionsRef = useRef(new Set<ReturnType<typeof setTimeout>>());
+
+  useEffect(() => {
+    // Stack navigation can reuse this mounted route after either an account
+    // or course change. Everything below belongs to that complete view scope.
+    requestedCourseRef.current = requestedCourseViewKey;
+    loadRequestRef.current += 1;
+    loadAbortRef.current?.abort();
+    loadAbortRef.current = null;
+    reviewWatcherRef.current += 1;
+    accountViewGenerationRef.current += 1;
+    loadedCourseRef.current = null;
+    loadedCourseOwnerRef.current = identityKey;
+    positionsRef.current = {};
+    lastPersistedRef.current = {};
+    completionSentRef.current.clear();
+    savePendingRef.current.clear();
+    manifestFlightsRef.current.clear();
+    manifestVersionsRef.current = {};
+    courseRevisionReloadRef.current = null;
+    courseRevisionPendingRef.current = false;
+    routeNavigationFlightRef.current = false;
+    playbackRuntimeRef.current = {};
+    playbackDurationRef.current = {};
+    closedPlaybackSessionsRef.current.clear();
+    watchedProjectRef.current = null;
+    pendingStudySecondsRef.current = 0;
+    studySampleRef.current = null;
+    pendingInitialKey.current = null;
+    pendingInitialIndex.current = null;
+    delayedActionsRef.current.forEach(timer => clearTimeout(timer));
+    delayedActionsRef.current.clear();
+    contentOverlayScopesRef.current.clear();
+    currentIndexRef.current = 0;
+    scrollOffsetRef.current = 0;
+    setCourse(null);
+    setLoading(true);
+    setLoadError('');
+    setServerSession(null);
+    setSavedLessons(new Set());
+    setSavingLessons(new Set());
+    setConnectionNote('');
+    setCourseRevisionRefreshing(false);
+    setChatVisible(false);
+    setContentOverlayVisible(false);
+    setPreviewGateVisible(false);
+    setCurrentIndex(0);
+  }, [identityKey, requestedCourseViewKey]);
   const scheduleDelayedAction = useCallback(
     (action: () => void, delayMs: number) => {
       const timer = setTimeout(() => {
@@ -213,16 +299,22 @@ const Reels = () => {
       durations: playbackDurationRef,
       flights: manifestFlightsRef,
       mounted: mountedRef,
+      ownerGeneration: accountViewGenerationRef,
       positions: positionsRef,
+      revisionReloadPending: courseRevisionPendingRef,
       runtime: playbackRuntimeRef,
       versions: manifestVersionsRef,
     }),
     [],
   );
+  const handleCourseRevisionChanged = useCallback(() => {
+    courseRevisionReloadHandlerRef.current();
+  }, []);
   const requestPlaybackManifest = usePlaybackManifest({
     courseId: course?.id,
     dataSaver,
     getPlaybackSpeed,
+    onCourseRevisionChanged: handleCourseRevisionChanged,
     playbackPreferencesReady,
     refs: manifestRefs,
     scheduleDelayedAction,
@@ -292,6 +384,7 @@ const Reels = () => {
       loadAbort: loadAbortRef,
       loadRequest: loadRequestRef,
       loadedCourse: loadedCourseRef,
+      loadedCourseOwner: loadedCourseOwnerRef,
       manifestVersions: manifestVersionsRef,
       pendingInitialIndex,
       pendingInitialKey,
@@ -303,6 +396,7 @@ const Reels = () => {
   );
   const load = useReelsCourseLoader({
     navigation,
+    identityKey,
     params,
     previewMode,
     refs: loaderRefs,
@@ -315,6 +409,65 @@ const Reels = () => {
     setServerSession,
   });
 
+  const reloadPublishedCourse = useCallback(
+    (lessonId?: string) => {
+      if (courseRevisionReloadRef.current) return;
+      courseRevisionPendingRef.current = true;
+      setCourseRevisionRefreshing(true);
+      Object.keys(manifestVersionsRef.current).forEach(key => {
+        manifestVersionsRef.current[key] =
+          (manifestVersionsRef.current[key] || 0) + 1;
+      });
+      manifestFlightsRef.current.clear();
+      closedPlaybackSessionsRef.current.clear();
+      setConnectionNote('تم تحديث الكورس\nنعرض أحدث نسخة');
+      let succeeded = false;
+      const flight = load({
+        lessonId: lessonId || activeReelRef.current?.lessonId,
+        index: currentIndexRef.current,
+        onResult: result => {
+          succeeded = result;
+        },
+      }).finally(() => {
+        if (courseRevisionReloadRef.current === flight) {
+          courseRevisionReloadRef.current = null;
+          if (succeeded) {
+            courseRevisionPendingRef.current = false;
+          }
+          if (!mountedRef.current) return;
+          if (succeeded) {
+            setCourseRevisionRefreshing(false);
+          } else {
+            setConnectionNote('تغيّر محتوى الكورس\nاضغط لإعادة التحميل');
+          }
+        }
+      });
+      courseRevisionReloadRef.current = flight;
+    },
+    [load],
+  );
+  courseRevisionReloadHandlerRef.current = reloadPublishedCourse;
+
+  useEffect(
+    () =>
+      subscribeCourseRevisionChanges(change => {
+        const loaded = loadedCourseRef.current;
+        const ownsSourceLesson = Boolean(
+          change.sourceLessonId &&
+            loaded?.modules.some(module =>
+              module.reels.some(
+                reel => reel.lessonId === change.sourceLessonId,
+              ),
+            ),
+        );
+        if (String(loaded?.id || '') !== change.courseId && !ownsSourceLesson) {
+          return;
+        }
+        reloadPublishedCourse(change.currentLessonId);
+      }),
+    [reloadPublishedCourse],
+  );
+
   useEffect(() => {
     void load();
   }, [load]);
@@ -323,6 +476,7 @@ const Reels = () => {
     () => ({
       loadedCourse: loadedCourseRef,
       mounted: mountedRef,
+      ownerGeneration: accountViewGenerationRef,
       reviewWatcher: reviewWatcherRef,
       watchedProject: watchedProjectRef,
     }),
@@ -337,12 +491,12 @@ const Reels = () => {
   });
 
   useEffect(() => {
-    if (!connectionNote) {
+    if (!connectionNote || courseRevisionRefreshing) {
       return;
     }
     const timer = setTimeout(() => setConnectionNote(''), 4600);
     return () => clearTimeout(timer);
-  }, [connectionNote]);
+  }, [connectionNote, courseRevisionRefreshing]);
 
   useEffect(() => {
     if (!feedItems.length || !layout.height) {
@@ -419,6 +573,7 @@ const Reels = () => {
       demoRewardsEnabled: demoRewardsEnabledRef,
       feedLength: feedLengthRef,
       lastPersisted: lastPersistedRef,
+      ownerGeneration: accountViewGenerationRef,
       pendingStudySeconds: pendingStudySecondsRef,
       playbackDurations: playbackDurationRef,
       playbackRuntime: playbackRuntimeRef,
@@ -445,19 +600,41 @@ const Reels = () => {
 
   const toggleSaved = useCallback(
     async (reel: CourseReel, folder?: SavedFolderOption | null) => {
-      if (savePendingRef.current.has(reel.lessonId)) {
+      const ownerCourseId = loadedCourseRef.current?.id;
+      if (!ownerCourseId) return;
+      const operationKey = `${ownerCourseId}:${reel.lessonId}`;
+      if (savePendingRef.current.has(operationKey)) {
         return;
       }
-      savePendingRef.current.add(reel.lessonId);
+      savePendingRef.current.add(operationKey);
       setSavingLessons(current => new Set(current).add(reel.lessonId));
       const currentlySaved = savedLessons.has(reel.lessonId);
       const shouldSave = Boolean(folder) || !currentlySaved;
+      let boundary: Awaited<
+        ReturnType<typeof captureAccountSessionBoundary>
+      > | null = null;
+      const stillOwned = () => {
+        if (!boundary) return false;
+        try {
+          assertAccountSessionBoundary(boundary);
+          return (
+            mountedRef.current &&
+            loadedCourseRef.current?.id === ownerCourseId
+          );
+        } catch {
+          return false;
+        }
+      };
       try {
+        boundary = await captureAccountSessionBoundary();
+        if (loadedCourseRef.current?.id !== ownerCourseId) return;
         if (folder) {
           await saveLessonToFolder(reel.lessonId, folder);
         } else {
           await toggleWatchLater(reel.lessonId, currentlySaved);
         }
+        assertAccountSessionBoundary(boundary);
+        if (!stillOwned()) return;
         setSavedLessons(current => {
           const next = new Set(current);
           if (shouldSave) next.add(reel.lessonId);
@@ -465,17 +642,24 @@ const Reels = () => {
           return next;
         });
       } catch (error) {
-        setConnectionNote(
-          'تعذّر تحديث المحفوظات\nتحقق من الاتصال ثم حاول مرة أخرى',
-        );
+        if (stillOwned()) {
+          setConnectionNote(
+            'تعذّر تحديث المحفوظات\nتحقق من الاتصال ثم حاول مرة أخرى',
+          );
+        }
         throw error;
       } finally {
-        savePendingRef.current.delete(reel.lessonId);
-        setSavingLessons(current => {
-          const next = new Set(current);
-          next.delete(reel.lessonId);
-          return next;
-        });
+        if (
+          mountedRef.current &&
+          loadedCourseRef.current?.id === ownerCourseId
+        ) {
+          setSavingLessons(current => {
+            const next = new Set(current);
+            next.delete(reel.lessonId);
+            return next;
+          });
+        }
+        savePendingRef.current.delete(operationKey);
       }
     },
     [savedLessons],
@@ -548,8 +732,14 @@ const Reels = () => {
     [load],
   );
 
-  const onViewableItemsChanged = useRef(
+  const renderedAccountViewGeneration = accountViewGenerationRef.current;
+  const onViewableItemsChanged = useCallback(
     ({viewableItems}: {viewableItems: ViewToken<CourseFeedItem>[]}) => {
+      if (
+        accountViewGenerationRef.current !== renderedAccountViewGeneration
+      ) {
+        return;
+      }
       const height = Math.max(1, frameHeightRef.current);
       const visible = selectPrimaryViewableItem(
         viewableItems,
@@ -564,7 +754,8 @@ const Reels = () => {
         setCurrentIndex(visible.index);
       }
     },
-  ).current;
+    [renderedAccountViewGeneration],
+  );
   const viewabilityConfig = useRef({
     itemVisiblePercentThreshold: 70,
     minimumViewTime: 80,
@@ -572,6 +763,11 @@ const Reels = () => {
 
   const handlePlaybackEvent = useCallback(
     (reel: CourseReel, event: PlaybackPlayerEvent) => {
+      if (
+        accountViewGenerationRef.current !== renderedAccountViewGeneration
+      ) {
+        return;
+      }
       if (!reel.playbackSessionId) return;
       if (
         event.eventType === 'stop' ||
@@ -614,14 +810,19 @@ const Reels = () => {
         ...event,
       });
     },
-    [course?.id, getPlaybackSpeed],
+    [course?.id, getPlaybackSpeed, renderedAccountViewGeneration],
   );
 
   const handlePlaybackMetrics = useCallback(
     (reel: CourseReel, metrics: PlaybackRuntimeMetrics) => {
+      if (
+        accountViewGenerationRef.current !== renderedAccountViewGeneration
+      ) {
+        return;
+      }
       playbackRuntimeRef.current[reel.id] = metrics;
     },
-    [],
+    [renderedAccountViewGeneration],
   );
 
   const renderItem = useReelsFeedRenderer({
@@ -644,13 +845,15 @@ const Reels = () => {
       !isScreenFocused ||
       chatVisible ||
       reminderNudgeVisible ||
-      contentOverlayVisible,
+      contentOverlayVisible ||
+      courseRevisionRefreshing,
     preloadNext:
       isScreenFocused &&
       !chatVisible &&
       !reminderNudgeVisible &&
       !previewGateVisible &&
       !contentOverlayVisible &&
+      !courseRevisionRefreshing &&
       !dataSaver,
     positions: positionsRef,
     preview: params.preview === true,
@@ -675,7 +878,8 @@ const Reels = () => {
 
   const showCourseDetails = useCallback(
     (openPurchase: boolean) => {
-      if (!course) return;
+      if (!course || routeNavigationFlightRef.current) return;
+      routeNavigationFlightRef.current = true;
       const currentFeedItem = feedItems[currentIndex];
       const resumeReelId =
         currentFeedItem?.type === 'reel'
@@ -762,6 +966,7 @@ const Reels = () => {
         <>
           <FlatList
             accessibilityLabel="مقاطع الكورس"
+            key={`reels:${identityKey}:${course.id}`}
             ref={listRef}
             data={feedItems}
             keyExtractor={item => item.key}
@@ -771,7 +976,8 @@ const Reels = () => {
               !chatVisible &&
               !reminderNudgeVisible &&
               !previewGateVisible &&
-              !contentOverlayVisible
+              !contentOverlayVisible &&
+              !courseRevisionRefreshing
             }
             bounces={false}
             decelerationRate="fast"
@@ -819,6 +1025,11 @@ const Reels = () => {
           {!!connectionNote && !previewGateVisible && (
             <ReelsConnectionNote
               message={connectionNote}
+              onPress={
+                courseRevisionRefreshing
+                  ? () => reloadPublishedCourse(activeReelRef.current?.lessonId)
+                  : undefined
+              }
               topInset={insets.top}
             />
           )}

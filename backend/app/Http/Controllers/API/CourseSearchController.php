@@ -23,7 +23,12 @@ final class CourseSearchController extends Controller
             'q' => 'required|string|min:1|max:120',
             'page' => 'nullable|integer|min:1',
             'per_page' => 'nullable|integer|min:1|max:20',
-            'classification_id' => 'nullable|integer|exists:classifications,id',
+            // This is a read filter, not a foreign key mutation. A learner can
+            // keep an old classification selected while an editor removes or
+            // merges it. Let the public catalogue boundary return an empty
+            // page instead of turning that harmless stale UI state into a 422
+            // which the app presents as a broken search journey.
+            'classification_id' => 'nullable|integer|min:1',
             'course_type' => 'nullable|string|max:50',
             'catalogue_revision' => 'nullable|integer|min:1',
         ]);

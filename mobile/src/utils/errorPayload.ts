@@ -16,6 +16,20 @@ export const errorCode = (error: unknown): string => {
   return String(errorPayload(error).code ?? root?.code ?? '');
 };
 
+/**
+ * The API interceptor returns an Axios response directly when the server
+ * answered, while transport adapters and native mocks can keep it under
+ * `response`. Every recovery decision must understand both shapes; otherwise
+ * a real 401/404/409 is mistaken for an offline failure and retried forever.
+ */
+export const errorStatus = (error: unknown): number => {
+  const root = asRecord(error);
+  const response = asRecord(root?.response);
+  const payload = errorPayload(error);
+  const value = Number(response?.status ?? root?.status ?? payload.status ?? 0);
+  return Number.isInteger(value) && value >= 100 && value <= 599 ? value : 0;
+};
+
 export const errorMessage = (error: unknown, fallback = ''): string => {
   const payloadMessage = errorPayload(error).message;
   if (typeof payloadMessage === 'string' && payloadMessage.trim()) {
@@ -27,7 +41,7 @@ export const errorMessage = (error: unknown, fallback = ''): string => {
 const hasArabic = (value: string) => /[\u0600-\u06ff]/.test(value);
 
 const diagnosticPattern =
-  /(?:https?:\/\/|www\.|sqlstate|exception|stack\s*trace|\bat\s+[^\s]+\.(?:php|tsx?|jsx?):\d+|[a-z]:\\|\/var\/|\/app\/|axios|openrouter|bunny(?:cdn)?|kashier|firebase|oauth|pkce|google\s*play|app\s*store|storekit|billingclient|authorization(?:signature|expire)?|access[_ -]?key|api[_ -]?key|\b[A-Z][A-Z0-9_]{2,}\b)/i;
+  /(?:https?:\/\/|www\.|sqlstate|exception|stack\s*trace|\bat\s+[^\s]+\.(?:php|tsx?|jsx?):\d+|[a-z]:\\|\/var\/|\/app\/|axios|openrouter|bunny(?:cdn)?|kashier|firebase|oauth|pkce|google\s*play|app\s*store|storekit|billingclient|authorization(?:signature|expire)?|access[_ -]?key|api[_ -]?key|الخادم|السيرفر|\b[A-Z][A-Z0-9_]{2,}\b)/i;
 
 /**
  * Converts trusted Arabic API copy into the same small visual language used by

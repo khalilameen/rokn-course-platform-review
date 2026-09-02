@@ -12,9 +12,10 @@ use App\Support\BusinessClock;
 
 final readonly class CourseLeaderboardService
 {
-    public function __construct(private CourseSectionSequenceService $sectionSequence)
-    {
-    }
+    public function __construct(
+        private CourseSectionSequenceService $sectionSequence,
+        private CourseRevisionLearnerReadService $revisionReads
+    ) {}
 
     /**
      * @return array{message: string, data: array<string, mixed>}
@@ -35,15 +36,9 @@ final readonly class CourseLeaderboardService
 
         $students = User::query()
             ->whereHas('enrollments', function ($enrollments) use ($courseId): void {
-                $enrollments->where('course_id', $courseId)
-                    ->where('is_active', true);
+                $enrollments->where('course_id', $courseId)->active();
             })
             ->with([
-                'sectionProgress' => function ($progress) use ($learningSections, $lastFridayDate): void {
-                    $progress->whereIn('course_section_id', $learningSections->pluck('id'))
-                        ->where('is_completed', true)
-                        ->where('completed_at', '<', $lastFridayDate);
-                },
                 'examAttempts' => function ($attempts) use ($courseId, $lastFridayDate): void {
                     $attempts->where('course_id', $courseId)
                         ->where('status', 'completed')
@@ -51,6 +46,15 @@ final readonly class CourseLeaderboardService
                 },
             ])
             ->get();
+        $progressByStudent = $this->revisionReads->sectionProgressRowsForUsers(
+            $students->pluck('id'),
+            $learningSections->pluck('id'),
+            $lastFridayDate
+        )->groupBy('user_id');
+        $students->each(fn (User $student) => $student->setRelation(
+            'sectionProgress',
+            $progressByStudent->get((int) $student->id, collect())
+        ));
 
         $totalSections = $learningSections->count();
         $coursePayload = [

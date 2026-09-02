@@ -1,12 +1,13 @@
 import {
   useFocusEffect,
+  useIsFocused,
   useNavigation,
   useRoute,
 } from '@react-navigation/native';
 import type {RootNavigation, RootRoute} from '../../navigation/types';
-import {learnerErrorMessage} from '../../utils/errorPayload';
+import {errorCode, learnerErrorMessage} from '../../utils/errorPayload';
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {ScrollView, StatusBar, Text, View} from 'react-native';
+import {Pressable, ScrollView, StatusBar, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {Palette, useResponsiveLayout} from '../../constants/designSystem';
 import {
@@ -24,6 +25,7 @@ import type {DemoCoinPackage} from '../../services/demoExperience';
 import {openCoinCheckout} from '../../services/coinCheckout';
 import {
   getWallet,
+  getCoinPackages,
   deleteCourseRating,
   purchaseCourse,
   quoteCoursePurchase,
@@ -56,6 +58,14 @@ import styles from './details/styles';
 import type {CoursePurchaseQuote} from '../../services/roknApi';
 import {normalizeHumanIdentifier} from '../../utils/unicodeText';
 import {trackProductEvent} from '../../services/productAnalytics';
+import {useSelector} from 'react-redux';
+import {
+  extractApiToken,
+  extractUserProfile,
+} from '../../constants/helpers';
+import type {RootState} from '../../store/store';
+import {openGuestLogin} from '../../navigation/journeyNavigation';
+import {useAppActiveState} from '../../hooks/useAppActiveState';
 
 const retentionShownCourses = new Set<string>();
 const rememberRetentionOffer = (courseId: string) => {
@@ -73,6 +83,14 @@ export default function CourseDetails() {
   const navigation = useNavigation<RootNavigation>();
   const insets = useSafeAreaInsets();
   const layout = useResponsiveLayout();
+  const appIsActive = useAppActiveState();
+  const screenFocused = useIsFocused();
+  const storedUser = useSelector((state: RootState) => state.auth.userData);
+  const storedProfile = extractUserProfile(storedUser);
+  const hasStoredToken = Boolean(extractApiToken(storedUser));
+  const identityKey = hasStoredToken
+    ? String(storedProfile.id ?? storedProfile.user_id ?? 'authenticated')
+    : 'guest';
   const courseId = String(
     route.params?.courseId || (LOCAL_DEMO_ENABLED ? DEMO_COURSE_ID : ''),
   );
@@ -108,8 +126,14 @@ export default function CourseDetails() {
   const activeCourseIdRef = useRef(courseId);
   const courseOperationGenerationRef = useRef(0);
   const courseDetailsFocusedOnceRef = useRef(false);
+  const previousAppActiveRef = useRef(appIsActive);
+  const reelsNavigationFlightRef = useRef(false);
   const purchaseCompletedTrackedRef = useRef(false);
+  const selectedPlanCodeRef = useRef(selectedPlanCode);
+  const purchaseCouponCodeRef = useRef(purchaseCouponCode);
   activeCourseIdRef.current = courseId;
+  selectedPlanCodeRef.current = selectedPlanCode;
+  purchaseCouponCodeRef.current = purchaseCouponCode;
 
   const ownsCourseOperation = useCallback(
     (expectedCourseId: string, generation: number) =>
@@ -127,12 +151,19 @@ export default function CourseDetails() {
     setCouponBusy(false);
     setCodeBusy(false);
     setRatingBusy(false);
+    setNotice('');
     setDialogStep(null);
     setRedemptionVisible(false);
+    setCouponQuote(null);
+    setPurchaseRestoreState(null);
+    setPurchaseCouponCode('');
+    selectedPlanCodeRef.current = 'basic';
+    setSelectedPlanCode('basic');
+    setPurchasePlanRestoreKey('');
     return () => {
       courseOperationGenerationRef.current += 1;
     };
-  }, [courseId]);
+  }, [courseId, identityKey]);
 
   const {
     experience,
@@ -153,9 +184,15 @@ export default function CourseDetails() {
     setRemoteCourse,
     setRemoteOwned,
     setRemotePaidBalance,
+    setRemotePackages,
     setRemoteSpendableBalance,
     setRemoteRewardBalance,
-  } = useCourseDetailsData({courseId, isDemoCourse, setNotice});
+  } = useCourseDetailsData({
+    courseId,
+    identityKey,
+    isDemoCourse,
+    setNotice,
+  });
 
   const {
     accessPlans,
@@ -199,12 +236,19 @@ export default function CourseDetails() {
 
   useFocusEffect(
     useCallback(() => {
+      reelsNavigationFlightRef.current = false;
       if (courseDetailsFocusedOnceRef.current && !isDemoCourse) {
         reloadRemote();
       }
       courseDetailsFocusedOnceRef.current = true;
     }, [isDemoCourse, reloadRemote]),
   );
+
+  useEffect(() => {
+    const becameActive = appIsActive && !previousAppActiveRef.current;
+    previousAppActiveRef.current = appIsActive;
+    if (becameActive && screenFocused && !isDemoCourse) reloadRemote();
+  }, [appIsActive, isDemoCourse, reloadRemote, screenFocused]);
 
   useEffect(() => {
     if (!accessPlans.length) return;
@@ -260,10 +304,12 @@ export default function CourseDetails() {
     currentPaidBalance +
     Math.min(currentRewardBalance, effectiveRewardContributionLimit);
   const purchaseRestoreKey = [
+    identityKey,
     courseId,
     route.params?.openPurchase ? 'purchase' : 'closed',
     String(route.params?.purchasePlanCode || '').trim(),
     normalizeHumanIdentifier(route.params?.purchaseCouponCode),
+    selectedPlan?.code || '',
   ].join('|');
   const purchaseRestoreStatus =
     purchaseRestoreState?.key === purchaseRestoreKey
@@ -425,7 +471,7 @@ export default function CourseDetails() {
     const routePlanCode = String(route.params?.purchasePlanCode || '').trim();
     const planCode = accessPlans.some(plan => plan.code === routePlanCode)
       ? routePlanCode
-      : selectedPlan?.code;
+      : '';
     const couponCode = normalizeHumanIdentifier(
       purchaseCouponCode || route.params?.purchaseCouponCode,
     );
@@ -441,7 +487,7 @@ export default function CourseDetails() {
         description: courseDescription,
       },
     };
-    navigation.navigate('Login', {returnTo});
+    openGuestLogin(navigation, returnTo);
   }, [
     accessPlans,
     courseDescription,
@@ -452,7 +498,6 @@ export default function CourseDetails() {
     purchaseCouponCode,
     route.params?.purchaseCouponCode,
     route.params?.purchasePlanCode,
-    selectedPlan?.code,
   ]);
 
   const openLoginForCodeRedemption = useCallback(() => {
@@ -466,10 +511,12 @@ export default function CourseDetails() {
         description: courseDescription,
       },
     };
-    navigation.navigate('Login', {returnTo});
+    openGuestLogin(navigation, returnTo);
   }, [courseDescription, courseId, coursePrice, courseTitle, navigation]);
 
-  const startCourse = () =>
+  const startCourse = () => {
+    if (reelsNavigationFlightRef.current) return;
+    reelsNavigationFlightRef.current = true;
     navigation.navigate('Reels', {
       courseId,
       ...(route.params?.resumeAfterPreview
@@ -481,8 +528,11 @@ export default function CourseDetails() {
       title: courseTitle,
       description: courseDescription,
     });
+  };
 
   const startPreview = (reelId?: string) => {
+    if (reelsNavigationFlightRef.current) return;
+    reelsNavigationFlightRef.current = true;
     if (!isDemoCourse) {
       void trackProductEvent({
         event_name: 'sample_started',
@@ -556,6 +606,7 @@ export default function CourseDetails() {
     setRetentionVisible(false);
   }, [
     courseId,
+    identityKey,
     route.params?.openPurchase,
     route.params?.purchaseCouponCode,
     route.params?.purchasePlanCode,
@@ -681,13 +732,14 @@ export default function CourseDetails() {
 
   const closePurchaseDialog = () => {
     if (busy || couponBusy) return;
+    const retentionKey = `${identityKey}:${courseId}`;
     const shouldOfferTasks =
       dialogStep !== null &&
       dialogStep !== 'success' &&
       !owned &&
-      !retentionShownCourses.has(courseId);
+      !retentionShownCourses.has(retentionKey);
     if (shouldOfferTasks) {
-      rememberRetentionOffer(courseId);
+      rememberRetentionOffer(retentionKey);
       setRetentionQueued(true);
     }
     if (dialogStep !== null && dialogStep !== 'success' && !isDemoCourse) {
@@ -754,7 +806,7 @@ export default function CourseDetails() {
     // Keep the hydrated catalogue already loaded for this distribution. The
     // insufficient-balance response is only a recommendation and does not
     // carry native product identities or store-authoritative display prices.
-    setNotice('لم يصل تأكيد الرصيد بعد\nلا تدفع مرة أخرى\nحاول بعد لحظات');
+    setNotice('رصيدك لا يكفي\nاختر باقة شحن لإكمال الشراء');
     setDialogStep('topup');
     return false;
   };
@@ -768,15 +820,23 @@ export default function CourseDetails() {
     }
     const operationCourseId = courseId;
     const operationGeneration = courseOperationGenerationRef.current;
+    const operationPlanCode = selectedPlan?.code;
+    if (!operationPlanCode) return;
     setCouponBusy(true);
     setNotice('');
     try {
       const quote = await quoteCoursePurchase(
         courseId,
-        selectedPlan?.code,
+        operationPlanCode,
         normalized,
       );
-      if (!ownsCourseOperation(operationCourseId, operationGeneration)) return;
+      if (
+        !ownsCourseOperation(operationCourseId, operationGeneration) ||
+        selectedPlanCodeRef.current !== operationPlanCode ||
+        normalizeHumanIdentifier(purchaseCouponCodeRef.current) !== normalized
+      ) {
+        return;
+      }
       setPurchaseCouponCode(quote.couponCode);
       setCouponQuote(quote);
       const paid = remotePaidBalance ?? 0;
@@ -788,7 +848,13 @@ export default function CourseDetails() {
       const quotedSpendable = paid + Math.min(reward, allowedReward);
       setDialogStep(quotedSpendable >= quote.finalPrice ? 'confirm' : 'topup');
     } catch (error: unknown) {
-      if (!ownsCourseOperation(operationCourseId, operationGeneration)) return;
+      if (
+        !ownsCourseOperation(operationCourseId, operationGeneration) ||
+        selectedPlanCodeRef.current !== operationPlanCode ||
+        normalizeHumanIdentifier(purchaseCouponCodeRef.current) !== normalized
+      ) {
+        return;
+      }
       setCouponQuote(null);
       setNotice(learnerErrorMessage(error, 'الكود غير صحيح أو انتهت صلاحيته'));
     } finally {
@@ -816,19 +882,30 @@ export default function CourseDetails() {
     }
 
     const requestKey = purchaseRestoreKey;
+    const operationPlanCode = selectedPlan.code;
     purchaseRestoreRequestRef.current = requestKey;
     setPurchaseRestoreState({key: purchaseRestoreKey, status: 'quoting'});
     setPurchaseCouponCode(resumedCoupon);
     setCouponBusy(true);
-    void quoteCoursePurchase(courseId, selectedPlan.code, resumedCoupon)
+    void quoteCoursePurchase(courseId, operationPlanCode, resumedCoupon)
       .then(quote => {
-        if (purchaseRestoreRequestRef.current !== requestKey) return;
+        if (
+          purchaseRestoreRequestRef.current !== requestKey ||
+          selectedPlanCodeRef.current !== operationPlanCode
+        ) {
+          return;
+        }
         setPurchaseCouponCode(quote.couponCode);
         setCouponQuote(quote);
         setPurchaseRestoreState({key: purchaseRestoreKey, status: 'ready'});
       })
       .catch(error => {
-        if (purchaseRestoreRequestRef.current !== requestKey) return;
+        if (
+          purchaseRestoreRequestRef.current !== requestKey ||
+          selectedPlanCodeRef.current !== operationPlanCode
+        ) {
+          return;
+        }
         setCouponQuote(null);
         setPurchaseRestoreState({key: purchaseRestoreKey, status: 'failed'});
         setNotice(
@@ -967,9 +1044,64 @@ export default function CourseDetails() {
             setNotice('تم تأكيد الشحن\nنحدّث الرصيد والسعر\nلا تدفع مرة أخرى');
           }
         }
+      } else {
+        setNotice('لم يكتمل الدفع\nيمكنك المحاولة مرة أخرى');
       }
-    } catch {
+    } catch (error) {
       if (!ownsCourseOperation(operationCourseId, operationGeneration)) return;
+      if (
+        ['package_terms_changed', 'package_not_available'].includes(
+          errorCode(error),
+        )
+      ) {
+        // The server rejected this exact package snapshot. Remove it before
+        // releasing the single-flight guard so the next tap cannot replay the
+        // same stale price/coin contract with a fresh idempotency key.
+        const operationPlanCode = selectedPlan?.code;
+        const operationCouponCode =
+          appliedCoupon && couponQuote?.couponCode
+            ? couponQuote.couponCode
+            : '';
+        setRemotePackages([]);
+        setCouponQuote(null);
+        setNotice('تغيّرت تفاصيل الباقة\nنحدّث خيارات الدفع');
+        try {
+          const [refreshedPackages, refreshedQuote] = await Promise.all([
+            getCoinPackages(),
+            quoteCoursePurchase(
+              operationCourseId,
+              operationPlanCode,
+              operationCouponCode,
+            ),
+          ]);
+          if (!ownsCourseOperation(operationCourseId, operationGeneration)) {
+            return;
+          }
+          setRemotePackages(refreshedPackages);
+          if (refreshedQuote.originalPrice !== purchasePrice) {
+            setPurchaseCouponCode('');
+            setDialogStep('plans');
+            setNotice('تغيّر السعر\nراجع الفئات قبل الشراء');
+          } else {
+            setCouponQuote(
+              refreshedQuote.couponCode ? refreshedQuote : null,
+            );
+            if (refreshedQuote.couponCode) {
+              setPurchaseCouponCode(refreshedQuote.couponCode);
+            }
+            setDialogStep('topup');
+            setNotice('تم تحديث باقات الشحن\nاختر الباقة من جديد');
+          }
+        } catch {
+          if (!ownsCourseOperation(operationCourseId, operationGeneration)) {
+            return;
+          }
+          setDialogStep('topup');
+          setNotice('تعذّر تحديث باقات الشحن\nحدّث الصفحة ثم اختر من جديد');
+        }
+        reloadRemote();
+        return;
+      }
       setNotice('تعذّر فتح الدفع\nمكانك ورصيدك محفوظان\nحاول مرة أخرى');
     } finally {
       if (ownsCourseOperation(operationCourseId, operationGeneration)) {
@@ -1138,6 +1270,20 @@ export default function CourseDetails() {
                 submittedRating !== null)
             }
           />
+          {remoteCourse?.fromCache === true && (
+            <Pressable
+              accessibilityRole="button"
+              onPress={reloadRemote}
+              style={({pressed}) => [
+                styles.cachedDetailsNotice,
+                pressed && styles.pressed,
+              ]}>
+              <Text style={styles.cachedDetailsText}>
+                نعرض آخر تفاصيل محفوظة
+              </Text>
+              <Text style={styles.cachedDetailsAction}>إعادة المحاولة</Text>
+            </Pressable>
+          )}
           {!!notice && dialogStep === null && !redemptionVisible && (
             <Text style={[styles.notice, styles.inlineNotice]}>{notice}</Text>
           )}
@@ -1159,7 +1305,9 @@ export default function CourseDetails() {
         bottomInset={insets.bottom}
         label={primaryActionLabel}
         onPress={handlePrimaryAction}
-        visible={showStickyAction && pageReady && dialogStep === null}
+        visible={
+          showStickyAction && pageReady && !remoteError && dialogStep === null
+        }
       />
 
       <CourseCodeRedemptionDialog

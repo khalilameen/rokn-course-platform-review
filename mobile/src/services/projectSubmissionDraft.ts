@@ -99,6 +99,7 @@ export const loadProjectSubmissionDraft = async (
 
 export const cacheProjectDraftFile = async (
   file: SelectedProjectFile,
+  ownerBoundary?: AccountSessionBoundary,
 ): Promise<SelectedProjectFile> => {
   const cached = await cacheLearnerDraftFile(
     'project',
@@ -109,6 +110,7 @@ export const cacheProjectDraftFile = async (
       size: file.size,
     },
     MAX_BYTES,
+    ownerBoundary,
   );
   return {
     uri: cached.uri,

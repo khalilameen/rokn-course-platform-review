@@ -27,8 +27,9 @@
                     </td>
                     <td>
                         @php($status = $campaign->status ?? 'completed')
-                        {{ ['scheduled' => 'في موعده', 'queued' => 'في القائمة', 'delivering' => 'جارٍ التوزيع', 'completed' => 'اكتمل', 'failed' => 'تعذّر الإرسال'][$status] ?? $status }}
-                        @if($status === 'failed' && $campaign->failure_code)
+                        @php($withdrawn = ($campaign->failure_code ?? null) === 'course_withdrawn_before_delivery')
+                        {{ $withdrawn ? 'لم يُرسل — الكورس غير متاح' : (['scheduled' => 'في موعده', 'queued' => 'في القائمة', 'delivering' => 'جارٍ التوزيع', 'completed' => 'اكتمل', 'failed' => 'تعذّر الإرسال'][$status] ?? $status) }}
+                        @if($status === 'failed' && $campaign->failure_code && !$withdrawn)
                             <br><small class="text-muted">{{ $campaign->failure_code }}</small>
                         @endif
                     </td>
@@ -47,7 +48,7 @@
                     <td><code>{{ $campaign->link ?: 'الرئيسية' }}</code></td>
                     <td>
                         @if($status === 'failed' && isset($campaign->id))
-                            <form method="POST" action="{{ route('admin.notifications.retry', $campaign) }}">
+                            <form method="POST" action="{{ route('admin.notifications.retry', $campaign) }}" onsubmit="const button=this.querySelector('button[type=submit]'); if(button.disabled) return false; button.disabled=true;">
                                 @csrf
                                 <button type="submit" class="btn btn-sm btn-outline-primary">إعادة المحاولة</button>
                             </form>

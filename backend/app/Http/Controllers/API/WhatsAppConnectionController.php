@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SendWhatsAppMessage;
 use App\Models\CoinEarningMethod;
 use App\Models\User;
 use App\Models\UserWhatsAppConnection;
 use App\Services\ApiResponseService;
 use App\Services\StudentNotificationService;
 use App\Services\WhatsAppLinkService;
-use App\Services\WhatsAppService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -34,7 +34,7 @@ final class WhatsAppConnectionController extends Controller
         );
     }
 
-    public function webhook(Request $request, WhatsAppService $whatsApp): JsonResponse
+    public function webhook(Request $request): JsonResponse
     {
         $configuredSecret = trim((string) config('whatsapp.linking.webhook_secret'));
         if ($configuredSecret === '') {
@@ -45,7 +45,15 @@ final class WhatsAppConnectionController extends Controller
                 ['code' => 'webhook_not_configured']
             );
         }
-        $providedSecret = trim((string) $request->header('X-WhatsApp-Webhook-Secret'));
+        // Whatspie documents a webhook URL but no caller-configurable request
+        // header. Keep the header for providers which support it and accept
+        // the same high-entropy token in the configured webhook URL so the
+        // production integration is actually callable.
+        $provided = $request->header('X-WhatsApp-Webhook-Secret');
+        if (!is_string($provided) || trim($provided) === '') {
+            $provided = $request->query('token');
+        }
+        $providedSecret = is_string($provided) ? trim($provided) : '';
         if ($providedSecret === '' || !hash_equals($configuredSecret, $providedSecret)) {
             return $this->responses->error(
                 'Unauthorized',
@@ -65,11 +73,13 @@ final class WhatsAppConnectionController extends Controller
             'entry.0.changes.0.value.messages.0.from',
         ]);
         $message = $this->firstString($payload, [
+            'message',
             'message.text',
             'message.body',
             'text.body',
             'body',
             'text',
+            'data.message',
             'data.message.text',
             'data.message.body',
             'data.text',
@@ -91,7 +101,7 @@ final class WhatsAppConnectionController extends Controller
             $result = $this->links->consumeInbound($sender, $message);
         } catch (\DomainException $exception) {
             if ($exception->getMessage() === 'whatsapp_phone_in_use') {
-                $whatsApp->sendTextMessage(
+                $this->sendReply(
                     $sender,
                     "هذا الرقم مرتبط بحساب ركن آخر\nافتح المهمة من الحساب الصحيح"
                 );
@@ -107,7 +117,10 @@ final class WhatsAppConnectionController extends Controller
             );
         }
 
-        if ($result['matched'] && !$result['already_claimed'] && $result['user']) {
+        // A provider retry also repairs the inbox receipt when the first
+        // request committed the wallet entry but stopped before this point.
+        // delivery_key makes this safe across duplicate webhooks.
+        if ($result['matched'] && $result['user'] && $result['earned_coins'] > 0) {
             $method = CoinEarningMethod::query()->where('action_key', 'link_whatsapp')->first();
             try {
                 StudentNotificationService::notifyUser(
@@ -115,28 +128,44 @@ final class WhatsAppConnectionController extends Controller
                     StudentNotificationService::TYPE_WHATSAPP_CONNECTED,
                     'تم ربط واتساب',
                     'WhatsApp Connected',
-                    'أضفنا ' . $result['coins'] . " عملة ركن إلى رصيدك\nافتح المحفظة لمعرفة التفاصيل",
-                    $result['coins'] . ' Rokn coins were added to your wallet.',
+                    'أضفنا ' . $result['earned_coins'] . " عملة ركن إلى رصيدك\nافتح المحفظة لمعرفة التفاصيل",
+                    $result['earned_coins'] . ' Rokn coins were added to your wallet.',
                     null,
                     $method ? CoinEarningMethod::class : null,
                     $method?->id,
                     'whatsapp-linked:' . $result['user']->id,
-                    ['coins' => (int) $result['coins']]
+                    ['coins' => (int) $result['earned_coins']]
                 );
             } catch (\Throwable $exception) {
                 report($exception);
             }
-            $whatsApp->sendTextMessage(
+        }
+
+        if (
+            $result['matched']
+            && !$result['already_claimed']
+            && $result['coins'] > 0
+        ) {
+            $this->sendReply(
                 $sender,
                 'تم ربط حسابك وإضافة ' . $result['coins'] . " عملة ركن\nرصيدك الآن "
                     . $result['balance'] . ' عملة'
             );
+        } elseif ($result['matched'] && ($result['reward_deferred'] ?? false)) {
+            $this->sendReply(
+                $sender,
+                "تم ربط حسابك\nافتح التطبيق لاستلام المكافأة"
+            );
+        } elseif ($result['matched'] && ($result['reward_unavailable'] ?? false)) {
+            $this->sendReply($sender, 'تم ربط حسابك');
         }
 
         $data = [
             'matched' => $result['matched'],
             'already_claimed' => $result['already_claimed'],
             'coins_added' => $result['coins'],
+            'reward_deferred' => (bool) ($result['reward_deferred'] ?? false),
+            'reward_unavailable' => (bool) ($result['reward_unavailable'] ?? false),
         ];
 
         return $this->responses->success(
@@ -200,5 +229,20 @@ final class WhatsAppConnectionController extends Controller
         }
 
         return null;
+    }
+
+    private function sendReply(string $phone, string $message): void
+    {
+        // Whatspie requires the webhook to return within five seconds. Never
+        // hold its inbound acknowledgement open while a second provider call
+        // connects; a unique queued reply also absorbs webhook retries.
+        try {
+            SendWhatsAppMessage::dispatch($phone, $message);
+        } catch (\Throwable $exception) {
+            // Linking and its wallet receipt are already durable. A temporary
+            // queue outage must not make Whatspie retry a completed financial
+            // event or report the link itself as failed.
+            report($exception);
+        }
     }
 }

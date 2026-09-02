@@ -6,7 +6,7 @@ namespace App\Services;
 
 use App\Models\Package;
 use App\Models\Setting;
-use Illuminate\Support\Facades\Schema;
+use App\Support\DatabaseCapabilities;
 use Illuminate\Support\Facades\Cache;
 use Throwable;
 
@@ -16,8 +16,8 @@ final class PackageChannelPricingService
     {
         $load = static function (): float {
             if (
-                !Schema::hasTable('settings')
-                || !Schema::hasColumn('settings', 'direct_checkout_discount_percent')
+                !DatabaseCapabilities::hasTable('settings')
+                || !DatabaseCapabilities::hasColumn('settings', 'direct_checkout_discount_percent')
             ) {
                 return 10;
             }

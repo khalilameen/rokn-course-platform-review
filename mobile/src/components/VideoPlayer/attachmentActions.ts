@@ -1,5 +1,11 @@
 import Clipboard from '@react-native-clipboard/clipboard';
-import {Alert, Linking, NativeModules, Platform} from 'react-native';
+import {
+  Alert,
+  Linking,
+  NativeModules,
+  PermissionsAndroid,
+  Platform,
+} from 'react-native';
 import RNFS from 'react-native-fs';
 import Share from 'react-native-share';
 import {CourseAttachment} from './types';
@@ -98,6 +104,18 @@ const openRemoteDownload = async (url: string) => {
   } catch {
     return false;
   }
+};
+
+const allowPublicAndroidDownload = async () => {
+  if (Platform.OS !== 'android' || Number(Platform.Version) >= 29) {
+    return true;
+  }
+  const permission = PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE;
+  if (await PermissionsAndroid.check(permission)) return true;
+  return (
+    (await PermissionsAndroid.request(permission)) ===
+    PermissionsAndroid.RESULTS.GRANTED
+  );
 };
 
 const attachmentUrlNeedsRefresh = (attachment: CourseAttachment) => {
@@ -225,6 +243,17 @@ const openCourseAttachmentInternal = async (
   const fileName = safeFileName(currentAttachment);
   if (Platform.OS === 'android' && NativeModules.RoknDownloads?.enqueue) {
     try {
+      const canSaveToDownloads = await allowPublicAndroidDownload();
+      if (generation !== privateDownloadGeneration) {
+        return {copied: false, downloaded: false};
+      }
+      if (!canSaveToDownloads) {
+        Alert.alert(
+          'تعذّر حفظ الملف',
+          'اسمح بحفظ الملفات لتنزيل مرفق الكورس على هاتفك',
+        );
+        return {copied: false, downloaded: false};
+      }
       const nativeResult = await NativeModules.RoknDownloads.enqueue(
         currentAttachment.url,
         currentAttachment.title,
@@ -449,7 +478,16 @@ export const openCourseAttachment = (attachment: CourseAttachment) => {
   const key = attachmentFlightKey(attachment);
   const existing = downloadFlights.get(key);
   if (existing) return existing;
-  const flight = openCourseAttachmentInternal(attachment);
+  // Every caller gets the same user-facing terminal contract. Most expected
+  // failures are handled close to their recovery path above; this boundary
+  // catches platform/native surprises so a tap can never fail silently just
+  // because a screen used fire-and-forget semantics.
+  const flight = openCourseAttachmentInternal(attachment).catch(() => {
+    if (downloadFlights.has(key)) {
+      Alert.alert('تعذّر فتح الملف', 'تحقق من الاتصال ثم حاول مرة أخرى');
+    }
+    return {copied: false, downloaded: false};
+  });
   downloadFlights.set(key, flight);
   const clear = () => {
     if (downloadFlights.get(key) === flight) downloadFlights.delete(key);

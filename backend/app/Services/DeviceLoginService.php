@@ -2,13 +2,17 @@
 
 namespace App\Services;
 
+use App\Models\ApiToken;
 use App\Models\Setting;
 use App\Models\User;
+use App\Models\UserDeviceToken;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 class DeviceLoginService
 {
+    public const MAX_ACTIVE_SESSIONS = 25;
+
     public const POLICY_MULTIPLE = 'multiple_devices';
     public const POLICY_SINGLE = 'single_device';
     public const POLICY_SINGLE_PERMANENT = 'single_device_permanent';
@@ -228,6 +232,54 @@ class DeviceLoginService
             case 'deny':
                 // No action needed, access was denied
                 break;
+        }
+    }
+
+    /**
+     * Keep every live bearer visible and revocable in the sessions screen.
+     * Reinstalls and repeated native sign-ins must not accumulate hidden
+     * credentials beyond the 25 rows that API intentionally exposes.
+     */
+    public function enforceActiveSessionLimit(User $user, string $currentPlainToken): void
+    {
+        $currentStoredToken = (bool) config('multiple-tokens-auth.hash', true)
+            ? hash('sha256', $currentPlainToken)
+            : $currentPlainToken;
+        $retiredDeviceIds = collect();
+
+        do {
+            $overflow = $user->apiTokens()
+                ->whereHasNotExpired()
+                ->where('token', '<>', $currentStoredToken)
+                ->orderByDesc('issued_at')
+                ->orderByDesc('token')
+                ->skip(self::MAX_ACTIVE_SESSIONS - 1)
+                ->take(100)
+                ->lockForUpdate()
+                ->get();
+            $retiredDeviceIds = $retiredDeviceIds->merge(
+                $overflow->pluck('device_id')
+                    ->map(static fn ($value): string => trim((string) $value))
+                    ->filter()
+            );
+            $overflow->each(static fn (ApiToken $token): mixed => $token->revoke());
+        } while ($overflow->isNotEmpty());
+
+        $retiredDeviceIds = $retiredDeviceIds->unique()->values();
+        $tokenTable = (string) config('multiple-tokens-auth.table', 'api_tokens');
+        if ($retiredDeviceIds->isEmpty() || !Schema::hasColumn($tokenTable, 'device_id')) {
+            return;
+        }
+        $stillActiveDeviceIds = $user->apiTokens()
+            ->whereHasNotExpired()
+            ->whereIn('device_id', $retiredDeviceIds)
+            ->pluck('device_id');
+        $orphanedDeviceIds = $retiredDeviceIds->diff($stillActiveDeviceIds)->values();
+        if ($orphanedDeviceIds->isNotEmpty() && Schema::hasColumn('user_device_tokens', 'device_id')) {
+            UserDeviceToken::query()
+                ->where('user_id', $user->id)
+                ->whereIn('device_id', $orphanedDeviceIds)
+                ->delete();
         }
     }
 

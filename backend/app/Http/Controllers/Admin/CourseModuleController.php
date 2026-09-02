@@ -82,7 +82,7 @@ class CourseModuleController extends Controller
                 'course_id' => $lockedCourse->id,
                 'title_ar' => $request->title_ar,
                 'title_en' => $request->title_en,
-                'attachments_link' => $request->attachments_link,
+                'attachments_link' => SafeExternalUrl::sanitize($request->input('attachments_link')),
                 'attachment_platform' => $request->attachment_platform,
                 'order' => $request->input('order', $maxOrder + 1),
             ]);
@@ -147,7 +147,7 @@ class CourseModuleController extends Controller
             $lockedModule->update([
                 'title_ar' => $request->title_ar,
                 'title_en' => $request->title_en,
-                'attachments_link' => $request->attachments_link,
+                'attachments_link' => SafeExternalUrl::sanitize($request->input('attachments_link')),
                 'order' => $request->input('order', $module->order),
                 'attachment_platform' => $request->attachment_platform,
             ]);
@@ -215,9 +215,22 @@ class CourseModuleController extends Controller
         $version = DB::transaction(function () use ($request, $course): int {
             $lockedCourse = $this->authoring->lock($request, $course);
             $this->assertDraftForStructuralChange($lockedCourse);
-            CourseModule::query()->where('course_id', $course->id)
-                ->whereIn('id', collect($request->modules)->pluck('id'))
-                ->orderBy('id')->lockForUpdate()->get();
+            $lockedModules = CourseModule::query()
+                ->where('course_id', $course->id)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get(['id']);
+            $submittedIds = collect($request->modules)
+                ->pluck('id')
+                ->map(static fn ($id): int => (int) $id)
+                ->sort()
+                ->values();
+            if ($lockedModules->pluck('id')->map(static fn ($id): int => (int) $id)
+                ->sort()->values()->all() !== $submittedIds->all()) {
+                throw ValidationException::withMessages([
+                    'modules' => 'تغيّرت قائمة الوحدات منذ بدء السحب\nحدّث الصفحة ثم أعد الترتيب',
+                ])->status(409);
+            }
             foreach ($request->modules as $moduleData) {
                 CourseModule::where('id', $moduleData['id'])
                     ->where('course_id', $course->id)

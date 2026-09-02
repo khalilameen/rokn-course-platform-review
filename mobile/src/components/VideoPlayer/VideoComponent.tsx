@@ -9,6 +9,7 @@ import React, {
 } from 'react';
 import {Image, PanResponder, Platform, StyleSheet, View} from 'react-native';
 import Video, {
+  BufferingStrategyType,
   SelectedVideoTrackType,
   VideoRef,
   ViewType,
@@ -26,6 +27,7 @@ import {
   type PlaybackFailure,
 } from './video/policy';
 import {useAppActiveState} from '../../hooks/useAppActiveState';
+import {reportClientError} from '../../services/operationalTelemetry';
 
 export interface VideoComponentHandle {
   seekTo: (seconds: number) => void;
@@ -88,6 +90,7 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
     const deferredPreloadFailureRef = useRef(false);
     const diagnosticRequestRef = useRef(0);
     const playbackLifecycleGenerationRef = useRef(0);
+    const manualRetryFlightRef = useRef<symbol | null>(null);
     const activePlayerOwnerRef = useRef('');
     const previousVisibleRef = useRef(isVisible);
     const previousManifestIdentityRef = useRef(
@@ -181,6 +184,7 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
       sameSourceRetryUsedRef.current = false;
       deferredPreloadFailureRef.current = false;
       diagnosticRequestRef.current += 1;
+      manualRetryFlightRef.current = null;
       previousVisibleRef.current = false;
       previousManifestIdentityRef.current = '';
       isPlayingRef.current = false;
@@ -211,6 +215,7 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
         sameSourceRetryUsedRef.current = false;
         deferredPreloadFailureRef.current = false;
         diagnosticRequestRef.current += 1;
+        manualRetryFlightRef.current = null;
         if (longBufferTimerRef.current) {
           clearTimeout(longBufferTimerRef.current);
           longBufferTimerRef.current = null;
@@ -285,6 +290,7 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
         }
         diagnosticRequestRef.current += 1;
         playbackLifecycleGenerationRef.current += 1;
+        manualRetryFlightRef.current = null;
         activePlayerOwnerRef.current = '';
       },
       [],
@@ -544,6 +550,86 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
       ],
     );
 
+    useEffect(() => {
+      if (
+        !playbackEligible ||
+        !isBuffering ||
+        unsupportedSource ||
+        longBufferTimerRef.current
+      ) {
+        return;
+      }
+
+      // Pausing for chat, a system interruption or another overlay cancels
+      // recovery work. Some Android players resume in the same buffering
+      // state without emitting a second onBuffer(true), so eligibility itself
+      // must re-arm the watchdog or the reel can spin forever.
+      if (
+        hasStartedRef.current &&
+        bufferingStartedAtRef.current === null
+      ) {
+        bufferingStartedAtRef.current = Date.now();
+        bufferCountRef.current += 1;
+        publishRuntimeMetrics({bufferCount: bufferCountRef.current});
+      }
+      const lifecycleGeneration = playbackLifecycleGenerationRef.current;
+      const timeoutMs = recoveryAttemptsRef.current ? 7000 : 12_000;
+      const timer = setTimeout(() => {
+        if (
+          longBufferTimerRef.current !== timer ||
+          lifecycleGeneration !== playbackLifecycleGenerationRef.current ||
+          activePlayerOwnerRef.current !== playerOwner
+        ) {
+          return;
+        }
+        longBufferTimerRef.current = null;
+        if (bufferingStartedAtRef.current !== null) {
+          bufferDurationMsRef.current += Math.max(
+            0,
+            Date.now() - bufferingStartedAtRef.current,
+          );
+          bufferingStartedAtRef.current = null;
+          publishRuntimeMetrics({
+            bufferCount: bufferCountRef.current,
+            bufferDurationMs: bufferDurationMsRef.current,
+          });
+        }
+        reportClientError(new Error(`video_buffer_timeout:${data.id}`), {
+          source: 'video_player',
+        });
+        const willRecover = recoverOrFail('timeout');
+        emitPlaybackEvent('error', {
+          errorCode: 'buffer_timeout',
+          ...(willRecover ? {} : {endReason: 'playback_error'}),
+          diagnostics: {
+            source_type: sourceType || 'unknown',
+            stage: isFallbackSource ? 'fallback' : 'primary',
+            reason: 'buffer_timeout',
+            retry_stage: willRecover ? 'automatic_recovery' : 'exhausted',
+          },
+        });
+      }, timeoutMs);
+      longBufferTimerRef.current = timer;
+
+      return () => {
+        if (longBufferTimerRef.current === timer) {
+          clearTimeout(timer);
+          longBufferTimerRef.current = null;
+        }
+      };
+    }, [
+      data.id,
+      emitPlaybackEvent,
+      isBuffering,
+      isFallbackSource,
+      playbackEligible,
+      playerOwner,
+      publishRuntimeMetrics,
+      recoverOrFail,
+      sourceType,
+      unsupportedSource,
+    ]);
+
     const seekFromX = useCallback(
       (x: number, commit: boolean) => {
         if (!trackWidth || !duration) {
@@ -612,6 +698,9 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
     };
 
     const retryPlayback = () => {
+      if (manualRetryFlightRef.current) return;
+      const retryFlight = Symbol('manual-playback-retry');
+      manualRetryFlightRef.current = retryFlight;
       const lifecycleGeneration = playbackLifecycleGenerationRef.current;
       const reelId = data.id;
       retryPositionRef.current = lastPositionRef.current;
@@ -625,7 +714,8 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
       setIsBuffering(true);
       setUsingFallback(false);
       setEffectiveQuality(selectedQuality);
-      void Promise.resolve(onRefreshSource?.())
+      void Promise.resolve()
+        .then(() => onRefreshSource?.())
         .catch(() => undefined)
         .then(() => {
           if (
@@ -635,6 +725,11 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
             return;
           }
           setRetryKey(value => value + 1);
+        })
+        .finally(() => {
+          if (manualRetryFlightRef.current === retryFlight) {
+            manualRetryFlightRef.current = null;
+          }
         });
     };
 
@@ -715,6 +810,11 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
             disableFocus={!playbackEligible || pausedByUser}
             automaticallyWaitsToMinimizeStalling
             preferredForwardBufferDuration={playbackEligible ? 6 : 1}
+            bufferingStrategy={
+              Platform.OS === 'android'
+                ? BufferingStrategyType.DEPENDING_ON_MEMORY
+                : undefined
+            }
             preventsDisplaySleepDuringVideoPlayback={
               playbackEligible && !playbackPaused
             }
@@ -728,12 +828,16 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
                     maxBufferMs: 18000,
                     bufferForPlaybackMs: 1200,
                     bufferForPlaybackAfterRebufferMs: 2500,
+                    maxHeapAllocationPercent: 0.24,
+                    minBufferMemoryReservePercent: 0.15,
                   }
                 : {
                     minBufferMs: 900,
                     maxBufferMs: 2600,
                     bufferForPlaybackMs: 600,
                     bufferForPlaybackAfterRebufferMs: 900,
+                    maxHeapAllocationPercent: 0.12,
+                    minBufferMemoryReservePercent: 0.15,
                   }
             }
             maxBitRate={

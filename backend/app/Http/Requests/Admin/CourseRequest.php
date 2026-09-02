@@ -119,6 +119,11 @@ class CourseRequest extends FormRequest
             'grant_project_followup_attachments_to_current_enrollments' => 'nullable|boolean',
             'attachment_prompt_enabled' => 'nullable|boolean',
             'attachment_prompt_at_seconds' => 'required_if:attachment_prompt_enabled,1|nullable|integer|min:0|max:3600',
+            'attachment_prompt_frequency' => [
+                'required_if:attachment_prompt_enabled,1',
+                'nullable',
+                Rule::in(array_keys((array) config('course_attachments.prompt.frequencies', []))),
+            ],
             'attachment_prompt_title' => 'nullable|string|max:120',
             'attachment_prompt_body' => 'nullable|string|max:500',
             'attachment_prompt_button_text' => 'nullable|string|max:80',

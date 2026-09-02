@@ -8,8 +8,9 @@ use App\Models\Course;
 use App\Models\CourseEnrollment;
 use App\Models\CourseSection;
 use App\Models\Order;
+use App\Support\DatabaseCapabilities;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Collection;
 
 final class CourseChatAccessService
 {
@@ -62,9 +63,10 @@ final class CourseChatAccessService
         $candidates = $this->activeEnrollments($userId, $this->accessCourseIds($courseId))
             ->with($this->enrollmentRelations())
             ->get();
-        $enrollment = $candidates->first(fn (CourseEnrollment $candidate): bool =>
-                !$this->provenance->enrollmentHasActiveHold($candidate, ['course'])
-            );
+        $eligibleCandidates = $candidates->reject(fn (CourseEnrollment $candidate): bool =>
+            $this->provenance->enrollmentHasActiveHold($candidate, ['course'])
+        );
+        $enrollment = $this->preferredEnrollment($eligibleCandidates);
         if (!$enrollment) {
             return ['entitlement' => [
                 'has_learning_access' => false,
@@ -98,6 +100,7 @@ final class CourseChatAccessService
         $plan = $this->plans->planForEnrollment($enrollment);
         $terms = $this->plans->termsForEnrollment($enrollment);
         $publicTerms = $terms ? $this->plans->publicPayloadFromTerms($terms) : null;
+        $variableCostAllowed = $this->enrollmentAllowsVariableCostFeatures($enrollment);
         $hasPlanReference = $enrollment->access_plan_id !== null;
 
         return ['entitlement' => [
@@ -113,7 +116,9 @@ final class CourseChatAccessService
             'plan_code' => $terms['code'] ?? $plan?->code,
             'plan_name' => $terms['name_ar'] ?? $plan?->name_ar,
             'chat_message_limit' => $terms ? (int) ($terms['chat_message_limit'] ?? 0) : null,
-            'project_feedback_level' => $publicTerms['project_feedback_level'] ?? 'pass_only',
+            'project_feedback_level' => $variableCostAllowed
+                ? ($publicTerms['project_feedback_level'] ?? 'pass_only')
+                : 'pass_only',
         ], 'enrollment' => $enrollment];
     }
 
@@ -130,10 +135,10 @@ final class CourseChatAccessService
     public function enrollmentHasCertificateAccess(CourseEnrollment $enrollment): bool
     {
         $relations = ['order.courseCode'];
-        if (Schema::hasColumn('course_enrollments', 'access_plan_order_id')) {
+        if (DatabaseCapabilities::hasColumn('course_enrollments', 'access_plan_order_id')) {
             $relations[] = 'accessPlanOrder';
         }
-        if (Schema::hasTable('course_access_plans')) {
+        if (DatabaseCapabilities::hasTable('course_access_plans')) {
             $relations[] = 'accessPlan';
         }
         $enrollment->loadMissing($relations);
@@ -190,12 +195,77 @@ final class CourseChatAccessService
             return null;
         }
 
+        $eligible = $this->activeEnrollments($userId, $this->accessCourseIds($courseId))
+            ->with($this->enrollmentRelations())
+            ->get()
+            ->reject(fn (CourseEnrollment $candidate): bool =>
+                $this->provenance->enrollmentHasActiveHold($candidate, ['course'])
+            );
+
+        return $this->preferredEnrollment($eligible);
+    }
+
+    /** Resolve the exact paid entitlement whose budget will fund course chat. */
+    public function activeChatEnrollmentFor(int $userId, int $courseId): ?CourseEnrollment
+    {
+        if (!$this->courseIsReady($courseId)) {
+            return null;
+        }
+
         return $this->activeEnrollments($userId, $this->accessCourseIds($courseId))
             ->with($this->enrollmentRelations())
             ->get()
-            ->first(fn (CourseEnrollment $candidate): bool =>
-                !$this->provenance->enrollmentHasActiveHold($candidate, ['course'])
+            ->filter(fn (CourseEnrollment $candidate): bool =>
+                $this->enrollmentHasChatAccess($candidate)
+            )
+            ->sortByDesc(fn (CourseEnrollment $candidate): int =>
+                $this->planCapabilityRank($candidate)
+            )
+            ->first();
+    }
+
+    /**
+     * Prefer the strongest paid report contract, while retaining a normal
+     * learning enrollment for pass-only project submissions.
+     */
+    public function activeProjectEnrollmentFor(int $userId, int $courseId): ?CourseEnrollment
+    {
+        if (!$this->courseIsReady($courseId)) {
+            return null;
+        }
+
+        $candidates = $this->activeEnrollments($userId, $this->accessCourseIds($courseId))
+            ->with($this->enrollmentRelations())
+            ->get()
+            ->reject(fn (CourseEnrollment $candidate): bool =>
+                $this->provenance->enrollmentHasActiveHold($candidate, ['course'])
             );
+
+        return $candidates
+            ->filter(function (CourseEnrollment $candidate): bool {
+                $terms = $this->plans->termsForEnrollment($candidate);
+                $contract = $this->plans->publicPayloadFromTerms($terms ?? []);
+
+                return (bool) ($contract['project_report_enabled'] ?? false)
+                    && $this->enrollmentAllowsVariableCostFeatures($candidate);
+            })
+            ->sortByDesc(fn (CourseEnrollment $candidate): int =>
+                $this->planCapabilityRank($candidate)
+            )
+            ->first()
+            ?? $candidates->first();
+    }
+
+    /** A parent-course enrollment may legitimately fund one of its subcourses. */
+    public function enrollmentGrantsCourse(
+        CourseEnrollment $enrollment,
+        int $courseId
+    ): bool {
+        return in_array(
+            (int) $enrollment->course_id,
+            $this->accessCourseIds($courseId),
+            true
+        );
     }
 
     /**
@@ -219,6 +289,35 @@ final class CourseChatAccessService
         }
 
         return $enrollment;
+    }
+
+    /** Shared financial boundary for every provider-billed course feature. */
+    public function enrollmentAllowsVariableCostFeatures(
+        CourseEnrollment $enrollment
+    ): bool {
+        $enrollment->loadMissing($this->enrollmentRelations());
+
+        $order = $enrollment->order;
+        $planOrder = $enrollment->accessPlanOrder;
+        $paidCourseOrder = $order
+            && $order->isFinanciallyEffective()
+            && $order->payment_method !== Order::PAYMENT_METHOD_COURSE_CODE
+            && ((int) $order->total_coins > 0 || (float) $order->final_amount > 0);
+        $fullAccessCode = $order
+            && $order->isFinanciallyEffective()
+            && $order->payment_method === Order::PAYMENT_METHOD_COURSE_CODE
+            && $order->courseCode
+            && !$order->courseCode->isInstitutionalGrant();
+
+        return $enrollment->isActive()
+            && ($paidCourseOrder
+                || $fullAccessCode
+                || $this->isPaidPlanUpgrade($enrollment, $planOrder))
+            && !$this->provenance->enrollmentHasActiveHold(
+                $enrollment,
+                ['course', 'chat', 'plan']
+            )
+            && $this->financialRisk->allowsVariableCostFeatures($enrollment);
     }
 
     private function activeEnrollments(int $userId, array $courseIds): Builder
@@ -261,43 +360,58 @@ final class CourseChatAccessService
             && $planOrder->parent_order_id !== null
             && $planOrder->isFinanciallyEffective()
             && $planOrder->payment_method !== Order::PAYMENT_METHOD_COURSE_CODE
+            && ((int) $planOrder->total_coins > 0 || (float) $planOrder->final_amount > 0)
             && (int) $planOrder->user_id === (int) $enrollment->user_id
             && (int) $planOrder->course_id === (int) $enrollment->course_id;
     }
 
     private function enrollmentHasChatAccess(CourseEnrollment $enrollment): bool
     {
-        $order = $enrollment->order;
-        if (!$order || !$order->isFinanciallyEffective()) {
-            return false;
-        }
-        $planOrder = $enrollment->accessPlanOrder;
-        $paid = $order->payment_method !== Order::PAYMENT_METHOD_COURSE_CODE
-            && ((int) $order->total_coins > 0 || (float) $order->final_amount > 0);
-        $fullAccessCode = $order->payment_method === Order::PAYMENT_METHOD_COURSE_CODE
-            && $order->courseCode
-            && !$order->courseCode->isInstitutionalGrant();
-        $paidPlanUpgrade = $this->isPaidPlanUpgrade($enrollment, $planOrder);
         $terms = $this->plans->termsForEnrollment($enrollment);
+        $contract = $this->plans->publicPayloadFromTerms($terms ?? []);
 
-        return ($paid || $fullAccessCode || $paidPlanUpgrade)
-            && $terms !== null
-            && (bool) ($terms['chat_enabled'] ?? false)
-            && !$this->provenance->enrollmentHasActiveHold(
-                $enrollment,
-                ['course', 'chat', 'plan']
+        return $terms !== null
+            && (bool) ($contract['chat_enabled'] ?? false)
+            && $this->enrollmentAllowsVariableCostFeatures($enrollment);
+    }
+
+    private function planCapabilityRank(CourseEnrollment $enrollment): int
+    {
+        $terms = $this->plans->termsForEnrollment($enrollment) ?? [];
+        $feedback = (string) ($terms['project_feedback_level'] ?? 'pass_only');
+
+        return ((int) ($terms['sort_order'] ?? 0) * 1_000_000)
+            + ((bool) ($terms['chat_enabled'] ?? false) ? 100_000 : 0)
+            + ($feedback === 'enhanced' ? 20_000 : ($feedback === 'report' ? 10_000 : 0))
+            + min(9_999, max(0, (int) ($terms['chat_message_limit'] ?? 0)));
+    }
+
+    /** @param Collection<int,CourseEnrollment> $candidates */
+    private function preferredEnrollment(Collection $candidates): ?CourseEnrollment
+    {
+        $variableCostCandidates = $candidates->filter(
+            fn (CourseEnrollment $candidate): bool =>
+                $this->enrollmentAllowsVariableCostFeatures($candidate)
+        );
+        $pool = $variableCostCandidates->isNotEmpty()
+            ? $variableCostCandidates
+            : $candidates;
+
+        return $pool
+            ->sortByDesc(fn (CourseEnrollment $candidate): int =>
+                $this->planCapabilityRank($candidate)
             )
-            && $this->financialRisk->allowsVariableCostFeatures($enrollment);
+            ->first();
     }
 
     /** @return list<string> */
     private function enrollmentRelations(): array
     {
         $relations = ['order.courseCode'];
-        if (Schema::hasColumn('course_enrollments', 'access_plan_order_id')) {
+        if (DatabaseCapabilities::hasColumn('course_enrollments', 'access_plan_order_id')) {
             $relations[] = 'accessPlanOrder';
         }
-        if (Schema::hasTable('course_access_plans')) {
+        if (DatabaseCapabilities::hasTable('course_access_plans')) {
             $relations[] = 'accessPlan';
         }
 

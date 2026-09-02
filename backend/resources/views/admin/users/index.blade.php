@@ -262,6 +262,7 @@
                 <div class="modal-content modal-content-modern">
                     <form method="POST" action="{{ route('admin.users.notes.store', $user->id) }}">
                         @csrf
+                        <input type="hidden" name="authoring_request_id" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
                         <div class="modal-header modal-header-modern">
                             <h5 class="modal-title" id="addNoteModal-{{ $user->id }}-Label">
                                 <i class="fa fa-sticky-note"></i> إضافة ملاحظة جديدة

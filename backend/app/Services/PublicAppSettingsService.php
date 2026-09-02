@@ -14,6 +14,7 @@ use Throwable;
 final class PublicAppSettingsService
 {
     private const CACHE_KEY_PREFIX = 'public-app-settings:v3:';
+    private const CACHE_GENERATION_KEY = 'public-app-settings:generation';
 
     private const SOCIAL_HOSTS = [
         'facebook' => ['facebook.com', 'fb.com'],
@@ -35,20 +36,13 @@ final class PublicAppSettingsService
         $load = function () use ($locale): array {
             $general = Setting::query()->first() ?? new Setting();
             $design = DesignSetting::getDefaultSettings();
-            $whatsApp = $this->whatsAppUrl(
+            $socialWhatsApp = $this->whatsAppUrl($design->whatsapp_url);
+            $supportWhatsApp = $this->whatsAppUrl(
                 $general->support_whatsapp_url ?: $design->whatsapp_url
             );
             $releaseUrls = $this->releases->urls($general);
 
-            return [
-                'contract_version' => 2,
-                'revision' => hash('sha256', implode('|', [
-                    (string) ($general->updated_at?->getTimestamp() ?? 0),
-                    (string) ($design->updated_at?->getTimestamp() ?? 0),
-                    (string) ($releaseUrls['play'] ?? ''),
-                    (string) ($releaseUrls['appstore'] ?? ''),
-                    (string) ($releaseUrls['direct'] ?? ''),
-                ])),
+            $payload = [
                 'name' => trim((string) (
                     $locale === 'en'
                         ? ($design->name_en ?: $design->name_ar ?: 'Rokn')
@@ -64,7 +58,7 @@ final class PublicAppSettingsService
                     'youtube' => $this->socialUrl('youtube', $design->youtube_url),
                     'instagram' => $this->socialUrl('instagram', $design->instagram_url),
                     'tiktok' => $this->socialUrl('tiktok', $design->tiktok_url),
-                    'whatsapp' => $whatsApp,
+                    'whatsapp' => $socialWhatsApp,
                     'telegram' => $this->socialUrl('telegram', $design->telegram_url),
                 ],
                 'support_contacts' => [
@@ -72,9 +66,9 @@ final class PublicAppSettingsService
                         ? strtolower(trim((string) $general->email))
                         : null,
                     'phone' => $this->publicPhone($general->phone),
-                    'whatsapp' => $whatsApp,
+                    'whatsapp' => $supportWhatsApp,
                 ],
-                'support_whatsapp_url' => $whatsApp,
+                'support_whatsapp_url' => $supportWhatsApp,
                 'about_url' => route('about'),
                 'contact_url' => route('contact'),
                 'privacy_url' => route('privacy'),
@@ -96,10 +90,25 @@ final class PublicAppSettingsService
                 )) ?: null,
                 'coin_rules' => $general->how_to_use_coins,
             ];
+
+            // The ETag is a content identity, not a timestamp hint. MySQL
+            // timestamps commonly have one-second precision, so two valid
+            // saves in the same second must still produce different revisions.
+            $revision = hash('sha256', json_encode(
+                [2, $payload],
+                JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            ));
+
+            return ['contract_version' => 2, 'revision' => $revision] + $payload;
         };
 
         try {
-            return Cache::remember(self::CACHE_KEY_PREFIX.$locale, now()->addMinutes(5), $load);
+            $generation = (int) Cache::get(self::CACHE_GENERATION_KEY, 1);
+            return Cache::remember(
+                self::CACHE_KEY_PREFIX.$generation.':'.$locale,
+                now()->addMinutes(5),
+                $load
+            );
         } catch (Throwable) {
             return $load();
         }
@@ -108,6 +117,9 @@ final class PublicAppSettingsService
     public static function invalidate(): void
     {
         $forget = static function (): bool {
+            Cache::add(self::CACHE_GENERATION_KEY, 1, now()->addYears(10));
+            Cache::increment(self::CACHE_GENERATION_KEY);
+            // Retire the pre-generation keys left by older deployments.
             $arabic = Cache::forget(self::CACHE_KEY_PREFIX.'ar');
             $english = Cache::forget(self::CACHE_KEY_PREFIX.'en');
             return $arabic || $english;
@@ -118,9 +130,10 @@ final class PublicAppSettingsService
                 return;
             }
             $forget();
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
             // Cache invalidation must never turn a successful settings write
             // into a failed dashboard action. The entry also has a short TTL.
+            report($exception);
         }
     }
 

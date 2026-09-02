@@ -28,8 +28,17 @@ class User extends Authenticatable
      */
     public function shouldInvalidateCourseCatalogue(): bool
     {
-        if (!in_array(strtolower((string) $this->role), ['teacher', 'admin'], true)) {
-            return false;
+        $currentRole = strtolower((string) $this->role);
+        $originalRole = strtolower((string) $this->getRawOriginal('role'));
+        $isCatalogueTeacher = in_array($currentRole, ['teacher', 'admin'], true)
+            || in_array($originalRole, ['teacher', 'admin'], true);
+
+        // Public cards count enrollments whose owner still exists and has the
+        // learner role. Deleting/restoring a learner, or moving an account
+        // into/out of that role, changes the count even though ordinary
+        // learner profile writes must never churn the global catalogue cache.
+        if (!$isCatalogueTeacher) {
+            return !$this->exists || $this->wasChanged(['role', 'deleted_at']);
         }
 
         if (!$this->exists || $this->wasRecentlyCreated) {

@@ -19,7 +19,9 @@ final readonly class PlatformCommercialReportService
     /** @param array<string, mixed> $filters @return array<string, mixed> */
     public function report(array $filters = []): array
     {
-        $courseModels = Course::query()
+        // Retiring a course removes it from the catalogue, not from lifetime
+        // revenue and cost history.
+        $courseModels = Course::withTrashed()
             ->whereNull('parent_id')
             ->whereHas('enrollments')
             ->when($filters['course_id'] ?? null, fn ($query, $courseId) =>
@@ -37,6 +39,7 @@ final readonly class PlatformCommercialReportService
                 $courseReport['rows']->map(function (array $row) use ($course): array {
                     $row['course_id'] = (int) $course->id;
                     $row['course_name'] = (string) $course->title;
+                    $row['course_archived'] = $course->trashed();
 
                     return $row;
                 })
@@ -47,7 +50,7 @@ final readonly class PlatformCommercialReportService
             'plans' => $rawRows->map(fn (array $row): array => [
                 'code' => (string) $row['plan_code'],
                 'name' => (string) $row['plan_name'],
-            ])->unique(fn (array $plan): string => $plan['code'].'|'.$plan['name'])->values(),
+            ])->unique('code')->values(),
             'sources' => $rawRows->map(fn (array $row): array => [
                 'code' => (string) $row['source'],
                 'name' => (string) $row['source_label'],
@@ -138,10 +141,14 @@ final readonly class PlatformCommercialReportService
                 return $this->courses->groupSummary($courseRows) + [
                     'course_id' => (int) $courseRows->first()['course_id'],
                     'course_name' => (string) $courseRows->first()['course_name'],
+                    'course_archived' => (bool) ($courseRows->first()['course_archived'] ?? false),
                 ];
             })->values(),
-            'plan_breakdown' => $rows->groupBy('plan_name')->map(
-                fn (Collection $planRows): array => $this->courses->groupSummary($planRows)
+            'plan_breakdown' => $rows->groupBy('plan_code')->map(
+                fn (Collection $planRows, string $planCode): array => $this->courses->groupSummary($planRows) + [
+                    'plan_code' => $planCode,
+                    'plan_name' => (string) ($planRows->first()['plan_name'] ?? 'إتاحة قديمة'),
+                ]
             ),
             'source_breakdown' => $rows->groupBy('source_label')->map(
                 fn (Collection $sourceRows): array => $this->courses->groupSummary($sourceRows)
@@ -162,7 +169,6 @@ final readonly class PlatformCommercialReportService
         return $rows
             ->when($plan !== '', fn (Collection $items) => $items->filter(
                 fn (array $row): bool => (string) $row['plan_code'] === $plan
-                    || (string) $row['plan_name'] === $plan
             ))
             ->when($source !== '', fn (Collection $items) => $items->where('source', $source))
             ->when($search !== '', fn (Collection $items) => $items->filter(function (

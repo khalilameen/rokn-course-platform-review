@@ -132,20 +132,25 @@ export const ReelsPreviewGate = ({
 
 export const ReelsConnectionNote = ({
   message,
+  onPress,
   topInset,
 }: {
   message: string;
+  onPress?: () => void;
   topInset: number;
 }) => (
-  <View
+  <Pressable
+    accessibilityHint={onPress ? 'يعيد تحميل أحدث نسخة' : undefined}
     accessibilityLiveRegion="polite"
-    accessibilityRole="alert"
+    accessibilityRole={onPress ? 'button' : 'alert'}
+    disabled={!onPress}
+    onPress={onPress}
     style={[styles.connectionNote, {top: topInset + 12}]}>
     <View style={styles.connectionDot} />
     <Text style={styles.connectionText}>
       {formatArabicDisplayText(message)}
     </Text>
-  </View>
+  </Pressable>
 );
 
 const styles = StyleSheet.create({

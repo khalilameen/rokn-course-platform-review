@@ -285,6 +285,20 @@
     align-items: center;
 }
 
+.pdf-drag-handle {
+    display: grid;
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
+    color: var(--text-muted);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-secondary);
+    cursor: grab;
+    place-items: center;
+    touch-action: none;
+}
+
 .btn-card {
     padding: 8px 12px;
     border-radius: 8px;
@@ -297,6 +311,9 @@
     display: flex;
     align-items: center;
     gap: 0.25rem;
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
 }
 
 .btn-preview {

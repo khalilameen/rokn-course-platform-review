@@ -134,9 +134,13 @@ export const submitCourseQuizAnswer = async (
     });
   } catch (error) {
     const candidate = asRecord(error);
-    const response = asRecord(candidate.response);
+    const nestedResponse = asRecord(candidate.response);
+    const response = Object.keys(nestedResponse).length
+      ? nestedResponse
+      : candidate;
     const body = asRecord(response.data);
-    const payload = asRecord(body.data);
+    const nestedPayload = asRecord(body.data);
+    const payload = Object.keys(nestedPayload).length ? nestedPayload : body;
     if (
       Number(response.status) === 409 &&
       valueAsString(payload.code) === 'quiz_answer_conflict'

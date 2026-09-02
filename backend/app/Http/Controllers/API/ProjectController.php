@@ -22,6 +22,8 @@ use App\Services\ProjectFeedbackThreadService;
 use App\Services\CourseCompletionService;
 use App\Services\CourseChatAccessService;
 use App\Services\CourseAccessPlanService;
+use App\Services\CourseStagedAuthoringService;
+use App\Services\CourseRevisionLearnerReadService;
 use App\Services\AiInputAttachmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -39,7 +41,9 @@ final class ProjectController extends Controller
         private ProjectFeedbackThreadService $feedbackThreads,
         private CourseChatAccessService $courseAccess,
         private CourseAccessPlanService $accessPlans,
-        private AiInputAttachmentService $attachments
+        private AiInputAttachmentService $attachments,
+        private CourseStagedAuthoringService $stagedAuthoring,
+        private CourseRevisionLearnerReadService $revisionReads
     ) {
     }
 
@@ -52,6 +56,7 @@ final class ProjectController extends Controller
             }
 
             $project = Project::with(['section.course', 'section.module'])->findOrFail($projectId);
+            if ($revisionChanged = $this->revisionChangedResponse($project)) return $revisionChanged;
             $courseId = (int) optional($project->section)->course_id;
             if (
                 !$courseId
@@ -61,9 +66,13 @@ final class ProjectController extends Controller
                 return $this->error('هذا المشروع غير متاح لحسابك', 403);
             }
 
+            $equivalentProjectIds = $this->stagedAuthoring->equivalentEntityIds(
+                Project::class,
+                (int) $project->id
+            );
             $latestSubmission = ProjectSubmission::query()
                 ->where('user_id', $user->id)
-                ->where('project_id', $project->id)
+                ->whereIn('project_id', $equivalentProjectIds)
                 ->latest('id')
                 ->first();
             if ($latestSubmission) {
@@ -71,10 +80,18 @@ final class ProjectController extends Controller
             }
 
             $evaluation = $project->evaluationForUser($user->id);
-            $enrollment = $this->courseAccess->activeEnrollmentFor((int) $user->id, $courseId);
+            $enrollment = $this->courseAccess->activeProjectEnrollmentFor((int) $user->id, $courseId);
             $terms = $enrollment ? $this->accessPlans->termsForEnrollment($enrollment) : null;
             $feedbackContract = $this->accessPlans->publicPayloadFromTerms($terms ?? []);
-            $feedbackLevel = (string) $feedbackContract['project_feedback_level'];
+            $variableCostAllowed = $enrollment
+                && $this->courseAccess->enrollmentAllowsVariableCostFeatures($enrollment);
+            $feedbackLevel = $variableCostAllowed
+                ? (string) $feedbackContract['project_feedback_level']
+                : 'pass_only';
+            $projectReportEnabled = $variableCostAllowed
+                && (bool) $feedbackContract['project_report_enabled'];
+            $projectReplyEnabled = (bool) $feedbackContract['project_thread_reply_enabled']
+                && $variableCostAllowed;
 
             return response()->json([
                 'status' => 200,
@@ -90,8 +107,8 @@ final class ProjectController extends Controller
                     'is_graduation_project' => $project->is_graduation_project,
                     'project_feedback' => [
                         'level' => $feedbackLevel,
-                        'report_enabled' => (bool) $feedbackContract['project_report_enabled'],
-                        'reply_enabled' => (bool) $feedbackContract['project_thread_reply_enabled'],
+                        'report_enabled' => $projectReportEnabled,
+                        'reply_enabled' => $projectReplyEnabled,
                         'message_limit' => (int) $feedbackContract['project_message_limit'],
                         'token_budget' => (int) $feedbackContract['project_token_budget'],
                     ],
@@ -170,6 +187,8 @@ final class ProjectController extends Controller
             ]);
 
             $project = Project::with('section')->findOrFail($projectId);
+            $project->loadMissing('section.course');
+            if ($revisionChanged = $this->revisionChangedResponse($project)) return $revisionChanged;
             $files = array_values(array_filter([
                 ...($request->file('submission_files', []) ?: []),
                 $request->file('submission_file'),
@@ -200,11 +219,14 @@ final class ProjectController extends Controller
                     'data' => null,
                 ], 409);
             }
-            $enrollment = $this->courseAccess->activeEnrollmentFor((int) $user->id, $courseId);
+            $enrollment = $this->courseAccess->activeProjectEnrollmentFor((int) $user->id, $courseId);
             $terms = $enrollment ? $this->accessPlans->termsForEnrollment($enrollment) : null;
             $feedbackContract = $this->accessPlans->publicPayloadFromTerms($terms ?? []);
+            $projectReportEnabled = $enrollment
+                && $this->courseAccess->enrollmentAllowsVariableCostFeatures($enrollment)
+                && (bool) $feedbackContract['project_report_enabled'];
             if (
-                (bool) $feedbackContract['project_report_enabled']
+                $projectReportEnabled
                 && $files === []
                 && mb_strlen(trim(strip_tags((string) $request->input('submission_text')))) < 10
             ) {
@@ -216,7 +238,7 @@ final class ProjectController extends Controller
                     'data' => null,
                 ], 422);
             }
-            if ((bool) $feedbackContract['project_report_enabled']) {
+            if ($projectReportEnabled) {
                 $providerMaximum = (int) config('openrouter.attachment_provider_max_bytes', 8388608);
                 $attachmentTokens = 0;
                 foreach ($files as $file) {
@@ -400,15 +422,12 @@ final class ProjectController extends Controller
     public function uploadFeedbackAttachment(Request $request, ProjectFeedbackThread $thread): JsonResponse
     {
         $user = auth('api')->user();
-        if (!$user || (int) $thread->user_id !== (int) $user->id || !$thread->can_reply) {
+        if (!$user || (int) $thread->user_id !== (int) $user->id) {
             return $this->error('محادثة المشروع غير متاحة', 404);
         }
-        $thread->loadMissing('enrollment');
-        $terms = $thread->enrollment ? $this->accessPlans->termsForEnrollment($thread->enrollment) : null;
-        $contract = $this->accessPlans->publicPayloadFromTerms($terms ?? []);
+        $contract = $this->feedbackThreads->activeReplyContract($thread);
         $course = Course::query()->findOrFail($thread->course_id);
-        if (!(bool) ($contract['project_thread_reply_enabled'] ?? false)
-            || !(bool) ($contract['project_attachments_enabled'] ?? false)) {
+        if (!$contract || !(bool) ($contract['project_attachments_enabled'] ?? false)) {
             return $this->error('المرفقات غير متاحة في هذه الفئة', 403);
         }
         $validated = $request->validate([
@@ -594,26 +613,35 @@ final class ProjectController extends Controller
                 ->with(['project', 'module'])
                 ->get();
             $projectIds = $projectSections->pluck('project.id')->filter();
+            $aliasToCurrent = collect();
+            foreach ($projectIds as $projectId) {
+                foreach ($this->stagedAuthoring->equivalentEntityIds(Project::class, (int) $projectId) as $alias) {
+                    $aliasToCurrent->put($alias, (int) $projectId);
+                }
+            }
 
             ProjectSubmission::query()
                 ->where('user_id', $user->id)
-                ->whereIn('project_id', $projectIds)
+                ->whereIn('project_id', $aliasToCurrent->keys())
                 ->where('review_status', ProjectSubmission::STATUS_PENDING)
                 ->where('auto_pass_at', '<=', now())
                 ->get()
                 ->each(fn (ProjectSubmission $submission) => $this->submissionService->finalizeIfDue($submission));
 
-            $evaluations = UserProjectEvaluation::where('user_id', $user->id)
-                ->whereIn('project_id', $projectIds)
-                ->get()
-                ->keyBy('project_id');
+            $evaluations = $this->revisionReads->projectEvaluations(
+                (int) $user->id,
+                $projectIds
+            );
             $latestSubmissions = ProjectSubmission::query()
                 ->where('user_id', $user->id)
-                ->whereIn('project_id', $projectIds)
+                ->whereIn('project_id', $aliasToCurrent->keys())
                 ->orderByDesc('id')
-                ->get()
-                ->unique('project_id')
-                ->keyBy('project_id');
+                ->get();
+            $latestSubmissions = $latestSubmissions->reduce(function ($mapped, ProjectSubmission $submission) use ($aliasToCurrent) {
+                $currentId = (int) ($aliasToCurrent->get((int) $submission->project_id) ?? 0);
+                if ($currentId > 0 && !$mapped->has($currentId)) $mapped->put($currentId, $submission);
+                return $mapped;
+            }, collect());
 
             $projects = $projectSections->map(function ($section) use ($evaluations, $latestSubmissions) {
                 if (!$section->project) {
@@ -700,7 +728,7 @@ final class ProjectController extends Controller
 
     private function submissionPayload(ProjectSubmission $submission): array
     {
-        $submission->loadMissing('aiInputAttachments');
+        $submission->loadMissing(['aiInputAttachments', 'latestReviewDecision']);
         $metadata = is_array($submission->submission_metadata)
             ? $submission->submission_metadata
             : [];
@@ -719,7 +747,11 @@ final class ProjectController extends Controller
             'assessment_type' => $metadata['assessment_type'] ?? null,
             'skill_verified' => (bool) ($metadata['skill_verified'] ?? false),
             'needs_resubmission' => $submission->review_status === ProjectSubmission::STATUS_NEEDS_RESUBMISSION,
-            'feedback' => $submission->feedback,
+            // AI reports live in feedback_thread. The submission feedback is
+            // the human/automatic review decision, whose append-only ledger is
+            // authoritative even for rows touched by an older AI worker.
+            'feedback' => $submission->latestReviewDecision?->feedback
+                ?? $submission->feedback,
             'file_url' => $submission->submission_file_url,
             'attachments' => $submission->aiInputAttachments->map(fn (AiInputAttachment $attachment): array => [
                 'id' => (string) $attachment->public_id,
@@ -744,6 +776,29 @@ final class ProjectController extends Controller
             'message' => $message,
             'data' => null,
         ], $status);
+    }
+
+    private function revisionChangedResponse(Project $project): ?JsonResponse
+    {
+        $course = $project->section?->course;
+        if (!$course || !$course->is_coming_soon) return null;
+        $revision = $this->stagedAuthoring->activeArchiveForCourse($course);
+        if (!$revision) return null;
+        $canonical = $revision->canonicalCourse()->firstOrFail();
+
+        return response()->json([
+            'status' => 409,
+            'success' => false,
+            'code' => 'course_revision_changed',
+            'message' => "تم تحديث الكورس\nنعيد تحميل أحدث نسخة",
+            'data' => [
+                'course_id' => (int) $canonical->id,
+                'published_revision' => (int) (
+                    $canonical->last_published_authoring_version ?: $canonical->authoring_version
+                ),
+                'reload_endpoint' => "/api/v1/courses/{$canonical->id}/details",
+            ],
+        ], 409);
     }
 
     /** @return list<string> */
@@ -785,12 +840,7 @@ final class ProjectController extends Controller
                     ->exists(),
             AiInputAttachment::OWNER_PROJECT_SUBMISSION =>
                 $attachment->purpose === AiInputAttachment::PURPOSE_PROJECT_SUBMISSION
-                && ProjectSubmission::query()
-                    ->whereKey($attachment->owner_id)
-                    ->where('user_id', $userId)
-                    ->whereHas('project.section', fn ($query) =>
-                        $query->where('course_id', $attachment->course_id)
-                    )->exists(),
+                && $this->submissionAttachmentMatchesCourse($attachment, $userId),
             AiInputAttachment::OWNER_PROJECT_FEEDBACK_MESSAGE =>
                 $attachment->purpose === AiInputAttachment::PURPOSE_PROJECT_FOLLOWUP
                 && ProjectFeedbackMessage::query()
@@ -801,6 +851,22 @@ final class ProjectController extends Controller
                     )->exists(),
             default => false,
         };
+    }
+
+    private function submissionAttachmentMatchesCourse(
+        AiInputAttachment $attachment,
+        int $userId
+    ): bool {
+        $submission = ProjectSubmission::query()
+            ->whereKey($attachment->owner_id)
+            ->where('user_id', $userId)
+            ->with('project.section')
+            ->first();
+        if (!$submission) return false;
+        $snapshotCourseId = (int) data_get($submission->evaluation_snapshot, 'course_id', 0);
+
+        return $snapshotCourseId === (int) $attachment->course_id
+            || (int) ($submission->project?->section?->course_id ?? 0) === (int) $attachment->course_id;
     }
 
     private function projectValidationError(string $field, string $message): JsonResponse

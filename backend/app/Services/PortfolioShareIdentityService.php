@@ -12,11 +12,16 @@ final class PortfolioShareIdentityService
 {
     public function ensure(User $user): string
     {
+        $existing = trim((string) $user->portfolio_slug);
+        if ($this->isValidUnlistedSlug($existing)) {
+            return $existing;
+        }
+
         return DB::transaction(function () use ($user): string {
             /** @var User $locked */
             $locked = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
             $slug = trim((string) $locked->portfolio_slug);
-            if ($slug === '' || $this->isPredictableLegacySlug($slug, (int) $locked->id)) {
+            if (!$this->isValidUnlistedSlug($slug)) {
                 $slug = $this->freshSlug();
                 $locked->forceFill(['portfolio_slug' => $slug])->save();
             }
@@ -26,9 +31,12 @@ final class PortfolioShareIdentityService
         }, 3);
     }
 
-    public function isPredictableLegacySlug(string $slug, int $userId): bool
+    public function isValidUnlistedSlug(string $slug): bool
     {
-        return hash_equals('student-'.$userId, strtolower(trim($slug)));
+        $slug = strtolower(trim($slug));
+
+        return preg_match('/^rokn-[a-z0-9]{24}$/', $slug) === 1
+            || preg_match('/^rokn-[a-f0-9]{32}$/', $slug) === 1;
     }
 
     private function freshSlug(): string

@@ -68,7 +68,9 @@ export const networkFailureKind = (error: unknown): NetworkFailureKind =>
   classifyNetworkFailure(error, 0);
 
 const retryAfterSeconds = (error: unknown) => {
-  const response = asRecord(asRecord(error).response);
+  const root = asRecord(error);
+  const nestedResponse = asRecord(root.response);
+  const response = Object.keys(nestedResponse).length ? nestedResponse : root;
   const headers = asRecord(response.headers);
   const getter = headers.get;
   const raw =
@@ -115,7 +117,7 @@ export const friendlyNetworkMessage = (error: unknown, subject = 'المحتوى
     case 'server':
       return `الخدمة مشغولة الآن\nحاول فتح ${subject} بعد لحظات`;
     case 'unauthenticated':
-      return 'انتهت جلسة الدخول\nسجّل الدخول من جديد';
+      return 'انتهى تسجيل الدخول\nسجّل الدخول من جديد';
     case 'forbidden':
       return 'هذا المحتوى غير متاح لحسابك';
     case 'missing':

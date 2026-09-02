@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\Auth\AdminSessionIdentity;
 use App\Http\Controllers\Controller;
 use App\Providers\RouteServiceProvider;
 use Illuminate\Foundation\Auth\AuthenticatesUsers;
@@ -24,6 +25,12 @@ class LoginController extends Controller
 
     use AuthenticatesUsers;
 
+    public function __construct(private readonly AdminSessionIdentity $sessionIdentity)
+    {
+        $this->middleware('guest')->except('logout');
+        $this->middleware('throttle:admin-login-route')->only('login');
+    }
+
     /**
      * Where to redirect users after login.
      *
@@ -39,17 +46,6 @@ class LoginController extends Controller
     public function username()
     {
         return 'email';
-    }
-
-    /**
-     * Create a new controller instance.
-     *
-     * @return void
-     */
-    public function __construct()
-    {
-        $this->middleware('guest')->except('logout');
-        $this->middleware('throttle:admin-login-route')->only('login');
     }
 
     /**
@@ -112,6 +108,10 @@ class LoginController extends Controller
 
         RateLimiter::clear($key);
         $request->session()->regenerate();
+        $request->session()->put(
+            AdminSessionIdentity::SESSION_KEY,
+            $this->sessionIdentity->fingerprint(auth()->user())
+        );
 
         // Password authentication is only the first factor for dashboard
         // roles. Never inherit a prior user's MFA state through a reused

@@ -18,7 +18,8 @@ use Illuminate\Support\Facades\Schema;
 final class CurriculumCompletionService
 {
     public function __construct(
-        private readonly CourseSectionSequenceService $sectionSequence
+        private readonly CourseSectionSequenceService $sectionSequence,
+        private readonly CourseRevisionLearnerReadService $revisionReads
     ) {
     }
 
@@ -72,12 +73,9 @@ final class CurriculumCompletionService
             if ($learningSectionIds->isEmpty()) {
                 return null;
             }
-            $completedSections = StudentSectionProgress::query()
-                ->where('user_id', $userId)
-                ->whereIn('course_section_id', $learningSectionIds)
-                ->where('is_completed', true)
-                ->distinct('course_section_id')
-                ->count('course_section_id');
+            $completedSections = $this->revisionReads
+                ->completedSectionIds($userId, $learningSectionIds)
+                ->count();
             if ($completedSections !== $learningSectionIds->count()) {
                 return null;
             }

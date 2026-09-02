@@ -13,6 +13,8 @@ use Throwable;
 
 final class AppReleaseChannelService
 {
+    private const CACHE_GENERATION_KEY = 'app-release-channels:generation';
+
     public function __construct(private readonly AppReleasePolicyService $policy)
     {
     }
@@ -32,13 +34,25 @@ final class AppReleaseChannelService
                 ->orderByDesc('build_number')
                 ->orderByDesc('id')
                 ->get(['distribution_channel', 'download_url'])
+                // Imported/legacy rows can predate dashboard validation. Skip
+                // a malformed newest row and retain the previous valid release
+                // instead of making a live store/APK link disappear.
+                ->filter(fn (AppVersion $version): bool => $this->policy->isAllowedDownloadUrl(
+                    (string) $version->distribution_channel,
+                    $version->download_url
+                ))
                 ->unique('distribution_channel')
                 ->mapWithKeys(fn (AppVersion $version): array => [
                     (string) $version->distribution_channel => $version->download_url,
                 ]);
         };
         try {
-            $releases = Cache::remember('app-release-channels:v2', 60, $load);
+            $generation = (int) Cache::get(self::CACHE_GENERATION_KEY, 1);
+            $releases = Cache::remember(
+                'app-release-channels:v2:'.$generation,
+                60,
+                $load
+            );
         } catch (Throwable $cacheException) {
             // Redis is only the accelerator. Falling straight to an empty
             // collection here hid valid store/download links and then allowed
@@ -71,6 +85,17 @@ final class AppReleaseChannelService
                 AppReleasePolicyService::CHANNEL_DIRECT,
             ),
         ];
+    }
+
+    public static function invalidate(): void
+    {
+        try {
+            Cache::add(self::CACHE_GENERATION_KEY, 1, now()->addYears(10));
+            Cache::increment(self::CACHE_GENERATION_KEY);
+            Cache::forget('app-release-channels:v2');
+        } catch (Throwable $exception) {
+            report($exception);
+        }
     }
 
     private function allowedUrl(mixed $value, string $channel): ?string

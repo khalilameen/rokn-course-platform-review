@@ -122,7 +122,8 @@ const readCoursePurchaseAttempt = async (
     if (!isApiRecord(parsed)) throw new Error('INVALID_SHAPE');
     value = parsed;
   } catch {
-    throw new Error('COURSE_PURCHASE_RECOVERY_RECORD_INVALID');
+    await removeItem(storageKey);
+    return null;
   }
   const storedCourseId = Number(value.courseId ?? value.course_id);
   const storedPlan = String(
@@ -140,9 +141,12 @@ const readCoursePurchaseAttempt = async (
     storedCoupon !== couponCode ||
     !UUID_PATTERN.test(idempotencyKey)
   ) {
-    // Losing or replacing this key after an uncertain response could charge
-    // twice. Leave the bytes untouched so recovery/support can inspect them.
-    throw new Error('COURSE_PURCHASE_RECOVERY_RECORD_INVALID');
+    // A killed process or full device can leave a truncated intent. The
+    // backend serializes the learner wallet and returns an existing active
+    // enrollment before debit, so a fresh key recovers safely instead of
+    // blocking this course forever.
+    await removeItem(storageKey);
+    return null;
   }
   return {
     courseId,
@@ -239,7 +243,8 @@ const readCourseUpgradeAttempt = async (
     if (!isApiRecord(parsed)) throw new Error('INVALID_SHAPE');
     value = parsed;
   } catch {
-    throw new Error('COURSE_UPGRADE_RECOVERY_RECORD_INVALID');
+    await removeItem(storageKey);
+    return null;
   }
   const storedCourseId = Number(value.courseId ?? value.course_id);
   const storedPlanCode = String(
@@ -257,7 +262,11 @@ const readCourseUpgradeAttempt = async (
     storedExpectedPrice !== expectedPrice ||
     !UUID_PATTERN.test(idempotencyKey)
   ) {
-    throw new Error('COURSE_UPGRADE_RECOVERY_RECORD_INVALID');
+    // The server compares the requested target plan with the enrollment under
+    // the learner lock before debit, so discarding unusable local bytes cannot
+    // repeat an already-applied upgrade.
+    await removeItem(storageKey);
+    return null;
   }
   return {courseId, targetPlanCode, expectedPrice, idempotencyKey};
 };

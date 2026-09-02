@@ -163,6 +163,9 @@ export type PendingSocialAuthAttempt = {
   startedAt: string;
   callbackUrl?: string;
   purpose?: 'login' | 'reauth';
+  /** Provider credential staged only in encrypted storage until exchange. */
+  nativeToken?: string;
+  providerName?: string;
   completedSession?: unknown;
 };
 
@@ -232,6 +235,15 @@ export const loadPendingSocialAuthAttempt = async () => {
         !/^[A-Za-z0-9_-]{43,128}$/.test(attempt.challenge)) ||
       (attempt.flow !== undefined &&
         !['browser', 'native'].includes(attempt.flow)) ||
+      (attempt.nativeToken !== undefined &&
+        (attempt.flow !== 'native' ||
+          typeof attempt.nativeToken !== 'string' ||
+          attempt.nativeToken.trim().length < 16 ||
+          attempt.nativeToken.length > 16_384)) ||
+      (attempt.providerName !== undefined &&
+        (attempt.provider !== 'apple' ||
+          typeof attempt.providerName !== 'string' ||
+          attempt.providerName.length > 200)) ||
       typeof attempt.startedAt !== 'string' ||
       (attempt.purpose !== undefined &&
         !['login', 'reauth'].includes(attempt.purpose))
@@ -755,6 +767,21 @@ const performDeleteSecureSession = async () => {
 
 export const deleteSecureSession = () =>
   serializeSessionMutation(performDeleteSecureSession);
+
+/**
+ * Expire only the bearer which actually received a terminal 401. Social auth
+ * may commit a replacement while the old request is still unwinding; keeping
+ * the comparison inside the session mutation queue prevents that old response
+ * from deleting the newly authenticated owner.
+ */
+export const deleteSecureSessionIfToken = (expectedToken: string) =>
+  serializeSessionMutation(async () => {
+    const normalized = expectedToken.trim();
+    const current = await loadSecureSession();
+    if (!normalized || extractApiToken(current) !== normalized) return false;
+    await performDeleteSecureSession();
+    return true;
+  });
 
 const performClearSecureSessionStorage = async () => {
   sessionCacheEpoch += 1;

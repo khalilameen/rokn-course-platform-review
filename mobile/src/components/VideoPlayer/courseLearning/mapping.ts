@@ -154,6 +154,57 @@ const sectionType = (section: CoursePayloadDto): string =>
     'lesson',
   ).toLowerCase();
 
+const stableNumericId = (value: unknown): string => {
+  const id = valueAsString(value).trim();
+  return /^[1-9]\d*$/.test(id) ? id : '';
+};
+
+/** Reject a paid learning map if any step would be dropped or overwrite one beside it. */
+const hasValidLearningContract = (modules: CoursePayloadDto[]): boolean => {
+  if (!modules.length) return false;
+  const moduleIds = new Set<string>();
+  const sectionIds = new Set<string>();
+  const contentIds = new Set<string>();
+
+  return modules.every(module => {
+    const moduleId = stableNumericId(module?.id);
+    if (!moduleId || moduleIds.has(moduleId)) return false;
+    moduleIds.add(moduleId);
+
+    const sections = asArray<CoursePayloadDto>(module?.sections);
+    let projectCount = 0;
+    return sections.length > 0 && sections.every(section => {
+      const type = sectionType(section);
+      if (!['lesson', 'video', 'reel', 'quiz', 'project'].includes(type)) {
+        return false;
+      }
+      if (type === 'project' && ++projectCount > 1) return false;
+
+      const sectionId = stableNumericId(section?.id);
+      if (!sectionId || sectionIds.has(sectionId)) return false;
+      sectionIds.add(sectionId);
+
+      const content = courseRecord(
+        section.content || section.project || section.sectionable,
+      );
+      const contentId = stableNumericId(
+        content?.id ||
+          section?.content_id ||
+          section?.lesson_id ||
+          section?.quiz_id ||
+          section?.project_id,
+      );
+      const identityType = ['lesson', 'video', 'reel'].includes(type)
+        ? 'lesson'
+        : type;
+      const contentKey = `${identityType}:${contentId}`;
+      if (!contentId || contentIds.has(contentKey)) return false;
+      contentIds.add(contentKey);
+      return true;
+    });
+  });
+};
+
 const getVideoUrl = (content: CoursePayloadDto): string =>
   valueAsString(
     content?.bunny_video_url ||
@@ -297,7 +348,7 @@ const mapProject = (
 
   return {
     id: valueAsString(
-      content?.id || section?.project_id || section?.id,
+      content?.id || section?.project_id || section?.content_id || section?.id,
       `${moduleId}-project`,
     ),
     sectionId: valueAsString(section?.id),
@@ -341,7 +392,9 @@ const mapQuiz = (section: CoursePayloadDto, moduleId: string): CourseQuiz => {
   const timeMinutes = Number(content.time_minutes);
   const scorePercentage = Number(content.score_percentage);
   return {
-    id: valueAsString(content.id || section.quiz_id || section.id),
+    id: valueAsString(
+      content.id || section.quiz_id || section.content_id || section.id,
+    ),
     sectionId: valueAsString(section.id),
     moduleId,
     title: valueAsString(section.title || content.title, 'اختبار الوحدة'),
@@ -440,28 +493,14 @@ export const mapCoursePayload = (
 
   const mappedCourseId = valueAsString(rawCourse.id).trim();
   if (!mappedCourseId) return null;
-  let rawModules = asArray<CoursePayloadDto>(rawCourse.modules);
-  if (!rawModules.length && asArray(rawCourse.sections).length) {
-    const byModule = new Map<string, CoursePayloadDto[]>();
-    asArray<CoursePayloadDto>(rawCourse.sections).forEach(section => {
-      const moduleId = valueAsString(section.module_id, 'course');
-      byModule.set(moduleId, [...(byModule.get(moduleId) || []), section]);
-    });
-    rawModules = Array.from(byModule.entries()).map(
-      ([moduleId, sections], index) => ({
-        id: moduleId,
-        title: sections[0]?.module?.title || `الوحدة ${index + 1}`,
-        order: index + 1,
-        sections,
-      }),
-    );
-  }
+  const rawModules = asArray<CoursePayloadDto>(rawCourse.modules);
+  if (!hasValidLearningContract(rawModules)) return null;
 
   let reelNumber = 0;
   const modules: CourseLearningModule[] = rawModules
     .sort((a, b) => Number(a?.order || 0) - Number(b?.order || 0))
     .map((module, moduleIndex) => {
-      const moduleId = valueAsString(module?.id, `module-${moduleIndex + 1}`);
+      const moduleId = stableNumericId(module?.id);
       const platform = normalisePlatform(module?.attachment_platform);
       const attachments = mapAttachments(
         module?.attachments,
@@ -531,11 +570,11 @@ export const mapCoursePayload = (
         const sectionLocked =
           progressionBlocked || valueAsBoolean(section?.is_locked);
         const lessonId = valueAsString(
-          content?.id || section?.lesson_id || section?.id,
+          content?.id ||
+            section?.lesson_id ||
+            section?.content_id ||
+            section?.id,
         ).trim();
-        // One malformed row must not create duplicate empty keys or take down
-        // the valid reels around it.
-        if (!lessonId) return;
         reelNumber += 1;
         const rawDuration =
           Number(content?.duration_seconds) ||
@@ -543,7 +582,7 @@ export const mapCoursePayload = (
         reels.push({
           id: lessonId,
           lessonId,
-          sectionId: valueAsString(section?.id, lessonId),
+          sectionId: stableNumericId(section?.id),
           moduleId,
           title: valueAsString(
             section?.title || content?.title,

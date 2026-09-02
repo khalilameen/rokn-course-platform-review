@@ -15,6 +15,7 @@ use App\Services\DeviceLoginService;
 use App\Services\StoredFileDeletionService;
 use App\Services\AdminAuthoringCreateIntentService;
 use App\Services\StudentAccountStateService;
+use App\Services\PaymentChannelReportService;
 use App\Support\AdminEditorVersion;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -99,12 +100,19 @@ class UsersController extends Controller
                 $user->name = $validated['name'];
                 $user->email = strtolower(trim($validated['email']));
                 $user->phone = trim($validated['phone']);
-                $user->password = bcrypt($validated['password']);
+                // Learner authentication is social-only. Keep a non-usable
+                // database value for the legacy non-null column without
+                // presenting or accepting a password credential in the admin.
+                $user->password = bcrypt(\Illuminate\Support\Str::random(64));
                 $user->authoring_request_id = $requestId;
                 $user->forceFill([
                     'role' => 'client',
                     'active' => true,
                     'is_online' => false,
+                    // Creating a learner in the dashboard reserves the row;
+                    // it does not prove ownership of the email address. The
+                    // linked social provider remains the only identity proof.
+                    'email_verified_at' => null,
                 ])->save();
                 $createIntents->checkpointResource($request, User::class, $user->id);
                 return $user;
@@ -149,27 +157,62 @@ class UsersController extends Controller
         User $user,
         Request $request,
         DeviceLoginService $deviceLogin,
-        StudentAccountStateService $accounts
+        StudentAccountStateService $accounts,
+        PaymentChannelReportService $paymentChannels
     )
     {
+        $this->assertStudent($user);
 
         $user->loadCount('deviceTokens')->load([
             'socialAccounts' => fn ($accounts) => $accounts->orderBy('provider'),
         ]);
 
         // Get user orders with related data
-        $orders = Order::where('user_id', $user->id)
+        $orderScope = Order::where('user_id', $user->id);
+        $orders = (clone $orderScope)
             ->with(['course', 'coupon', 'courseCode', 'approvedBy', 'paymentMethod'])
             ->latest()
             ->latest('id')
             ->paginate(10, ['*'], 'orders_page');
 
         // Get user bills with related data
-        $bills = Bill::where('user_id', $user->id)
+        $billScope = Bill::where('user_id', $user->id);
+        $bills = (clone $billScope)
             ->with(['order.course', 'order.paymentMethod'])
             ->latest()
             ->latest('id')
             ->paginate(10, ['*'], 'bills_page');
+
+        $paymentReport = $paymentChannels->summary(null, null, clone $orderScope);
+        $orderStats = [
+            'approved' => (clone $orderScope)->where('status', Order::STATUS_APPROVED)->count(),
+            'pending' => (clone $orderScope)->where('status', Order::STATUS_PENDING)->count(),
+            'approved_coins' => (int) (clone $orderScope)
+                ->where('status', Order::STATUS_APPROVED)
+                ->sum('total_coins'),
+            'confirmed_egp' => (float) $paymentReport['egp']['confirmed_gross_amount'],
+        ];
+        $coinMethods = [Bill::PAYMENT_METHOD_WALLET, Order::PAYMENT_METHOD_WALLET_COINS];
+        $billStats = [
+            'paid' => (clone $billScope)->where('payment_status', Bill::PAYMENT_STATUS_PAID)->count(),
+            'pending' => (clone $billScope)->where('payment_status', Bill::PAYMENT_STATUS_PENDING)->count(),
+            'paid_coins' => (float) (clone $billScope)
+                ->where('payment_status', Bill::PAYMENT_STATUS_PAID)
+                ->whereIn('payment_method', $coinMethods)
+                ->sum('total_amount'),
+            'pending_coins' => (float) (clone $billScope)
+                ->where('payment_status', Bill::PAYMENT_STATUS_PENDING)
+                ->whereIn('payment_method', $coinMethods)
+                ->sum('total_amount'),
+            'paid_egp' => (float) (clone $billScope)
+                ->where('payment_status', Bill::PAYMENT_STATUS_PAID)
+                ->whereNotIn('payment_method', $coinMethods)
+                ->sum('total_amount'),
+            'pending_egp' => (float) (clone $billScope)
+                ->where('payment_status', Bill::PAYMENT_STATUS_PENDING)
+                ->whereNotIn('payment_method', $coinMethods)
+                ->sum('total_amount'),
+        ];
 
         // Get user notes with pagination
         $notes = $user->notes()->with('createdBy')->latest()->latest('id')->paginate(5, ['*'], 'notes_page');
@@ -206,9 +249,11 @@ class UsersController extends Controller
         $designSettings = $this->getDesignSettings();
 
         $accountStateVersion = $accounts->editorVersion($user);
+        $deviceStateVersion = $this->deviceEditorVersion($user);
         return view('admin.users.show', compact(
             'user', 'orders', 'bills', 'notes', 'examResults', 'examStats',
-            'deviceLoginPolicy', 'designSettings', 'accountStateVersion'
+            'deviceLoginPolicy', 'designSettings', 'accountStateVersion',
+            'deviceStateVersion', 'orderStats', 'billStats'
         ));
     }
 
@@ -218,6 +263,7 @@ class UsersController extends Controller
      */
     public function edit(User $user)
     {
+        $this->assertStudent($user);
         $designSettings = $this->getDesignSettings();
         $editorVersion = $this->editorVersion($user);
         return view('admin.users.edit', compact('user', 'designSettings', 'editorVersion'));
@@ -255,9 +301,6 @@ class UsersController extends Controller
             if (!hash_equals(strtolower(trim((string) $locked->email)), $email)) {
                 $updates['email_verified_at'] = null;
             }
-            if (!empty($validated['password'])) {
-                $updates['password'] = bcrypt($validated['password']);
-            }
             $locked->forceFill($updates)->save();
         }, 3);
 
@@ -292,12 +335,20 @@ class UsersController extends Controller
     private function editorVersion(User $user): string
     {
         return AdminEditorVersion::for($user, [
-            'name', 'email', 'phone', 'password', 'profile_revision', 'email_verified_at',
+            'name', 'email', 'phone', 'profile_revision', 'email_verified_at',
+        ]);
+    }
+
+    private function deviceEditorVersion(User $user): string
+    {
+        return AdminEditorVersion::for($user, [
+            'locked_device_id', 'profile_revision', 'deleted_at',
         ]);
     }
 
     public function sendNotification(Request $request, User $user)
     {
+        $this->assertStudent($user);
         if (!(bool) $user->active || $user->trashed()) {
             throw ValidationException::withMessages([
                 'message' => ['هذا الحساب غير نشط\nفعّله قبل إرسال إشعار'],
@@ -337,6 +388,7 @@ class UsersController extends Controller
             return $this->directNotificationResponse($user);
         }
         $imageUrl = null;
+        $imagePath = null;
         if ($request->hasFile('image')) {
             $image = $request->file('image');
             $imagePath = app(StoredFileDeletionService::class)->storeTrackedUpload(
@@ -352,24 +404,37 @@ class UsersController extends Controller
             $imageUrl = PublicDiskUrl::from($imagePath);
         }
 
-        $notification = StudentNotificationService::notifyUser(
-            $user,
-            'admin_message',
-            $title,
-            $title,
-            $message,
-            $message,
-            null,
-            null,
-            null,
-            $deliveryKey,
-            [],
-            $imageUrl
-        );
-        if (!$notification) {
-            throw ValidationException::withMessages([
-                'message' => ['لم يُحفظ الإشعار\nحدّث الصفحة ثم حاول مرة أخرى'],
-            ]);
+        $committed = false;
+        try {
+            $notification = StudentNotificationService::notifyUser(
+                $user,
+                'admin_message',
+                $title,
+                $title,
+                $message,
+                $message,
+                null,
+                null,
+                null,
+                $deliveryKey,
+                [],
+                $imageUrl
+            );
+            if (!$notification) {
+                throw ValidationException::withMessages([
+                    'message' => ['لم يُحفظ الإشعار\nحدّث الصفحة ثم حاول مرة أخرى'],
+                ]);
+            }
+            if ($imageUrl !== null && !hash_equals((string) $notification->image_url, $imageUrl)) {
+                throw ValidationException::withMessages([
+                    'authoring_request_id' => ['حُفظت محاولة مختلفة لهذا الإشعار\nأعد فتح النموذج'],
+                ]);
+            }
+            $committed = true;
+        } finally {
+            if (!$committed && is_string($imagePath) && $imagePath !== '') {
+                app(StoredFileDeletionService::class)->deleteOrQueue('public', $imagePath);
+            }
         }
 
         return $this->directNotificationResponse($user);
@@ -403,15 +468,36 @@ class UsersController extends Controller
     /**
      * Store a new note for the user.
      */
-    public function storeNote(Request $request, User $user)
+    public function storeNote(
+        Request $request,
+        User $user,
+        AdminAuthoringCreateIntentService $createIntents
+    )
     {
-        $request->validate([
+        $validated = $request->validate([
             'note' => 'required|string|max:1000',
+            'authoring_request_id' => 'required|uuid',
         ]);
 
-        $user->addNote();
+        DB::transaction(function () use ($request, $user, $validated, $createIntents): void {
+            $locked = User::query()->students()->whereKey($user->id)
+                ->lockForUpdate()->firstOrFail();
+            $note = $locked->notes()->create([
+                'note' => $validated['note'],
+                'created_by' => auth()->id(),
+            ]);
+            $createIntents->checkpointResource($request, UserNote::class, $note->id);
+            $createIntents->completeRedirect(
+                $request,
+                route('admin.users.show', $locked->id),
+                302,
+                UserNote::class,
+                $note->id
+            );
+        }, 3);
 
-        return redirect()->back()->with('success', 'تم إضافة الملاحظة بنجاح');
+        return redirect()->route('admin.users.show', $user->id)
+            ->with('success', 'تم إضافة الملاحظة بنجاح');
     }
 
     /**
@@ -432,18 +518,54 @@ class UsersController extends Controller
     /**
      * Reset the locked device for a user (single_device_permanent policy).
      */
-    public function resetDevice(User $user, DeviceLoginService $deviceLogin)
+    public function resetDevice(
+        Request $request,
+        User $user,
+        DeviceLoginService $deviceLogin
+    )
     {
-        if ($deviceLogin->configuredPolicy() === DeviceLoginService::POLICY_SINGLE_PERMANENT) {
-            DB::transaction(function () use ($user): void {
-                $locked = User::query()->lockForUpdate()->findOrFail($user->id);
-                $locked->purgeApiTokens();
-                $locked->deviceTokens()->delete();
-                $locked->forceFill(['locked_device_id' => null])->save();
-            }, 3);
-            return redirect()->back()->with('success', 'تم إعادة تعيين الجهاز بنجاح. يمكن للطالب الآن تسجيل الدخول من جهاز جديد.');
+        $validated = $request->validate([
+            'state_version' => ['required', 'string', 'size:64'],
+            'expected_policy' => ['required', 'string'],
+        ]);
+        $policy = $deviceLogin->configuredPolicy();
+        if (
+            $validated['expected_policy'] !== DeviceLoginService::POLICY_SINGLE_PERMANENT
+            || $policy !== DeviceLoginService::POLICY_SINGLE_PERMANENT
+        ) {
+            throw ValidationException::withMessages([
+                'expected_policy' => ['تغيّرت سياسة الأجهزة\nأعد تحميل الصفحة'],
+            ]);
         }
 
-        return redirect()->back()->with('error', 'لا يمكن إعادة تعيين الجهاز في الوضع الحالي.');
+        DB::transaction(function () use ($user, $validated): void {
+            $locked = User::query()->students()->whereKey($user->id)
+                ->lockForUpdate()->firstOrFail();
+            if (
+                trim((string) $locked->locked_device_id) === ''
+                || !hash_equals($this->deviceEditorVersion($locked), (string) $validated['state_version'])
+            ) {
+                throw ValidationException::withMessages([
+                    'state_version' => ['تغيّرت جلسات الطالب بالفعل\nأعد تحميل الصفحة'],
+                ]);
+            }
+
+            $locked->purgeApiTokens();
+            $locked->deviceTokens()->delete();
+            $locked->forceFill([
+                'locked_device_id' => null,
+                'profile_revision' => (int) $locked->profile_revision + 1,
+            ])->save();
+        }, 3);
+
+        return redirect()->back()->with(
+            'success',
+            'تم إعادة تعيين الجهاز بنجاح. يمكن للطالب الآن تسجيل الدخول من جهاز جديد.'
+        );
+    }
+
+    private function assertStudent(User $user): void
+    {
+        abort_unless(strtolower(trim((string) $user->role)) === 'client', 404);
     }
 }

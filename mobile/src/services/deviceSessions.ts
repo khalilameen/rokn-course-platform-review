@@ -17,7 +17,11 @@ export type DeviceSession = {
 
 export const getDeviceSessions = async (): Promise<DeviceSession[]> => {
   const response = await publicRequest.get<{data?: unknown}>('user/sessions');
-  return resourceList<Record<string, unknown>>(payload(response)).flatMap(
+  const data = payload(response);
+  if (!Array.isArray(data)) {
+    throw new Error('INVALID_DEVICE_SESSIONS_RESPONSE');
+  }
+  return resourceList<Record<string, unknown>>(data).flatMap(
     row => {
       const id = String(row.id ?? '').trim();
       if (!SESSION_ID_PATTERN.test(id)) return [];

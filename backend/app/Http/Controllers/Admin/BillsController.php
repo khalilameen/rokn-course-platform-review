@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Bill;
+use App\Models\Order;
 use App\Models\PaymentMethod;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use App\Services\OrderLifecycleService;
 use App\Support\BusinessClock;
@@ -80,6 +82,11 @@ class BillsController extends Controller
             $query->whereDate('due_date', '<=', $dates['due_date_to']);
         }
 
+        // Counts and amounts must describe this exact filtered result set, not
+        // the entire platform or only the currently visible page. Coin bills
+        // are deliberately kept out of the EGP total.
+        $filteredScope = clone $query;
+
         // Sort by latest
         $query->latest()->latest('id');
 
@@ -90,19 +97,32 @@ class BillsController extends Controller
 
         // Get statistics
         $stats = [
-            'total' => Bill::count(),
-            'pending' => Bill::where('payment_status', Bill::PAYMENT_STATUS_PENDING)->count(),
-            'paid' => Bill::where('payment_status', Bill::PAYMENT_STATUS_PAID)->count(),
-            'overdue' => Bill::where('payment_status', Bill::PAYMENT_STATUS_OVERDUE)->count(),
-            'cancelled' => Bill::where('payment_status', Bill::PAYMENT_STATUS_CANCELLED)->count(),
-            'total_amount' => Bill::where('payment_status', Bill::PAYMENT_STATUS_PAID)->sum('total_amount'),
-            'pending_amount' => Bill::where('payment_status', Bill::PAYMENT_STATUS_PENDING)->sum('total_amount'),
+            'total' => (clone $filteredScope)->count(),
+            'pending' => (clone $filteredScope)->where('payment_status', Bill::PAYMENT_STATUS_PENDING)->count(),
+            'paid' => (clone $filteredScope)->where('payment_status', Bill::PAYMENT_STATUS_PAID)->count(),
+            'overdue' => (clone $filteredScope)->where('payment_status', Bill::PAYMENT_STATUS_OVERDUE)->count(),
+            'cancelled' => (clone $filteredScope)->where('payment_status', Bill::PAYMENT_STATUS_CANCELLED)->count(),
+            'paid_egp' => $this->sumByUnit($filteredScope, Bill::PAYMENT_STATUS_PAID, false),
+            'pending_egp' => $this->sumByUnit($filteredScope, Bill::PAYMENT_STATUS_PENDING, false),
+            'paid_coins' => $this->sumByUnit($filteredScope, Bill::PAYMENT_STATUS_PAID, true),
+            'pending_coins' => $this->sumByUnit($filteredScope, Bill::PAYMENT_STATUS_PENDING, true),
         ];
 
         // Get payment methods for filter dropdown
         $paymentMethods = PaymentMethod::get();
 
         return view('admin.bills.index', compact('bills', 'stats', 'paymentMethods'));
+    }
+
+    private function sumByUnit(Builder $scope, string $status, bool $coins): float
+    {
+        $coinMethods = [Bill::PAYMENT_METHOD_WALLET, Order::PAYMENT_METHOD_WALLET_COINS];
+        $query = (clone $scope)->where('payment_status', $status);
+        $coins
+            ? $query->whereIn('payment_method', $coinMethods)
+            : $query->whereNotIn('payment_method', $coinMethods);
+
+        return (float) $query->sum('total_amount');
     }
 
     /**

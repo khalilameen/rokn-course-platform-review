@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Attachment;
 use App\Models\Course;
+use App\Models\CourseAuthoringRevision;
 use App\Models\CourseModule;
 use App\Models\CourseSection;
 use App\Services\CoursePublishingService;
@@ -269,6 +270,20 @@ final class AttachmentController extends Controller
 
     private function assertDraft(Course $course): void
     {
+        // Attachment routes are keyed by their polymorphic owner rather than
+        // by {course}, so ResolveCourseAuthoringDraft cannot translate a URL
+        // left open across a publish. The old working graph becomes a
+        // read-only playback archive; accepting this request would mutate the
+        // exact files an already-started learner session is finishing.
+        if (CourseAuthoringRevision::query()
+            ->where('revision_course_id', $course->id)
+            ->where('status', CourseAuthoringRevision::ARCHIVED)
+            ->exists()) {
+            throw ValidationException::withMessages([
+                'authoring_version' => 'نُشرت هذه المسودة بالفعل\nأعد فتح استوديو الكورس قبل تغيير المرفقات',
+            ])->status(409);
+        }
+
         if (!$course->is_coming_soon) {
             throw ValidationException::withMessages([
                 'course' => 'حوّل الكورس إلى مسودة قبل تغيير مرفقاته',

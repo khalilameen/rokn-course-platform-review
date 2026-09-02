@@ -35,7 +35,9 @@ final class ProjectSubmissionService
         private readonly StoredFileDeletionService $storedFiles,
         private readonly InternalSignalService $internalSignals,
         private readonly CourseChatAccessService $courseAccess,
-        private readonly CourseAccessPlanService $accessPlans
+        private readonly CourseAccessPlanService $accessPlans,
+        private readonly CourseStagedAuthoringService $stagedAuthoring,
+        private readonly CourseRevisionLearnerReadService $revisionReads
     ) {
     }
 
@@ -64,9 +66,13 @@ final class ProjectSubmissionService
         $files = $files instanceof UploadedFile ? [$files] : ($files ?? []);
         $files = array_values(array_filter($files, static fn ($file): bool => $file instanceof UploadedFile));
         $requestFingerprint = $this->requestFingerprint($text, $files);
+        $equivalentProjectIds = $this->stagedAuthoring->equivalentEntityIds(
+            Project::class,
+            (int) $project->id
+        );
         $existing = ProjectSubmission::query()
             ->where('user_id', $user->id)
-            ->where('project_id', $project->id)
+            ->whereIn('project_id', $equivalentProjectIds)
             ->where('idempotency_key', $idempotencyKey)
             ->first();
 
@@ -79,7 +85,7 @@ final class ProjectSubmissionService
         // This keeps retries/offline replays from ever locking the learner again.
         $activeSubmission = ProjectSubmission::query()
             ->where('user_id', $user->id)
-            ->where('project_id', $project->id)
+            ->whereIn('project_id', $equivalentProjectIds)
             ->whereIn('review_status', [
                 ProjectSubmission::STATUS_PENDING,
                 ProjectSubmission::STATUS_PASSED,
@@ -139,16 +145,21 @@ final class ProjectSubmissionService
                 $effortStatus,
                 $requestFingerprint,
                 $submissionDisk,
-                $fileDescriptors
+                $fileDescriptors,
+                $equivalentProjectIds
             ): ProjectSubmission {
                 // Different client retry keys are still serialized per learner,
                 // preventing two simultaneous uploads for the same project.
+                // Project and CourseSection are published catalog definitions;
+                // locking either one would serialize every learner submitting
+                // the same assignment. The mutable enrollment/submission state
+                // below remains locked at its owning learner boundary.
                 User::query()->where('active', true)->lockForUpdate()->findOrFail($user->id);
-                $lockedProject = Project::query()->lockForUpdate()->findOrFail($project->id);
+                $projectSnapshot = Project::query()->findOrFail($project->id);
 
                 $existing = ProjectSubmission::query()
                     ->where('user_id', $user->id)
-                    ->where('project_id', $project->id)
+                    ->whereIn('project_id', $equivalentProjectIds)
                     ->where('idempotency_key', $idempotencyKey)
                     ->first();
                 if ($existing) {
@@ -158,7 +169,7 @@ final class ProjectSubmissionService
 
                 $activeSubmission = ProjectSubmission::query()
                     ->where('user_id', $user->id)
-                    ->where('project_id', $project->id)
+                    ->whereIn('project_id', $equivalentProjectIds)
                     ->whereIn('review_status', [
                         ProjectSubmission::STATUS_PENDING,
                         ProjectSubmission::STATUS_PASSED,
@@ -173,13 +184,12 @@ final class ProjectSubmissionService
                 $primaryDescriptor = $fileDescriptors[0] ?? null;
                 $projectSection = CourseSection::query()
                     ->where('sectionable_type', Project::class)
-                    ->where('sectionable_id', $lockedProject->id)
-                    ->lockForUpdate()
+                    ->where('sectionable_id', $projectSnapshot->id)
                     ->first();
                 $enrollment = null;
                 $accessTerms = null;
                 if ($projectSection) {
-                    $selectedEnrollment = $this->courseAccess->activeEnrollmentFor(
+                    $selectedEnrollment = $this->courseAccess->activeProjectEnrollmentFor(
                         (int) $user->id,
                         (int) $projectSection->course_id
                     );
@@ -202,7 +212,7 @@ final class ProjectSubmissionService
                     }
                 }
                 $evaluationSnapshot = ProjectSubmissionEvaluationSnapshot::capture(
-                    $lockedProject,
+                    $projectSnapshot,
                     $projectSection,
                     $enrollment,
                     $accessTerms
@@ -251,7 +261,7 @@ final class ProjectSubmissionService
                     'auto_pass_at' => $isInvalid
                         ? null
                         : now()->addSeconds(max(1, (int) (
-                            $lockedProject->fallback_review_delay_seconds
+                            $projectSnapshot->fallback_review_delay_seconds
                             ?? config('projects.fallback_review_delay_seconds', 8)
                         ))),
                     'reviewed_at' => $isInvalid ? now() : null,
@@ -298,7 +308,7 @@ final class ProjectSubmissionService
                                 (int) $stored['size_bytes'], (string) $stored['sha256'],
                                 $this->deterministicUploadId(
                                     implode('|', [
-                                        'project-ai-input', $user->id, $lockedProject->id,
+                                        'project-ai-input', $user->id, $projectSnapshot->id,
                                         strtolower($idempotencyKey), $index, (string) $stored['sha256'],
                                     ])
                                 ),
@@ -359,16 +369,25 @@ final class ProjectSubmissionService
         }
 
         $result = DB::transaction(function () use ($submission): ProjectSubmission {
+            // Account deletion owns the learner row before scrubbing this
+            // aggregate. Taking the same owner lock first prevents a delayed
+            // fallback job from recreating review/progress data afterwards.
+            $learner = User::query()
+                ->whereKey($submission->user_id)
+                ->lockForUpdate()
+                ->first();
+            if (!$learner) {
+                return $submission->fresh();
+            }
             $locked = ProjectSubmission::query()->lockForUpdate()->findOrFail($submission->id);
             if ($locked->review_status !== ProjectSubmission::STATUS_PENDING) {
                 return $locked;
             }
 
-            $wasAlreadyPassed = UserProjectEvaluation::query()
-                ->where('user_id', $locked->user_id)
-                ->where('project_id', $locked->project_id)
-                ->where('passed', true)
-                ->exists();
+            $wasAlreadyPassed = $this->hasPassedProject(
+                (int) $locked->user_id,
+                (int) $locked->project_id
+            );
             $passed = $wasAlreadyPassed
                 || $locked->effort_status !== ProjectSubmission::EFFORT_INVALID;
             $feedback = $passed
@@ -404,6 +423,19 @@ final class ProjectSubmissionService
         }
 
         $reviewed = DB::transaction(function () use ($submission, $reviewer, $passed, $feedback): ProjectSubmission {
+            // Serialize a human decision with account deletion at the same
+            // aggregate-owner boundary used by learner submission. A form
+            // left open for a deleted account must not restore scrubbed text,
+            // progress or feedback records.
+            $learner = User::query()
+                ->whereKey($submission->user_id)
+                ->lockForUpdate()
+                ->first();
+            if (!$learner) {
+                throw ValidationException::withMessages([
+                    'submission' => ['تم حذف حساب الطالب، لذلك لم يُسجل قرار جديد.'],
+                ]);
+            }
             $locked = ProjectSubmission::query()->lockForUpdate()->findOrFail($submission->id);
             $isGracefulFallback = $locked->review_status === ProjectSubmission::STATUS_PASSED
                 && $locked->review_source === 'graceful_fallback';
@@ -416,11 +448,10 @@ final class ProjectSubmissionService
                 ]);
             }
 
-            $wasAlreadyPassed = UserProjectEvaluation::query()
-                ->where('user_id', $locked->user_id)
-                ->where('project_id', $locked->project_id)
-                ->where('passed', true)
-                ->exists();
+            $wasAlreadyPassed = $this->hasPassedProject(
+                (int) $locked->user_id,
+                (int) $locked->project_id
+            );
             if (!$passed && $wasAlreadyPassed) {
                 throw ValidationException::withMessages([
                     'submission' => ['لا يمكن سحب حق الطالب في الاستكمال بعد قبوله تلقائيًا. يمكن اعتماد جودة العمل يدويًا عند القبول.'],
@@ -518,9 +549,7 @@ final class ProjectSubmissionService
             'submission_metadata' => $metadata,
         ]);
 
-        UserProjectEvaluation::updateOrCreate(
-            ['user_id' => $locked->user_id, 'project_id' => $locked->project_id],
-            [
+        $evaluationAttributes = [
                 // This legacy summary column is not nullable on older
                 // installations. Consumers must use assessment_type and
                 // skill_verified before presenting it as a graded score.
@@ -541,8 +570,25 @@ final class ProjectSubmissionService
                 ],
                 'submission_text' => $locked->submission_text,
                 'submission_file' => $locked->submission_file,
-            ]
+            ];
+        UserProjectEvaluation::updateOrCreate(
+            ['user_id' => $locked->user_id, 'project_id' => $locked->project_id],
+            $evaluationAttributes
         );
+
+        $currentProjectId = $this->stagedAuthoring->currentEntityId(
+            Project::class,
+            (int) $locked->project_id
+        );
+        if ($currentProjectId) {
+            // A mutable current-projection lets the learner continue, while
+            // the submission, decision sequence and feedback remain attached
+            // to the immutable archived project snapshot.
+            UserProjectEvaluation::updateOrCreate(
+                ['user_id' => $locked->user_id, 'project_id' => $currentProjectId],
+                $evaluationAttributes
+            );
+        }
 
         if (!$passed) {
             return $locked->fresh();
@@ -561,7 +607,7 @@ final class ProjectSubmissionService
 
         $projectSection = CourseSection::query()
             ->where('sectionable_type', Project::class)
-            ->where('sectionable_id', $locked->project_id)
+            ->where('sectionable_id', $currentProjectId ?: $locked->project_id)
             ->first();
         if (!$projectSection) {
             return $locked->fresh();
@@ -607,12 +653,9 @@ final class ProjectSubmissionService
             ->where('course_id', $course->id)
             ->get();
         $courseSectionIds = $this->sectionSequence->learning($courseSections)->pluck('id');
-        $completedSections = StudentSectionProgress::query()
-            ->where('user_id', $locked->user_id)
-            ->whereIn('course_section_id', $courseSectionIds)
-            ->where('is_completed', true)
-            ->distinct('course_section_id')
-            ->count('course_section_id');
+        $completedSections = $this->revisionReads
+            ->completedSectionIds((int) $locked->user_id, $courseSectionIds)
+            ->count();
 
         if ($courseSectionIds->isEmpty() || $completedSections !== $courseSectionIds->count()) {
             return $locked->fresh();
@@ -763,6 +806,16 @@ final class ProjectSubmissionService
                 'Project submission idempotency key was reused for different content.'
             );
         }
+    }
+
+    private function hasPassedProject(int $userId, int $projectId): bool
+    {
+        $currentProjectId = $this->stagedAuthoring
+            ->currentLearnerEntityMap(Project::class, [$projectId])[$projectId] ?? $projectId;
+
+        return $this->revisionReads
+            ->passedProjectIds($userId, [$currentProjectId])
+            ->contains($currentProjectId);
     }
 
     private function deterministicUploadId(string $identity): string

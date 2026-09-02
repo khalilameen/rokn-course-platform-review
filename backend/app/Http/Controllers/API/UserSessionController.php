@@ -7,6 +7,7 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use App\Models\ApiToken;
 use App\Models\UserDeviceToken;
+use App\Services\DeviceLoginService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -24,7 +25,7 @@ final class UserSessionController extends Controller
             ->orderByDesc('last_used_at')
             ->orderByDesc('issued_at')
             ->orderByDesc('session_id')
-            ->limit(25)
+            ->limit(DeviceLoginService::MAX_ACTIVE_SESSIONS)
             ->get()
             ->map(static fn (ApiToken $token): array => [
                 'id' => $token->session_id,

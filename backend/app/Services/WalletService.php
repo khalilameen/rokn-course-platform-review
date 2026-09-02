@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Exceptions\InsufficientWalletBalanceException;
 use App\Models\Course;
+use App\Models\Setting;
 use App\Models\User;
 use App\Models\WalletTransaction;
 use Illuminate\Database\Eloquent\Model;
@@ -100,6 +101,82 @@ final readonly class WalletService
             null,
             $maxRewardAmount
         );
+    }
+
+    /**
+     * Credit free value without ever crossing the configured reward-wallet
+     * ceiling. The user aggregate lock makes the room calculation and ledger
+     * append one operation across concurrent welcome/task claims.
+     */
+    public function creditRewardWithinConfiguredCap(
+        int $userId,
+        int $requestedAmount,
+        string $category,
+        string $idempotencyKey,
+        ?Model $source = null,
+        array $metadata = []
+    ): ?WalletTransaction {
+        if ($requestedAmount < 0) {
+            throw new \InvalidArgumentException('Wallet amount must be zero or greater.');
+        }
+
+        return DB::transaction(function () use (
+            $userId,
+            $requestedAmount,
+            $category,
+            $idempotencyKey,
+            $source,
+            $metadata
+        ): ?WalletTransaction {
+            /** @var User $user */
+            $user = User::withTrashed()->whereKey($userId)->lockForUpdate()->firstOrFail();
+            $existing = WalletTransaction::query()
+                ->where('user_id', $userId)
+                ->where('idempotency_key', $idempotencyKey)
+                ->first();
+            if ($existing) {
+                $storedRequested = data_get($existing->metadata, 'requested_amount');
+                if (
+                    $existing->direction !== WalletTransaction::DIRECTION_CREDIT
+                    || $existing->category !== $category
+                    || $existing->source_type !== ($source ? get_class($source) : null)
+                    || (string) ($existing->source_id ?? '') !== (string) ($source?->getKey() ?? '')
+                    || ($storedRequested !== null && (int) $storedRequested !== $requestedAmount)
+                    || ($storedRequested === null && (int) $existing->amount !== $requestedAmount)
+                ) {
+                    throw new \UnexpectedValueException(
+                        'Wallet reward idempotency key was reused for a different operation.'
+                    );
+                }
+
+                return $existing;
+            }
+
+            [, $rewardBalance] = $this->normalizedBucketBalances($user);
+            $rewardCap = max(0, (int) (Setting::query()->value('reward_balance_cap') ?? 1200));
+            $rewardRoom = max(0, $rewardCap - $rewardBalance);
+            // A one-time offer is indivisible. Silently granting only the
+            // remaining room would consume the task while paying less than
+            // the amount shown to the learner.
+            if ($requestedAmount <= 0 || $requestedAmount > $rewardRoom) {
+                return null;
+            }
+            $creditedAmount = $requestedAmount;
+
+            return $this->recordTransaction(
+                $userId,
+                $creditedAmount,
+                WalletTransaction::DIRECTION_CREDIT,
+                $category,
+                $idempotencyKey,
+                $source,
+                array_merge($metadata, [
+                    'requested_amount' => $requestedAmount,
+                    'reward_balance_cap' => $rewardCap,
+                ]),
+                WalletTransaction::BUCKET_REWARD
+            );
+        }, 3);
     }
 
     /** Refunds preserve the original paid and reward attribution. */
@@ -314,6 +391,17 @@ final readonly class WalletService
                     $rewardAmount = $amount;
                 } else {
                     throw new \InvalidArgumentException('Wallet credit bucket must be paid or reward.');
+                }
+
+                if (
+                    $creditBucket === WalletTransaction::BUCKET_REWARD
+                    && $forcedPaidAmount === null
+                    && $forcedRewardAmount === null
+                ) {
+                    $rewardCap = max(0, (int) (Setting::query()->value('reward_balance_cap') ?? 1200));
+                    if ($rewardBalance + $rewardAmount > $rewardCap) {
+                        throw new \DomainException('reward_balance_cap_exceeded');
+                    }
                 }
 
                 $paidBalance += $paidAmount;

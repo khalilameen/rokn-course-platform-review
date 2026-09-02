@@ -6,8 +6,9 @@ namespace App\Services;
 
 use App\Models\ProductFeatureFlag;
 use App\Support\AdminEditorVersion;
+use App\Support\DatabaseCapabilities;
+use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 final class ProductFeatureFlagService
@@ -37,7 +38,7 @@ final class ProductFeatureFlagService
     private function rows(): ?Collection
     {
         try {
-            if (!Schema::hasTable('product_feature_flags')) {
+            if (!DatabaseCapabilities::hasTable('product_feature_flags')) {
                 return null;
             }
 
@@ -88,9 +89,6 @@ final class ProductFeatureFlagService
     {
         // Integer support remains for internal diagnostics and focused tests.
         // Public clients never choose it; the controller passes a server-built subject.
-        $bucket = is_int($subject)
-            ? max(0, min(99, $subject))
-            : $this->bucket('client-rollout', $subject);
         $definitions = $this->definitions();
         $rows = $this->rows();
         $configurationAvailable = $rows !== null;
@@ -99,6 +97,9 @@ final class ProductFeatureFlagService
         $versionSource = [];
 
         foreach ($definitions as $key => $definition) {
+            $bucket = is_int($subject)
+                ? max(0, min(99, $subject))
+                : $this->bucket($key, (string) $subject);
             $row = $rows->get($key);
             $expired = $row?->expires_at?->isPast() ?? false;
             $enabled = !$configurationAvailable
@@ -126,6 +127,27 @@ final class ProductFeatureFlagService
             'expires_at' => now()->addSeconds($ttl)->toIso8601String(),
             'flags' => $flags,
         ];
+    }
+
+    public function subjectForRequest(Request $request): string
+    {
+        $installation = strtolower(trim((string) $request->header('X-Rokn-Installation')));
+        if (preg_match(
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/',
+            $installation
+        ) === 1) {
+            return 'installation:'.$installation;
+        }
+
+        $userId = $request->user('api')?->getAuthIdentifier();
+        if ($userId !== null) {
+            return 'user:'.(string) $userId;
+        }
+
+        return 'anonymous:'.hash(
+            'sha256',
+            (string) $request->ip().'|'.(string) $request->userAgent()
+        );
     }
 
     /** @return array<string, array{enabled: bool, rollout_percentage: int, owner: ?string, reason: ?string, expires_at: ?string, safe_default: bool, description: string, editor_version: string}> */

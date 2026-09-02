@@ -25,7 +25,15 @@ trait InvalidatesCourseCatalogue
                     // add() is atomic on the production cache stores. Incrementing
                     // afterwards means concurrent edits cannot overwrite each
                     // other's revision and strand a stale catalogue page.
-                    Cache::add($key, 1, now()->addYears(10));
+                    // Seed with a time-ordered generation, not `1`. Redis can
+                    // evict this small revision key while an older page key
+                    // survives. Reusing `1` would then make that stale page
+                    // look current again until its TTL expires.
+                    Cache::add(
+                        $key,
+                        max(1, (int) floor(microtime(true) * 1000)),
+                        now()->addYears(10)
+                    );
                     Cache::increment($key);
                 } catch (\Throwable) {
                     // Cache invalidation improves freshness but must never make

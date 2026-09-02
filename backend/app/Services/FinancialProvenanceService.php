@@ -14,9 +14,9 @@ use App\Models\User;
 use App\Models\WalletCreditLot;
 use App\Models\WalletDebitAllocation;
 use App\Models\WalletTransaction;
+use App\Support\DatabaseCapabilities;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 /** Tracks the paid-coin lots that fund course entitlements. */
@@ -30,9 +30,9 @@ final readonly class FinancialProvenanceService
 
     public function schemaAvailable(): bool
     {
-        return Schema::hasTable('wallet_credit_lots')
-            && Schema::hasTable('wallet_debit_allocations')
-            && Schema::hasTable('financial_entitlement_holds');
+        return DatabaseCapabilities::hasTable('wallet_credit_lots')
+            && DatabaseCapabilities::hasTable('wallet_debit_allocations')
+            && DatabaseCapabilities::hasTable('financial_entitlement_holds');
     }
 
     public function recordPaidPackageCredit(

@@ -19,11 +19,19 @@ class LessonResource extends JsonResource
     {
         // Get video data based on source type
         $videoData = $this->getVideoData();
+        $this->resource->loadMissing('mediaState');
+        $providerSeconds = max(0, (int) ($this->mediaState?->duration_seconds ?? 0));
+        $durationSeconds = $providerSeconds > 0
+            ? $providerSeconds
+            : max(0, (int) $this->duration_minutes) * 60;
 
         return [
             'id' => (int)$this->id,
             'title' => (string)$this->title,
-            'duration_minutes' => max(0, (int) $this->duration_minutes),
+            'duration_minutes' => $durationSeconds > 0
+                ? (int) ceil($durationSeconds / 60)
+                : max(0, (int) $this->duration_minutes),
+            'duration_seconds' => $durationSeconds,
             'is_opened' => (bool) $this->is_opened,
             'description' =>  (string)$this->description,
             'video_source_type' => $videoData['video_source_type'],

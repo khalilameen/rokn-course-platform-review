@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use App\Services\BunnyService;
 use App\Support\BusinessClock;
+use App\Support\PublicDiskUrl;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class SavedLessonResource extends JsonResource
@@ -22,17 +23,24 @@ class SavedLessonResource extends JsonResource
         $durationSeconds = $providerSeconds > 0
             ? $providerSeconds
             : max(0, (int) $this->duration_minutes) * 60;
-        $thumbnail = trim((string) ($this->thumbnail_path ?: $this->image));
+        $thumbnail = trim((string) $this->thumbnail_path);
         $image = $thumbnail !== ''
-            ? app(BunnyService::class)->generateBunnySignedUrl($thumbnail) ?: $thumbnail
+            ? app(BunnyService::class)->generateBunnySignedUrl($thumbnail)
             : null;
+        $image ??= $this->publicLessonImage($this->image);
         $image ??= $this->course?->image ? (string) $this->course->image : null;
         $image ??= asset('images/default-folder.png');
 
         return [
             'id' => (int)$this->id,
             'title' => (string)$this->title,
-            'duration_minutes' => (int)$this->duration_minutes,
+            // Keep the legacy minutes field truthful when Bunny has already
+            // measured the asset. Older APKs read minutes while newer ones
+            // prefer seconds; returning 0 beside a verified duration made the
+            // same saved lesson look broken depending on client generation.
+            'duration_minutes' => $durationSeconds > 0
+                ? (int) ceil($durationSeconds / 60)
+                : max(0, (int) $this->duration_minutes),
             'duration_seconds' => $durationSeconds,
             'description' => (string)$this->description,
             'is_opened' => (bool)$this->is_opened,
@@ -57,5 +65,17 @@ class SavedLessonResource extends JsonResource
                 'image' => $this->course->image ? (string)$this->course->image : null,
             ] : null,
         ];
+    }
+
+    private function publicLessonImage(mixed $value): ?string
+    {
+        $value = trim((string) $value);
+        if ($value === '') return null;
+        if (str_starts_with(strtolower($value), 'https://')) return $value;
+        if (str_starts_with(ltrim($value, '/'), 'storage/')) {
+            return PublicDiskUrl::from($value);
+        }
+
+        return asset(ltrim($value, '/'));
     }
 }

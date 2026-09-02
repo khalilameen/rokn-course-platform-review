@@ -1,5 +1,5 @@
 import React, {FC, useCallback, useEffect, useRef, useState} from 'react';
-import {AppState, Linking, Platform} from 'react-native';
+import {Alert, AppState, Linking, Platform} from 'react-native';
 import {useDispatch, useSelector} from 'react-redux';
 import Navigation from '../navigation/Navigation';
 import {initializApp} from '../store/actions/settings';
@@ -27,6 +27,8 @@ import {
 } from '../services/pushNotifications';
 import {
   abandonPendingSecureSessionRestore,
+  extractApiToken,
+  loadSecureSession,
   restoreSecureAuthState,
 } from '../services/secureSession';
 import {
@@ -38,6 +40,10 @@ import type {AppUpdateNotice} from '../services/appVersionPolicy';
 import AppUpdateGate from '../components/AppUpdateGate';
 import type {AppDispatch, RootState} from '../store/store';
 import {resumePendingSocialAuth} from '../services/socialAuth';
+import {
+  socialAuthFailureCode,
+  socialAuthMessage,
+} from '../services/socialAuthErrors';
 import {androidAuthSessionOwnsCallback} from '../services/androidAuthSession';
 import {resumePendingGuestAccountMigration} from '../services/guestAccountMigration';
 import {CAN_START_NATIVE_CHECKOUT} from '../constants/distribution';
@@ -50,6 +56,8 @@ import {flushProductEvents} from '../services/productAnalytics';
 import {flushPendingAccountWrites} from '../services/pendingAccountWrites';
 import {flushOperationalTelemetry} from '../services/operationalTelemetry';
 import {replayPendingPortfolioMediaUploads} from '../services/portfolioMediaReplay';
+import {networkFailureKind} from '../services/networkExperience';
+import {setSentryUserId} from '../services/sentryTelemetry';
 
 type DeadlineResult<T> =
   | {settled: true; value: T}
@@ -95,6 +103,7 @@ const AppInitializer: FC = () => {
   const dispatch = useDispatch<AppDispatch>();
   const appLoaded = useSelector((state: RootState) => state.settings.appLoaded);
   const storedUser = useSelector((state: RootState) => state.auth.userData);
+  const hasStoredSession = Boolean(extractApiToken(storedUser));
   const [sessionReady, setSessionReady] = useState(false);
   const [updateNotice, setUpdateNotice] = useState<AppUpdateNotice | null>(
     null,
@@ -137,6 +146,34 @@ const AppInitializer: FC = () => {
     };
   }, []);
 
+  const adoptAuthenticatedSession = useCallback(
+    async (candidate: unknown) => {
+      const expectedToken = extractApiToken(candidate);
+      if (!expectedToken) return false;
+      const before = await loadSecureSession().catch(() => null);
+      if (
+        !mountedRef.current ||
+        extractApiToken(before) !== expectedToken
+      ) {
+        return false;
+      }
+      await settleWithin(saveItem(AsyncKeys.IS_LOGIN, true), 1_000);
+      const after = await loadSecureSession().catch(() => null);
+      if (
+        !mountedRef.current ||
+        extractApiToken(after) !== expectedToken
+      ) {
+        return false;
+      }
+      // Dispatch the current secure snapshot, not the older callback payload.
+      // A second login/logout can legitimately win while an AsyncStorage flag
+      // write is still completing on a slow or nearly-full device.
+      dispatch(saveLoginData(after));
+      return true;
+    },
+    [dispatch],
+  );
+
   useEffect(() => {
     // Keep durable course-chat history across process restarts. Only reclaim
     // bounded temporary attachment bytes here; private account data is
@@ -148,8 +185,23 @@ const AppInitializer: FC = () => {
       try {
         const deviceUpgrade = runDeviceStorageUpgrade().catch(() => undefined);
         void deviceUpgrade;
+        // Session restoration and a possible OAuth return are independent
+        // reads until one of them commits a session. Start both launch clocks
+        // together; adoptRestoredState re-reads the serialized secure owner so
+        // a completed OAuth attempt still wins over an older restore snapshot.
+        const restoreFlight = restoreSecureAuthState();
+        const quickRestoreFlight = settleWithin(restoreFlight, 3_500);
         const adoptPendingSession = async (session: unknown) => {
           if (!active || !session) return;
+          const expectedToken = extractApiToken(session);
+          const current = await loadSecureSession().catch(() => null);
+          if (
+            !active ||
+            !expectedToken ||
+            extractApiToken(current) !== expectedToken
+          ) {
+            return;
+          }
           const profile = extractUserProfile(session);
           if (
             profile?.id === 'demo-student-1' ||
@@ -162,9 +214,7 @@ const AppInitializer: FC = () => {
             if (active) dispatch(LogOut());
             return;
           }
-          await settleWithin(saveItem(AsyncKeys.IS_LOGIN, true), 1_000);
-          if (!active) return;
-          dispatch(saveLoginData(session));
+          if (!(await adoptAuthenticatedSession(session)) || !active) return;
           void runAuthenticatedStorageUpgrade()
             .then(() => resumePendingGuestAccountMigration(false))
             .then(() => resumePendingGuestAccountMigration(true))
@@ -199,10 +249,15 @@ const AppInitializer: FC = () => {
           // still owns the durable pending attempt when it finishes.
           void pendingResume.then(adoptPendingSession).catch(() => undefined);
         }
-        const adoptRestoredState = async ({
-          session,
-          isAuthenticated,
-        }: Awaited<ReturnType<typeof restoreSecureAuthState>>) => {
+        const adoptRestoredState = async (
+          _restored: Awaited<ReturnType<typeof restoreSecureAuthState>>,
+        ) => {
+          if (!active) return;
+          // OAuth completion and keychain restoration run in parallel so the
+          // guest shell has a deadline. Re-read the serialized secure owner:
+          // the restore result may already be older than a completed login.
+          const session = await loadSecureSession().catch(() => null);
+          const isAuthenticated = Boolean(extractApiToken(session));
           if (!active) return;
           const profile = extractUserProfile(session);
           const isDiscardedDemoIdentity =
@@ -222,9 +277,7 @@ const AppInitializer: FC = () => {
             return;
           }
           if (isAuthenticated) {
-            await settleWithin(saveItem(AsyncKeys.IS_LOGIN, true), 1_000);
-            if (!active) return;
-            dispatch(saveLoginData(session));
+            if (!(await adoptAuthenticatedSession(session)) || !active) return;
             // Copy-before-delete upgrades remain ordered, but they no longer
             // hold the launch screen after SecureStore proved the account.
             void runAuthenticatedStorageUpgrade()
@@ -234,11 +287,16 @@ const AppInitializer: FC = () => {
             return;
           }
           await settleWithin(removeItem(AsyncKeys.IS_LOGIN), 1_000);
-          if (active) dispatch(LogOut());
+          if (!active) return;
+          const appearedSession = await loadSecureSession().catch(() => null);
+          if (extractApiToken(appearedSession)) {
+            await adoptAuthenticatedSession(appearedSession);
+          } else if (active) {
+            dispatch(LogOut());
+          }
         };
 
-        const restoreFlight = restoreSecureAuthState();
-        const quickRestore = await settleWithin(restoreFlight, 3_500);
+        const quickRestore = await quickRestoreFlight;
         if (quickRestore.settled) {
           await adoptRestoredState(quickRestore.value);
         } else {
@@ -260,7 +318,7 @@ const AppInitializer: FC = () => {
     return () => {
       active = false;
     };
-  }, [dispatch]);
+  }, [adoptAuthenticatedSession, dispatch]);
 
   useEffect(() => {
     if (!appLoaded) dispatch(initializApp());
@@ -297,9 +355,14 @@ const AppInitializer: FC = () => {
   }, [storedUser]);
 
   useEffect(() => {
-    if (!sessionReady || !storedUser) return;
+    const profile = hasStoredSession ? extractUserProfile(storedUser) : null;
+    setSentryUserId(profile?.id ?? profile?.user_id ?? null);
+  }, [hasStoredSession, storedUser]);
+
+  useEffect(() => {
+    if (!sessionReady || !hasStoredSession) return;
     void replayPendingPortfolioMediaUploads().catch(() => undefined);
-  }, [sessionReady, storedUser]);
+  }, [hasStoredSession, sessionReady]);
 
   useEffect(() => {
     let active = true;
@@ -326,7 +389,7 @@ const AppInitializer: FC = () => {
       storeReconcileTimer = null;
     };
     const reconcileStorePurchases = () => {
-      if (!storedUser || storeReconcileFlight) return;
+      if (!hasStoredSession || storeReconcileFlight) return;
       const external = reconcilePendingCoinCheckout();
       const native = CAN_START_NATIVE_CHECKOUT
         ? import('../services/nativeStoreBilling').then(store =>
@@ -338,11 +401,24 @@ const AppInitializer: FC = () => {
           if (!active) return;
           const pending = results.some(
             result =>
-              result.status === 'rejected' ||
-              Boolean(result.status === 'fulfilled' && result.value?.pending),
+              result.status === 'fulfilled' && Boolean(result.value?.pending),
+          );
+          const retryableFailure = results.some(
+            result =>
+              result.status === 'rejected' &&
+              [
+                'offline',
+                'timeout',
+                'rate_limited',
+                'maintenance',
+                'server',
+              ].includes(networkFailureKind(result.reason)),
           );
           clearStoreReconcileTimer();
-          if (!pending || AppState.currentState !== 'active') {
+          if (
+            (!pending && !retryableFailure) ||
+            AppState.currentState !== 'active'
+          ) {
             storeReconcileAttempt = 0;
             return;
           }
@@ -367,6 +443,15 @@ const AppInitializer: FC = () => {
         });
     };
     const adoptForegroundSession = async (session: unknown) => {
+      const expectedToken = extractApiToken(session);
+      const current = await loadSecureSession().catch(() => null);
+      if (
+        !active ||
+        !expectedToken ||
+        extractApiToken(current) !== expectedToken
+      ) {
+        return;
+      }
       const profile = extractUserProfile(session);
       if (
         profile?.id === 'demo-student-1' ||
@@ -379,15 +464,14 @@ const AppInitializer: FC = () => {
         dispatch(LogOut());
         return;
       }
-      await settleWithin(saveItem(AsyncKeys.IS_LOGIN, true), 1_000);
-      dispatch(saveLoginData(session));
+      if (!(await adoptAuthenticatedSession(session)) || !active) return;
       void runAuthenticatedStorageUpgrade()
         .then(() => resumePendingGuestAccountMigration(false))
         .then(() => resumePendingGuestAccountMigration(true))
         .catch(() => undefined);
     };
     const restoreSessionAfterUnlock = () => {
-      if (storedUser || foregroundSessionFlight) return;
+      if (hasStoredSession || foregroundSessionFlight) return;
       abandonPendingSecureSessionRestore();
       foregroundSessionFlight = restoreSecureAuthState()
         .then(result => {
@@ -412,7 +496,13 @@ const AppInitializer: FC = () => {
                 if (!session) return;
                 return adoptForegroundSession(session);
               })
-              .catch(() => undefined);
+              .catch(error => {
+                if (!active) return;
+                const message = socialAuthMessage(
+                  socialAuthFailureCode(error),
+                );
+                if (message) Alert.alert('تعذّر تسجيل الدخول', message);
+              });
           })
         : null;
     reconcileLearning(true);
@@ -421,7 +511,7 @@ const AppInitializer: FC = () => {
       if (state === 'active') {
         reconcileLearning();
         reconcileStorePurchases();
-        if (storedUser) {
+        if (hasStoredSession) {
           void replayPendingPortfolioMediaUploads().catch(() => undefined);
         }
         void reconcilePushRegistration();
@@ -447,7 +537,12 @@ const AppInitializer: FC = () => {
       socialAuthLinkSubscription?.remove();
       subscription.remove();
     };
-  }, [dispatch, refreshUpdateNotice, storedUser]);
+  }, [
+    adoptAuthenticatedSession,
+    dispatch,
+    hasStoredSession,
+    refreshUpdateNotice,
+  ]);
 
   const dismissUpdateNotice = () => {
     const notice = updateNotice;

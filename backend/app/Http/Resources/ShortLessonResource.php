@@ -15,10 +15,19 @@ class ShortLessonResource extends JsonResource
      */
     public function toArray($request)
     {// id  list_id title   description video_link  file_link1  file_link2  created_at  updated_at
+        $this->resource->loadMissing('mediaState');
+        $providerSeconds = max(0, (int) ($this->mediaState?->duration_seconds ?? 0));
+        $durationSeconds = $providerSeconds > 0
+            ? $providerSeconds
+            : max(0, (int) $this->duration_minutes) * 60;
+
         return [
             'id' => (int)$this->id,
             'title' => (string)$this->title,
-            'duration_minutes' => max(0, (int) $this->duration_minutes),
+            'duration_minutes' => $durationSeconds > 0
+                ? (int) ceil($durationSeconds / 60)
+                : max(0, (int) $this->duration_minutes),
+            'duration_seconds' => $durationSeconds,
             'is_opened' => (bool) $this->is_opened,
             'description' =>  (string)$this->description,
             'image' => $this->image ? (string)$this->image: null,

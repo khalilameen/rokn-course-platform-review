@@ -314,7 +314,7 @@ final readonly class KashierReconciliationService
         return in_array($status, ['PENDING', 'INITIATED', 'AUTHORIZED', 'PROCESSING'], true);
     }
 
-    /** @return array<string, int|float|string|null> */
+    /** @return array<string, mixed> */
     private function safeEvidence(array $response, ?string $status, ?string $transactionId): array
     {
         return [
@@ -343,6 +343,7 @@ final readonly class KashierReconciliationService
                 'data.currency',
                 'currency',
             ]),
+            'reversal_events' => $this->payments->extractFinancialReversalEvents($response),
         ];
     }
 
@@ -373,35 +374,51 @@ final readonly class KashierReconciliationService
             (string) $providerStatus,
             (string) $transactionId,
         ]));
-        $finding = PaymentReconciliationFinding::query()->firstOrNew([
-            'fingerprint' => $fingerprint,
-        ]);
-        $isNew = ! $finding->exists;
-        $finding->fill([
-            'provider' => self::PROVIDER,
-            'order_id' => $order->id,
-            'order_ref' => (string) $order->order_ref,
-            'kind' => $kind,
-            'local_status' => (string) $order->status,
-            'local_financial_status' => (string) $order->financial_status,
-            'provider_status' => $providerStatus,
-            'provider_transaction_id' => $transactionId,
-            'attempts' => $isNew ? 1 : ((int) $finding->attempts + 1),
-            'first_seen_at' => $isNew ? now() : $finding->first_seen_at,
-            'last_seen_at' => now(),
-            'evidence' => $evidence,
-        ]);
-        if ($isNew || $finding->state === PaymentReconciliationFinding::STATE_RESOLVED) {
+        return DB::transaction(function () use (
+            $fingerprint,
+            $order,
+            $kind,
+            $providerStatus,
+            $transactionId,
+            $evidence
+        ): PaymentReconciliationFinding {
+            // Reconciliation and a dashboard decision can touch the same row
+            // at once. Read the review state under the row lock so a provider
+            // observation that lands after “resolved” reliably reopens it,
+            // rather than saving fresh evidence into a falsely closed item.
+            $finding = PaymentReconciliationFinding::query()
+                ->where('fingerprint', $fingerprint)
+                ->lockForUpdate()
+                ->first() ?: new PaymentReconciliationFinding([
+                    'fingerprint' => $fingerprint,
+                ]);
+            $isNew = ! $finding->exists;
             $finding->fill([
-                'state' => PaymentReconciliationFinding::STATE_OPEN,
-                'resolved_at' => null,
-                'resolved_by' => null,
-                'resolution_note' => null,
+                'provider' => self::PROVIDER,
+                'order_id' => $order->id,
+                'order_ref' => (string) $order->order_ref,
+                'kind' => $kind,
+                'local_status' => (string) $order->status,
+                'local_financial_status' => (string) $order->financial_status,
+                'provider_status' => $providerStatus,
+                'provider_transaction_id' => $transactionId,
+                'attempts' => $isNew ? 1 : ((int) $finding->attempts + 1),
+                'first_seen_at' => $isNew ? now() : $finding->first_seen_at,
+                'last_seen_at' => now(),
+                'evidence' => $evidence,
             ]);
-        }
-        $finding->save();
+            if ($isNew || $finding->state === PaymentReconciliationFinding::STATE_RESOLVED) {
+                $finding->fill([
+                    'state' => PaymentReconciliationFinding::STATE_OPEN,
+                    'resolved_at' => null,
+                    'resolved_by' => null,
+                    'resolution_note' => null,
+                ]);
+            }
+            $finding->save();
 
-        return $finding;
+            return $finding;
+        }, 3);
     }
 
     private function resolveOpenFindings(Order $order): void

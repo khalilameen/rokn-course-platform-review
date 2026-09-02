@@ -100,7 +100,10 @@ final class CourseCommercialReportService
             $row = [
                 'enrollment' => $enrollment,
                 'user' => $enrollment->user,
-                'is_active' => $enrollment->isActive(),
+                'is_active' => $enrollment->isActive()
+                    && $enrollment->user !== null
+                    && !$enrollment->user->trashed()
+                    && strtolower((string) $enrollment->user->role) === 'client',
                 'source' => $source,
                 'source_label' => $sourceLabel,
                 'plan_code' => (string) ($snapshot['code'] ?? $enrollment->accessPlan?->code ?? ''),
@@ -110,6 +113,12 @@ final class CourseCommercialReportService
                     : null,
                 'discount_coins' => (int) $learnerOrders->sum('discount_amount'),
                 'coupon_codes' => $learnerOrders->pluck('coupon_code')
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all(),
+                'access_codes' => $learnerOrders
+                    ->map(fn (Order $order): ?string => $order->courseCode?->code)
                     ->filter()
                     ->unique()
                     ->values()
@@ -239,8 +248,11 @@ final class CourseCommercialReportService
                 : null,
             'cost_warnings' => $costReport['unallocated_pools'],
             'service_breakdown' => $costReport['service_breakdown'],
-            'plan_breakdown' => $rows->groupBy('plan_name')->map(
-                fn (Collection $planRows): array => $this->groupSummary($planRows)
+            'plan_breakdown' => $rows->groupBy('plan_code')->map(
+                fn (Collection $planRows, string $planCode): array => $this->groupSummary($planRows) + [
+                    'plan_code' => $planCode,
+                    'plan_name' => (string) ($planRows->first()['plan_name'] ?? 'إتاحة قديمة'),
+                ]
             ),
         ] + $unitEconomics;
     }
@@ -375,6 +387,9 @@ final class CourseCommercialReportService
                 $orderAllocatedCoins += $coins;
                 $allocatedCoins += $coins;
                 if ($source->financial_status !== Order::FINANCIAL_SETTLED) {
+                    $channels['unreconciled'] ??= $this->unreconciledCashChannel();
+                    $channels['unreconciled']['paid_coins'] += $coins;
+                    $reconciliationMissing = true;
                     continue;
                 }
 
@@ -455,18 +470,7 @@ final class CourseCommercialReportService
 
             $missingPaidCoins = max(0, (int) $order->paid_coins - $orderAllocatedCoins);
             if ($missingPaidCoins > 0) {
-                $channels['unreconciled'] ??= [
-                    'method' => 'unreconciled',
-                    'label' => 'مصدر شحن غير مُسوّى',
-                    'paid_coins' => 0,
-                    'gross_egp' => 0.0,
-                    'estimated_gross_egp' => 0.0,
-                    'gross_complete' => false,
-                    'net_known_egp' => 0.0,
-                    'pending_settlement_egp' => 0.0,
-                    'net_complete' => false,
-                    'foreign_currency_amounts' => [],
-                ];
+                $channels['unreconciled'] ??= $this->unreconciledCashChannel();
                 $channels['unreconciled']['paid_coins'] += $missingPaidCoins;
                 $reconciliationMissing = true;
             }
@@ -502,6 +506,23 @@ final class CourseCommercialReportService
 
                 return $channel;
             })->all(),
+        ];
+    }
+
+    /** @return array<string, int|float|bool|string|array> */
+    private function unreconciledCashChannel(): array
+    {
+        return [
+            'method' => 'unreconciled',
+            'label' => 'مصدر شحن غير مُسوّى',
+            'paid_coins' => 0,
+            'gross_egp' => 0.0,
+            'estimated_gross_egp' => 0.0,
+            'gross_complete' => false,
+            'net_known_egp' => 0.0,
+            'pending_settlement_egp' => 0.0,
+            'net_complete' => false,
+            'foreign_currency_amounts' => [],
         ];
     }
 }

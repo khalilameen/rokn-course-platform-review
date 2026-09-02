@@ -99,26 +99,30 @@ final class AppleServiceNonceTest extends TestCase
         (new AppleService())->verify('unused-token', '');
     }
 
-    public function test_a_successfully_consumed_nonce_cannot_be_replayed(): void
+    public function test_an_identical_credential_can_retry_but_another_token_cannot_reuse_its_nonce(): void
     {
         $rawNonce = str_repeat('4', 64);
         $token = $this->identityToken(hash('sha256', $rawNonce));
         $service = new AppleService();
 
         $service->verify($token, $rawNonce);
+        self::assertSame('apple-user-123', $service->verify($token, $rawNonce)['id']);
 
         $this->expectException(Exception::class);
         $this->expectExceptionMessage('nonce was already used');
-        $service->verify($token, $rawNonce);
+        $service->verify(
+            $this->identityToken(hash('sha256', $rawNonce), 'another-apple-user'),
+            $rawNonce
+        );
     }
 
-    private function identityToken(string $nonce): string
+    private function identityToken(string $nonce, string $subject = 'apple-user-123'): string
     {
         $now = time();
 
         return JWT::encode([
             'iss' => 'https://appleid.apple.com',
-            'sub' => 'apple-user-123',
+            'sub' => $subject,
             'aud' => 'com.rokn.app',
             'iat' => $now - 1,
             'exp' => $now + 300,

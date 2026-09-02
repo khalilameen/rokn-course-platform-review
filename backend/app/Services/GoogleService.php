@@ -33,7 +33,7 @@ class GoogleService
      * @return array ['id', 'name', 'email', 'picture']
      * @throws Exception
      */
-    public function verify(string $idToken): array
+    public function verify(string $idToken, ?string $expectedNonceHash = null): array
     {
         try {
             Log::info('Verifying Google token');
@@ -62,6 +62,17 @@ class GoogleService
                 throw new Exception('Missing user ID in token');
             }
 
+            $expectedNonceHash = trim((string) $expectedNonceHash);
+            if ($expectedNonceHash !== '') {
+                $tokenNonce = trim((string) ($claims['nonce'] ?? ''));
+                if (
+                    $tokenNonce === ''
+                    || !hash_equals($expectedNonceHash, hash('sha256', $tokenNonce))
+                ) {
+                    throw new Exception('Google identity token nonce does not match.');
+                }
+            }
+
             if (empty($claims['email']) || filter_var($claims['email'], FILTER_VALIDATE_EMAIL) === false) {
                 throw new Exception('Google account did not provide an email address');
             }
@@ -77,6 +88,9 @@ class GoogleService
 
             return [
                 'id' => (string)$claims['sub'],
+                'identity_issued_at' => is_numeric($claims['iat'] ?? null)
+                    ? (int) $claims['iat']
+                    : null,
                 'name' => $claims['name'] ?? null,
                 'email' => $claims['email'] ?? null,
                 'email_verified' => true,

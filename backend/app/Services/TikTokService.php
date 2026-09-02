@@ -64,6 +64,9 @@ final class TikTokService
 
         return [
             'id' => (string) $user['open_id'],
+            // The user-info response does not attest when a direct/native
+            // login began. Browser OAuth supplies a server-owned attempt time.
+            'identity_issued_at' => null,
             'name' => isset($user['display_name']) ? (string) $user['display_name'] : null,
             'email' => null,
             'email_verified' => false,

@@ -16,7 +16,9 @@ final class SocialOAuthAttempt extends Model
         'provider',
         'return_to',
         'code_challenge',
+        'nonce_hash',
         'encrypted_token',
+        'encrypted_completion_code',
         'encrypted_session_response',
         'state_expires_at',
         'state_consumed_at',
@@ -28,7 +30,9 @@ final class SocialOAuthAttempt extends Model
     protected $hidden = [
         'state_hash',
         'completion_hash',
+        'nonce_hash',
         'encrypted_token',
+        'encrypted_completion_code',
         'encrypted_session_response',
     ];
 

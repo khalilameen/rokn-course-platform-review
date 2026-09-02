@@ -22,33 +22,28 @@ final readonly class CertificateEligibilityService
         private CourseChatAccessService $courseAccess,
         private CourseSectionSequenceService $sectionSequence,
         private LearningEvidenceService $learningEvidence,
-        private CurriculumCompletionService $curriculumCompletion
+        private CurriculumCompletionService $curriculumCompletion,
+        private CourseStagedAuthoringService $stagedAuthoring,
+        private CourseRevisionLearnerReadService $revisionReads
     ) {
     }
 
     /** @return array{included:bool,available:bool,reason:string} */
     public function for(User $user, Course $course): array
     {
-        $earnedEnrollment = CourseEnrollment::query()
-            ->where('user_id', $user->id)
-            ->where('course_id', $course->id)
-            ->where('is_active', true)
-            ->where(function ($active): void {
-                $active->whereNull('expires_at')->orWhere('expires_at', '>', now());
-            })
-            ->first();
-        $earnedRevision = $earnedEnrollment
-            ? $this->curriculumCompletion->earnedRevision($earnedEnrollment)
+        $enrollment = $this->enrollmentFor($user, $course);
+        $earnedRevision = $enrollment
+            ? $this->curriculumCompletion->earnedRevision($enrollment)
             : null;
-        $included = $earnedRevision !== null
-            ? $this->courseAccess->enrollmentHasCertificateAccess($earnedEnrollment)
-            : $this->courseAccess->hasCertificateAccess((int) $user->id, (int) $course->id);
-        if (!$included) return ['included' => false, 'available' => false, 'reason' => 'upgrade_required'];
+        if (!$enrollment) {
+            return ['included' => false, 'available' => false, 'reason' => 'upgrade_required'];
+        }
 
-        $enrollment = $earnedRevision !== null
-            ? $earnedEnrollment
-            : $this->courseAccess->activeEnrollmentFor((int) $user->id, (int) $course->id);
-        if (!$enrollment) return ['included' => true, 'available' => false, 'reason' => 'entitlement_inactive'];
+        $included = $this->courseAccess->enrollmentHasCertificateAccess($enrollment);
+        if (!$included) return ['included' => false, 'available' => false, 'reason' => 'upgrade_required'];
+        if ($earnedRevision === null && !$enrollment->isActive()) {
+            return ['included' => true, 'available' => false, 'reason' => 'entitlement_inactive'];
+        }
         if ($enrollment->order_id && Order::query()
             ->whereKey($enrollment->order_id)
             ->where('user_id', $user->id)
@@ -74,12 +69,10 @@ final readonly class CertificateEligibilityService
                 ->get(['id', 'course_id', 'section_type', 'sectionable_type', 'sectionable_id', 'module_id', 'order'])
         );
         if ($sections->isEmpty()) return ['included' => true, 'available' => false, 'reason' => 'course_incomplete'];
-        $completed = StudentSectionProgress::query()
-            ->where('user_id', $user->id)
-            ->whereIn('course_section_id', $sections->pluck('id'))
-            ->where('is_completed', true)
-            ->distinct('course_section_id')
-            ->count('course_section_id');
+        $completed = $this->revisionReads->completedSectionIds(
+            (int) $user->id,
+            $sections->pluck('id')
+        )->count();
         if ($completed !== $sections->count()) {
             return ['included' => true, 'available' => false, 'reason' => 'course_incomplete'];
         }
@@ -89,13 +82,15 @@ final readonly class CertificateEligibilityService
         );
         if ($lessonSections->isNotEmpty()) {
             $lessons = Lesson::query()->whereIn('id', $lessonSections->pluck('sectionable_id'))->get()->keyBy('id');
-            $evidence = LessonWatchEvidence::query()
-                ->where('user_id', $user->id)
-                ->whereIn('course_section_id', $lessonSections->pluck('id'))
-                ->get()->keyBy('course_section_id');
+            $evidence = $this->revisionReads->lessonEvidenceMap(
+                (int) $user->id,
+                $lessons->keys()
+            );
             foreach ($lessonSections as $section) {
                 $lesson = $lessons->get($section->sectionable_id);
-                $row = $evidence->get($section->id);
+                $row = $lesson
+                    ? $evidence->get((int) $lesson->id)
+                    : null;
                 $required = $lesson && $row
                     ? $this->learningEvidence->requiredSeconds($lesson, $row->duration_seconds)
                     : null;
@@ -109,21 +104,33 @@ final readonly class CertificateEligibilityService
             fn (CourseSection $section): bool => $section->getSectionType() === 'quiz'
         );
         if ($quizSections->isNotEmpty()) {
+            $sectionAliases = $quizSections->mapWithKeys(fn (CourseSection $section): array => [
+                (int) $section->id => $this->stagedAuthoring->equivalentEntityIds(
+                    CourseSection::class,
+                    (int) $section->id
+                ),
+            ]);
+            $quizAliases = $quizSections->mapWithKeys(fn (CourseSection $section): array => [
+                (int) $section->id => $this->stagedAuthoring->equivalentEntityIds(
+                    \App\Models\ItemList::class,
+                    (int) $section->sectionable_id
+                ),
+            ]);
             $passed = ExamAttempt::query()
                 ->where('user_id', $user->id)
                 ->where('course_id', $course->id)
                 ->where('status', ExamAttempt::STATUS_COMPLETED)
                 ->where('is_passed', true)
-                ->where(function ($attempts) use ($quizSections): void {
-                    $attempts->whereIn('section_id', $quizSections->pluck('id'))
-                        ->orWhere(function ($legacy) use ($quizSections): void {
-                            $legacy->whereNull('section_id')->whereIn('quiz_id', $quizSections->pluck('sectionable_id'));
-                        });
-                })->get(['section_id', 'quiz_id']);
+                ->whereIn('quiz_id', $quizAliases->flatten()->unique()->values())
+                ->get(['section_id', 'quiz_id']);
             foreach ($quizSections as $section) {
                 if (!$passed->contains(fn (ExamAttempt $attempt): bool =>
-                    (int) $attempt->section_id === (int) $section->id
-                    || ($attempt->section_id === null && (int) $attempt->quiz_id === (int) $section->sectionable_id)
+                    in_array((int) $attempt->section_id, $sectionAliases->get((int) $section->id, []), true)
+                    || ($attempt->section_id === null && in_array(
+                        (int) $attempt->quiz_id,
+                        $quizAliases->get((int) $section->id, []),
+                        true
+                    ))
                 )) {
                     return ['included' => true, 'available' => false, 'reason' => 'quiz_incomplete'];
                 }
@@ -139,12 +146,10 @@ final readonly class CertificateEligibilityService
                 ->where('is_graduation_project', true)
                 ->pluck('id');
             if ($graduationProjectIds->isNotEmpty()) {
-                $passedGraduationProjects = UserProjectEvaluation::query()
-                    ->where('user_id', $user->id)
-                    ->whereIn('project_id', $graduationProjectIds)
-                    ->where('passed', true)
-                    ->distinct('project_id')
-                    ->count('project_id');
+                $passedGraduationProjects = $this->revisionReads->passedProjectIds(
+                    (int) $user->id,
+                    $graduationProjectIds
+                )->count();
                 if ($passedGraduationProjects !== $graduationProjectIds->count()) {
                     return ['included' => true, 'available' => false, 'reason' => 'graduation_project_incomplete'];
                 }
@@ -152,5 +157,22 @@ final readonly class CertificateEligibilityService
         }
 
         return ['included' => true, 'available' => true, 'reason' => 'ready'];
+    }
+
+    /**
+     * Prefer the enrollment carrying the immutable earned revision. Access
+     * expiry may close lessons, but it cannot erase a completion already won.
+     */
+    public function enrollmentFor(User $user, Course $course): ?CourseEnrollment
+    {
+        $enrollments = CourseEnrollment::query()
+            ->where('user_id', $user->id)
+            ->where('course_id', $course->id)
+            ->latest('id')
+            ->get();
+
+        return $enrollments->first(fn (CourseEnrollment $candidate): bool =>
+            $this->curriculumCompletion->earnedRevision($candidate) !== null
+        ) ?? $enrollments->first(fn (CourseEnrollment $candidate): bool => $candidate->isActive());
     }
 }

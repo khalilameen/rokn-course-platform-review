@@ -17,14 +17,7 @@ final class ProductFeatureController extends Controller
         ProductFeatureFlagService $features,
         ApiResponseService $responses
     ): JsonResponse {
-        $installation = strtolower(trim((string) $request->header('X-Rokn-Installation')));
-        $subject = preg_match(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/',
-            $installation
-        ) === 1
-            ? 'installation:'.$installation
-            : 'anonymous:'.hash('sha256', (string) $request->ip().'|'.(string) $request->userAgent());
-        $snapshot = $features->clientSnapshot($subject);
+        $snapshot = $features->clientSnapshot($features->subjectForRequest($request));
 
         return $responses
             ->success($snapshot, 'تم تحميل حالة المزايا')

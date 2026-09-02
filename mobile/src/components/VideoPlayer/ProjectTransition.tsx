@@ -59,6 +59,7 @@ import {showMediaPickerFailure} from '../../services/mediaPickerErrors';
 import {
   assertAccountSessionBoundary,
   captureAccountSessionBoundary,
+  type AccountSessionBoundary,
 } from '../../constants/helpers';
 
 interface ProjectTransitionProps {
@@ -89,7 +90,14 @@ const UploadIcon = () => (
   </Svg>
 );
 
-const pickMediaFiles = async (mimeTypes: string[]): Promise<SelectedProjectFile[]> => {
+const pickOwnedMediaFiles = async (
+  mimeTypes: string[],
+): Promise<{
+  files: SelectedProjectFile[];
+  ownerBoundary: AccountSessionBoundary;
+}> => {
+  const ownerBoundary = await captureAccountSessionBoundary();
+  assertAccountSessionBoundary(ownerBoundary);
   try {
     const response = await DocumentPicker.getDocumentAsync({
       type: mimeTypes.length ? mimeTypes : [
@@ -100,18 +108,33 @@ const pickMediaFiles = async (mimeTypes: string[]): Promise<SelectedProjectFile[
       multiple: true,
       copyToCacheDirectory: true,
     });
-    if (response.canceled) return [];
-    return response.assets.filter(asset => asset.uri).map(asset => ({
-      uri: asset.uri,
-      name: asset.name || `rokn-project-${Date.now()}`,
-      type: asset.mimeType || 'application/octet-stream',
-      size: asset.size,
-    }));
-  } catch {
+    assertAccountSessionBoundary(ownerBoundary);
+    return {
+      files: response.canceled
+        ? []
+        : response.assets.filter(asset => asset.uri).map(asset => ({
+            uri: asset.uri,
+            name: asset.name || `rokn-project-${Date.now()}`,
+            type: asset.mimeType || 'application/octet-stream',
+            size: asset.size,
+          })),
+      ownerBoundary,
+    };
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === 'ACCOUNT_CHANGED_DURING_REQUEST'
+    )
+      throw error;
     showMediaPickerFailure('document_picker_failed');
-    return [];
+    return {files: [], ownerBoundary};
   }
 };
+
+const pickMediaFiles = async (
+  mimeTypes: string[],
+): Promise<SelectedProjectFile[]> =>
+  (await pickOwnedMediaFiles(mimeTypes)).files;
 
 const ProjectTransition = ({
   active,
@@ -443,7 +466,8 @@ const ProjectTransition = ({
       !feedbackThread?.canReply ||
       (!value && files.length === 0) ||
       feedbackSending ||
-      feedbackSendFlightRef.current
+      feedbackSendFlightRef.current ||
+      feedbackPickerFlightRef.current
     )
       return;
     const flight = Symbol('project-feedback-send');
@@ -539,7 +563,8 @@ const ProjectTransition = ({
   const pickFeedbackAttachments = async () => {
     if (
       !feedbackThread?.attachmentsEnabled ||
-      feedbackPickerFlightRef.current
+      feedbackPickerFlightRef.current ||
+      feedbackSendFlightRef.current
     )
       return;
     const projectId = project.id;
@@ -567,8 +592,8 @@ const ProjectTransition = ({
         multiple: true,
         copyToCacheDirectory: true,
       });
-      if (result.canceled) return;
       assertAccountSessionBoundary(pickerBoundary);
+      if (result.canceled) return;
       if (!ownsPicker()) return;
       const remaining = Math.max(0, maximum - feedbackAttachments.length);
       for (const asset of result.assets.slice(0, remaining)) {
@@ -757,11 +782,16 @@ const ProjectTransition = ({
   };
 
   const submit = async () => {
+    if (
+      !submissionDraftReady ||
+      submissionInFlightRef.current ||
+      pickerFlightRef.current
+    )
+      return;
     if (selectedFiles.length === 0 && normalizedSubmissionNote.length < 10) {
       Alert.alert('أضف محاولتك', 'اكتب ما نفذته أو أضف ملفًا يوضحه');
       return;
     }
-    if (!submissionDraftReady || submissionInFlightRef.current) return;
     const projectId = project.id;
     const projectGeneration = projectGenerationRef.current;
     submissionInFlightRef.current = true;
@@ -780,22 +810,34 @@ const ProjectTransition = ({
     if (pickerFlightRef.current || submissionInFlightRef.current) return;
     const projectId = project.id;
     const projectGeneration = projectGenerationRef.current;
+    const cached: SelectedProjectFile[] = [];
     pickerFlightRef.current = true;
     try {
-      const picked = await pickMediaFiles(project.submissionAllowedMimeTypes || []);
+      const {files: picked, ownerBoundary} = await pickOwnedMediaFiles(
+        project.submissionAllowedMimeTypes || [],
+      );
+      assertAccountSessionBoundary(ownerBoundary);
       if (picked.length === 0 || !ownsProject(projectId, projectGeneration)) return;
       const maximum = Math.max(1, Math.min(5, project.submissionMaxFiles || 3));
       const available = picked.slice(0, Math.max(0, maximum - selectedFiles.length));
-      const cached = await Promise.all(available.map(async file =>
-        cacheProjectDraftFile({...file, size: await validateProjectFile(file)})));
+      for (const file of available) {
+        const size = await validateProjectFile(file);
+        assertAccountSessionBoundary(ownerBoundary);
+        cached.push(
+          await cacheProjectDraftFile({...file, size}, ownerBoundary),
+        );
+        assertAccountSessionBoundary(ownerBoundary);
+      }
       if (!ownsProject(projectId, projectGeneration)) {
         await Promise.all(cached.map(removeLearnerDraftFile));
         return;
       }
       setSelectedFiles(current => [...current, ...cached].slice(0, maximum));
     } catch (error: unknown) {
+      await Promise.all(cached.map(removeLearnerDraftFile));
       if (!ownsProject(projectId, projectGeneration)) return;
       const code = error instanceof Error ? error.message : '';
+      if (code === 'ACCOUNT_CHANGED_DURING_REQUEST') return;
       Alert.alert(
         code === 'PROJECT_FILE_TOO_LARGE'
           ? 'حجم الملف كبير'
@@ -863,9 +905,7 @@ const ProjectTransition = ({
                   key={attachment.id}
                   accessibilityRole="button"
                   style={styles.attachmentRow}
-                  onPress={() =>
-                    openCourseAttachment(attachment).catch(() => undefined)
-                  }>
+                  onPress={() => void openCourseAttachment(attachment)}>
                   <View style={styles.attachmentCopy}>
                     <Text style={styles.attachmentTitle} numberOfLines={1}>
                       {formatArabicDisplayText(attachment.title)}
@@ -916,11 +956,15 @@ const ProjectTransition = ({
                       <Pressable
                         key={file.serverId || file.uploadId}
                         style={styles.feedbackMessageAttachment}
-                        onPress={() => void openProjectInputAttachment({
-                          projectId: project.id,
-                          threadId: feedbackThread.id,
-                          file,
-                        })}>
+                        onPress={() =>
+                          void openProjectInputAttachment({
+                            projectId: project.id,
+                            threadId: feedbackThread.id,
+                            file,
+                          }).catch(() =>
+                            Alert.alert('تعذّر فتح الملف', 'حاول مرة أخرى'),
+                          )
+                        }>
                         <Text numberOfLines={1} style={styles.feedbackMessageAttachmentName}>
                           {file.name}
                         </Text>
@@ -950,7 +994,14 @@ const ProjectTransition = ({
                     <Pressable
                       key={file.serverId || file.uploadId}
                       style={styles.feedbackMessageAttachment}
-                      onPress={() => void openProjectInputAttachment({projectId: project.id, file})}>
+                      onPress={() =>
+                        void openProjectInputAttachment({
+                          projectId: project.id,
+                          file,
+                        }).catch(() =>
+                          Alert.alert('تعذّر فتح الملف', 'حاول مرة أخرى'),
+                        )
+                      }>
                       <Text numberOfLines={1} style={styles.feedbackMessageAttachmentName}>
                         {file.name}
                       </Text>
@@ -994,11 +1045,18 @@ const ProjectTransition = ({
                             <Pressable
                               key={file.serverId || file.uploadId}
                               style={styles.feedbackMessageAttachment}
-                              onPress={() => void openProjectInputAttachment({
-                                projectId: project.id,
-                                threadId: feedbackThread.id,
-                                file,
-                              })}>
+                              onPress={() =>
+                                void openProjectInputAttachment({
+                                  projectId: project.id,
+                                  threadId: feedbackThread.id,
+                                  file,
+                                }).catch(() =>
+                                  Alert.alert(
+                                    'تعذّر فتح الملف',
+                                    'حاول مرة أخرى',
+                                  ),
+                                )
+                              }>
                               <Text numberOfLines={1} style={styles.feedbackMessageAttachmentName}>
                                 {file.name}
                               </Text>
@@ -1052,6 +1110,7 @@ const ProjectTransition = ({
                           )}
                           <Text numberOfLines={1} style={styles.feedbackAttachmentName}>{file.name}</Text>
                           <Pressable onPress={() => {
+                            if (feedbackSendFlightRef.current) return;
                             setFeedbackAttachments(current => current.filter(item => item.uploadId !== file.uploadId));
                             if (!file.serverId) void removeLearnerDraftFile(file);
                           }}>
@@ -1067,8 +1126,10 @@ const ProjectTransition = ({
                       <View style={styles.feedbackComposer}>
                         <TextInput
                           multiline
+                          editable={!feedbackSending}
                           value={feedbackDraft}
                           onChangeText={value =>
+                            !feedbackSendFlightRef.current &&
                             setFeedbackDraft(truncateGraphemes(value, 2000))
                           }
                           placeholder="اسأل عن مشروعك"
@@ -1153,6 +1214,7 @@ const ProjectTransition = ({
                       )}
                       <Text numberOfLines={1} style={styles.feedbackAttachmentName}>{file.name}</Text>
                       <Pressable onPress={() => {
+                        if (submissionInFlightRef.current) return;
                         setSelectedFiles(current => current.filter(candidate => candidate.uri !== file.uri));
                         void removeLearnerDraftFile(file);
                       }}>
@@ -1164,8 +1226,10 @@ const ProjectTransition = ({
               )}
               <TextInput
                 multiline
+                editable={!submissionSending}
                 value={submissionNote}
                 onChangeText={value =>
+                  !submissionInFlightRef.current &&
                   setSubmissionNote(truncateGraphemes(value, 2000))
                 }
                 placeholder="اكتب ما نفذته أو أضف ملفًا"
@@ -1211,6 +1275,7 @@ export default ProjectTransition;
 export const pickMedia = async (): Promise<SelectedProjectFile | null> =>
   (await pickMediaFiles([]))[0] || null;
 export const pickProjectFiles = pickMediaFiles;
+export const pickProjectFilesOwned = pickOwnedMediaFiles;
 
 const styles = StyleSheet.create({
   page: {

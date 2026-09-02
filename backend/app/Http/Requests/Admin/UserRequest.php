@@ -48,7 +48,10 @@ class UserRequest extends FormRequest
             'name' => ['required', 'string', 'min:2', 'max:255'],
             'phone' => ['required', 'string', 'max:30', Rule::unique('users', 'phone')->ignore($userId)],
             'email' => ['required', 'email:rfc', 'max:255', Rule::unique('users', 'email')->ignore($userId)],
-            'password' => [$this->isMethod('post') ? 'required' : 'nullable', 'string', 'min:10', 'max:72'],
+            // Students authenticate through linked social providers only.
+            // An admin password field would claim to repair a login path the
+            // mobile product deliberately does not expose.
+            'password' => ['prohibited'],
             'image' => ['nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:4096'],
             'authoring_request_id' => [$this->isMethod('post') ? 'required' : 'nullable', 'uuid'],
             'editor_version' => [$this->isMethod('post') ? 'nullable' : 'required', 'string', 'size:64'],

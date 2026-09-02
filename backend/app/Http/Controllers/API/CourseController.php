@@ -312,21 +312,44 @@ final class CourseController extends Controller
     {
         try {
             $user = auth('api')->user();
-            $read = $this->courseReads->detailedCourse((int) $courseId, $user);
+            $normalizedCourseId = (int) $courseId;
+            for ($attempt = 0; $attempt < 2; $attempt++) {
+                $revisionBefore = $this->publishedRevision($normalizedCourseId);
+                $read = $this->courseReads->detailedCourse($normalizedCourseId, $user);
 
-            if ($read['unavailable']) {
-                return $this->responses->error('الكورس غير متاح', 404);
-            }
+                if ($read['unavailable']) {
+                    return $this->responses->error('الكورس غير متاح', 404);
+                }
 
-            return $this->responses->success(
-                $this->coursePresentation->detailedCourse(
+                // Resolve the resource inside the revision bracket. Eloquent
+                // eager loading uses several SELECTs; a publish can otherwise
+                // swap the course graph between them and return a structurally
+                // valid mixture of two revisions which the phone cannot detect.
+                $payload = $this->coursePresentation->detailedCourse(
                     $read['course'],
                     $user,
                     $read['has_access'],
                     $read['entitlement'],
                     $read['enrollment']
-                ),
-                'تم تحميل تفاصيل الكورس'
+                )->resolve($request);
+                $revisionAfter = $this->publishedRevision($normalizedCourseId);
+                if (
+                    $revisionBefore !== null
+                    && $revisionBefore === $revisionAfter
+                    && (int) ($payload['published_revision'] ?? -1) === $revisionAfter
+                ) {
+                    return $this->responses->success(
+                        $payload,
+                        'تم تحميل تفاصيل الكورس'
+                    );
+                }
+            }
+
+            return $this->responses->error(
+                "تغيّرت نسخة الكورس\nنحدّثها الآن",
+                409,
+                ['published_revision' => $this->publishedRevision($normalizedCourseId)],
+                ['code' => 'course_revision_changed']
             );
         } catch (ModelNotFoundException $e) {
             return $this->responses->error('الكورس غير متاح', 404);
@@ -336,6 +359,21 @@ final class CourseController extends Controller
 
             return $this->responses->error('تعذّر تحميل الكورس', 500);
         }
+    }
+
+    private function publishedRevision(int $courseId): ?int
+    {
+        $course = Course::query()->find($courseId, [
+            'id',
+            'authoring_version',
+            'last_published_authoring_version',
+        ]);
+        if (!$course) return null;
+
+        return max(
+            0,
+            (int) ($course->last_published_authoring_version ?: $course->authoring_version)
+        );
     }
 
     public function markSectionComplete(

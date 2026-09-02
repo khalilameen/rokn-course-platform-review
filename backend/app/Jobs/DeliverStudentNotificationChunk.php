@@ -8,6 +8,8 @@ use App\Models\StudentNotification;
 use App\Models\NotificationCampaign;
 use App\Models\NotificationCampaignRecipient;
 use App\Models\User;
+use App\Models\Course;
+use App\Models\FinancialEntitlementHold;
 use App\Services\NotificationDeliveryPolicy;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -57,6 +59,13 @@ final class DeliverStudentNotificationChunk implements ShouldQueue, ShouldBeUniq
         $campaign = Schema::hasTable('notification_campaigns')
             ? NotificationCampaign::query()->where('delivery_key', $this->deliveryKey)->first()
             : null;
+        if ($campaign && $campaign->status !== NotificationCampaign::STATUS_DELIVERING) {
+            // A delayed chunk must not revive a campaign that operations or
+            // recovery has already made terminal.
+            return;
+        }
+        $hasRecipientLedger = $campaign && Schema::hasTable('notification_campaign_recipients');
+        $hasFinancialHolds = Schema::hasTable('financial_entitlement_holds');
         $shouldRetry = false;
 
         foreach ($this->userIds as $userId) {
@@ -65,8 +74,14 @@ final class DeliverStudentNotificationChunk implements ShouldQueue, ShouldBeUniq
                     'user_id' => $userId,
                     'delivery_key' => $this->deliveryKey,
                 ];
-                $notification = DB::transaction(function () use ($campaign, $userId, $identity): ?StudentNotification {
-                    $recipient = $campaign && Schema::hasTable('notification_campaign_recipients')
+                $notification = DB::transaction(function () use (
+                    $campaign,
+                    $userId,
+                    $identity,
+                    $hasRecipientLedger,
+                    $hasFinancialHolds
+                ): ?StudentNotification {
+                    $recipient = $hasRecipientLedger
                         ? NotificationCampaignRecipient::query()
                             ->where('notification_campaign_id', $campaign->id)
                             ->where('user_id', $userId)
@@ -98,11 +113,26 @@ final class DeliverStudentNotificationChunk implements ShouldQueue, ShouldBeUniq
                     // Audience selection happened in the coordinator, potentially
                     // minutes ago. Lock and re-check at the durable side effect so
                     // disabling/deleting an account wins before any inbox is made.
+                    $courseEligible = true;
+                    if ($campaign?->course_id) {
+                        $course = Course::query()
+                            ->whereKey($campaign->course_id)
+                            // Concurrent chunks only read publication state.
+                            // A shared lock keeps withdrawal atomic without
+                            // serializing every recipient on one hot course row.
+                            ->sharedLock()
+                            ->first();
+                        $courseEligible = $course
+                            && $course->isPublishedForLearning()
+                            && ($campaign->audience === 'enrolled' || (bool) $course->is_catalog_visible);
+                    }
                     $user = User::query()
                         ->whereKey($userId)
                         ->lockForUpdate()
                         ->first();
-                    $eligible = $user && NotificationDeliveryPolicy::allowsInbox($user, $this->notificationType);
+                    $eligible = $courseEligible
+                        && $user
+                        && NotificationDeliveryPolicy::allowsInbox($user, $this->notificationType);
                     if ($eligible && $campaign?->course_id && $campaign->audience !== 'all') {
                         $ownsCourse = $user->enrollments()
                             ->where('course_id', $campaign->course_id)
@@ -112,6 +142,18 @@ final class DeliverStudentNotificationChunk implements ShouldQueue, ShouldBeUniq
                             })
                             ->exists();
                         $eligible = $campaign->audience === 'enrolled' ? $ownsCourse : !$ownsCourse;
+                    }
+                    if (
+                        $eligible
+                        && $campaign?->course_id
+                        && $hasFinancialHolds
+                    ) {
+                        $eligible = !FinancialEntitlementHold::query()
+                            ->where('user_id', $userId)
+                            ->where('course_id', $campaign->course_id)
+                            ->where('status', FinancialEntitlementHold::STATUS_ACTIVE)
+                            ->whereIn('entitlement_scope', ['course', 'plan', 'chat'])
+                            ->exists();
                     }
                     if (!$eligible) {
                         if ($recipient) {
@@ -167,26 +209,27 @@ final class DeliverStudentNotificationChunk implements ShouldQueue, ShouldBeUniq
                 }
             } catch (\Throwable $exception) {
                 report($exception);
-                if ($campaign && Schema::hasTable('notification_campaign_recipients')) {
+                if ($hasRecipientLedger) {
                     // The delivery transaction rolled its attempt increment
                     // back together with the failed side effect. Record the
                     // failed attempt separately so one poison row eventually
                     // becomes a visible skip instead of stalling forever.
-                    $recipient = DB::transaction(function () use ($campaign, $userId) {
+                    $retryable = DB::transaction(function () use ($campaign, $userId): bool {
                         $locked = NotificationCampaignRecipient::query()
                             ->where('notification_campaign_id', $campaign->id)
                             ->where('user_id', $userId)
                             ->lockForUpdate()
                             ->first();
-                        if (!$locked) return null;
+                        if (!$locked || in_array($locked->status, [
+                            NotificationCampaignRecipient::STATUS_INBOX,
+                            NotificationCampaignRecipient::STATUS_SKIPPED,
+                        ], true)) {
+                            return false;
+                        }
+                        $attempts = min(255, (int) $locked->attempts + 1);
+                        $exhausted = $attempts >= $this->tries;
                         $locked->forceFill([
-                            'attempts' => min(255, (int) $locked->attempts + 1),
-                        ])->save();
-                        return $locked;
-                    }, 3);
-                    if ($recipient) {
-                        $exhausted = (int) $recipient->attempts >= $this->tries;
-                        $recipient->forceFill([
+                            'attempts' => $attempts,
                             'status' => $exhausted
                                 ? NotificationCampaignRecipient::STATUS_SKIPPED
                                 : NotificationCampaignRecipient::STATUS_PENDING,
@@ -196,8 +239,10 @@ final class DeliverStudentNotificationChunk implements ShouldQueue, ShouldBeUniq
                                 ? 'recipient_retry_exhausted'
                                 : 'recipient_retry',
                         ])->save();
-                        $shouldRetry = $shouldRetry || !$exhausted;
-                    }
+
+                        return !$exhausted;
+                    }, 3);
+                    $shouldRetry = $shouldRetry || $retryable;
                 }
             }
         }

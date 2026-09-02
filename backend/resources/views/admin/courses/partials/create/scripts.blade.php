@@ -69,12 +69,18 @@ function handleFileSelect(e) {
         // Validate file type
         if (!file.type.startsWith('image/')) {
             alert('يرجى اختيار ملف صورة صحيح');
+            document.getElementById('image').value = '';
+            imagePreview.innerHTML = '';
+            updateProgress();
             return;
         }
 
         // Validate file size (10MB)
         if (file.size > 10 * 1024 * 1024) {
             alert('حجم الملف يجب أن يكون أقل من 10 ميجابايت');
+            document.getElementById('image').value = '';
+            imagePreview.innerHTML = '';
+            updateProgress();
             return;
         }
 

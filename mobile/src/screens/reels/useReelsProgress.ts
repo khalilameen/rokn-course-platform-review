@@ -37,6 +37,7 @@ type ReelsProgressRefs = {
   demoRewardsEnabled: MutableRefObject<boolean>;
   feedLength: MutableRefObject<number>;
   lastPersisted: MutableRefObject<Record<string, number>>;
+  ownerGeneration: MutableRefObject<number>;
   pendingStudySeconds: MutableRefObject<number>;
   playbackDurations: MutableRefObject<Record<string, number>>;
   playbackRuntime: MutableRefObject<Record<string, PlaybackRuntimeMetrics>>;
@@ -73,15 +74,19 @@ export const useReelsProgress = ({
   setCourse: Dispatch<SetStateAction<CourseLearningData | null>>;
   setPreviewGateVisible: Dispatch<SetStateAction<boolean>>;
 }) => {
+  const renderOwnerGeneration = refs.ownerGeneration.current;
   const activeContextRef = useRef({courseId: '', feedKey: ''});
+  const completionFlightsRef = useRef(new Map<string, Promise<boolean>>());
   activeContextRef.current = {
     courseId: course?.id || '',
     feedKey: feedItems[currentIndex]?.key || '',
   };
 
   const ownsCourse = useCallback(
-    (courseId: string) => activeContextRef.current.courseId === courseId,
-    [],
+    (courseId: string) =>
+      refs.ownerGeneration.current === renderOwnerGeneration &&
+      activeContextRef.current.courseId === courseId,
+    [refs.ownerGeneration, renderOwnerGeneration],
   );
   const ownsActiveReel = useCallback(
     (courseId: string, reel: CourseReel) =>
@@ -100,25 +105,49 @@ export const useReelsProgress = ({
   );
 
   const confirmReelCompletion = useCallback(
-    async (reel: CourseReel, evidenceSave: Promise<void>): Promise<boolean> => {
-      if (!course) return false;
+    (reel: CourseReel, evidenceSave: Promise<void>): Promise<boolean> => {
+      if (!course) return Promise.resolve(false);
       const courseId = course.id;
-      try {
-        await evidenceSave;
-        await flushPendingPlaybackPositions();
-        const completed = await markSectionComplete(courseId, reel.sectionId);
-        if (!completed) {
+      const flightKey = `${renderOwnerGeneration}:${courseId}:${reel.sectionId}`;
+      const existing = completionFlightsRef.current.get(flightKey);
+      if (existing) return existing;
+      const flight = (async () => {
+        try {
+          await evidenceSave;
+          if (!ownsCourse(courseId)) return false;
+          await flushPendingPlaybackPositions();
+          if (!ownsCourse(courseId)) return false;
+          const completed = await markSectionComplete(
+            courseId,
+            reel.sectionId,
+          );
+          if (!ownsCourse(courseId)) return false;
+          if (!completed) {
+            refs.completionSent.current.delete(reel.sectionId);
+            return false;
+          }
+          updateReelCompletion(courseId, reel);
+          return true;
+        } catch {
           refs.completionSent.current.delete(reel.sectionId);
           return false;
         }
-        updateReelCompletion(courseId, reel);
-        return true;
-      } catch {
-        refs.completionSent.current.delete(reel.sectionId);
-        return false;
-      }
+      })();
+      completionFlightsRef.current.set(flightKey, flight);
+      void flight.finally(() => {
+        if (completionFlightsRef.current.get(flightKey) === flight) {
+          completionFlightsRef.current.delete(flightKey);
+        }
+      });
+      return flight;
     },
-    [course, refs.completionSent, updateReelCompletion],
+    [
+      course,
+      ownsCourse,
+      refs.completionSent,
+      renderOwnerGeneration,
+      updateReelCompletion,
+    ],
   );
 
   const flushDemoStudy = useCallback(
@@ -144,7 +173,7 @@ export const useReelsProgress = ({
 
   const persistProgress = useCallback(
     (reel: CourseReel, currentTime: number, duration: number) => {
-      if (!course) return;
+      if (!course || !ownsCourse(course.id)) return;
       refs.positions.current[`${course.id}:${reel.id}`] = currentTime;
       if (duration > 0) refs.playbackDurations.current[reel.id] = duration;
       const runtime = refs.playbackRuntime.current[reel.id];
@@ -245,6 +274,7 @@ export const useReelsProgress = ({
       flushDemoStudy,
       maybeOfferReminders,
       ownsActiveReel,
+      ownsCourse,
       playbackSpeed,
       previewMode,
       refs,
@@ -255,7 +285,7 @@ export const useReelsProgress = ({
 
   const completeAndAdvance = useCallback(
     (reel: CourseReel) => {
-      if (!course) return;
+      if (!course || !ownsCourse(course.id)) return;
       flushDemoStudy(true);
       const completeLocally = previewMode || isLocalDemoId(course.id);
       if (completeLocally) {
@@ -309,7 +339,16 @@ export const useReelsProgress = ({
         });
         return;
       }
-      if (completeLocally || reel.isCompleted) advance();
+      if (completeLocally || reel.isCompleted) {
+        advance();
+        return;
+      }
+      // persistProgress may have crossed the completion threshold immediately
+      // before the native onEnd callback. Join that same request instead of
+      // dropping autoplay merely because the server is still confirming it.
+      void confirmReelCompletion(reel, Promise.resolve()).then(completed => {
+        if (completed) advance();
+      });
     },
     [
       autoplay,
@@ -319,6 +358,7 @@ export const useReelsProgress = ({
       flushDemoStudy,
       maybeOfferReminders,
       ownsActiveReel,
+      ownsCourse,
       playbackSpeed,
       previewMode,
       refs,

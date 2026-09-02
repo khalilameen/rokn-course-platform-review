@@ -11,6 +11,7 @@ import {
 } from '../constants/helpers';
 import {firstBoolean} from './api/common';
 import {secureRandomUuid} from '../utils/secureRandom';
+import {errorStatus} from '../utils/errorPayload';
 import {
   learnerDraftFileIsReadable,
   removeLearnerDraftFile,
@@ -623,7 +624,10 @@ export const loadProductFeedbackCases = async (): Promise<
     const response = await publicRequest.get('feedback');
     assertAccountSessionBoundary(boundary);
     const data = (response.data as {data?: unknown})?.data;
-    const items = isRecord(data) && Array.isArray(data.items) ? data.items : [];
+    if (!isRecord(data) || !Array.isArray(data.items)) {
+      throw new Error('INVALID_SUPPORT_CASES_RESPONSE');
+    }
+    const items = data.items;
     items.forEach(item => {
       try {
         const parsed = parseCase(item);
@@ -631,9 +635,7 @@ export const loadProductFeedbackCases = async (): Promise<
       } catch {}
     });
   } catch (error) {
-    const status = Number(
-      isRecord(error) && isRecord(error.response) ? error.response.status : 0,
-    );
+    const status = errorStatus(error);
     if (status !== 401) loadError = error;
   }
 

@@ -162,14 +162,15 @@
                                     </thead>
                                     <tbody>
                                         @foreach($examResults as $result)
+                                            @php($quizSnapshot = $result->quizSnapshot())
                                             <tr class="table-row-hover">
                                                 <td>
                                                     <div class="d-flex align-items-center">
                                                         <div class="avatar-modern bg-gradient-primary">
-                                                            <span>{{ mb_substr($result->user->name, 0, 1) }}</span>
+                                                            <span>{{ mb_substr($result->user?->name ?? 'ح', 0, 1) }}</span>
                                                         </div>
                                                         <div class="mr-3">
-                                                            <div class="font-weight-bold text-dark">{{ $result->user->name }}</div>
+                                                            <div class="font-weight-bold text-dark">{{ $result->user?->name ?? 'حساب محذوف' }}</div>
                                                             <small class="text-muted">
                                                                 {{-- {{ $result->user->email }} --}}
                                                             </small>
@@ -178,8 +179,8 @@
                                                 </td>
                                                 <td>
                                                     <div class="exam-info">
-                                                        @if($result->quiz && $result->quiz->title)
-                                                            <div class="font-weight-bold text-dark mb-1">{{ $result->quiz->title }}</div>
+                                                        @if($quizSnapshot['title'])
+                                                            <div class="font-weight-bold text-dark mb-1">{{ $quizSnapshot['title'] }}</div>
                                                             {{-- @if($result->quiz->description)
                                                                 <small class="text-muted">{{ Str::limit($result->quiz->description, 40) }}</small>
                                                             @endif --}}

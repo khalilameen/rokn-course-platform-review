@@ -16,7 +16,14 @@ final class PlaybackSessionService
     {
         $sessionId = (string) ($sample['playback_session_id'] ?? '');
         if ($sessionId === '') {
-            return ['accepted' => true, 'reason' => 'legacy_client'];
+            // Old clients may still save a resume pointer, but without a
+            // server-issued session there is no sequence namespace or elapsed
+            // sample we can trust for academic progress or coin rewards.
+            return [
+                'accepted' => true,
+                'reason' => 'legacy_client',
+                'trusted_evidence' => false,
+            ];
         }
 
         return DB::transaction(function () use ($user, $lessonId, $sample, $sessionId): array {
@@ -64,7 +71,10 @@ final class PlaybackSessionService
 
             $attributes = [
                 'last_sequence' => $sequence,
-                'last_position_seconds' => max((int) $session->last_position_seconds, $position),
+                // This is the last sample, not the furthest seek position.
+                // Keeping the maximum made an ordinary rewind suppress all
+                // verified progress until the learner crossed the old peak.
+                'last_position_seconds' => $position,
                 'duration_seconds' => $sample['duration_seconds'] ?? $session->duration_seconds,
                 'last_heartbeat_at' => now(),
                 'event_type' => $eventType,
@@ -100,6 +110,7 @@ final class PlaybackSessionService
             return [
                 'accepted' => true,
                 'reason' => 'accepted',
+                'trusted_evidence' => true,
                 'session' => $session,
                 'previous_sample' => $previousSample,
             ];

@@ -339,9 +339,10 @@ $androidArchitectures = if ($Channel -eq 'play') {
 } elseif ($env:ROKN_ANDROID_ARCHITECTURES) {
     $env:ROKN_ANDROID_ARCHITECTURES
 } elseif ($Profile -eq 'test') {
-    # The internal artifact must install on a modern physical device and the
-    # common Windows/macOS emulator without rebuilding or deleting app data.
-    'arm64-v8a,x86_64'
+    # The internal artifact must exercise the same Android 7+ device floor as
+    # production as well as the common 64-bit emulator. A 32-bit Android 7–9
+    # tester must not receive INSTALL_FAILED_NO_MATCHING_ABIS.
+    'armeabi-v7a,arm64-v8a,x86_64'
 } else {
     'armeabi-v7a,arm64-v8a'
 }

@@ -1,6 +1,7 @@
 import {useFocusEffect, useNavigation} from '@react-navigation/native';
 import type {RootNavigation} from '../../navigation/types';
-import React, {useCallback, useRef, useState} from 'react';
+import {openGuestLogin} from '../../navigation/journeyNavigation';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   Alert,
   Image,
@@ -40,6 +41,7 @@ import {
 import {DEMO_COURSE_ID} from '../../services/demoExperience';
 import {
   getCertificates,
+  getCachedCertificates,
   getLearningCourses,
   hasSession,
   issueCertificate,
@@ -56,6 +58,7 @@ import {isolateBidirectionalText} from '../../constants/arabicFormatting';
 import {useReducedMotion} from '../../hooks/useReducedMotion';
 import {learnerErrorMessage} from '../../utils/errorPayload';
 import {openCourseAttachment} from '../../components/VideoPlayer/attachmentActions';
+import {useAppActiveState} from '../../hooks/useAppActiveState';
 
 const demoCredential = 'RKN-FRL-24018';
 const demoCourseTitle = 'من أول مهارة إلى أول عميل';
@@ -181,6 +184,7 @@ export default function Certificates({
   const navigation = useNavigation<RootNavigation>();
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
+  const appIsActive = useAppActiveState();
   const {contentWidth} = useResponsiveLayout();
   const user = extractUserProfile(
     useSelector((state: RootState) => state.auth.userData),
@@ -203,6 +207,7 @@ export default function Certificates({
   const [issuing, setIssuing] = useState(false);
   const loadGeneration = useRef(0);
   const issueFlight = useRef(false);
+  const pendingPollAttempts = useRef(0);
 
   const loadCertificates = useCallback(async () => {
     const generation = ++loadGeneration.current;
@@ -210,11 +215,21 @@ export default function Certificates({
     setLoading(true);
     setLoadError('');
     setCertificatePending(false);
-    setSelectedId(null);
     try {
       const sessionAvailable = await hasSession();
       if (isCurrent()) setServerSession(sessionAvailable);
       if (sessionAvailable) {
+        const cachedCertificates = await getCachedCertificates().catch(
+          () => [],
+        );
+        if (isCurrent() && cachedCertificates.length) {
+          setCertificates(
+            cachedCertificates.filter(item => item.status !== 'revoked'),
+          );
+          setCertificatePending(
+            cachedCertificates.some(item => item.status === 'pending'),
+          );
+        }
         const [certificatesResult, learningResult] = await Promise.allSettled([
           getCertificates(),
           getLearningCourses(),
@@ -245,15 +260,9 @@ export default function Certificates({
         }
         if (certificatesResult.status === 'fulfilled') {
           const remoteCertificates = certificatesResult.value;
-          let hasPendingCertificate = remoteCertificates.some(
+          const hasPendingCertificate = remoteCertificates.some(
             item => item.status === 'pending',
           );
-          const merged = new Map(
-            remoteCertificates.map(item => [item.id, item]),
-          );
-          const pendingCourseIds = remoteCertificates
-            .filter(item => item.status === 'pending' && item.courseId)
-            .map(item => item.courseId as string);
           if (learningResult.status === 'fulfilled') {
             const certificateByCourse = new Map(
               remoteCertificates
@@ -270,31 +279,11 @@ export default function Certificates({
               );
             }
           }
-          const recoverableCourseIds = [...new Set(pendingCourseIds)].slice(
-            0,
-            5,
-          );
-          if (recoverableCourseIds.length) {
-            const issued = await Promise.allSettled(
-              recoverableCourseIds.map(courseId => issueCertificate(courseId)),
-            );
-            issued.forEach(result => {
-              if (result.status === 'fulfilled' && result.value) {
-                merged.set(result.value.id, result.value);
-              }
-            });
-            hasPendingCertificate =
-              issued.some(
-                result =>
-                  result.status === 'rejected' ||
-                  !result.value ||
-                  result.value.status !== 'active',
-              ) || [...merged.values()].some(item => item.status === 'pending');
-          }
           if (isCurrent()) {
             setCertificatePending(hasPendingCertificate);
+            if (!hasPendingCertificate) pendingPollAttempts.current = 0;
             setCertificates(
-              [...merged.values()].filter(item => item.status === 'active'),
+              remoteCertificates.filter(item => item.status !== 'revoked'),
             );
           }
         } else if (isCurrent()) {
@@ -348,12 +337,28 @@ export default function Certificates({
 
   useFocusEffect(
     useCallback(() => {
+      if (!appIsActive) return () => undefined;
       loadCertificates();
       return () => {
         loadGeneration.current += 1;
       };
-    }, [loadCertificates]),
+    }, [appIsActive, loadCertificates]),
   );
+
+  useEffect(() => {
+    if (!certificatePending || loading || pendingPollAttempts.current >= 5) {
+      return undefined;
+    }
+    const delayMs = Math.min(
+      20000,
+      3000 * Math.pow(1.7, pendingPollAttempts.current),
+    );
+    const timer = setTimeout(() => {
+      pendingPollAttempts.current += 1;
+      void loadCertificates();
+    }, delayMs);
+    return () => clearTimeout(timer);
+  }, [certificatePending, loadCertificates, loading]);
 
   const selectedCertificate =
     certificates.find(certificate => certificate.id === selectedId) || null;
@@ -442,14 +447,21 @@ export default function Certificates({
         ]);
         setSelectedId(issued.id);
       } else {
+        pendingPollAttempts.current = 0;
         setCertificatePending(true);
-        void loadCertificates();
+        // Keep ownership until the read endpoint has observed the accepted
+        // issue. Otherwise a fast second tap can POST the same issue again.
+        await loadCertificates();
       }
     } catch (error: unknown) {
       Alert.alert(
         'تعذّر إصدار الشهادة',
         learnerErrorMessage(error, 'حاول مرة أخرى'),
       );
+      // A timed-out POST has an unknown outcome. Keep the issue single-flight
+      // until the authoritative list has been reconciled so a fast second tap
+      // cannot request the same credential again.
+      await loadCertificates();
     } finally {
       issueFlight.current = false;
       setIssuing(false);
@@ -482,7 +494,7 @@ export default function Certificates({
         !grantCourses.length ? (
         <StatusView
           actionLabel="إعادة المحاولة"
-          description="سنحاول إصدارها مرة أخرى"
+          description="سنحدّث حالتها تلقائيًا"
           onAction={loadCertificates}
           state="loading"
           title="شهادتك قيد التجهيز"
@@ -503,8 +515,9 @@ export default function Certificates({
           }
           onAction={() => {
             if (serverSession === false && !LOCAL_DEMO_ENABLED) {
-              navigation.navigate('Login', {
-                returnTo: {name: 'Profile', params: {tab: 'certificates'}},
+              openGuestLogin(navigation, {
+                name: 'Profile',
+                params: {tab: 'certificates'},
               });
               return;
             }
@@ -538,10 +551,18 @@ export default function Certificates({
           <View style={styles.grid}>
             {certificates.map(certificate => (
               <Pressable
-                accessibilityLabel={`عرض شهادة ${certificate.courseName}`}
+                accessibilityLabel={
+                  certificate.status === 'pending'
+                    ? `تحديث حالة شهادة ${certificate.courseName}`
+                    : `عرض شهادة ${certificate.courseName}`
+                }
                 accessibilityRole="button"
                 key={certificate.id}
-                onPress={() => setSelectedId(certificate.id)}
+                onPress={() =>
+                  certificate.status === 'pending'
+                    ? void loadCertificates()
+                    : setSelectedId(certificate.id)
+                }
                 style={({pressed}) => [
                   styles.card,
                   contentWidth < 700 && styles.cardNarrow,
@@ -558,15 +579,28 @@ export default function Certificates({
                   }
                 />
                 <View style={styles.cardCopy}>
-                  <MetaPill label="شهادة موثقة" tone="success" />
+                  <MetaPill
+                    label={
+                      certificate.status === 'pending'
+                        ? 'قيد التجهيز'
+                        : 'شهادة موثقة'
+                    }
+                    tone={certificate.status === 'pending' ? 'neutral' : 'success'}
+                  />
                   <Text numberOfLines={2} style={styles.title}>
                     {certificate.courseName}
                   </Text>
                   <View style={styles.verifiedRow}>
                     <View style={styles.verifiedDot} />
                     <Text numberOfLines={1} style={styles.verified}>
-                      رقم الاعتماد ·{' '}
-                      {isolateBidirectionalText(certificate.publicId)}
+                      {certificate.status === 'pending' ? (
+                        'اضغط لتحديث الحالة'
+                      ) : (
+                        <>
+                          رقم الاعتماد ·{' '}
+                          {isolateBidirectionalText(certificate.publicId)}
+                        </>
+                      )}
                     </Text>
                   </View>
                 </View>

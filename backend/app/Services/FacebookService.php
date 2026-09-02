@@ -74,6 +74,9 @@ class FacebookService
 
             return [
                 'id' => (string)$response['id'],
+                'identity_issued_at' => is_numeric($debugData['issued_at'] ?? null)
+                    ? (int) $debugData['issued_at']
+                    : null,
                 'name' => $response['name'] ?? null,
                 'email' => $response['email'] ?? null,
                 'email_verified' => !empty($response['email']),

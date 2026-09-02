@@ -306,7 +306,8 @@ $registerCourseApiRoutes = function () {
             // Compatibility only: course discovery uses /classifications.
             Route::get('categories', [\App\Http\Controllers\API\CategoryController::class,'index']);
             Route::get('courses', [\App\Http\Controllers\API\CourseController::class,'getCourses']);
-            Route::get('course/{course}', [\App\Http\Controllers\API\CourseController::class,'getCourse']);
+            Route::get('course/{course}', [\App\Http\Controllers\API\CourseController::class,'getCourse'])
+                ->middleware('auth.optional');
 
             // The old endpoint used implicit model binding before returning its
             // retirement response. That made existing and missing course ids
@@ -321,7 +322,8 @@ $registerCourseApiRoutes = function () {
                     'data' => null,
                 ], 410);
             })->whereNumber('legacyCourse');
-            Route::get('lesson/{lesson}', [\App\Http\Controllers\API\CourseController::class,'getLesson']);
+            Route::get('lesson/{lesson}', [\App\Http\Controllers\API\CourseController::class,'getLesson'])
+                ->middleware('auth.optional');
 
             // Visitor Statistics Routes
             Route::get('visitors/stats', [\App\Http\Controllers\API\VisitorController::class, 'getStats'])
@@ -335,13 +337,13 @@ $registerCourseApiRoutes = function () {
             Route::get('grades/{grade}/courses', [\App\Http\Controllers\API\GradeController::class,'courses']);
 
              Route::get('feedback', [\App\Http\Controllers\API\FeedbackController::class, 'index'])
-                 ->middleware('throttle:feedback');
+                 ->middleware(['auth.optional', 'throttle:feedback']);
              Route::post('feedback', [\App\Http\Controllers\API\FeedbackController::class, 'store'])
-                 ->middleware(['recovery.write', 'throttle:feedback']);
+                 ->middleware(['auth.optional', 'recovery.write', 'throttle:feedback']);
              Route::get('feedback/{publicId}', [\App\Http\Controllers\API\FeedbackController::class, 'show'])
-                 ->where('publicId', '[0-9A-HJKMNP-TV-Z]{26}')->middleware('throttle:feedback');
+                 ->where('publicId', '[0-9A-HJKMNP-TV-Z]{26}')->middleware(['auth.optional', 'throttle:feedback']);
              Route::post('feedback/{publicId}/messages', [\App\Http\Controllers\API\FeedbackController::class, 'reply'])
-                 ->where('publicId', '[0-9A-HJKMNP-TV-Z]{26}')->middleware(['recovery.write', 'throttle:feedback']);
+                 ->where('publicId', '[0-9A-HJKMNP-TV-Z]{26}')->middleware(['auth.optional', 'recovery.write', 'throttle:feedback']);
              Route::post('feedback/{publicId}/claim', [\App\Http\Controllers\API\FeedbackController::class, 'claim'])
                  ->where('publicId', '[0-9A-HJKMNP-TV-Z]{26}')->middleware(['auth:api', 'recovery.write', 'throttle:feedback']);
 
@@ -351,7 +353,8 @@ $registerCourseApiRoutes = function () {
 
              // Course Listing and Details routes
              Route::get('courses/list', [\App\Http\Controllers\API\CourseController::class,'listCourses']);
-             Route::get('courses/{courseId}/details', [\App\Http\Controllers\API\CourseController::class,'viewCourseDetails']);
+             Route::get('courses/{courseId}/details', [\App\Http\Controllers\API\CourseController::class,'viewCourseDetails'])
+                 ->middleware('auth.optional');
 
              // Packages
              Route::get('packages', [\App\Http\Controllers\API\PackageController::class, 'index']);

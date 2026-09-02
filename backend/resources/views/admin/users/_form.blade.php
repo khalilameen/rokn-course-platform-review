@@ -41,26 +41,6 @@
         </div>
     </div>
 
-    <div class="form-group-modern">
-        <label class="form-label-modern">
-            <i class="fa fa-lock"></i>
-            كلمة المرور
-            @if(!isset($user))
-                <span class="required">*</span>
-            @endif
-        </label>
-        <div class="input-group-modern">
-            @if(isset($user))
-                <input class="form-control-modern form-control-modern--password" type="password" name="password" placeholder="اتركها فارغة إذا لم ترد تغييرها">
-                <small class="form-hint">
-                    <i class="fa fa-info-circle"></i>
-                    اترك هذا الحقل فارغاً إذا كنت لا تريد تغيير كلمة المرور
-                </small>
-            @else
-                {!! Form::password('password', ['class' => 'form-control-modern form-control-modern--padded' , 'required', 'placeholder' => 'أدخل كلمة المرور'] )!!}
-            @endif
-        </div>
-    </div>
 </div>
 
 

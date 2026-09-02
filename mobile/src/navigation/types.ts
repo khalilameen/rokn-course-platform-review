@@ -35,6 +35,7 @@ export const LOGIN_RETURN_TO_PARAMLESS_ROUTES = [
   'Settings',
   'EditAccount',
   'DeviceSessions',
+  'Notifications',
 ] as const;
 
 export type LoginReturnToParamlessRoute =
@@ -83,7 +84,6 @@ export type RootStackParamList = {
   AboutUs: undefined;
   PrivacyPolicy: undefined;
   TermsOfUse: undefined;
-  ThirdPartyNotices: undefined;
   Notifications: undefined;
   Settings: undefined;
   DeviceSessions: undefined;

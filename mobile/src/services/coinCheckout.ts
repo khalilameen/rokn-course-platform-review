@@ -18,7 +18,7 @@ import {
 } from '../constants/distribution';
 import {reportClientError} from './operationalTelemetry';
 import {requireProductFeature} from './productFeatures';
-import {errorCode, errorPayload} from '../utils/errorPayload';
+import {errorCode, errorPayload, errorStatus} from '../utils/errorPayload';
 import {isLocalDemoId, LOCAL_DEMO_ENABLED} from '../config/runtime';
 import {
   acknowledgePendingCheckoutReturn,
@@ -128,8 +128,15 @@ const normalizeCheckoutLedger = (
       : [];
   const byPackage = new Map<number, PersistedCheckoutAttempt>();
   rawAttempts.forEach(raw => {
-    const attempt = normalizeCheckoutAttempt(raw);
-    if (attempt) byPackage.set(attempt.packageId, attempt);
+    try {
+      const attempt = normalizeCheckoutAttempt(raw);
+      if (attempt) byPackage.set(attempt.packageId, attempt);
+    } catch {
+      // AsyncStorage can retain one truncated/legacy entry after a killed
+      // process or a full device. One bad recovery row must not make checkout
+      // permanently unusable. Valid sibling attempts remain recoverable, and
+      // the server still owns pending-order reconciliation for the next tap.
+    }
   });
   return [...byPackage.values()];
 };
@@ -327,12 +334,24 @@ const pollOrder = async (
         `payment/reconcile/${encodeURIComponent(normalizedOrderRef)}`,
       );
       assertAccountSessionBoundary(boundary);
-    } catch {
+    } catch (error: unknown) {
       // A reconciliation response belongs to the account which opened the
       // checkout. Do not turn an account-boundary rejection into an ordinary
       // provider delay and then poll the old order again with the next
       // account's bearer.
       assertAccountSessionBoundary(boundary);
+      const status = errorStatus(error);
+      const code = errorCode(error);
+      if (status === 404 || code === 'order_not_found') {
+        return {approved: false, pending: false, coinsAdded: 0};
+      }
+      if (
+        status >= 400 &&
+        status < 500 &&
+        ![408, 409, 425, 429].includes(status)
+      ) {
+        throw error;
+      }
       // The callback may arrive before the status endpoint sees the webhook.
       if (attempt + 1 < attempts) {
         await new Promise<void>(resolve =>
@@ -479,6 +498,15 @@ const reconcileCheckoutAttempt = async (
           demo: false,
         };
       }
+      const status = errorStatus(error);
+      if (
+        status >= 400 &&
+        status < 500 &&
+        ![408, 409, 425, 429].includes(status)
+      ) {
+        await clearCheckoutAttempt(attempt.idempotencyKey, boundary);
+        throw error;
+      }
     }
     return {
       success: false,
@@ -532,11 +560,57 @@ const reconcilePendingCoinCheckoutOnce = async (
   );
 };
 
+/**
+ * A learner can close one package and immediately choose another. Retire the
+ * old payable intent first; otherwise two different package URLs can remain
+ * chargeable even though each package is individually idempotent.
+ */
+const reconcilePackageSwitch = async (
+  selectedPackageId: number,
+  boundary: AccountSessionBoundary,
+): Promise<CoinCheckoutResult | null> => {
+  const attempts = await readCheckoutAttempts(boundary);
+  for (const attempt of attempts) {
+    if (attempt.packageId === selectedPackageId) continue;
+    assertAccountSessionBoundary(boundary);
+    const recovered = await reconcileCheckoutAttempt(attempt, boundary);
+    if (recovered.success) return recovered;
+    if (!recovered.pending) continue;
+    if (!recovered.orderRef) return recovered;
+
+    const abandoned = await abandonOrder(recovered.orderRef, boundary);
+    if (abandoned.approved) {
+      await clearCheckoutAttempt(attempt.idempotencyKey, boundary);
+      return {
+        success: true,
+        pending: false,
+        cancelled: false,
+        coinsAdded: abandoned.coinsAdded,
+        orderRef: recovered.orderRef,
+        demo: false,
+      };
+    }
+    if (abandoned.pending) {
+      return {
+        success: false,
+        pending: true,
+        cancelled: false,
+        coinsAdded: 0,
+        orderRef: recovered.orderRef,
+        demo: false,
+      };
+    }
+    await clearCheckoutAttempt(attempt.idempotencyKey, boundary);
+  }
+  return null;
+};
+
 export const reconcilePendingCoinCheckout =
   async (): Promise<CoinCheckoutResult | null> => {
     const boundary = await captureAccountSessionBoundary();
     const scope = await checkoutAttemptStorageKey(boundary);
-    const current = checkoutReconciliationFlights.get(scope);
+    const reconciliationKey = `${scope}:${boundary.epoch}`;
+    const current = checkoutReconciliationFlights.get(reconciliationKey);
     if (current) return current;
 
     const operation = reconcilePendingCoinCheckoutOnce(boundary)
@@ -564,11 +638,13 @@ export const reconcilePendingCoinCheckout =
         return result;
       })
       .finally(() => {
-        if (checkoutReconciliationFlights.get(scope) === operation) {
-          checkoutReconciliationFlights.delete(scope);
+        if (
+          checkoutReconciliationFlights.get(reconciliationKey) === operation
+        ) {
+          checkoutReconciliationFlights.delete(reconciliationKey);
         }
       });
-    checkoutReconciliationFlights.set(scope, operation);
+    checkoutReconciliationFlights.set(reconciliationKey, operation);
     return operation;
   };
 
@@ -614,6 +690,11 @@ const runCoinCheckout = async (
   let idempotencyKey = '';
 
   const packageId = validatedPackageId;
+  const packageSwitchResult = await reconcilePackageSwitch(
+    packageId,
+    boundary,
+  );
+  if (packageSwitchResult) return packageSwitchResult;
   let attempt = await readCheckoutAttempt(packageId, boundary);
   if (attempt?.orderRef) {
     const previous = await pollOrder(attempt.orderRef, boundary, 1);
@@ -758,6 +839,7 @@ const runCoinCheckout = async (
           'checkout_idempotency_conflict',
           'checkout_attempt_closed',
           'checkout_attempt_expired',
+          'package_not_available',
           'package_terms_changed',
         ].includes(code)
       ) {
@@ -823,9 +905,7 @@ export const openCoinCheckout = async (
 ): Promise<CoinCheckoutResult> => {
   const boundary = await captureAccountSessionBoundary();
   const scope = await checkoutAttemptStorageKey(boundary);
-  const flightKey = `${scope}:${String(coinPackage.id)}:${coinPackage.price}:${
-    coinPackage.coins
-  }`;
+  const flightKey = `${scope}:${boundary.epoch}`;
   const current = checkoutFlights.get(flightKey);
   if (current) return current;
 
@@ -833,25 +913,32 @@ export const openCoinCheckout = async (
   // may be closed by background reconciliation before Navigation mounts. A
   // live caller acknowledges this receipt on return; a killed process cannot,
   // so cold start restores the exact course/wallet context once.
-  const returnClaim = options.returnTo
-    ? await savePendingCheckoutReturn(options.returnTo, boundary).catch(
-        () => undefined,
-      )
-    : undefined;
-  const operation = runCoinCheckout(coinPackage, boundary).finally(async () => {
-    if (checkoutFlights.get(flightKey) === operation) {
-      checkoutFlights.delete(flightKey);
+  let operation: Promise<CoinCheckoutResult> | undefined;
+  operation = (async () => {
+    const returnClaim = options.returnTo
+      ? await savePendingCheckoutReturn(options.returnTo, boundary).catch(
+          () => undefined,
+        )
+      : undefined;
+    try {
+      return await runCoinCheckout(coinPackage, boundary);
+    } finally {
+      if (checkoutFlights.get(flightKey) === operation) {
+        checkoutFlights.delete(flightKey);
+      }
+      if (returnClaim) {
+        try {
+          // Only the account which opened the live checkout may consume its
+          // navigation hand-off. If the learner switched accounts meanwhile,
+          // retain the old account's receipt for its next safe restoration.
+          assertAccountSessionBoundary(boundary);
+          await acknowledgePendingCheckoutReturn(returnClaim);
+        } catch {}
+      }
     }
-    if (returnClaim) {
-      try {
-        // Only the account which opened the live checkout may consume its
-        // navigation hand-off. If the learner switched accounts meanwhile,
-        // retain the old account's receipt for its next safe restoration.
-        assertAccountSessionBoundary(boundary);
-        await acknowledgePendingCheckoutReturn(returnClaim);
-      } catch {}
-    }
-  });
+  })();
+  // Register ownership before the first persistence/network await inside the
+  // operation. Cross-screen taps and package switches now share one surface.
   checkoutFlights.set(flightKey, operation);
   return operation;
 };

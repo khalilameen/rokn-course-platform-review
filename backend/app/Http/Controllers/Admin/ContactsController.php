@@ -8,9 +8,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\User;
 use App\Services\AccountDeletionService;
+use App\Support\AdminEditorVersion;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class ContactsController extends Controller
 {
@@ -23,8 +26,11 @@ class ContactsController extends Controller
             ->latest('id')
             ->paginate(30)
             ->withQueryString();
+        $editorVersions = $contacts->getCollection()->mapWithKeys(
+            fn (Contact $contact): array => [$contact->id => $this->editorVersion($contact)]
+        );
 
-        return view('admin.contacts.index', compact('contacts'));
+        return view('admin.contacts.index', compact('contacts', 'editorVersions'));
     }
 
     public function show(Contact $contact)
@@ -33,50 +39,62 @@ class ContactsController extends Controller
         $deletionUser = $contact->isAccountDeletionRequest() && !$contact->isResolved()
             ? $this->existingUserForEmail($contact->email)
             : null;
+        $editorVersion = $this->editorVersion($contact);
 
-        return view('admin.contacts.show', compact('contact', 'deletionUser'));
+        return view('admin.contacts.show', compact('contact', 'deletionUser', 'editorVersion'));
     }
 
-    public function markRead(Contact $contact): RedirectResponse
+    public function markRead(Request $request, Contact $contact): RedirectResponse
     {
-        if (!$contact->read) {
-            $contact->forceFill(['read' => true])->save();
-        }
+        $expected = $this->validatedEditorVersion($request);
+        DB::transaction(function () use ($contact, $expected): void {
+            $locked = $this->lockedCurrent($contact, $expected);
+            if (!$locked->read) {
+                $locked->forceFill(['read' => true])->save();
+            }
+        }, 3);
 
         return redirect()->route('admin.contacts.show', $contact);
     }
 
-    public function destroy(Contact $contact)
+    public function destroy(Request $request, Contact $contact)
     {
-        if ($contact->isAccountDeletionRequest()) {
-            return redirect()
-                ->route('admin.contacts.show', $contact)
-                ->with('error', 'لا يمكن حذف سجل طلب حذف حساب؛ يجب الاحتفاظ بحالة الطلب وسجل معالجته.');
-        }
-
-        $contact->delete();
+        $expected = $this->validatedEditorVersion($request);
+        DB::transaction(function () use ($contact, $expected): void {
+            $locked = $this->lockedCurrent($contact, $expected);
+            if ($locked->isAccountDeletionRequest()) {
+                throw ValidationException::withMessages([
+                    'editor_version' => ['لا يمكن حذف سجل طلب حذف حساب'],
+                ]);
+            }
+            $locked->delete();
+        }, 3);
 
         return redirect()
             ->route('admin.contacts.index')
             ->with('success', 'تم الحذف بنجاح');
     }
 
-    public function markProcessing(Contact $contact): RedirectResponse
+    public function markProcessing(Request $request, Contact $contact): RedirectResponse
     {
-        if (!$contact->isAccountDeletionRequest() || $contact->isResolved()) {
-            return redirect()->route('admin.contacts.show', $contact)
-                ->with('error', 'لا يمكن بدء معالجة هذا الطلب في حالته الحالية.');
-        }
+        $expected = $this->validatedEditorVersion($request);
+        DB::transaction(function () use ($contact, $expected): void {
+            $locked = $this->lockedCurrent($contact, $expected);
+            if (!$locked->isAccountDeletionRequest() || $locked->isResolved()) {
+                throw ValidationException::withMessages([
+                    'editor_version' => ['لا يمكن بدء معالجة هذا الطلب في حالته الحالية'],
+                ]);
+            }
 
-        $metadata = (array) ($contact->resolution_metadata ?? []);
-        $metadata['processing_started_at'] = now()->toIso8601String();
-        $metadata['processing_started_by'] = (int) auth()->id();
-
-        $contact->forceFill([
-            'read' => true,
-            'resolution_status' => Contact::RESOLUTION_PROCESSING,
-            'resolution_metadata' => $metadata,
-        ])->save();
+            $metadata = (array) ($locked->resolution_metadata ?? []);
+            $metadata['processing_started_at'] = now()->toIso8601String();
+            $metadata['processing_started_by'] = (int) auth()->id();
+            $locked->forceFill([
+                'read' => true,
+                'resolution_status' => Contact::RESOLUTION_PROCESSING,
+                'resolution_metadata' => $metadata,
+            ])->save();
+        }, 3);
 
         return redirect()->route('admin.contacts.show', $contact)
             ->with('success', 'تم نقل الطلب إلى المعالجة. تحقق من ملكية الحساب قبل أي إجراء على بياناته.');
@@ -84,16 +102,8 @@ class ContactsController extends Controller
 
     public function closeDeletionRequest(Request $request, Contact $contact): RedirectResponse
     {
-        if (!$contact->isAccountDeletionRequest() || $contact->isResolved()) {
-            return redirect()->route('admin.contacts.show', $contact)
-                ->with('error', 'لا يمكن إغلاق هذا الطلب في حالته الحالية.');
-        }
-        if (!$contact->isProcessing()) {
-            return redirect()->route('admin.contacts.show', $contact)
-                ->with('error', 'ابدأ المعالجة وتحقق من بيانات الطلب قبل إغلاقه.');
-        }
-
         $validated = $request->validate([
+            'editor_version' => ['required', 'string', 'size:64'],
             'outcome' => ['required', 'in:self_service_completed,no_account_found,duplicate,withdrawn'],
             'resolution_note' => ['nullable', 'string', 'max:500'],
             'confirm_close' => ['accepted'],
@@ -103,25 +113,32 @@ class ContactsController extends Controller
             'confirm_close.accepted' => 'أكد أنك راجعت الطلب قبل إغلاقه.',
         ]);
 
-        $matchedUser = $this->existingUserForEmail($contact->email);
-        if (in_array($validated['outcome'], ['self_service_completed', 'no_account_found'], true) && $matchedUser) {
-            return redirect()->route('admin.contacts.show', $contact)
-                ->withInput()
-                ->with('error', 'لا يمكن تسجيل هذه النتيجة لأن الحساب المطابق ما زال موجودًا. وجّه صاحبه إلى حذف الحساب من التطبيق بعد التحقق من هويته.');
-        }
+        DB::transaction(function () use ($contact, $validated): void {
+            $locked = $this->lockedCurrent($contact, (string) $validated['editor_version']);
+            if (!$locked->isAccountDeletionRequest() || $locked->isResolved() || !$locked->isProcessing()) {
+                throw ValidationException::withMessages([
+                    'editor_version' => ['تغيّرت حالة الطلب\nحدّث الصفحة قبل الإغلاق'],
+                ]);
+            }
+            $matchedUser = $this->existingUserForEmail($locked->email);
+            if (in_array($validated['outcome'], ['self_service_completed', 'no_account_found'], true) && $matchedUser) {
+                throw ValidationException::withMessages([
+                    'outcome' => ['الحساب المطابق ما زال موجودًا'],
+                ]);
+            }
 
-        $metadata = (array) ($contact->resolution_metadata ?? []);
-        $metadata['outcome'] = $validated['outcome'];
-        $metadata['note'] = trim((string) ($validated['resolution_note'] ?? '')) ?: null;
-
-        $contact->forceFill([
-            'read' => true,
-            'resolution_status' => Contact::RESOLUTION_CLOSED,
-            'resolved_at' => now(),
-            'resolved_by' => (int) auth()->id(),
-            'resolved_user_id' => $matchedUser?->id,
-            'resolution_metadata' => $metadata,
-        ])->save();
+            $metadata = (array) ($locked->resolution_metadata ?? []);
+            $metadata['outcome'] = $validated['outcome'];
+            $metadata['note'] = trim((string) ($validated['resolution_note'] ?? '')) ?: null;
+            $locked->forceFill([
+                'read' => true,
+                'resolution_status' => Contact::RESOLUTION_CLOSED,
+                'resolved_at' => now(),
+                'resolved_by' => (int) auth()->id(),
+                'resolved_user_id' => $matchedUser?->id,
+                'resolution_metadata' => $metadata,
+            ])->save();
+        }, 3);
 
         return redirect()->route('admin.contacts.show', $contact)
             ->with('success', 'تم إغلاق الطلب مع حفظ النتيجة وسجل المعالجة.');
@@ -132,22 +149,8 @@ class ContactsController extends Controller
         Contact $contact,
         AccountDeletionService $accounts
     ): RedirectResponse {
-        if (!$contact->isAccountDeletionRequest() || $contact->isResolved()) {
-            return redirect()->route('admin.contacts.show', $contact)
-                ->with('error', 'طلب الحذف غير متاح للتنفيذ في حالته الحالية.');
-        }
-        if (!$contact->isProcessing()) {
-            return redirect()->route('admin.contacts.show', $contact)
-                ->with('error', 'ابدأ المعالجة وتحقق من صاحب الحساب أولًا.');
-        }
-
-        $matchedUser = $this->existingUserForEmail($contact->email);
-        if (!$matchedUser || strtolower((string) $matchedUser->role) !== 'client') {
-            return redirect()->route('admin.contacts.show', $contact)
-                ->with('error', 'لا يوجد حساب طالب نشط مطابق لهذا الطلب.');
-        }
-
         $validated = $request->validate([
+            'editor_version' => ['required', 'string', 'size:64'],
             'account_email' => ['required', 'string', 'max:255'],
             'verification_note' => ['required', 'string', 'min:8', 'max:500'],
             'confirm_identity' => ['accepted'],
@@ -159,31 +162,45 @@ class ContactsController extends Controller
             'confirm_identity.accepted' => 'أكد أنك تحققت من صاحب الحساب.',
             'confirm_delete.accepted' => 'أكد تنفيذ الحذف النهائي.',
         ]);
-        $confirmedEmail = Str::lower(trim((string) $validated['account_email']));
-        if (!hash_equals(Str::lower(trim((string) $matchedUser->email)), $confirmedEmail)) {
-            return redirect()->route('admin.contacts.show', $contact)
-                ->withInput()
-                ->with('error', 'بريد التأكيد لا يطابق الحساب المطلوب حذفه.');
-        }
+        $cleanupPending = DB::transaction(function () use ($contact, $validated, $accounts): bool {
+            $locked = $this->lockedCurrent($contact, (string) $validated['editor_version']);
+            if (!$locked->isAccountDeletionRequest() || $locked->isResolved() || !$locked->isProcessing()) {
+                throw ValidationException::withMessages([
+                    'editor_version' => ['تغيّرت حالة الطلب\nحدّث الصفحة قبل تنفيذ الحذف'],
+                ]);
+            }
+            $matchedUser = $this->existingUserForEmail($locked->email);
+            if (!$matchedUser || strtolower((string) $matchedUser->role) !== 'client') {
+                throw ValidationException::withMessages([
+                    'account_email' => ['لا يوجد حساب طالب نشط مطابق لهذا الطلب'],
+                ]);
+            }
+            $confirmedEmail = Str::lower(trim((string) $validated['account_email']));
+            if (!hash_equals(Str::lower(trim((string) $matchedUser->email)), $confirmedEmail)) {
+                throw ValidationException::withMessages([
+                    'account_email' => ['بريد التأكيد لا يطابق الحساب المطلوب حذفه'],
+                ]);
+            }
 
-        $cleanup = $accounts->delete($matchedUser);
-        $cleanupPending = (bool) (
-            $cleanup['local_cleanup_pending']
-            || $cleanup['remote_portfolio_cleanup_pending']
-        );
-        $metadata = (array) ($contact->resolution_metadata ?? []);
-        $metadata['outcome'] = 'manual_verified_deletion';
-        $metadata['note'] = trim((string) $validated['verification_note']);
-        $metadata['cleanup_pending'] = $cleanupPending;
-
-        $contact->forceFill([
-            'read' => true,
-            'resolution_status' => Contact::RESOLUTION_CLOSED,
-            'resolved_at' => now(),
-            'resolved_by' => (int) auth()->id(),
-            'resolved_user_id' => $matchedUser->id,
-            'resolution_metadata' => $metadata,
-        ])->save();
+            $cleanup = $accounts->delete($matchedUser);
+            $pending = (bool) (
+                $cleanup['local_cleanup_pending']
+                || $cleanup['remote_portfolio_cleanup_pending']
+            );
+            $metadata = (array) ($locked->resolution_metadata ?? []);
+            $metadata['outcome'] = 'manual_verified_deletion';
+            $metadata['note'] = trim((string) $validated['verification_note']);
+            $metadata['cleanup_pending'] = $pending;
+            $locked->forceFill([
+                'read' => true,
+                'resolution_status' => Contact::RESOLUTION_CLOSED,
+                'resolved_at' => now(),
+                'resolved_by' => (int) auth()->id(),
+                'resolved_user_id' => $matchedUser->id,
+                'resolution_metadata' => $metadata,
+            ])->save();
+            return $pending;
+        }, 3);
 
         return redirect()->route('admin.contacts.show', $contact)
             ->with(
@@ -204,5 +221,31 @@ class ContactsController extends Controller
         return User::query()
             ->whereRaw('LOWER(email) = ?', [$normalizedEmail])
             ->first();
+    }
+
+    private function validatedEditorVersion(Request $request): string
+    {
+        return (string) $request->validate([
+            'editor_version' => ['required', 'string', 'size:64'],
+        ])['editor_version'];
+    }
+
+    private function lockedCurrent(Contact $contact, string $expected): Contact
+    {
+        $locked = Contact::query()->whereKey($contact->id)->lockForUpdate()->firstOrFail();
+        if (!hash_equals($this->editorVersion($locked), $expected)) {
+            throw ValidationException::withMessages([
+                'editor_version' => ['تغيّرت الرسالة منذ فتح الصفحة\nحدّثها قبل تنفيذ الإجراء'],
+            ]);
+        }
+        return $locked;
+    }
+
+    private function editorVersion(Contact $contact): string
+    {
+        return AdminEditorVersion::for($contact, [
+            'request_type', 'email', 'read', 'resolution_status', 'resolved_at',
+            'resolved_by', 'resolved_user_id', 'resolution_metadata', 'updated_at',
+        ]);
     }
 }

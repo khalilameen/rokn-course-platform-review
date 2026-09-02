@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\ExamAttempt;
 use App\Models\User;
-use App\Models\ItemList;
 use App\Models\DesignSetting;
 use Illuminate\Http\Request;
 use App\Support\BusinessClock;
@@ -56,7 +55,8 @@ class ExamResultController extends Controller
             $matches->whereHas('user', function($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
                   ->orWhere('email', 'like', "%{$search}%");
-            })->orWhereHas('quiz', function($q) use ($search) {
+            })->orWhere('quiz_title', 'like', "%{$search}%")
+              ->orWhereHas('quiz', function($q) use ($search) {
                 $q->where('title', 'like', "%{$search}%");
             });
         });
@@ -73,7 +73,7 @@ class ExamResultController extends Controller
 
     private function getStudentsWithExams()
     {
-        return User::whereHas('examAttempts')
+        return User::whereHas('examAttempts', fn ($attempts) => $attempts->completed())
             ->select('id', 'name')
             ->orderBy('name')
             ->get();
@@ -81,20 +81,19 @@ class ExamResultController extends Controller
 
     private function getReferencedExams()
     {
-        $referencedQuizIds = ExamAttempt::distinct()->pluck('quiz_id');
-        $quizzes = ItemList::query()
-            ->whereIn('id', $referencedQuizIds)
-            ->where('type', 'quiz')
-            ->get(['id', 'title', 'title_ar', 'title_en'])
-            ->keyBy('id');
+        $latestAttemptIds = ExamAttempt::completed()
+            ->selectRaw('MAX(id)')
+            ->groupBy('quiz_id');
 
-        return $referencedQuizIds
-            ->map(function($quizId) use ($quizzes) {
-                $quiz = $quizzes->get($quizId);
-
-                return $quiz && $quiz->title
-                    ? $quiz
-                    : (object)['id' => $quizId, 'title' => "امتحان رقم $quizId"];
+        return ExamAttempt::query()
+            ->whereIn('id', $latestAttemptIds)
+            ->get(['id', 'quiz_id', 'quiz_title'])
+            ->map(function (ExamAttempt $attempt) {
+                return (object) [
+                    'id' => (int) $attempt->quiz_id,
+                    'title' => trim((string) $attempt->quiz_title)
+                        ?: "امتحان رقم {$attempt->quiz_id}",
+                ];
             })
             ->sortBy('title');
     }
@@ -206,13 +205,11 @@ class ExamResultController extends Controller
             // Keep export memory flat even after the attempt table grows into
             // the hundreds of thousands. Eager relations are loaded per chunk.
             foreach ($query->reorder()->lazyByIdDesc(500) as $result) {
-                $quizTitle = $result->quiz && $result->quiz->title
-                    ? $result->quiz->title
-                    : "امتحان رقم {$result->quiz_id}";
+                $quizTitle = $result->quizSnapshot()['title'];
 
                 fputcsv($file, CsvCell::row([
-                    $result->user->name,
-                    $result->user->email,
+                    $result->user?->name ?? 'حساب محذوف',
+                    $result->user?->email,
                     $quizTitle,
                     BusinessClock::format($result->completed_at, 'Y-m-d H:i:s'),
                     $result->time_taken_minutes,

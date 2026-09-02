@@ -157,6 +157,9 @@ class RouteServiceProvider extends ServiceProvider
 
         RateLimiter::for('whatsapp-webhook', function (Request $request) {
             $identity = $this->providerEventIdentity($request, [
+                // Whatspie v1 and v2 documented message identifiers.
+                'message_id',
+                'data.message_id',
                 'entry.0.changes.0.value.messages.0.id',
                 'messages.0.id',
             ]);

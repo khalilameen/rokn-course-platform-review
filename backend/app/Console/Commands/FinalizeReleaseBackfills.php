@@ -83,7 +83,11 @@ final class FinalizeReleaseBackfills extends Command
                     // Search results are generation-keyed. The backfill writes
                     // with the query builder on purpose, so no Course model
                     // event can rotate that generation for us.
-                    Cache::add('courses:catalog-revision', 1, now()->addYears(10));
+                    Cache::add(
+                        'courses:catalog-revision',
+                        max(1, (int) floor(microtime(true) * 1000)),
+                        now()->addYears(10)
+                    );
                     Cache::increment('courses:catalog-revision');
                 }
             } catch (Throwable $cacheException) {

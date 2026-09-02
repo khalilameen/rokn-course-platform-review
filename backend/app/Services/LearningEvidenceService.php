@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\DB;
 
 final readonly class LearningEvidenceService
 {
+    public function __construct(private CourseRevisionLearnerReadService $revisionReads) {}
+
     /** Verified progress is bounded by elapsed server time and playback rate. */
     public function recordHeartbeat(
         User $user,
@@ -79,9 +81,19 @@ final readonly class LearningEvidenceService
                 $previousHeartbeat = $previousPlaybackSample !== null
                     ? ($previousPlaybackSample['recorded_at'] ?? null)
                     : $evidence->last_heartbeat_at;
-                $elapsed = $previousHeartbeat
+                $sessionElapsed = $previousHeartbeat
                     ? (int) floor($previousHeartbeat->diffInSeconds($now, true))
                     : 0;
+                // One learner may have the same reel open on two devices. A
+                // session sequence prevents replay inside one player, while
+                // this aggregate clock prevents overlapping players from both
+                // crediting the same wall-clock interval and its rewards.
+                $aggregateElapsed = $evidence->last_heartbeat_at
+                    ? (int) floor($evidence->last_heartbeat_at->diffInSeconds($now, true))
+                    : 0;
+                $elapsed = $previousPlaybackSample !== null
+                    ? min($sessionElapsed, $aggregateElapsed)
+                    : $aggregateElapsed;
                 $positionDelta = max(0, $positionSeconds - $previousPosition);
                 $maxGap = max(10, (int) config('learning_evidence.maximum_heartbeat_gap_seconds', 45));
                 $maxRate = max(1.0, min(2.5, (float) config('learning_evidence.maximum_playback_rate', 2.0)));
@@ -120,11 +132,7 @@ final readonly class LearningEvidenceService
 
     public function evidenceFor(User $user, Lesson $lesson): array
     {
-        $evidence = LessonWatchEvidence::query()
-            ->where('user_id', $user->id)
-            ->where('lesson_id', $lesson->id)
-            ->where('course_section_id', $lesson->courseSection?->id)
-            ->first();
+        $evidence = $this->revisionReads->lessonEvidence((int) $user->id, (int) $lesson->id);
         $required = $this->requiredSeconds($lesson, $evidence?->duration_seconds);
 
         return [
@@ -135,6 +143,73 @@ final readonly class LearningEvidenceService
             'eligible_for_completion' => $required !== null && $evidence !== null
                 && (int) $evidence->verified_seconds >= $required,
         ];
+    }
+
+    /**
+     * A learner who finishes media allocated before an atomic course publish
+     * keeps that verified result on the corresponding current lesson. This is
+     * not a generic evidence copier: only server-qualified completed evidence
+     * reaches this boundary.
+     */
+    public function carryCompletedRevisionForward(
+        User $user,
+        Lesson $sourceLesson,
+        Lesson $currentLesson,
+        array $sourceEvidence
+    ): ?array {
+        if (!(bool) ($sourceEvidence['eligible_for_completion'] ?? false)) return null;
+        $currentSectionId = (int) ($currentLesson->courseSection?->id ?? 0);
+        $required = $this->requiredSeconds($currentLesson);
+        if ($currentSectionId < 1 || $required === null) return null;
+
+        return DB::transaction(function () use (
+            $user,
+            $currentLesson,
+            $currentSectionId,
+            $required,
+            $sourceEvidence
+        ): array {
+            DB::table('lesson_watch_evidence')->insertOrIgnore([
+                'user_id' => $user->id,
+                'lesson_id' => $currentLesson->id,
+                'course_section_id' => $currentSectionId,
+                'duration_seconds' => $this->trustedDurationSeconds($currentLesson),
+                'verified_seconds' => 0,
+                'last_position_seconds' => 0,
+                'last_heartbeat_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $target = LessonWatchEvidence::query()
+                ->where('user_id', $user->id)
+                ->where('lesson_id', $currentLesson->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $target->forceFill([
+                'course_section_id' => $currentSectionId,
+                'duration_seconds' => max(
+                    (int) ($target->duration_seconds ?? 0),
+                    (int) ($this->trustedDurationSeconds($currentLesson) ?? 0)
+                ) ?: null,
+                // Meeting the old published lesson's verified threshold is a
+                // grandfathered completion fact, not client-supplied time.
+                'verified_seconds' => max((int) $target->verified_seconds, $required),
+                'last_position_seconds' => max(
+                    (int) $target->last_position_seconds,
+                    (int) ($sourceEvidence['required_seconds'] ?? 0)
+                ),
+                'last_heartbeat_at' => now(),
+                'completed_at' => $target->completed_at ?? now(),
+            ])->save();
+
+            return [
+                'evidence_id' => $target->id,
+                'verified_seconds' => (int) $target->verified_seconds,
+                'required_seconds' => $required,
+                'credited_seconds' => 0,
+                'eligible_for_completion' => true,
+            ];
+        }, 3);
     }
 
     public function requiredSeconds(Lesson $lesson, ?int $observedDuration = null): ?int

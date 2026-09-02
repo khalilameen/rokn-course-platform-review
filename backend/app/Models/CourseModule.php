@@ -115,10 +115,9 @@ class CourseModule extends Model
             return true; // No project means module is passable
         }
 
-        return UserProjectEvaluation::where('user_id', $userId)
-            ->where('project_id', $project->id)
-            ->where('passed', true)
-            ->exists();
+        return app(\App\Services\CourseRevisionLearnerReadService::class)
+            ->passedProjectIds($userId, [(int) $project->id])
+            ->contains((int) $project->id);
     }
 
     /**
@@ -132,9 +131,9 @@ class CourseModule extends Model
             return null;
         }
 
-        return UserProjectEvaluation::where('user_id', $userId)
-            ->where('project_id', $project->id)
-            ->first();
+        return app(\App\Services\CourseRevisionLearnerReadService::class)
+            ->projectEvaluations($userId, [(int) $project->id])
+            ->get((int) $project->id);
     }
 
     /**

@@ -72,7 +72,12 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
     ): void {
         $submission = ProjectSubmission::with('project')->find($this->submissionId);
         if (!$submission || $submission->review_status !== ProjectSubmission::STATUS_PASSED) return;
-        if (!User::query()->whereKey($submission->user_id)->where('active', true)->exists()) return;
+        if (!User::query()->whereKey($submission->user_id)->where('active', true)->exists()) {
+            // Do not leave a revoked learner's report permanently queued for
+            // the recovery command to dispatch every two minutes.
+            $this->markUnavailable($submission->id, 'account_unavailable');
+            return;
+        }
 
         $evaluationSnapshot = ProjectSubmissionEvaluationSnapshot::fromSubmission($submission);
         $section = $evaluationSnapshot ? null : CourseSection::query()
@@ -109,6 +114,7 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
             !$enrollment
             || !$currentTerms
             || !$evaluationTerms
+            || !$access->enrollmentAllowsVariableCostFeatures($enrollment)
             || !(bool) $currentContract['project_report_enabled']
             || !(bool) $contract['project_report_enabled']
         ) {
@@ -131,13 +137,25 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
         // A worker may die after marking the submission as processing. Let the
         // queued retry continue; ShouldBeUnique still prevents concurrent runs.
         if (data_get($metadata, 'ai_feedback.status') === 'ready') {
-            $report = trim((string) $submission->feedback);
+            // The review summary and the paid report are two different records.
+            // Older workers stored the report in ProjectSubmission::feedback,
+            // overwriting the moderator's decision note. Recover new reports
+            // from the settled provider event (or the thread) and reserve the
+            // submission field for the append-only review decision summary.
+            $event = AiUsageEvent::query()
+                ->where('request_id', $submission->public_id)
+                ->where('feature', 'project_feedback')
+                ->first();
+            $report = trim((string) data_get($event?->metadata, 'accepted_response', ''));
+            if ($report === '') {
+                $report = trim((string) $submission->feedbackThread?->messages()
+                    ->where('role', 'assistant')
+                    ->where('client_request_id', 'report:' . $submission->public_id)
+                    ->where('status', 'completed')
+                    ->value('body'));
+            }
             if ($report !== '') {
                 $threads->storeInitialReport($submission, $enrollment, $courseId, $evaluationTerms, $report);
-                $event = AiUsageEvent::query()
-                    ->where('request_id', $submission->public_id)
-                    ->where('feature', 'project_feedback')
-                    ->first();
                 $paidCalls->markPresented($event);
             }
             return;
@@ -312,9 +330,11 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
                         $reservation,
                         $submission,
                         $promptVersion,
-                        $contract
+                        $contract,
+                        $courseId
                     ): void {
                         $providerResult['request_context'] = [
+                            'course_id' => (int) $courseId,
                             'project_id' => (int) $submission->project_id,
                             'submission_id' => (string) $submission->public_id,
                             'prompt_version' => $promptVersion,
@@ -335,6 +355,7 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
                     }
                 );
                 $result['request_context'] = [
+                    'course_id' => (int) $courseId,
                     'project_id' => (int) $submission->project_id,
                     'submission_id' => (string) $submission->public_id,
                     'prompt_version' => $promptVersion,
@@ -375,10 +396,7 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
                     'level' => $contract['project_feedback_level'],
                     'generated_at' => now()->toIso8601String(),
                 ];
-                $fresh->forceFill([
-                    'feedback' => trim((string) $result['message']),
-                    'submission_metadata' => $meta,
-                ])->save();
+                $fresh->forceFill(['submission_metadata' => $meta])->save();
             }, 3);
             $submission->refresh();
             $threads->storeInitialReport(

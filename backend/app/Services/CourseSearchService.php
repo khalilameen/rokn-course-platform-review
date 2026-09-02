@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Support\RoknLocale;
+use App\Support\DatabaseCapabilities;
 
 use App\Models\Course;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Cache;
 use Throwable;
 
@@ -31,8 +31,8 @@ final readonly class CourseSearchService
         $normalized = $this->normalizer->normalize($raw);
         if (
             $normalized === ''
-            || !Schema::hasColumn('courses', 'search_title_normalized')
-            || !Schema::hasColumn('courses', 'search_terms_normalized')
+            || !DatabaseCapabilities::hasColumn('courses', 'search_title_normalized')
+            || !DatabaseCapabilities::hasColumn('courses', 'search_terms_normalized')
         ) {
             $literal = addcslashes($raw, '\\%_');
             return $query->where(function (Builder $search) use ($literal) {

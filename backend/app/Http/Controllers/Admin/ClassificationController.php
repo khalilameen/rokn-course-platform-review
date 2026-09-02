@@ -152,7 +152,11 @@ class ClassificationController extends Controller
             // concurrent course/classification save may advance the counter
             // after get() and before forever(), letting this request move the
             // catalogue generation backwards and revive an older page.
-            Cache::add($catalogRevisionKey, 1, now()->addYears(10));
+            Cache::add(
+                $catalogRevisionKey,
+                max(1, (int) floor(microtime(true) * 1000)),
+                now()->addYears(10)
+            );
             Cache::increment($catalogRevisionKey);
             Cache::forget('home:courses:v4');
             Cache::forget('mobile-home:main-courses:v3');

@@ -44,6 +44,9 @@
                             </form>
                     </div>
                     @endforeach
+                    @if($coupons->hasPages())
+                        <div class="mt-3">{{ $coupons->links() }}</div>
+                    @endif
                 </div>
             </div>
         </div>

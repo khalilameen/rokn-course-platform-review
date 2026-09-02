@@ -144,9 +144,9 @@
             <table class="table table-striped">
                 <thead><tr><th>الباقة</th><th>الطلاب</th><th>العملات</th><th>صافي/طالب</th><th>تكلفة/طالب</th><th>التكلفة من الصافي</th><th>OpenRouter</th><th>تكلفة فعلية</th><th>التكلفة مع التقديرات</th><th>الهامش الفعلي</th><th>الهامش التقديري</th></tr></thead>
                 <tbody>
-                @forelse($commercialReport['plan_breakdown'] as $planName => $plan)
+                @forelse($commercialReport['plan_breakdown'] as $planCode => $plan)
                     <tr>
-                        <td>{{ $planName }}</td>
+                        <td>{{ $plan['plan_name'] }}@if($planCode)<br><small class="text-muted">{{ $planCode }}</small>@endif</td>
                         <td>{{ number_format($plan['students']) }}</td>
                         <td>{{ number_format($plan['coins']) }}</td>
                         <td>{{ $plan['average_net_per_student_egp'] === null ? '—' : number_format($plan['average_net_per_student_egp'], 2).' ج.م' }}</td>
@@ -184,7 +184,12 @@
                             <small class="text-muted">{{ $row['user']?->email }}</small>
                         </td>
                         <td>{{ $row['is_active'] ? 'نشط' : 'غير نشط' }}</td>
-                        <td>{{ $row['source_label'] }}</td>
+                        <td>
+                            {{ $row['source_label'] }}
+                            @if($row['access_codes'])
+                                <br><small class="text-muted">{{ implode(' · ', $row['access_codes']) }}</small>
+                            @endif
+                        </td>
                         <td>{{ $row['plan_name'] }}</td>
                         <td>{{ $row['contract_price_coins'] === null ? 'قديم' : number_format($row['contract_price_coins']).' عملة' }}</td>
                         <td>

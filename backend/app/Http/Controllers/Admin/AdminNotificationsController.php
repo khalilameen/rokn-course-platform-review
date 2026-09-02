@@ -55,65 +55,67 @@ class AdminNotificationsController extends Controller
     {
         $requestId = (string) $request->validated('authoring_request_id');
         $payload = $this->payload($request);
-        $admin_notification = AdminNotification::query()
-            ->where('authoring_request_id', $requestId)->first();
-        if ($admin_notification) {
-            if (!$this->sameCreatePayload($admin_notification, $payload, $request)) {
-                throw ValidationException::withMessages([
-                    'authoring_request_id' => ['تغيّرت بيانات القالب\nأعد فتح النموذج ثم أرسل'],
-                ]);
-            }
-        } else {
-            $admin_notification = DB::transaction(function () use (
-                $request,
-                $payload,
-                $requestId,
-                $createIntents
-            ): AdminNotification {
-                $notification = AdminNotification::create(
-                    $payload + ['authoring_request_id' => $requestId]
-                );
-                $createIntents->checkpointResource(
-                    $request,
-                    AdminNotification::class,
-                    $notification->id
-                );
-                return $notification;
-            }, 3);
-        }
-        if (!$admin_notification->wasRecentlyCreated) {
-            DB::transaction(function () use ($request, $admin_notification, $createIntents): void {
-                AdminNotification::query()->whereKey($admin_notification->id)->lockForUpdate()->firstOrFail();
-                $createIntents->checkpointResource(
-                    $request,
-                    AdminNotification::class,
-                    $admin_notification->id
-                );
-            }, 3);
-        }
+        $storedImagePath = null;
         if ($request->hasFile('image')) {
             $file = $request->file('image');
-            $admin_notification->storeImage(
+            $storedImagePath = app(StoredFileDeletionService::class)->storeTrackedUpload(
                 $file,
                 'admin_notifications',
-                'featured',
+                'public',
+                60,
                 'admin-message-template|'.strtolower($requestId).'|'.hash_file('sha256', $file->getRealPath())
             );
         }
 
-        DB::transaction(function () use ($request, $admin_notification, $createIntents): void {
-            $locked = AdminNotification::query()
-                ->whereKey($admin_notification->id)
-                ->lockForUpdate()
-                ->firstOrFail();
-            $createIntents->completeRedirect(
+        $committed = false;
+        try {
+            DB::transaction(function () use (
                 $request,
-                route('admin.admin_notifications.index'),
-                302,
-                AdminNotification::class,
-                $locked->id
-            );
-        }, 3);
+                $payload,
+                $requestId,
+                $createIntents,
+                $storedImagePath
+            ): void {
+                $notification = AdminNotification::query()
+                    ->where('authoring_request_id', $requestId)
+                    ->lockForUpdate()
+                    ->first();
+                if ($notification) {
+                    if (!$this->sameCreatePayload($notification, $payload, $request)) {
+                        throw ValidationException::withMessages([
+                            'authoring_request_id' => ['تغيّرت بيانات القالب\nأعد فتح النموذج ثم أرسل'],
+                        ]);
+                    }
+                } else {
+                    $notification = AdminNotification::create(
+                        $payload + ['authoring_request_id' => $requestId]
+                    );
+                }
+
+                if (is_string($storedImagePath) && $storedImagePath !== '') {
+                    $notification->allPhotos()->firstOrCreate([
+                        'path' => $storedImagePath,
+                        'type' => 'featured',
+                    ]);
+                }
+
+                // The template row, its optional image reference and the
+                // replay receipt become visible together. A storage/DB crash
+                // can no longer expose an active half-created template.
+                $createIntents->completeRedirect(
+                    $request,
+                    route('admin.admin_notifications.index'),
+                    302,
+                    AdminNotification::class,
+                    $notification->id
+                );
+            }, 3);
+            $committed = true;
+        } finally {
+            if (!$committed && is_string($storedImagePath) && $storedImagePath !== '') {
+                app(StoredFileDeletionService::class)->deleteOrQueue('public', $storedImagePath);
+            }
+        }
 
         return redirect()->route('admin.admin_notifications.index')->with('success', 'تمت الإضافة بنجاح ');
     }

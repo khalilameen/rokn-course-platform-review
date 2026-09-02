@@ -162,7 +162,6 @@ final class CourseCodeController extends Controller
                         'chat_available' => $entitlement['chat_available'],
                         'certificate_available' => $entitlement['certificate_available'],
                         'target_content_name' => $code->target_content_name,
-                        'remaining_uses' => $code->remaining_uses
                     ]
                 ];
 
@@ -293,9 +292,6 @@ final class CourseCodeController extends Controller
                     'target_content_name' => $code->target_content_name,
                     'is_valid' => $code->isValid(),
                     'can_use' => $canUse,
-                    'used_count' => $code->used_count,
-                    'max_uses' => $code->max_uses,
-                    'remaining_uses' => $code->remaining_uses,
                     'start_date' => $code->start_date ? $code->start_date->format('Y-m-d H:i:s') : null,
                     'expiry_date' => $code->expiry_date ? $code->expiry_date->format('Y-m-d H:i:s') : null,
                     'is_expired' => $code->is_expired,

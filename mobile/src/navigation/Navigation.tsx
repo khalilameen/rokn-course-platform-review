@@ -25,7 +25,6 @@ import LanguageSelect from '../screens/LanguageSelect';
 import AboutUs from '../screens/Informations/AboutUs';
 import PrivacyPolicy from '../screens/Informations/PrivacyPolicy';
 import TermsOfUse from '../screens/Informations/TermsOfUse';
-import ThirdPartyNotices from '../screens/Informations/ThirdPartyNotices';
 import Notifications from '../screens/Notifications';
 import EditAccount from '../screens/EditAccount';
 import Feedback from '../screens/Feedback';
@@ -45,6 +44,7 @@ import {
   acknowledgePendingLoginReturnTo,
   claimPendingLoginReturnTo,
   clearPendingLoginReturnTo,
+  safeLoginReturnToFromRoute,
 } from './authReturn';
 import {
   acknowledgePendingCheckoutReturn,
@@ -207,7 +207,11 @@ const Stacks = () => {
   const language = useSelector((state: RootState) => state.settings.language);
   const languageCode =
     (typeof language === 'string' ? language : language?.code) || 'ar';
-  const needsArabicBootstrap = languageCode === 'en' && !I18nManager.isRTL;
+  // Yoga fixes layout direction when the native process starts. A clean
+  // install defaults to Arabic while React Native may still be LTR; sending
+  // that first launch straight to Home mirrors every row and sheet until the
+  // user happens to restart. English is the only supported LTR preference.
+  const needsArabicBootstrap = languageCode !== 'en' && !I18nManager.isRTL;
 
   return (
     <Stack.Navigator
@@ -229,7 +233,6 @@ const Stacks = () => {
       <Stack.Screen name="AboutUs" component={AboutUs} />
       <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicy} />
       <Stack.Screen name="TermsOfUse" component={TermsOfUse} />
-      <Stack.Screen name="ThirdPartyNotices" component={ThirdPartyNotices} />
       <Stack.Screen name="Notifications" component={Notifications} />
       <Stack.Screen name="Settings" component={Settings} />
       <Stack.Screen name="DeviceSessions" component={DeviceSessions} />
@@ -246,7 +249,27 @@ const Navigation = () => {
         sessionProfile.id ?? sessionProfile.user_id ?? 'authenticated',
       )}`
     : 'guest';
-  const restoreFlightRef = React.useRef<Promise<boolean> | null>(null);
+  const restoreFlightRef = React.useRef<{
+    sessionKey: string;
+    promise: Promise<boolean>;
+  } | null>(null);
+  const currentNavigationSessionKeyRef = React.useRef(navigationSessionKey);
+  currentNavigationSessionKeyRef.current = navigationSessionKey;
+  const previousNavigationSessionKeyRef = React.useRef(navigationSessionKey);
+  const passiveSessionReturnRef = React.useRef<
+    ReturnType<typeof safeLoginReturnToFromRoute>
+  >(undefined);
+  if (previousNavigationSessionKeyRef.current !== navigationSessionKey) {
+    // SecureStore can finish after the guest shell is already usable on a
+    // slow phone. Capture the public screen before the account-keyed stack is
+    // replaced so passive session restoration does not throw an exploring
+    // learner back to Home. A deliberate OAuth journey still wins through its
+    // durable return envelope below.
+    passiveSessionReturnRef.current = navigationRef.isReady()
+      ? safeLoginReturnToFromRoute(navigationRef.getCurrentRoute())
+      : undefined;
+    previousNavigationSessionKeyRef.current = navigationSessionKey;
+  }
   React.useEffect(() => {
     restoredNavigationReady = false;
     lateInitialDestination = null;
@@ -257,80 +280,106 @@ const Navigation = () => {
       setNotificationNavigationReady(false);
     };
   }, []);
-  const restoreInterruptedLogin = React.useCallback(async () => {
-    const initialUrl = await navigationDeadline(Linking.getInitialURL(), null);
-    if (parseRoknDestination(initialUrl)) {
-      // The learner explicitly opened a fresh app/notification link. It owns
-      // this launch and must not be replaced by yesterday's interrupted login.
-      await clearPendingLoginReturnTo().catch(() => undefined);
-      return false;
-    }
-    const loginClaim = await navigationDeadline(
-      claimPendingLoginReturnTo(),
-      undefined,
-    );
-    if (loginClaim && navigationRef.isReady()) {
-      const returnTo = loginClaim.returnTo;
+  const restoreInterruptedLogin = React.useCallback(
+    async (operationSessionKey: string) => {
+      const initialUrl = await navigationDeadline(
+        Linking.getInitialURL(),
+        null,
+      );
+      if (currentNavigationSessionKeyRef.current !== operationSessionKey) {
+        return false;
+      }
+      if (!restoredNavigationReady && parseRoknDestination(initialUrl)) {
+        // The learner explicitly opened a fresh app/notification link. It owns
+        // this cold launch and must not be replaced by yesterday's interrupted
+        // login. Once navigation is already running, getInitialURL can still
+        // return the URL that launched the process; it is not a new intent and
+        // must not erase the course return saved by a login started afterwards.
+        await clearPendingLoginReturnTo().catch(() => undefined);
+        return false;
+      }
+      const loginClaim = await navigationDeadline(
+        claimPendingLoginReturnTo(),
+        undefined,
+      );
+      if (currentNavigationSessionKeyRef.current !== operationSessionKey) {
+        return false;
+      }
+      if (loginClaim && navigationRef.isReady()) {
+        const returnTo = loginClaim.returnTo;
+        navigationRef.dispatch(
+          CommonActions.reset({
+            index: 1,
+            routes: [
+              {name: 'Home'},
+              isLogin
+                ? returnTo.name === 'CourseDetails' ||
+                  returnTo.name === 'Reels' ||
+                  returnTo.name === 'Profile'
+                  ? {name: returnTo.name, params: returnTo.params}
+                  : {name: returnTo.name}
+                : {name: 'Login', params: {returnTo}},
+            ],
+          }),
+        );
+        // While signed out the record is the durable hand-off across the OAuth
+        // browser. A signed-in reset has completed its job and can acknowledge
+        // only the exact envelope it read.
+        if (isLogin) {
+          await acknowledgePendingLoginReturnTo(loginClaim.receipt).catch(
+            () => undefined,
+          );
+        }
+        return true;
+      }
+
+      if (!isLogin || !navigationRef.isReady()) return false;
+      const checkoutClaim = await navigationDeadline(
+        claimPendingCheckoutReturn(),
+        undefined,
+      );
+      if (currentNavigationSessionKeyRef.current !== operationSessionKey) {
+        return false;
+      }
+      if (!checkoutClaim || !navigationRef.isReady()) return false;
+      const returnTo = checkoutClaim.returnTo;
       navigationRef.dispatch(
         CommonActions.reset({
           index: 1,
           routes: [
             {name: 'Home'},
-            isLogin
-              ? returnTo.name === 'CourseDetails' ||
-                returnTo.name === 'Reels' ||
-                returnTo.name === 'Profile'
-                ? {name: returnTo.name, params: returnTo.params}
-                : {name: returnTo.name}
-              : {name: 'Login', params: {returnTo}},
+            returnTo.name === 'CourseDetails' ||
+            returnTo.name === 'Reels' ||
+            returnTo.name === 'Profile'
+              ? {name: returnTo.name, params: returnTo.params}
+              : {name: returnTo.name},
           ],
         }),
       );
-      // While signed out the record is the durable hand-off across the OAuth
-      // browser. A signed-in reset has completed its job and can acknowledge
-      // only the exact envelope it read.
-      if (isLogin) {
-        await acknowledgePendingLoginReturnTo(loginClaim.receipt).catch(
-          () => undefined,
-        );
-      }
+      await acknowledgePendingCheckoutReturn(checkoutClaim).catch(
+        () => undefined,
+      );
       return true;
-    }
-
-    if (!isLogin || !navigationRef.isReady()) return false;
-    const checkoutClaim = await navigationDeadline(
-      claimPendingCheckoutReturn(),
-      undefined,
-    );
-    if (!checkoutClaim || !navigationRef.isReady()) return false;
-    const returnTo = checkoutClaim.returnTo;
-    navigationRef.dispatch(
-      CommonActions.reset({
-        index: 1,
-        routes: [
-          {name: 'Home'},
-          returnTo.name === 'CourseDetails' ||
-          returnTo.name === 'Reels' ||
-          returnTo.name === 'Profile'
-            ? {name: returnTo.name, params: returnTo.params}
-            : {name: returnTo.name},
-        ],
-      }),
-    );
-    await acknowledgePendingCheckoutReturn(checkoutClaim).catch(
-      () => undefined,
-    );
-    return true;
-  }, [isLogin]);
+    },
+    [isLogin],
+  );
 
   const runInterruptedJourneyRestore = React.useCallback(() => {
-    if (restoreFlightRef.current) return restoreFlightRef.current;
-    const flight = restoreInterruptedLogin().finally(() => {
-      if (restoreFlightRef.current === flight) restoreFlightRef.current = null;
+    const operationSessionKey = navigationSessionKey;
+    if (restoreFlightRef.current?.sessionKey === operationSessionKey) {
+      return restoreFlightRef.current.promise;
+    }
+    const flight = restoreInterruptedLogin(operationSessionKey).finally(() => {
+      if (restoreFlightRef.current?.promise === flight) {
+        restoreFlightRef.current = null;
+      }
     });
-    restoreFlightRef.current = flight;
+    restoreFlightRef.current = {
+      sessionKey: operationSessionKey,
+      promise: flight,
+    };
     return flight;
-  }, [restoreInterruptedLogin]);
+  }, [navigationSessionKey, restoreInterruptedLogin]);
 
   React.useEffect(() => {
     // A cold OAuth completion may deliberately outlive the launch deadline.
@@ -338,7 +387,30 @@ const Navigation = () => {
     // finish the same return journey instead of leaving an authenticated
     // learner stranded on Login until another restart.
     if (isLogin && navigationRef.isReady()) {
-      void runInterruptedJourneyRestore();
+      const passiveReturn = passiveSessionReturnRef.current;
+      void runInterruptedJourneyRestore().then(restored => {
+        if (
+          !restored &&
+          passiveReturn &&
+          passiveSessionReturnRef.current === passiveReturn &&
+          navigationRef.isReady()
+        ) {
+          navigationRef.dispatch(
+            CommonActions.reset({
+              index: 1,
+              routes: [
+                {name: 'Home'},
+                'params' in passiveReturn && passiveReturn.params
+                  ? {name: passiveReturn.name, params: passiveReturn.params}
+                  : {name: passiveReturn.name},
+              ],
+            }),
+          );
+        }
+        if (passiveSessionReturnRef.current === passiveReturn) {
+          passiveSessionReturnRef.current = undefined;
+        }
+      });
     }
   }, [isLogin, runInterruptedJourneyRestore]);
 

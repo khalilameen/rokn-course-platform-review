@@ -9,6 +9,7 @@ use App\Models\ProjectSubmission;
 use App\Jobs\CleanupDeletedAccountPortfolioMedia;
 use App\Jobs\DeleteAccountFile;
 use App\Models\AccountFileDeletion;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -42,6 +43,8 @@ final class AccountDeletionService
         $storedFiles = [];
         $remotePortfolioCleanupPending = false;
         $cleanupOutboxIds = [];
+        $courseRatingsDeleted = false;
+        $catalogueEnrollmentCountChanged = false;
 
         DB::transaction(function () use (
             $user,
@@ -49,13 +52,26 @@ final class AccountDeletionService
             &$localFiles,
             &$storedFiles,
             &$remotePortfolioCleanupPending,
-            &$cleanupOutboxIds
+            &$cleanupOutboxIds,
+            &$courseRatingsDeleted,
+            &$catalogueEnrollmentCountChanged
         ): void {
             $locked = User::query()->lockForUpdate()->findOrFail($user->id);
             // Cover a provider linked in the narrow interval between the first
             // identity snapshot and this aggregate lock.
             $this->identityGuards->markDeletionStarted((int) $locked->id);
             $userId = (int) $locked->id;
+            $catalogueEnrollmentCountChanged = strtolower((string) $locked->role) === 'client'
+                && Schema::hasTable('course_enrollments')
+                && Schema::hasColumn('course_enrollments', 'is_active')
+                && Schema::hasColumn('course_enrollments', 'expires_at')
+                && DB::table('course_enrollments')
+                    ->where('user_id', $userId)
+                    ->where('is_active', true)
+                    ->where(function ($query): void {
+                        $query->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                    })
+                    ->exists();
             $originalPhone = trim((string) $locked->getRawOriginal('phone'));
             $profileImage = trim((string) $locked->getRawOriginal('profile_image'));
 
@@ -77,6 +93,9 @@ final class AccountDeletionService
             }
 
             if (Schema::hasTable('project_submissions')) {
+                $projectSubmissionIds = DB::table('project_submissions')
+                    ->where('user_id', $userId)
+                    ->pluck('id');
                 ProjectSubmission::query()
                     ->where('user_id', $userId)
                     ->whereNotNull('submission_file')
@@ -99,6 +118,17 @@ final class AccountDeletionService
                     'submission_metadata' => null,
                     'updated_at' => now(),
                 ]);
+                if (
+                    $projectSubmissionIds->isNotEmpty()
+                    && Schema::hasTable('project_submission_review_decisions')
+                ) {
+                    // Keep the immutable decision sequence as academic/audit
+                    // evidence, but remove free-form reviewer text alongside
+                    // the learner submission text during account deletion.
+                    DB::table('project_submission_review_decisions')
+                        ->whereIn('submission_id', $projectSubmissionIds)
+                        ->update(['feedback' => '']);
+                }
             }
 
             if (Schema::hasTable('user_project_evaluations')) {
@@ -133,6 +163,9 @@ final class AccountDeletionService
                 }
 
                 $certificateUpdate = ['image_path' => 'pending', 'updated_at' => now()];
+                if (Schema::hasColumn('certificates', 'holder_name')) {
+                    $certificateUpdate['holder_name'] = null;
+                }
                 if (Schema::hasColumn('certificates', 'status')) {
                     $certificateUpdate['status'] = 'revoked';
                 }
@@ -355,7 +388,13 @@ final class AccountDeletionService
             $this->deleteByUserIdIfPresent('student_notifications', $userId);
             $this->deleteByUserIdIfPresent('messages', $userId);
             $this->deleteByUserIdIfPresent('user_notes', $userId);
-            $this->deleteByUserIdIfPresent('course_ratings', $userId);
+            if (Schema::hasTable('course_ratings') && Schema::hasColumn('course_ratings', 'user_id')) {
+                // Query-builder deletion is intentional during account
+                // erasure, but it bypasses CourseRating model events.
+                $courseRatingsDeleted = DB::table('course_ratings')
+                    ->where('user_id', $userId)
+                    ->delete() > 0;
+            }
             $this->deleteByUserIdIfPresent('rates', $userId);
             $this->deleteByUserIdIfPresent('order_notifications', $userId);
             $this->deleteByUserIdIfPresent('order_requests', $userId);
@@ -437,17 +476,35 @@ final class AccountDeletionService
             $locked->deleteQuietly();
         });
 
-        foreach ($cleanupOutboxIds as $deletionId) {
+        if ($courseRatingsDeleted || $catalogueEnrollmentCountChanged) {
+            // Public course cards cache rating aggregates and active student
+            // counts. Account erasure intentionally uses quiet/query-builder
+            // mutations, so publish one revision explicitly after commit.
             try {
-                DeleteAccountFile::dispatch((int) $deletionId)
-                    ->onQueue((string) config('queue.channels.media', 'media'));
-            } catch (\Throwable $exception) {
-                Log::warning('Unable to dispatch account-file cleanup.', [
-                    'deletion_id' => $deletionId,
-                    'exception' => get_class($exception),
-                ]);
+                Cache::add(
+                    'courses:catalog-revision',
+                    max(1, (int) floor(microtime(true) * 1000)),
+                    now()->addYears(10)
+                );
+                Cache::increment('courses:catalog-revision');
+            } catch (\Throwable) {
+                // The committed privacy operation must not depend on Redis.
             }
         }
+
+        $this->afterCommitOrNow(function () use ($cleanupOutboxIds): void {
+            foreach ($cleanupOutboxIds as $deletionId) {
+                try {
+                    DeleteAccountFile::dispatch((int) $deletionId)
+                        ->onQueue((string) config('queue.channels.media', 'media'));
+                } catch (\Throwable $exception) {
+                    Log::warning('Unable to dispatch account-file cleanup.', [
+                        'deletion_id' => $deletionId,
+                        'exception' => get_class($exception),
+                    ]);
+                }
+            }
+        });
         $cleanupPending = AccountFileDeletion::query()
             ->whereIn('id', $cleanupOutboxIds)
             ->whereNotIn('status', [
@@ -457,17 +514,19 @@ final class AccountDeletionService
             ->exists();
 
         if ($remotePortfolioCleanupPending) {
-            try {
-                CleanupDeletedAccountPortfolioMedia::dispatch((int) $user->id)
-                    ->onQueue((string) config('queue.channels.media', 'media'));
-            } catch (\Throwable $exception) {
-                // Account deletion has already committed. Keep the private DB
-                // references so the scheduled recovery command can retry later.
-                Log::warning('Unable to dispatch deleted portfolio cleanup.', [
-                    'deleted_user_id' => $user->id,
-                    'exception' => get_class($exception),
-                ]);
-            }
+            $this->afterCommitOrNow(function () use ($user): void {
+                try {
+                    CleanupDeletedAccountPortfolioMedia::dispatch((int) $user->id)
+                        ->onQueue((string) config('queue.channels.media', 'media'));
+                } catch (\Throwable $exception) {
+                    // The durable private references let scheduled recovery
+                    // retry even if the queue is unavailable after commit.
+                    Log::warning('Unable to dispatch deleted portfolio cleanup.', [
+                        'deleted_user_id' => $user->id,
+                        'exception' => get_class($exception),
+                    ]);
+                }
+            });
         }
 
         return [
@@ -481,6 +540,16 @@ final class AccountDeletionService
         if ($table !== '' && Schema::hasTable($table) && Schema::hasColumn($table, 'user_id')) {
             DB::table($table)->where('user_id', $userId)->delete();
         }
+    }
+
+    private function afterCommitOrNow(callable $callback): void
+    {
+        if (DB::transactionLevel() > 0) {
+            DB::afterCommit($callback);
+            return;
+        }
+
+        $callback();
     }
 
     /**

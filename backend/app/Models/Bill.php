@@ -41,6 +41,20 @@ class Bill extends Model
     const PAYMENT_METHOD_COURSE_CODE = 'course_code';
     const PAYMENT_METHOD_WALLET = 'wallet';
 
+    /** Course access paid from the in-app wallet is denominated in Rokn coins. */
+    public function isCoinDenominated(): bool
+    {
+        return in_array($this->payment_method, [
+            self::PAYMENT_METHOD_WALLET,
+            Order::PAYMENT_METHOD_WALLET_COINS,
+        ], true);
+    }
+
+    public function amountUnitLabel(): string
+    {
+        return $this->isCoinDenominated() ? 'عملة' : 'جنيه';
+    }
+
     // Payment statuses
     const PAYMENT_STATUS_PENDING = 'pending';
     const PAYMENT_STATUS_PAID = 'paid';

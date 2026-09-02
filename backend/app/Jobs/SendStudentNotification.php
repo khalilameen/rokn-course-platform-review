@@ -8,6 +8,8 @@ use App\Models\User;
 use App\Models\AdminNotification;
 use App\Models\NotificationCampaign;
 use App\Models\NotificationCampaignRecipient;
+use App\Models\Course;
+use App\Models\FinancialEntitlementHold;
 use App\Services\NotificationDeliveryPolicy;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -129,14 +131,33 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
         $this->uniqueId(); // Backfills jobs serialized by the previous release.
 
         try {
+            if (!$this->courseStillDeliverable()) {
+                $this->finishWithdrawnCourseCampaign();
+                return;
+            }
             if (Schema::hasTable('notification_campaigns')) {
-                NotificationCampaign::query()
+                $persistedCampaign = NotificationCampaign::query()
                     ->where('delivery_key', $this->deliveryKey)
-                    ->update([
-                        'status' => NotificationCampaign::STATUS_DELIVERING,
-                        'failed_at' => null,
-                        'failure_code' => null,
-                    ]);
+                    ->first(['id']);
+                if ($persistedCampaign) {
+                    $claimedCampaign = NotificationCampaign::query()
+                        ->whereKey($persistedCampaign->id)
+                        ->whereIn('status', [
+                            NotificationCampaign::STATUS_QUEUED,
+                            NotificationCampaign::STATUS_DELIVERING,
+                        ])
+                        ->update([
+                            'status' => NotificationCampaign::STATUS_DELIVERING,
+                            'failed_at' => null,
+                            'failure_code' => null,
+                        ]);
+                    if ($claimedCampaign !== 1) {
+                        // A delayed duplicate must never revive a completed,
+                        // scheduled or manually dead-lettered campaign. Due
+                        // schedules and explicit retries first move to queued.
+                        return;
+                    }
+                }
             }
             $query = User::where('role', 'client')->where('active', true);
 
@@ -185,6 +206,13 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
                         ->where(function ($expiry): void {
                             $expiry->whereNull('expires_at')->orWhere('expires_at', '>', now());
                         });
+                });
+            }
+            if ($this->courseId !== null && Schema::hasTable('financial_entitlement_holds')) {
+                $query->whereDoesntHave('enrollments.financialHolds', function ($holds): void {
+                    $holds->where('course_id', $this->courseId)
+                        ->where('status', FinancialEntitlementHold::STATUS_ACTIVE)
+                        ->whereIn('entitlement_scope', ['course', 'plan', 'chat']);
                 });
             }
 
@@ -323,6 +351,10 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
         if (Schema::hasTable('notification_campaigns')) {
             NotificationCampaign::query()
                 ->where('delivery_key', $this->deliveryKey)
+                ->whereIn('status', [
+                    NotificationCampaign::STATUS_QUEUED,
+                    NotificationCampaign::STATUS_DELIVERING,
+                ])
                 ->update([
                     'status' => NotificationCampaign::STATUS_FAILED,
                     'failed_at' => now(),
@@ -346,6 +378,37 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
         $deliveryKey = trim($deliveryKey);
 
         return strlen($deliveryKey) <= 64 ? $deliveryKey : hash('sha256', $deliveryKey);
+    }
+
+    private function courseStillDeliverable(): bool
+    {
+        if ($this->courseId === null) return true;
+        $course = Course::query()->find($this->courseId);
+        if (!$course || !$course->isPublishedForLearning()) return false;
+
+        return $this->audience === self::AUDIENCE_ENROLLED
+            || (bool) $course->is_catalog_visible;
+    }
+
+    private function finishWithdrawnCourseCampaign(): void
+    {
+        if (!Schema::hasTable('notification_campaigns')) return;
+        NotificationCampaign::query()
+            ->where('delivery_key', $this->deliveryKey)
+            ->whereIn('status', [
+                NotificationCampaign::STATUS_QUEUED,
+                NotificationCampaign::STATUS_SCHEDULED,
+                NotificationCampaign::STATUS_DELIVERING,
+            ])
+            ->update([
+                'status' => NotificationCampaign::STATUS_COMPLETED,
+                'recipients_count' => 0,
+                'resolved_count' => 0,
+                'completed_at' => now(),
+                'coordinator_finished_at' => now(),
+                'failure_code' => 'course_withdrawn_before_delivery',
+                'updated_at' => now(),
+            ]);
     }
 
     /**

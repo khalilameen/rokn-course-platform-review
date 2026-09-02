@@ -224,6 +224,7 @@ export const clearPendingLoginReturnTo = () =>
 
 export type PendingLoginReturnClaim = {
   returnTo: LoginReturnTo;
+  createdAt: number;
   /** The exact stored envelope. It lets acknowledgement avoid deleting a newer intent. */
   receipt: string;
 };
@@ -280,7 +281,7 @@ export const claimPendingLoginReturnTo = async (): Promise<
       await AsyncStorage.removeItem(PENDING_LOGIN_RETURN_KEY);
       return undefined;
     }
-    return {returnTo, receipt: raw};
+    return {returnTo, createdAt, receipt: raw};
   } catch {
     await AsyncStorage.removeItem(PENDING_LOGIN_RETURN_KEY);
     return undefined;

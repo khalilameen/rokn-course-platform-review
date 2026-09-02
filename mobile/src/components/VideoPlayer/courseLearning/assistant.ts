@@ -6,11 +6,13 @@ import {
   captureAccountSessionBoundary,
 } from '../../../constants/helpers';
 import {openExternalUrlOnce} from '../../../services/systemActions';
+import {cleanUnicodeText} from '../../../utils/unicodeText';
 import {includesCourseAssistant} from '../courseEntitlements';
 import type {ChatMessage, CourseLearningData, CourseReel} from '../types';
 import {asArray, asRecord, valueAsBoolean, valueAsString} from './shared';
 
 const COURSE_CHAT_REQUEST_TIMEOUT_MS = 60_000;
+const assistantAttachmentOpenFlights = new Map<string, Promise<void>>();
 
 const demoAssistantReply = (message: string, reel?: CourseReel) => {
   const question = message.trim();
@@ -70,13 +72,13 @@ export const loadCourseAssistantHistory = async (
       )
     ) return [];
     const createdAt = Date.parse(valueAsString(message.created_at));
-    const text = valueAsString(message.text) ||
+    const text = cleanUnicodeText(valueAsString(message.text)) ||
       (role === 'assistant' && status === 'failed'
         ? 'لم تكتمل الإجابة\nاستعد الرد'
         : '');
     const attachments = asArray<Record<string, unknown>>(message.attachments).map(file => ({
       uri: '',
-      name: valueAsString(file.name, 'مرفق'),
+      name: cleanUnicodeText(valueAsString(file.name, 'مرفق'), false),
       type: valueAsString(file.mime_type, 'application/octet-stream'),
       size: Number(file.size_bytes) || undefined,
       uploadId: valueAsString(file.id),
@@ -99,7 +101,7 @@ export const loadCourseAssistantHistory = async (
   });
 };
 
-export const openCourseAssistantAttachment = async (
+const openCourseAssistantAttachmentInternal = async (
   file: import('../types').ChatAttachmentDraft,
 ) => {
   let candidate = file;
@@ -124,7 +126,31 @@ export const openCourseAssistantAttachment = async (
     };
   }
   if (!candidate.downloadUrl) throw new Error('CHAT_ATTACHMENT_UNAVAILABLE');
-  await openExternalUrlOnce(candidate.downloadUrl);
+  await openExternalUrlOnce(
+    candidate.downloadUrl,
+    undefined,
+    `course-chat-attachment:${
+      file.serverId || file.uploadId || file.downloadUrl || ''
+    }`,
+  );
+};
+
+export const openCourseAssistantAttachment = (
+  file: import('../types').ChatAttachmentDraft,
+) => {
+  const key = String(
+    file.serverId || file.uploadId || file.downloadUrl || '',
+  ).trim();
+  if (!key) return Promise.reject(new Error('CHAT_ATTACHMENT_UNAVAILABLE'));
+  const existing = assistantAttachmentOpenFlights.get(key);
+  if (existing) return existing;
+  const flight = openCourseAssistantAttachmentInternal(file).finally(() => {
+    if (assistantAttachmentOpenFlights.get(key) === flight) {
+      assistantAttachmentOpenFlights.delete(key);
+    }
+  });
+  assistantAttachmentOpenFlights.set(key, flight);
+  return flight;
 };
 
 export const pollCourseAssistantTurn = async (
@@ -146,7 +172,20 @@ export const pollCourseAssistantTurn = async (
       `course-chat/turns/${encodeURIComponent(clientRequestId)}`,
       {timeout: 12000},
     );
-  } catch {
+  } catch (error: unknown) {
+    const failure = asRecord(error);
+    const response = asRecord(failure.response);
+    const status = Number(response.status || failure.status || 0);
+    if (status === 404 || status === 410) {
+      return {
+        text: 'لم يصل السؤال إلى Rokn AI\nأرسله مرة أخرى',
+        offline: false,
+        unavailable: true,
+        clientRequestId,
+        turnStatus: 'failed',
+        code: 'chat_turn_not_found',
+      };
+    }
     // A status read cannot invalidate a turn already accepted by the server.
     // Keep the same logical id and let the bounded polling loop recover after
     // a mobile-network hand-off instead of showing a false failed answer.
@@ -178,13 +217,16 @@ export const pollCourseAssistantTurn = async (
   const blocked = [
     'chat_upgrade_required',
     'chat_plan_limit_reached',
+    'course_not_available',
+    'course_access_required',
+    'chat_disabled_for_course',
   ].includes(code);
 
   return {
     text:
       (blocked && code === 'chat_plan_limit_reached'
         ? 'استخدمت مساحة الأسئلة في فئتك الحالية\nيمكنك زيادتها بدفع فرق الفئة فقط'
-        : valueAsString(data.message)) ||
+        : cleanUnicodeText(valueAsString(data.message))) ||
       (turnStatus === 'completed'
         ? ''
         : 'الرد قيد التجهيز\nسيظهر خلال لحظات'),
@@ -293,7 +335,7 @@ export const askCourseAssistant = async ({
           ? 'failed'
           : 'completed';
         return {
-          text: valueAsString(text),
+          text: cleanUnicodeText(valueAsString(text)),
           offline: false,
           unavailable,
           clientRequestId:
@@ -307,6 +349,7 @@ export const askCourseAssistant = async ({
     } catch (error: unknown) {
       const failure = asRecord(error);
       const response = asRecord(failure.response);
+      const status = Number(response.status || failure.status || 0);
       const errorCode = valueAsString(
         asRecord(failure.data).code,
         valueAsString(asRecord(response.data).code),
@@ -327,6 +370,27 @@ export const askCourseAssistant = async ({
           code: errorCode,
         };
       }
+      if (
+        [
+          'course_not_available',
+          'course_access_required',
+          'chat_disabled_for_course',
+        ].includes(errorCode)
+      ) {
+        return {
+          text:
+            errorCode === 'course_not_available'
+              ? 'هذا الكورس غير متاح الآن'
+              : errorCode === 'course_access_required'
+              ? 'افتح الكورس أولًا لاستخدام Rokn AI'
+              : 'Rokn AI غير متاح في هذا الكورس',
+          offline: false,
+          blocked: true,
+          code: errorCode,
+          clientRequestId,
+          turnStatus: 'failed',
+        };
+      }
       if (errorCode === 'chat_daily_limit_reached') {
         return {
           text: 'اكتملت أسئلة اليوم\nيمكنك المتابعة غدًا',
@@ -345,6 +409,25 @@ export const askCourseAssistant = async ({
           code: errorCode,
           clientRequestId,
           turnStatus: 'failed',
+        };
+      }
+
+      // A timeout or server/gateway disconnect does not prove that the paid
+      // turn was rejected. Keep the immutable request id and recover through
+      // the status endpoint; resubmitting a fresh turn here could debit the
+      // learner and call the provider twice for one visible question.
+      if (
+        clientRequestId &&
+        (status === 0 || status === 408 || status >= 500)
+      ) {
+        return {
+          text: 'نجهز إجابتك الآن\nستظهر خلال لحظات',
+          offline: status === 0,
+          unavailable: false,
+          clientRequestId,
+          turnStatus: 'queued',
+          code: 'chat_answer_in_progress',
+          retryAfterSeconds: 2,
         };
       }
 

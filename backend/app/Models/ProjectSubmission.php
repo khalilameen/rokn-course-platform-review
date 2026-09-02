@@ -75,6 +75,12 @@ class ProjectSubmission extends Model
             ->orderBy('sequence');
     }
 
+    public function latestReviewDecision()
+    {
+        return $this->hasOne(ProjectSubmissionReviewDecision::class, 'submission_id')
+            ->latestOfMany('sequence');
+    }
+
     public function aiInputAttachments()
     {
         return $this->hasMany(AiInputAttachment::class, 'owner_id')
