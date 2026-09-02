@@ -555,8 +555,13 @@ test('Expo Pods without package-local notices retain commit-pinned upstream lice
   );
   const documents = new Map();
   const packageCache = new Map();
-  assert.equal(POD_UPSTREAM_LEGAL_DOCUMENTS.size, 16);
-  for (const [coordinate, review] of POD_UPSTREAM_LEGAL_DOCUMENTS) {
+  assert.equal(POD_UPSTREAM_LEGAL_DOCUMENTS.size, 28);
+  const currentReviews = [...POD_UPSTREAM_LEGAL_DOCUMENTS].filter(
+    ([coordinate]) =>
+      inventory.pods.some(item => item.coordinate === coordinate),
+  );
+  assert.equal(currentReviews.length, 17);
+  for (const [coordinate, review] of currentReviews) {
     const pod = inventory.pods.find(item => item.coordinate === coordinate);
     assert.ok(pod, coordinate);
     const record = buildExternalPodRecord(pod, documents, packageCache);

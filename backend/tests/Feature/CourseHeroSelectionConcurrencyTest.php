@@ -53,6 +53,7 @@ final class CourseHeroSelectionConcurrencyTest extends TestCase
         );
 
         self::assertIsString($source);
+        $source = str_replace("\r\n", "\n", $source);
         self::assertStringContainsString(
             '$ownedAuthoringVersion = $authoring->advance($lockedCourse);',
             $source

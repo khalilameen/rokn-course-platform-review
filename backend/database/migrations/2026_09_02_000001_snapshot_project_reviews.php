@@ -10,6 +10,12 @@ use Illuminate\Support\Str;
 
 return new class extends Migration
 {
+    /**
+     * This migration deliberately guards each DDL step so MySQL can resume
+     * after an implicit commit or an interrupted deployment.
+     */
+    public $withinTransaction = false;
+
     public function up(): void
     {
         if (!Schema::hasColumn('project_submissions', 'evaluation_snapshot')) {
