@@ -81,7 +81,10 @@ return new class extends Migration
                     ['notification_campaign_id', 'status', 'id'],
                     'notification_campaign_recipient_work'
                 );
-                $table->foreign('notification_campaign_id')
+                $table->foreign(
+                    'notification_campaign_id',
+                    'notification_recipient_campaign_fk'
+                )
                     ->references('id')->on('notification_campaigns')->cascadeOnDelete();
             });
         }
