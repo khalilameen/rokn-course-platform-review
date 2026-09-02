@@ -208,12 +208,31 @@ final readonly class PortfolioVideoUploadService
                 'attached' => true,
             ];
         }
-        abort_unless($session->status === 'pending', 410);
-        return array_merge([
-            'video_id' => (string) $session->video_guid,
-            'claim_expires_at' => $session->expires_at->toIso8601String(),
-            'attached' => false,
-        ], $this->bunny->directUploadAuthorization((string) $session->video_guid));
+
+        $session = DB::transaction(function () use ($user, $itemId, $session): PortfolioVideoUpload {
+            User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $item = PortfolioItem::query()->whereKey($itemId)->lockForUpdate()->firstOrFail();
+            abort_unless((int) $item->user_id === (int) $user->id, 404);
+            abort_if($item->deletion_started_at, 409);
+
+            $locked = PortfolioVideoUpload::query()->whereKey($session->id)->lockForUpdate()->firstOrFail();
+            abort_unless($locked->status === 'pending' && $locked->expires_at->isFuture(), 410);
+            $candidate = BunnyVideoCleanupCandidate::query()
+                ->where('video_guid', $locked->video_guid)
+                ->whereNull('remote_deleted_at')
+                ->whereNull('last_attempt_at')
+                ->lockForUpdate()
+                ->first();
+            abort_unless($candidate, 410);
+
+            $expiresAt = now()->addHours(24);
+            $locked->forceFill(['expires_at' => $expiresAt])->save();
+            $candidate->forceFill(['eligible_after' => $expiresAt])->save();
+
+            return $locked->fresh();
+        }, 3);
+
+        return $this->payload($session);
     }
 
     public function attach(User $user, int $itemId, string $claim, ?string $caption): PortfolioMedia

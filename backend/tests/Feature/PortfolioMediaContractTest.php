@@ -32,9 +32,11 @@ final class PortfolioMediaContractTest extends TestCase
         ]);
         $bunny->shouldReceive('getSignedEmbedUrl')->once()->andReturn([
             'url' => 'https://video.example.test/embed/ready',
+            'expires_at' => '2026-09-02T12:05:00+00:00',
         ]);
         $bunny->shouldReceive('getSignedPlayUrl')->once()->andReturn([
             'url' => 'https://video.example.test/play/ready.m3u8',
+            'expires_at' => '2026-09-02T12:05:00+00:00',
         ]);
         $this->app->instance(BunnyService::class, $bunny);
 
@@ -43,6 +45,7 @@ final class PortfolioMediaContractTest extends TestCase
         self::assertSame('ready', $payload['status']);
         self::assertSame('https://video.example.test/embed/ready', $payload['video_url']);
         self::assertSame('https://video.example.test/play/ready.m3u8', $payload['playback_url']);
+        self::assertSame('2026-09-02T12:05:00+00:00', $payload['url_expires_at']);
     }
 
     public function test_presigned_upload_started_is_processing_not_a_false_failure(): void

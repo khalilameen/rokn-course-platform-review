@@ -32,6 +32,23 @@ type UploadRecord = Authorization & {
 const STORAGE_KEY = '@rokn/portfolio-direct-video/v1';
 const CHUNK_BYTES = 4 * 1024 * 1024;
 
+export const validatedTusOffset = (
+  value: string | null,
+  totalSize: number,
+  expectedOffset?: number,
+): number => {
+  const offset = value === null ? Number.NaN : Number(value);
+  if (
+    !Number.isSafeInteger(offset) ||
+    offset < 0 ||
+    offset > totalSize ||
+    (expectedOffset !== undefined && offset !== expectedOffset)
+  ) {
+    throw new Error('PORTFOLIO_VIDEO_UPLOAD_STATE_INVALID');
+  }
+  return offset;
+};
+
 const responseData = <T>(response: unknown): T => {
   const root = (response as {data?: unknown})?.data as
     | {data?: unknown}
@@ -154,6 +171,7 @@ const renew = async (
   if (!auth.headers || typeof auth.headers !== 'object') {
     throw new Error('PORTFOLIO_VIDEO_UPLOAD_AUTH_INVALID');
   }
+  if (auth.claim) record.claim = auth.claim;
   record.headers = auth.headers;
   await saveRecord(key, boundary, record);
   return false;
@@ -174,7 +192,7 @@ const remoteOffset = async (
   assertAccountSessionBoundary(boundary);
   if (response.status === 404 || response.status === 410) return -1;
   if (!response.ok) throw new Error('PORTFOLIO_VIDEO_UPLOAD_RESUME_FAILED');
-  return Number(response.headers.get('Upload-Offset') || 0);
+  return validatedTusOffset(response.headers.get('Upload-Offset'), record.size);
 };
 
 const readChunk = async (path: string, offset: number, length: number) => {
@@ -204,7 +222,17 @@ const patchChunk = (
     request.setRequestHeader('Content-Type', 'application/offset+octet-stream');
     request.onload = () => {
       if (request.status >= 200 && request.status < 300) {
-        resolve(Number(request.getResponseHeader('Upload-Offset') || offset));
+        try {
+          resolve(
+            validatedTusOffset(
+              request.getResponseHeader('Upload-Offset'),
+              record.size,
+              offset + body.byteLength,
+            ),
+          );
+        } catch (error) {
+          reject(error);
+        }
       } else {
         reject(
           Object.assign(new Error('PORTFOLIO_VIDEO_UPLOAD_FAILED'), {

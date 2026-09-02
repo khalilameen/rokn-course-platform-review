@@ -144,6 +144,58 @@ final class BunnyDirectUploadLeaseTest extends TestCase
         self::assertSame('failed', BunnyDirectUpload::query()->findOrFail($session->id)->status);
     }
 
+    public function test_authorization_renewal_slides_the_upload_and_cleanup_leases_together(): void
+    {
+        [$admin, $course] = $this->authoringContext();
+        $guid = '12345678-1234-4234-8234-123456789abc';
+        $oldExpiry = now()->addHour();
+        $session = BunnyDirectUpload::query()->create([
+            'user_id' => $admin->id,
+            'course_id' => $course->id,
+            'idempotency_key' => '96e07193-d6a9-4b62-9976-b652b4e4f8a7',
+            'request_hash' => str_repeat('a', 64),
+            'video_guid' => $guid,
+            'status' => 'pending',
+            'expires_at' => $oldExpiry,
+        ]);
+        BunnyVideoCleanupCandidate::query()->create([
+            'video_guid' => $guid,
+            'reason' => 'direct_upload_pending',
+            'eligible_after' => $oldExpiry,
+            'requires_review' => false,
+            'reviewed_at' => now(),
+        ]);
+        $claim = Crypt::encryptString(json_encode([
+            'v' => 2,
+            'upload_id' => $session->id,
+            'video_id' => $guid,
+            'course_id' => $course->id,
+            'section_id' => null,
+            'admin_id' => $admin->id,
+            'size' => 1024,
+            'mime' => 'video/mp4',
+            'title' => 'الدرس الأول',
+            'expires_at' => $oldExpiry->timestamp,
+        ], JSON_THROW_ON_ERROR));
+
+        $bunny = Mockery::mock(BunnyService::class);
+        $bunny->shouldReceive('directUploadAuthorization')->once()->with($guid)->andReturn([
+            'headers' => ['VideoId' => $guid],
+            'authorization_expires_at' => now()->addMinutes(30)->toIso8601String(),
+            'authorization_expires_in_seconds' => 1800,
+        ]);
+
+        $result = (new BunnyDirectUploadService($bunny))->authorization($course, $admin, $claim);
+        $renewed = BunnyDirectUpload::query()->findOrFail($session->id);
+        $candidate = BunnyVideoCleanupCandidate::query()->where('video_guid', $guid)->firstOrFail();
+        $renewedClaim = json_decode(Crypt::decryptString($result['claim']), true, 16, JSON_THROW_ON_ERROR);
+
+        self::assertTrue($renewed->expires_at->greaterThan($oldExpiry));
+        self::assertSame($renewed->expires_at->timestamp, $candidate->eligible_after->timestamp);
+        self::assertSame($renewed->expires_at->timestamp, $renewedClaim['expires_at']);
+        self::assertSame($result['claim_expires_at'], $renewed->expires_at->toIso8601String());
+    }
+
     /** @return array{User, Course} */
     private function authoringContext(): array
     {

@@ -13,6 +13,7 @@ use App\Models\User;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
@@ -262,17 +263,53 @@ final readonly class BunnyDirectUploadService
     public function authorization(Course $course, User $admin, string $claim): array
     {
         $payload = $this->claim($course, $admin, $claim);
-        $this->assertPendingSession($payload);
-        if (!BunnyVideoCleanupCandidate::query()
-            ->where('video_guid', $payload['video_id'])
-            ->whereNull('remote_deleted_at')
-            ->whereNull('last_attempt_at')
-            ->exists()) {
-            throw $this->terminalClaim('انتهت عملية الرفع أو تم استخدامها من قبل', 'claim');
+        $refreshedClaim = $claim;
+
+        if ((int) ($payload['v'] ?? 1) === 2) {
+            $session = DB::transaction(function () use ($payload): BunnyDirectUpload {
+                $session = BunnyDirectUpload::query()
+                    ->whereKey((int) ($payload['upload_id'] ?? 0))
+                    ->lockForUpdate()
+                    ->first();
+                if (!$session
+                    || $session->status !== 'pending'
+                    || $session->expires_at->isPast()
+                    || !hash_equals((string) $session->video_guid, (string) $payload['video_id'])) {
+                    throw $this->terminalClaim('تم استخدام هذا الرفع من قبل أو انتهت صلاحيته', 'claim');
+                }
+
+                $candidate = BunnyVideoCleanupCandidate::query()
+                    ->where('video_guid', $payload['video_id'])
+                    ->whereNull('remote_deleted_at')
+                    ->whereNull('last_attempt_at')
+                    ->lockForUpdate()
+                    ->first();
+                if (!$candidate) {
+                    throw $this->terminalClaim('انتهت عملية الرفع أو تم استخدامها من قبل', 'claim');
+                }
+
+                $expiresAt = now()->addHours(max(2, (int) config('bunny.direct_upload_claim_ttl_hours', 24)));
+                $session->forceFill(['expires_at' => $expiresAt])->save();
+                $candidate->forceFill(['eligible_after' => $expiresAt])->save();
+
+                return $session->fresh();
+            }, 3);
+            $payload['expires_at'] = $session->expires_at->getTimestamp();
+            $refreshedClaim = $this->encryptedClaim($session, $payload);
+        } else {
+            $this->assertPendingSession($payload);
+            if (!BunnyVideoCleanupCandidate::query()
+                ->where('video_guid', $payload['video_id'])
+                ->whereNull('remote_deleted_at')
+                ->whereNull('last_attempt_at')
+                ->exists()) {
+                throw $this->terminalClaim('انتهت عملية الرفع أو تم استخدامها من قبل', 'claim');
+            }
         }
 
         return array_merge([
             'video_id' => $payload['video_id'],
+            'claim' => $refreshedClaim,
             'claim_expires_at' => gmdate(DATE_ATOM, (int) $payload['expires_at']),
         ], $this->bunny->directUploadAuthorization((string) $payload['video_id']));
     }
@@ -366,7 +403,7 @@ final readonly class BunnyDirectUploadService
         string $mime,
         ?CourseSection $section
     ): array {
-        $claim = Crypt::encryptString((string) json_encode([
+        $claimPayload = [
             'v' => 2,
             'upload_id' => (int) $session->id,
             'video_id' => (string) $session->video_guid,
@@ -377,7 +414,8 @@ final readonly class BunnyDirectUploadService
             'mime' => $mime,
             'title' => $title,
             'expires_at' => $session->expires_at->getTimestamp(),
-        ], JSON_THROW_ON_ERROR));
+        ];
+        $claim = $this->encryptedClaim($session, $claimPayload);
 
         return array_merge([
             'upload_endpoint' => 'https://video.bunnycdn.com/tusupload',
@@ -385,6 +423,17 @@ final readonly class BunnyDirectUploadService
             'claim' => $claim,
             'claim_expires_at' => $session->expires_at->toIso8601String(),
         ], $this->bunny->directUploadAuthorization((string) $session->video_guid));
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function encryptedClaim(BunnyDirectUpload $session, array $payload): string
+    {
+        $payload['v'] = 2;
+        $payload['upload_id'] = (int) $session->id;
+        $payload['video_id'] = (string) $session->video_guid;
+        $payload['expires_at'] = $session->expires_at->getTimestamp();
+
+        return Crypt::encryptString((string) json_encode($payload, JSON_THROW_ON_ERROR));
     }
 
     /** @param array<string, mixed> $payload */

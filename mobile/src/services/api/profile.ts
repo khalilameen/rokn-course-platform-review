@@ -14,6 +14,7 @@ type PortfolioMediaDto = ApiRecord & {
   image_url?: unknown;
   video_url?: unknown;
   playback_url?: unknown;
+  url_expires_at?: unknown;
 };
 type PortfolioCourseDto = {name?: unknown; id?: unknown; image?: unknown};
 type PortfolioItemDto = ApiRecord & {
@@ -92,6 +93,7 @@ export type PortfolioMedia = {
   width?: number;
   height?: number;
   durationSeconds?: number;
+  urlExpiresAt?: string;
 };
 
 export type PortfolioUpload = {
@@ -468,6 +470,9 @@ const portfolioMedia = (value: unknown): PortfolioMedia[] =>
           Number.isFinite(durationSeconds) && durationSeconds >= 0
             ? durationSeconds
             : undefined,
+        urlExpiresAt: item.url_expires_at
+          ? String(item.url_expires_at)
+          : undefined,
       };
     });
 

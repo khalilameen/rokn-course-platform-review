@@ -197,6 +197,10 @@ document.addEventListener('DOMContentLoaded', function () {
         if (authorization.claim_expires_at) {
             record.claimExpiresAt = authorization.claim_expires_at;
         }
+        if (authorization.claim) {
+            record.claim = authorization.claim;
+            claimInput.value = authorization.claim;
+        }
     };
 
     const freshAuthorization = async record => {
@@ -228,7 +232,7 @@ document.addEventListener('DOMContentLoaded', function () {
         saveRecord(record);
     };
 
-    const remoteOffset = async record => {
+    const remoteOffset = async (record, totalSize) => {
         const headers = await freshAuthorization(record);
         const controller = new AbortController();
         const timer = window.setTimeout(() => controller.abort(), 15000);
@@ -240,7 +244,12 @@ document.addEventListener('DOMContentLoaded', function () {
             });
             if (response.status === 404 || response.status === 410) return null;
             if (!response.ok) throw new Error('تعذر استئناف الرفع');
-            return Number(response.headers.get('Upload-Offset') || 0);
+            const rawOffset = response.headers.get('Upload-Offset');
+            const offset = rawOffset === null ? Number.NaN : Number(rawOffset);
+            if (!Number.isSafeInteger(offset) || offset < 0 || offset > totalSize) {
+                throw new Error('حالة الرفع غير صالحة');
+            }
+            return offset;
         } catch (error) {
             if (error?.name === 'AbortError') throw new Error('الاتصال بطيء جدًا');
             throw error;
@@ -266,7 +275,12 @@ document.addEventListener('DOMContentLoaded', function () {
         request.onload = () => {
             currentRequest = null;
             if (request.status >= 200 && request.status < 300) {
-                resolve(Number(request.getResponseHeader('Upload-Offset') || end));
+                const nextOffset = Number(request.getResponseHeader('Upload-Offset'));
+                if (!Number.isSafeInteger(nextOffset) || nextOffset !== end || nextOffset > file.size) {
+                    reject(new Error('حالة الرفع غير صالحة'));
+                    return;
+                }
+                resolve(nextOffset);
             } else {
                 reject(Object.assign(new Error('تعذر متابعة الرفع'), {status: request.status}));
             }
@@ -346,7 +360,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
 
-        let offset = await remoteOffset(record);
+        let offset = await remoteOffset(record, file.size);
         if (offset === null) {
             clearRecord();
             if (restartCount >= 1) {
@@ -376,7 +390,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 failures += 1;
                 if (failures > 5) throw error;
                 await new Promise(resolve => setTimeout(resolve, [1000, 2000, 5000, 10000, 20000][failures - 1]));
-                const resumed = await remoteOffset(record);
+                const resumed = await remoteOffset(record, file.size);
                 if (resumed === null) {
                     clearRecord();
                     if (restartCount >= 1) {

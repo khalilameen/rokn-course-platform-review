@@ -33,6 +33,7 @@ class PortfolioMediaResource extends JsonResource
             'video_url' => null,
             'playback_url' => null,
             'image_url' => null,
+            'url_expires_at' => null,
         ];
 
         // A missing or temporarily unavailable asset must degrade one card,
@@ -73,6 +74,9 @@ class PortfolioMediaResource extends JsonResource
                         $playback = $bunnyService->getSignedPlayUrl($this->file_path, 300);
                         $data['video_url'] = $embed ? ($embed['url'] ?? null) : null;
                         $data['playback_url'] = $playback ? ($playback['url'] ?? null) : null;
+                        $data['url_expires_at'] = $playback['expires_at']
+                            ?? $embed['expires_at']
+                            ?? null;
                         if (!$data['video_url'] && !$data['playback_url']) {
                             $data['status'] = 'failed';
                         }
@@ -83,6 +87,9 @@ class PortfolioMediaResource extends JsonResource
                 $bunnyService = app(BunnyService::class);
                 $signedUrl = $bunnyService->generateBunnySignedUrl($this->file_path, 300);
                 $data['image_url'] = $signedUrl ?: null;
+                $data['url_expires_at'] = $signedUrl
+                    ? now()->addSeconds(300)->toIso8601String()
+                    : null;
                 $data['status'] = $data['image_url'] ? 'ready' : 'failed';
             }
         } catch (Throwable $exception) {

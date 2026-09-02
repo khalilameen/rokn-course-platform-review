@@ -74,6 +74,7 @@ import {
   stagePortfolioMediaUpload,
   type PortfolioMediaOutboxEntry,
 } from '../../services/portfolioMediaOutbox';
+import {remainingServerMilliseconds} from '../../utils/serverClock';
 
 type Project = {
   id: string;
@@ -207,6 +208,13 @@ export default function Gallery() {
   const pickerFlightRef = useRef(false);
   const pickerGenerationRef = useRef(0);
   const mediaReplayProjectsRef = useRef(new Set<string>());
+  const mediaRefreshFlightRef = useRef(false);
+  const mediaRefreshAttemptsRef = useRef(new Set<string>());
+  const selectedRef = useRef<Project | null>(selected);
+  const previewMediaRef = useRef<PortfolioMedia | null>(previewMedia);
+  const previousAppActiveRef = useRef(appActive);
+  selectedRef.current = selected;
+  previewMediaRef.current = previewMedia;
   const draftSnapshotRef = useRef({
     clientRequestId,
     cover: draftCoverAsset,
@@ -311,6 +319,54 @@ export default function Gallery() {
       if (mountedRef.current) setDraftSaveError(true);
     });
   }, [appActive, draftReady]);
+
+  const refreshOpenRemoteProject = useCallback(async (force = false) => {
+    const current = selectedRef.current;
+    if (!current || current.source !== 'remote' || mediaRefreshFlightRef.current)
+      return;
+    const currentPreview = previewMediaRef.current;
+    const remaining = remainingServerMilliseconds(currentPreview?.urlExpiresAt);
+    if (!force && (remaining === null || remaining > 60000)) return;
+
+    mediaRefreshFlightRef.current = true;
+    const generation = detailGenerationRef.current;
+    const projectId = current.id;
+    const previewId = currentPreview?.id;
+    try {
+      const item = await getPortfolioItem(projectId);
+      if (
+        !mountedRef.current ||
+        detailGenerationRef.current !== generation ||
+        selectedRef.current?.id !== projectId
+      )
+        return;
+      const next = remoteProject(item);
+      const nextPreview =
+        next.media.find(media => media.id === previewId && media.uri) ||
+        next.media.find(media => media.uri) ||
+        null;
+      setSelected(next);
+      setPreviewMedia(nextPreview);
+      setProjects(currentProjects =>
+        currentProjects.map(project =>
+          project.id === next.id ? next : project,
+        ),
+      );
+    } catch {
+      // Keep the current media visible. A later foreground or explicit reopen
+      // gets another signed URL without turning one expired asset into a page error.
+    } finally {
+      mediaRefreshFlightRef.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    const becameActive = appActive && !previousAppActiveRef.current;
+    previousAppActiveRef.current = appActive;
+    if (!becameActive) return;
+    mediaRefreshAttemptsRef.current.clear();
+    void refreshOpenRemoteProject();
+  }, [appActive, refreshOpenRemoteProject]);
 
   const changeDraft = (change: () => void) => {
     change();
@@ -815,6 +871,7 @@ export default function Gallery() {
   };
 
   const openProject = (project: Project) => {
+    mediaRefreshAttemptsRef.current.clear();
     setSelected(project);
     setPreviewMedia(project.media.find(media => media.uri) || null);
     setEditing(false);
@@ -850,6 +907,7 @@ export default function Gallery() {
     setEditing(false);
     setSelected(null);
     setPreviewMedia(null);
+    mediaRefreshAttemptsRef.current.clear();
   };
 
   const beginEdit = () => {
@@ -1153,6 +1211,13 @@ export default function Gallery() {
                   {previewMedia?.type === 'video' && previewMedia.uri ? (
                     <Video
                       controls
+                      onError={() => {
+                        const media = previewMediaRef.current;
+                        if (!media || mediaRefreshAttemptsRef.current.has(media.id))
+                          return;
+                        mediaRefreshAttemptsRef.current.add(media.id);
+                        void refreshOpenRemoteProject(true);
+                      }}
                       paused={!appActive}
                       resizeMode="contain"
                       source={{uri: previewMedia.uri}}
