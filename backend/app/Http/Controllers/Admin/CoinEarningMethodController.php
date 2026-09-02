@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\CoinEarningMethod;
 use App\Models\Setting;
 use App\Models\RewardRule;
+use App\Services\AdminAuthoringCreateIntentService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use App\Services\SocialAuthProviderRegistry;
 use App\Support\BusinessClock;
@@ -57,7 +59,7 @@ class CoinEarningMethodController extends Controller
         return view('admin.coin_earning_methods.create');
     }
 
-    public function store(Request $request)
+    public function store(Request $request, AdminAuthoringCreateIntentService $createIntents)
     {
         $request->validate([
             'title_ar' => 'required|string|max:255',
@@ -72,6 +74,7 @@ class CoinEarningMethodController extends Controller
             'ends_at' => 'nullable|date|after:starts_at',
             'total_claim_limit' => 'nullable|integer|min:1|max:10000000',
             'is_active' => 'boolean',
+            'authoring_request_id' => 'required|uuid',
         ]);
 
         $payload = $request->only([
@@ -84,7 +87,16 @@ class CoinEarningMethodController extends Controller
             $payload[$field] = BusinessClock::localInputToUtc($payload[$field] ?? null);
         }
         $this->ensureUsableDestination($payload);
-        CoinEarningMethod::create($payload);
+        DB::transaction(function () use ($request, $payload, $createIntents): void {
+            $method = CoinEarningMethod::create($payload);
+            $createIntents->completeRedirect(
+                $request,
+                route('admin.coin-earning-methods.index'),
+                302,
+                CoinEarningMethod::class,
+                $method->id
+            );
+        }, 3);
 
         return redirect()->route('admin.coin-earning-methods.index')
             ->with('success', 'تم إضافة طريقة ربح العملات بنجاح');
@@ -154,9 +166,22 @@ class CoinEarningMethodController extends Controller
         return response()->json(['status' => true, 'is_active' => $coinEarningMethod->is_active]);
     }
 
-    public function storeRewardRule(Request $request)
+    public function storeRewardRule(
+        Request $request,
+        AdminAuthoringCreateIntentService $createIntents
+    )
     {
-        RewardRule::create($this->rewardRulePayload($request));
+        $payload = $this->rewardRulePayload($request);
+        DB::transaction(function () use ($request, $payload, $createIntents): void {
+            $rule = RewardRule::create($payload);
+            $createIntents->completeRedirect(
+                $request,
+                route('admin.coin-earning-methods.index'),
+                302,
+                RewardRule::class,
+                $rule->id
+            );
+        }, 3);
 
         return redirect()->route('admin.coin-earning-methods.index')
             ->with('success', 'تمت إضافة قاعدة المكافأة وربطها بالحدث.');
@@ -209,7 +234,9 @@ class CoinEarningMethodController extends Controller
             'rolling_30_day_cap' => 'nullable|integer|min:0|max:1000000',
             'sort_order' => 'nullable|integer|min:0|max:10000',
             'is_active' => 'nullable|boolean',
+            'authoring_request_id' => [$existing ? 'nullable' : 'required', 'uuid'],
         ]);
+        unset($validated['authoring_request_id']);
         $validated['is_active'] = $request->boolean('is_active');
         $validated['sort_order'] = (int) ($validated['sort_order'] ?? 100);
 

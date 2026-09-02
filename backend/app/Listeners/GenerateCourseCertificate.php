@@ -8,6 +8,7 @@ use App\Events\CourseCompleted;
 use App\Models\CourseSection;
 use App\Models\CourseEnrollment;
 use App\Models\Course;
+use App\Models\Certificate;
 use App\Models\Order;
 use App\Models\Project;
 use App\Models\StudentSectionProgress;
@@ -29,6 +30,11 @@ final class GenerateCourseCertificate implements ShouldQueue
     public int $timeout = 120;
     public bool $failOnTimeout = true;
     public array $backoff = [15, 60, 300];
+
+    public function viaQueue(): string
+    {
+        return (string) config('queue.channels.media', 'media');
+    }
 
     public function __construct(
         private readonly CertificateService $certificates,
@@ -125,6 +131,16 @@ final class GenerateCourseCertificate implements ShouldQueue
                 if (!$passed) {
                     return;
                 }
+            }
+
+            // Completion makes the certificate available; the learner first
+            // confirms the exact immutable name from the certificates screen.
+            // This listener only recovers an already-created pending artifact.
+            if (!Certificate::query()
+                ->where('user_id', $user->id)
+                ->where('course_id', $course->id)
+                ->exists()) {
+                return;
             }
 
             $certificate = $this->certificates->generate(

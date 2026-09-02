@@ -57,6 +57,11 @@ Route::get('/c/{publicId}/artifact', [\App\Http\Controllers\PublicCertificateCon
     ->whereUuid('publicId')
     ->middleware('throttle:60,1')
     ->name('certificate.artifact');
+Route::get('/@{slug}/media/{mediaId}', [\App\Http\Controllers\PublicPortfolioMediaController::class, 'portfolio'])
+    ->where('slug', '[a-z0-9-]+')
+    ->whereUuid('mediaId')
+    ->middleware('throttle:240,1')
+    ->name('portfolio.media');
 Route::get('/@{slug}', [\App\Http\Controllers\PublicPortfolioController::class, 'show'])
     ->where('slug', '[a-z0-9-]+')
     ->middleware('throttle:60,1')
@@ -264,11 +269,12 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
     Route::name('student-progress.compare')->post('student-progress/compare', 'StudentProgressController@compare')->middleware('admin.only');
 
     /* ====== Project Submissions =======*/
-    Route::get('project-submissions', 'ProjectSubmissionController@index')->middleware('admin.only')->name('project-submissions.index');
-    Route::get('project-submissions/{projectSubmission}', 'ProjectSubmissionController@show')->middleware('admin.only')->name('project-submissions.show');
-    Route::get('project-submissions/{projectSubmission}/download', 'ProjectSubmissionController@download')->middleware('admin.only')->name('project-submissions.download');
-    Route::post('project-submissions/{projectSubmission}/pass', 'ProjectSubmissionController@pass')->middleware('admin.only')->name('project-submissions.pass');
-    Route::post('project-submissions/{projectSubmission}/reject', 'ProjectSubmissionController@reject')->middleware('admin.only')->name('project-submissions.reject');
+    Route::get('project-submissions', 'ProjectSubmissionController@index')->name('project-submissions.index');
+    Route::get('project-submissions/{projectSubmission}', 'ProjectSubmissionController@show')->name('project-submissions.show');
+    Route::get('project-submissions/{projectSubmission}/download', 'ProjectSubmissionController@download')->name('project-submissions.download');
+    Route::get('project-submissions/{projectSubmission}/attachments/{attachment}/download', 'ProjectSubmissionController@downloadAttachment')->name('project-submissions.attachments.download');
+    Route::post('project-submissions/{projectSubmission}/pass', 'ProjectSubmissionController@pass')->name('project-submissions.pass');
+    Route::post('project-submissions/{projectSubmission}/reject', 'ProjectSubmissionController@reject')->name('project-submissions.reject');
 
     /* ====== Orders =======*/
     Route::resource('orders', 'OrdersController', ['only' => ['index', 'show']])->middleware('admin.only');
@@ -329,6 +335,10 @@ Route::group(['prefix' => 'dashboard', 'namespace' => 'Admin', 'as' => 'admin.',
     Route::post('notifications', 'NotificationsController@store')
         ->middleware(['admin.only', 'throttle:admin-bulk'])
         ->name('notifications.store');
+    Route::post('notifications/{notificationCampaign}/retry', 'NotificationsController@retry')
+        ->whereNumber('notificationCampaign')
+        ->middleware(['admin.only', 'throttle:admin-bulk'])
+        ->name('notifications.retry');
 
 
 

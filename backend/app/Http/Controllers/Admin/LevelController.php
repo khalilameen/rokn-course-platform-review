@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Level;
 use App\Models\DesignSetting;
 use App\Services\StoredFileDeletionService;
+use App\Services\AdminAuthoringCreateIntentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -49,7 +50,7 @@ class LevelController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
      */
-    public function store(Request $request)
+    public function store(Request $request, AdminAuthoringCreateIntentService $createIntents)
     {
         $validated = $request->validate([
             'name_ar' => 'required|string|max:255',
@@ -58,21 +59,41 @@ class LevelController extends Controller
             'description_en' => 'nullable|string|max:1000',
             'badge_image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:4096',
             'order' => 'nullable|integer|min:1|max:1000',
+            'authoring_request_id' => 'required|uuid',
         ]);
 
         unset($validated['badge_image']);
+        $requestId = (string) $validated['authoring_request_id'];
         $imagePath = $request->hasFile('badge_image')
-            ? $request->file('badge_image')->store('levels', 'public')
+            ? app(StoredFileDeletionService::class)
+                ->storeTrackedUpload(
+                    $request->file('badge_image'),
+                    'levels',
+                    'public',
+                    60,
+                    'admin-level|'.strtolower($requestId).'|'.hash_file('sha256', $request->file('badge_image')->getRealPath())
+                )
             : null;
         if ($request->hasFile('badge_image') && (!is_string($imagePath) || $imagePath === '')) {
             throw new \RuntimeException('Level badge storage failed');
         }
         try {
-            DB::transaction(function () use ($validated, $imagePath): void {
-                $level = Level::create($validated);
-                if ($imagePath) {
-                    $level->allPhotos()->create(['path' => $imagePath, 'type' => 'featured']);
+            DB::transaction(function () use ($request, $validated, $imagePath, $requestId, $createIntents): void {
+                $level = Level::query()->where('authoring_request_id', $requestId)
+                    ->lockForUpdate()->first();
+                if (!$level) {
+                    $level = Level::create($validated);
                 }
+                if ($imagePath) {
+                    $level->allPhotos()->firstOrCreate(['path' => $imagePath, 'type' => 'featured']);
+                }
+                $createIntents->completeRedirect(
+                    $request,
+                    route('admin.levels.index'),
+                    302,
+                    Level::class,
+                    $level->id
+                );
             }, 3);
         } catch (\Throwable $exception) {
             if ($imagePath) app(StoredFileDeletionService::class)->deleteOrQueue('public', $imagePath);
@@ -119,7 +140,8 @@ class LevelController extends Controller
         unset($validated['badge_image']);
         unset($validated['editor_version']);
         $newImagePath = $request->hasFile('badge_image')
-            ? $request->file('badge_image')->store('levels', 'public')
+            ? app(StoredFileDeletionService::class)
+                ->storeTrackedUpload($request->file('badge_image'), 'levels')
             : null;
         if ($request->hasFile('badge_image') && (!is_string($newImagePath) || $newImagePath === '')) {
             throw new \RuntimeException('Level badge storage failed');

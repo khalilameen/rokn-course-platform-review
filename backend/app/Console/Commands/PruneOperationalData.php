@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Models\PortfolioItem;
+use App\Models\AiInputAttachment;
+use App\Models\User;
+use App\Services\BunnyService;
 use Illuminate\Console\Command;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
@@ -15,7 +19,7 @@ final class PruneOperationalData extends Command
     protected $signature = 'data:prune-operational {--limit=5000 : Maximum rows per table per run}';
     protected $description = 'Bound privacy-sensitive and high-volume operational tables without touching financial ledgers.';
 
-    public function handle(): int
+    public function handle(BunnyService $bunny): int
     {
         $limit = max(100, min(20000, (int) $this->option('limit')));
         $counts = [];
@@ -92,6 +96,32 @@ final class PruneOperationalData extends Command
             fn (Builder $query): Builder => $query->where('expires_at', '<=', now()),
             $limit
         );
+        if (
+            $counts['course_chat_turns'] > 0
+            && Schema::hasTable('ai_conversation_contexts')
+        ) {
+            // A checkpoint contains excerpts of its source turns. Rebuild it
+            // from the retained rows on the next chat request rather than
+            // keeping text whose history row has just crossed retention.
+            $counts['course_chat_contexts_reset'] = DB::table('ai_conversation_contexts')
+                ->where('scope', 'course_chat')
+                ->delete();
+        }
+        if (Schema::hasTable('ai_conversation_contexts')) {
+            $expiredContextIds = DB::table('ai_conversation_contexts')
+                ->whereNotNull('expires_at')
+                ->where('expires_at', '<=', now())
+                ->limit($limit)
+                ->pluck('id');
+            $counts['expired_ai_conversation_contexts'] = $expiredContextIds->isEmpty()
+                ? 0
+                : DB::table('ai_conversation_contexts')
+                    ->whereIn('id', $expiredContextIds)
+                    ->delete();
+        }
+        $counts['orphan_ai_inputs'] = $this->pruneAiInputs($limit);
+        $counts['portfolio_drafts'] = $this->prunePortfolioDrafts($limit, $bunny);
+        $counts['certificate_lease_artifacts'] = $this->pruneCertificateLeaseArtifacts($limit);
         $counts['admin_audit_logs'] = $this->deleteByIds(
             'admin_audit_logs',
             fn (Builder $query): Builder => $query->where(
@@ -155,6 +185,177 @@ final class PruneOperationalData extends Command
                     'user_agent' => null,
                 ]);
             });
+    }
+
+    private function pruneAiInputs(int $limit): int
+    {
+        if (!Schema::hasTable('ai_input_attachments')) return 0;
+        $candidateIds = DB::table('ai_input_attachments')
+            ->where(function (Builder $query): void {
+                $query->where(function (Builder $ready): void {
+                    $ready->where('status', AiInputAttachment::READY)
+                        ->where('created_at', '<=', now()->subDay());
+                })->orWhere(function (Builder $stuck): void {
+                    $stuck->where('status', AiInputAttachment::DELETING)
+                        ->where('updated_at', '<=', now()->subMinutes(15));
+                });
+            })
+            ->orderBy('id')->limit($limit)->pluck('id');
+        $deleted = 0;
+        foreach ($candidateIds as $candidateId) {
+            try {
+                $row = DB::transaction(function () use ($candidateId): ?AiInputAttachment {
+                    $candidate = AiInputAttachment::query()->find($candidateId);
+                    if (!$candidate) return null;
+                    // Keep lock ordering aligned with claim/account deletion.
+                    User::query()->whereKey($candidate->user_id)->lockForUpdate()->first();
+                    $candidate = AiInputAttachment::query()->lockForUpdate()->find($candidateId);
+                    if (!$candidate) return null;
+                    $recovering = $candidate->status === AiInputAttachment::DELETING
+                        && $candidate->updated_at?->lte(now()->subMinutes(15));
+                    if (!$recovering && (
+                        $candidate->status !== AiInputAttachment::READY
+                        || $candidate->created_at?->gt(now()->subDay())
+                    )) return null;
+
+                    $ownerExists = match ((string) $candidate->owner_type) {
+                        'course_chat_turn' => DB::table('course_chat_turns')->where('id', $candidate->owner_id)->exists(),
+                        'project_submission' => DB::table('project_submissions')->where('id', $candidate->owner_id)->exists(),
+                        'project_feedback_message' => DB::table('project_feedback_messages')->where('id', $candidate->owner_id)->exists(),
+                        default => false,
+                    };
+                    if ($candidate->owner_id !== null && $ownerExists) return null;
+                    $candidate->forceFill(['status' => AiInputAttachment::DELETING])->save();
+                    return $candidate->fresh();
+                }, 3);
+                if (!$row) continue;
+
+                $otherReference = AiInputAttachment::query()
+                    ->where('id', '<>', $row->id)
+                    ->where('storage_disk', $row->storage_disk)
+                    ->where('storage_path', $row->storage_path)
+                    ->exists();
+                if (!$otherReference) {
+                    $disk = Storage::disk((string) $row->storage_disk);
+                    if ($disk->exists((string) $row->storage_path)
+                        && !$disk->delete((string) $row->storage_path)) {
+                        continue;
+                    }
+                }
+                $finalized = AiInputAttachment::query()
+                    ->whereKey($row->id)
+                    ->where('status', AiInputAttachment::DELETING)
+                    ->whereNull('owner_id')
+                    ->delete();
+                if ($finalized === 0 && $row->owner_id !== null) {
+                    // Orphaned owners can disappear between the locked recheck
+                    // and finalization. They are still safe to delete only if
+                    // the owner fields have not changed.
+                    $finalized = AiInputAttachment::query()
+                        ->whereKey($row->id)
+                        ->where('status', AiInputAttachment::DELETING)
+                        ->where('owner_type', $row->owner_type)
+                        ->where('owner_id', $row->owner_id)
+                        ->delete();
+                }
+                $deleted += $finalized;
+            } catch (\Throwable $exception) {
+                report($exception);
+            }
+        }
+        return $deleted;
+    }
+
+    private function prunePortfolioDrafts(int $limit, BunnyService $bunny): int
+    {
+        if (
+            !Schema::hasTable('portfolio_items')
+            || !Schema::hasColumn('portfolio_items', 'expected_media_count')
+        ) {
+            return 0;
+        }
+
+        $ids = DB::table('portfolio_items')
+            ->where('expected_media_count', '>', 0)
+            ->where('is_public', false)
+            ->whereNull('deletion_started_at')
+            ->where('updated_at', '<=', now()->subDays(max(
+                1,
+                (int) config('retention.portfolio_drafts_days', 30)
+            )))
+            ->orderBy('id')
+            ->limit($limit)
+            ->pluck('id');
+        $deleted = 0;
+        foreach ($ids as $id) {
+            $deleted += DB::transaction(function () use ($id, $bunny): int {
+                $observed = PortfolioItem::query()->find($id);
+                if (!$observed) return 0;
+                $user = User::query()->whereKey($observed->user_id)->lockForUpdate()->first();
+                if (!$user) return 0;
+                $item = $user->portfolioItems()->lockForUpdate()->find($id);
+                if (
+                    !$item
+                    || $item->is_public
+                    || $item->deletion_started_at
+                    || $item->updated_at?->isAfter(now()->subDays(max(
+                        1,
+                        (int) config('retention.portfolio_drafts_days', 30)
+                    )))
+                ) {
+                    return 0;
+                }
+                $item->forceFill(['deletion_started_at' => now()])->save();
+                foreach ($item->mediaFiles()->lockForUpdate()->get() as $media) {
+                    if ($media->file_type === 'video' && $media->file_path) {
+                        $candidate = $bunny->queueVideoCleanup(
+                            $media->file_path,
+                            null,
+                            'portfolio_draft_abandoned',
+                            1,
+                            false
+                        );
+                        if (!$candidate) {
+                            throw new \RuntimeException('Unable to persist draft video cleanup.');
+                        }
+                    } elseif ($media->file_type === 'image' && $media->file_path) {
+                        if (!$bunny->queueStorageCleanup(
+                            $media->file_path,
+                            'portfolio_draft_abandoned'
+                        )) {
+                            throw new \RuntimeException('Unable to persist draft image cleanup.');
+                        }
+                    }
+                    $media->delete();
+                }
+                $item->delete();
+                return 1;
+            }, 3);
+        }
+        return $deleted;
+    }
+
+    private function pruneCertificateLeaseArtifacts(int $limit): int
+    {
+        if (!Schema::hasTable('certificates') || !Schema::hasColumn('certificates', 'image_path')) {
+            return 0;
+        }
+        $disk = Storage::disk((string) config('certificate.disk', 'public'));
+        $deleted = 0;
+        foreach (array_slice($disk->files('certificates'), 0, $limit) as $path) {
+            if (
+                !preg_match(
+                    '#^certificates/certificate_[a-f0-9-]{36}_[a-f0-9]{32}\.png$#i',
+                    $path
+                )
+                || $disk->lastModified($path) > now()->subDay()->timestamp
+                || DB::table('certificates')->where('image_path', $path)->exists()
+            ) {
+                continue;
+            }
+            if ($disk->delete($path)) $deleted++;
+        }
+        return $deleted;
     }
 
     private function pruneStudentNotifications(int $limit): int

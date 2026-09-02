@@ -72,6 +72,7 @@ class User extends Authenticatable
         'terms_accepted_at', 'privacy_notice_acknowledged_at', 'legal_notice_version',
         'portfolio_slug', 'portfolio_is_public', 'portfolio_headline', 'portfolio_location',
         'portfolio_skills', 'portfolio_links',
+        'authoring_request_id',
     ];
 
     /**
@@ -248,6 +249,11 @@ class User extends Authenticatable
     public function sectionProgress()
     {
         return $this->hasMany(StudentSectionProgress::class);
+    }
+
+    public function lessonWatchEvidence()
+    {
+        return $this->hasMany(LessonWatchEvidence::class);
     }
 
     /**

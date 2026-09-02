@@ -21,6 +21,7 @@ use Endroid\QrCode\QrCode;
 use Endroid\QrCode\Writer\PngWriter;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Intervention\Image\Facades\Image;
 
@@ -36,22 +37,50 @@ class CertificateService
     /**
      * Generate (or retrieve existing) certificate for a user + course.
      */
-    public function generate(User $user, Course $course, ?Project $project = null): ?Certificate
+    public function generate(
+        User $user,
+        Course $course,
+        ?Project $project = null,
+        ?string $requestedHolderName = null
+    ): ?Certificate
     {
-        $enrollment = CourseEnrollment::query()
+        $certificate = Certificate::where('user_id', $user->id)
+            ->where('course_id', $course->id)
+            ->first();
+        $latestEnrollment = CourseEnrollment::query()
             ->where('user_id', $user->id)
             ->where('course_id', $course->id)
+            ->latest('id')
+            ->first();
+
+        // An issued credential is an immutable achievement snapshot. Reading
+        // or rebuilding its artifact does not depend on a subscription that
+        // may expire later. Financial voids remain authoritative through the
+        // revocation state and the hold checked here before any recovery.
+        if ($certificate) {
+            if (
+                ($certificate->status ?? 'active') === 'revoked'
+                || ($latestEnrollment && $this->financialProvenance
+                    ->enrollmentHasActiveHold($latestEnrollment, ['course']))
+            ) {
+                return null;
+            }
+        } else {
+            $enrollment = CourseEnrollment::query()
+                ->where('user_id', $user->id)
+                ->where('course_id', $course->id)
             ->where('is_active', true)
             ->where(function ($query): void {
                 $query->whereNull('expires_at')->orWhere('expires_at', '>', now());
             })
             ->first();
-        if (
-            !$enrollment
-            || $this->financialProvenance->enrollmentHasActiveHold($enrollment, ['course'])
-            || !$this->courseAccess->hasCertificateAccess((int) $user->id, (int) $course->id)
-        ) {
-            return null;
+            if (
+                !$enrollment
+                || $this->financialProvenance->enrollmentHasActiveHold($enrollment, ['course'])
+                || !$this->courseAccess->hasCertificateAccess((int) $user->id, (int) $course->id)
+            ) {
+                return null;
+            }
         }
 
         $verificationLevel = $this->verificationLevel($user, $course);
@@ -62,9 +91,16 @@ class CertificateService
             'holder_name',
             'course_name',
         ]);
-        $certificate = Certificate::where('user_id', $user->id)
-            ->where('course_id', $course->id)
-            ->first();
+        $requestedHolderName = UnicodeText::limit(
+            UnicodeText::clean($requestedHolderName, false),
+            120
+        );
+        // Creating a credential is an explicit learner action because this
+        // text becomes an immutable identity snapshot. Recovery of an old
+        // pending row remains automatic and uses its stored snapshot.
+        if (!$certificate && UnicodeText::graphemeLength($requestedHolderName) < 2) {
+            return null;
+        }
 
         // Revocation is terminal. A missing artifact or a retry must never
         // turn a revoked credential active again.
@@ -92,7 +128,9 @@ class CertificateService
 
         if (!$certificate) {
             // Create the DB record first so the public credential ID is stable
-            // across retries. A unique constraint resolves concurrent jobs.
+            // across retries. The user row serializes this with account
+            // deletion, so an old request cannot create a credential after
+            // the account has been withdrawn.
             try {
                 $createAttributes = [
                     'public_id'    => (string) Str::uuid(),
@@ -104,13 +142,34 @@ class CertificateService
                     'status'       => 'active',
                 ];
                 if ($supportsIdentitySnapshots) {
-                    $createAttributes['holder_name'] = $this->holderName($user);
+                    $createAttributes['holder_name'] = $requestedHolderName;
                     $createAttributes['course_name'] = $this->courseName($course);
                 }
                 if ($supportsVerificationLevel) {
                     $createAttributes['verification_level'] = $verificationLevel;
                 }
-                $certificate = Certificate::create($createAttributes);
+                $certificate = DB::transaction(function () use (
+                    $user,
+                    $course,
+                    $createAttributes
+                ): ?Certificate {
+                    $lockedUser = User::query()
+                        ->whereKey($user->id)
+                        ->lockForUpdate()
+                        ->first();
+                    if (!$lockedUser) {
+                        return null;
+                    }
+
+                    return Certificate::query()
+                        ->where('user_id', $lockedUser->id)
+                        ->where('course_id', $course->id)
+                        ->first()
+                        ?: Certificate::create($createAttributes);
+                }, 3);
+                if (!$certificate) {
+                    return null;
+                }
             } catch (\Illuminate\Database\QueryException $e) {
                 $certificate = Certificate::where('user_id', $user->id)
                     ->where('course_id', $course->id)
@@ -136,25 +195,56 @@ class CertificateService
             $this->fillMissingIdentitySnapshots($certificate, $user, $course);
         }
 
+        $leaseId = (string) Str::uuid();
+        $certificate = DB::transaction(function () use ($certificate, $leaseId): ?Certificate {
+            $locked = Certificate::query()->lockForUpdate()->find($certificate->id);
+            if (
+                !$locked
+                || ($locked->status ?? 'active') !== 'active'
+                || $locked->revoked_at !== null
+                || !User::query()->whereKey($locked->user_id)->exists()
+            ) {
+                return null;
+            }
+            if (
+                trim((string) $locked->generation_lease_id) !== ''
+                && $locked->updated_at?->isAfter(now()->subMinutes(5))
+            ) {
+                return null;
+            }
+            $locked->forceFill(['generation_lease_id' => $leaseId])->save();
+            return $locked->fresh();
+        }, 3);
+        if (!$certificate) {
+            return null;
+        }
+
         // The issue date is credential history, not the time of an artifact
         // recovery. Retrying a pending or lost image keeps the original date.
+        $previousPath = trim((string) $certificate->image_path);
         $generatedAt = $certificate->generated_at ?? now();
         $filePath = $this->createCertificateImage(
             $user,
             $course,
             $certificate,
-            $generatedAt
+            $generatedAt,
+            $leaseId
         );
 
         if (!$filePath) {
             // Keep the pending row as the durable recovery marker. The queued
             // listener or an authenticated recovery request can safely retry.
+            Certificate::query()
+                ->whereKey($certificate->id)
+                ->where('generation_lease_id', $leaseId)
+                ->update(['generation_lease_id' => null]);
             return null;
         }
 
         $updateAttributes = [
             'image_path' => $filePath,
             'status' => 'active',
+            'generation_lease_id' => null,
         ];
         if (Schema::hasColumn('certificates', 'recovery_attempts')) {
             $updateAttributes += [
@@ -167,7 +257,27 @@ class CertificateService
         if (Schema::hasColumn('certificates', 'artifact_checked_at')) {
             $updateAttributes['artifact_checked_at'] = now();
         }
-        $certificate->update($updateAttributes);
+        $committed = Certificate::query()
+            ->whereKey($certificate->id)
+            ->where('generation_lease_id', $leaseId)
+            ->where(function ($query): void {
+                $query->whereNull('status')->orWhere('status', 'active');
+            })
+            ->whereNull('revoked_at')
+            ->whereHas('user')
+            ->update($updateAttributes);
+        if ($committed !== 1) {
+            $this->deleteCertificateArtifact($filePath);
+            return null;
+        }
+        $certificate->refresh();
+        if (
+            $previousPath !== ''
+            && $previousPath !== 'pending'
+            && $previousPath !== $filePath
+        ) {
+            $this->deleteCertificateArtifact($previousPath);
+        }
 
         StudentNotificationService::notifyUser(
             $user,
@@ -217,7 +327,8 @@ class CertificateService
         User $user,
         Course $course,
         Certificate $certificate,
-        \DateTimeInterface $generatedAt
+        \DateTimeInterface $generatedAt,
+        string $generationLeaseId
     ): ?string
     {
         try {
@@ -304,11 +415,14 @@ class CertificateService
 
             // ----- Save -----
             // Public certificate images must not be enumerable by numeric user/course IDs.
-            $filename    = 'certificate_' . $certificate->public_id . '.png';
+            $filename = 'certificate_' . $certificate->public_id
+                . '_' . str_replace('-', '', $generationLeaseId) . '.png';
             $storagePath = 'certificates/' . $filename;
             $disk = (string) config('certificate.disk', 'public');
             $visibility = (string) config('certificate.visibility', 'public');
             $encoded = (string) $img->encode('png', 95);
+            app(StoredFileDeletionService::class)
+                ->trackPotentialOrphan($disk, $storagePath, 60);
             $stored = Storage::disk($disk)->put($storagePath, $encoded, [
                 'visibility' => $visibility,
             ]);
@@ -327,6 +441,18 @@ class CertificateService
     private function artifactExists(Certificate $certificate): bool
     {
         return $certificate->hasStoredArtifact();
+    }
+
+    private function deleteCertificateArtifact(string $path): void
+    {
+        try {
+            app(StoredFileDeletionService::class)->deleteOrQueue(
+                (string) config('certificate.disk', 'public'),
+                $path
+            );
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
     }
 
     private function fillMissingIdentitySnapshots(

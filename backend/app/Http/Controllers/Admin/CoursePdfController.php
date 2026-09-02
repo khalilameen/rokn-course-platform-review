@@ -10,11 +10,11 @@ use App\Services\CoursePublishingService;
 use App\Services\CourseAuthoringConcurrencyService;
 use App\Services\CourseMediaFilePolicy;
 use App\Services\StoredFileDeletionService;
+use App\Services\AdminAuthoringCreateIntentService;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use App\Support\DownloadFilename;
@@ -26,7 +26,8 @@ class CoursePdfController extends Controller
         private readonly CoursePublishingService $publishingService,
         private readonly CourseAuthoringConcurrencyService $authoring,
         private readonly CourseMediaFilePolicy $filePolicy,
-        private readonly StoredFileDeletionService $fileDeletion
+        private readonly StoredFileDeletionService $fileDeletion,
+        private readonly AdminAuthoringCreateIntentService $createIntents
     )
     {
     }
@@ -79,6 +80,7 @@ class CoursePdfController extends Controller
             'order' => 'nullable|integer|min:0',
             'is_active' => 'nullable|boolean',
             'authoring_version' => 'required|integer|min:1',
+            'authoring_request_id' => 'required|uuid',
         ]);
 
         $stored = null;
@@ -87,13 +89,44 @@ class CoursePdfController extends Controller
         try {
             $file = $request->file('pdf_file');
             $metadata = $this->filePolicy->pdf($file);
-            $stored = $this->storePdf($file, $course);
+            $existingPdf = $course->pdfs()->where('content_sha256', $metadata['sha256'])->first();
+            if ($existingPdf) {
+                DB::transaction(function () use ($request, $course, $existingPdf): void {
+                    CoursePdf::query()->whereKey($existingPdf->id)->lockForUpdate()->firstOrFail();
+                    $this->createIntents->completeRedirect(
+                        $request,
+                        route('admin.courses.pdfs.index', $course),
+                        302,
+                        CoursePdf::class,
+                        $existingPdf->id
+                    );
+                }, 3);
+                return redirect()
+                    ->route('admin.courses.pdfs.index', $course)
+                    ->with('success', 'هذا الملف مضاف بالفعل');
+            }
+            $stored = $this->storePdf(
+                $file,
+                $course,
+                'course-pdf|'.$course->id.'|'.$metadata['sha256']
+            );
 
             DB::transaction(function () use ($request, $course, $file, $stored, $metadata, &$duplicate): void {
                 $lockedCourse = $this->authoring->lock($request, $course);
                 $this->assertDraft($lockedCourse);
-                if ($course->pdfs()->where('content_sha256', $metadata['sha256'])->lockForUpdate()->exists()) {
+                $existingPdf = $course->pdfs()
+                    ->where('content_sha256', $metadata['sha256'])
+                    ->lockForUpdate()
+                    ->first();
+                if ($existingPdf) {
                     $duplicate = true;
+                    $this->createIntents->completeRedirect(
+                        $request,
+                        route('admin.courses.pdfs.index', $course),
+                        302,
+                        CoursePdf::class,
+                        $existingPdf->id
+                    );
                     return;
                 }
                 $maxOrder = $course->pdfs()->max('order') ?? 0;
@@ -112,6 +145,13 @@ class CoursePdfController extends Controller
                     'is_active' => $request->has('is_active') ? $request->is_active : true,
                 ]);
                 $this->authoring->advance($lockedCourse);
+                $this->createIntents->completeRedirect(
+                    $request,
+                    route('admin.courses.pdfs.index', $course),
+                    302,
+                    CoursePdf::class,
+                    $pdf->id
+                );
             });
             if ($duplicate) {
                 $this->fileDeletion->deleteOrQueue($stored['disk'], $stored['path']);
@@ -190,7 +230,11 @@ class CoursePdfController extends Controller
             if ($request->hasFile('pdf_file')) {
                 $file = $request->file('pdf_file');
                 $metadata = $this->filePolicy->pdf($file);
-                $stored = $this->storePdf($file, $course);
+                $stored = $this->storePdf(
+                    $file,
+                    $course,
+                    'course-pdf|'.$course->id.'|'.$metadata['sha256']
+                );
                 $data['file_path'] = $stored['path'];
                 $data['storage_disk'] = $stored['disk'];
                 $data['original_filename'] = $this->safeOriginalFilename($file);
@@ -198,7 +242,7 @@ class CoursePdfController extends Controller
                 $data['content_sha256'] = $metadata['sha256'];
             }
 
-            DB::transaction(function () use ($course, $pdf, $data, $request): void {
+            DB::transaction(function () use ($course, $pdf, $data, $request, $stored, $oldDisk, $oldPath): void {
                 $lockedCourse = $this->authoring->lock($request, $course);
                 $this->assertDraft($lockedCourse);
                 $lockedPdf = CoursePdf::query()->whereKey($pdf->id)
@@ -212,6 +256,9 @@ class CoursePdfController extends Controller
                     throw ValidationException::withMessages(['pdf_file' => 'هذا الملف مضاف بالفعل']);
                 }
                 $lockedPdf->update($data);
+                if (is_array($stored)) {
+                    $this->fileDeletion->deleteOrQueue((string) $oldDisk, (string) $oldPath);
+                }
                 if ($lockedPdf->courseSection) {
                     $lockedPdf->courseSection->update(['title' => $request->title]);
                 }
@@ -219,11 +266,6 @@ class CoursePdfController extends Controller
                 $this->authoring->advance($lockedCourse);
             });
             $metadataUpdated = true;
-
-            // Remove the old object after the replacement metadata commits.
-            if (is_array($stored)) {
-                $this->fileDeletion->deleteOrQueue($oldDisk, $oldPath);
-            }
 
             return redirect()
                 ->route('admin.courses.pdfs.index', $course)
@@ -263,11 +305,13 @@ class CoursePdfController extends Controller
                     $lockedPdf->courseSection->delete();
                 }
                 $lockedPdf->delete();
+                $this->fileDeletion->deleteOrQueue(
+                    (string) $lockedPdf->storage_disk,
+                    (string) $lockedPdf->file_path
+                );
                 $this->assertLiveCourseReady($course);
                 $this->authoring->advance($lockedCourse);
             });
-
-            $this->fileDeletion->deleteOrQueue($disk, $path);
 
             return redirect()
                 ->route('admin.courses.pdfs.index', $course)
@@ -394,21 +438,20 @@ class CoursePdfController extends Controller
     }
 
     /** @return array{disk: string, path: string} */
-    private function storePdf(UploadedFile $file, Course $course): array
+    private function storePdf(UploadedFile $file, Course $course, string $operationIdentity): array
     {
         $disk = trim((string) config('course_pdfs.disk'));
         if ($disk === '' || in_array($disk, ['local', 'public'], true)) {
             throw new \RuntimeException('Course PDF storage is not configured as a private shared disk.');
         }
 
-        $path = $file->storeAs(
+        $path = $this->fileDeletion->storeTrackedUpload(
+            $file,
             'courses/' . $course->id,
-            (string) Str::uuid() . '.pdf',
-            $disk
+            $disk,
+            60,
+            $operationIdentity
         );
-        if (!is_string($path) || $path === '') {
-            throw new \RuntimeException('Course PDF storage write failed.');
-        }
 
         return ['disk' => $disk, 'path' => $path];
     }

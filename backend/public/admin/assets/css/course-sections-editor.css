@@ -119,3 +119,6 @@
     transition: all 0.3s;
 }
 .lesson-title-sync-fields { display: none !important; }
+.question-image-preview {
+    max-height: 220px;
+}

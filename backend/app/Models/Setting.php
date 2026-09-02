@@ -6,8 +6,19 @@ use App\Support\RoknLocale;
 
 use Illuminate\Database\Eloquent\Model;
 use App\Services\PublicAppSettingsService;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Throwable;
 class Setting extends Model
 {
+    private const DERIVED_CACHE_KEYS = [
+        'auth-methods:dynamic:v2',
+        'learning:sequence-settings:v2',
+        'packages:direct-discount:v2',
+        'public-packages:v2',
+        'wallet:public-settings:v2',
+    ];
+
     private const DEFAULT_COIN_RULES_AR = "استخدم عملات ركن عند شراء الكورسات والخدمات داخل التطبيق\nتظهر لك القيمة المتاحة قبل تأكيد الشراء";
     private const DEFAULT_COIN_RULES_EN = "Use Rokn Coins for courses and services inside the app\nYou will see the available amount before confirming a purchase";
 
@@ -115,12 +126,40 @@ class Setting extends Model
 
     protected static function booted(): void
     {
-        static::saved(static function (): void {
+        $invalidate = static function (): void {
             PublicAppSettingsService::invalidate();
-        });
-        static::deleted(static function (): void {
-            PublicAppSettingsService::invalidate();
-        });
+            self::invalidateDerivedCaches();
+        };
+
+        static::saved($invalidate);
+        static::deleted($invalidate);
+    }
+
+    /**
+     * Settings feed several small read caches in otherwise unrelated product
+     * areas. Treat them as one projection family: a dashboard save becomes
+     * visible to login, wallet, checkout and learning on the same commit.
+     */
+    private static function invalidateDerivedCaches(): void
+    {
+        $forget = static function (): void {
+            foreach (self::DERIVED_CACHE_KEYS as $key) {
+                Cache::forget($key);
+            }
+        };
+
+        try {
+            if (DB::transactionLevel() > 0) {
+                DB::afterCommit($forget);
+                return;
+            }
+
+            $forget();
+        } catch (Throwable $exception) {
+            // A cache outage must not roll back a valid settings change, but
+            // unlike a silent stale value it remains visible operationally.
+            report($exception);
+        }
     }
 
     /**

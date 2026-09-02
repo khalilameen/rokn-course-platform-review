@@ -2,6 +2,8 @@ import {useEffect, useState} from 'react';
 import {Alert} from 'react-native';
 import {
   accountScopedStorageKey,
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
   extractApiToken,
   getItem,
   removeItem,
@@ -40,7 +42,7 @@ import {PENDING_WATCH_HISTORY_CLEAR_KEY} from './settingsData';
 
 const normalizeStoredQuality = (value: unknown) => {
   const legacyAliases: Record<string, string> = {
-    'تلقائي': 'auto',
+    تلقائي: 'auto',
     'توفير البيانات': 'data_saver',
   };
   const candidate =
@@ -71,92 +73,102 @@ export const useSettingsPreferences = ({
 
   useEffect(() => {
     let active = true;
-    void Promise.all([
-      getSmartRemindersEnabled(),
-      accountScopedStorageKey('VIDEO_QUALITY').then(getItem),
-      getSmartReminderHour(),
-      accountScopedStorageKey(WATCH_HISTORY_ENABLED_KEY).then(getItem),
-      accountScopedStorageKey(MARKETING_NOTIFICATIONS_KEY).then(getItem),
-    ]).then(
-      async ([
+    void (async () => {
+      const boundary = await captureAccountSessionBoundary();
+      const scopedKey = (key: string) => accountScopedStorageKey(key, boundary);
+      const [
         savedNotifications,
         savedQuality,
         savedReminderHour,
         savedWatchHistory,
         savedMarketingNotifications,
-      ]) => {
+      ] = await Promise.all([
+        getSmartRemindersEnabled(),
+        scopedKey('VIDEO_QUALITY').then(getItem),
+        getSmartReminderHour(),
+        scopedKey(WATCH_HISTORY_ENABLED_KEY).then(getItem),
+        scopedKey(MARKETING_NOTIFICATIONS_KEY).then(getItem),
+      ]);
+      assertAccountSessionBoundary(boundary);
+      if (!active) return;
+      if (typeof savedNotifications === 'boolean') {
+        setNotifications(savedNotifications);
+      }
+      setQuality(normalizeStoredQuality(savedQuality));
+      if (typeof savedWatchHistory === 'boolean') {
+        setWatchHistory(savedWatchHistory);
+      }
+      if (typeof savedMarketingNotifications === 'boolean') {
+        setMarketingNotifications(savedMarketingNotifications);
+      }
+      if ([10, 15, 20].includes(Number(savedReminderHour))) {
+        setReminderHour(Number(savedReminderHour));
+      }
+      if (hasAuthenticatedAccount) {
+        const pending = await readPendingPrivacyPreferences();
         if (!active) return;
-        if (typeof savedNotifications === 'boolean') {
-          setNotifications(savedNotifications);
+        if (typeof pending.watchHistoryEnabled === 'boolean') {
+          privacyDirtyKeys.add(WATCH_HISTORY_ENABLED_KEY);
+          setWatchHistory(pending.watchHistoryEnabled);
+          await saveItem(
+            await scopedKey(WATCH_HISTORY_ENABLED_KEY),
+            pending.watchHistoryEnabled,
+          );
+          assertAccountSessionBoundary(boundary);
         }
-        setQuality(normalizeStoredQuality(savedQuality));
-        if (typeof savedWatchHistory === 'boolean') {
-          setWatchHistory(savedWatchHistory);
+        if (typeof pending.marketingNotificationsEnabled === 'boolean') {
+          privacyDirtyKeys.add(MARKETING_NOTIFICATIONS_KEY);
+          setMarketingNotifications(pending.marketingNotificationsEnabled);
+          await saveItem(
+            await scopedKey(MARKETING_NOTIFICATIONS_KEY),
+            pending.marketingNotificationsEnabled,
+          );
+          assertAccountSessionBoundary(boundary);
         }
-        if (typeof savedMarketingNotifications === 'boolean') {
-          setMarketingNotifications(savedMarketingNotifications);
-        }
-        if ([10, 15, 20].includes(Number(savedReminderHour))) {
-          setReminderHour(Number(savedReminderHour));
-        }
-        if (hasAuthenticatedAccount) {
-          const pending = await readPendingPrivacyPreferences();
+        if (Object.keys(pending).length) {
+          assertAccountSessionBoundary(boundary);
+          await queuePrivacyPreferenceSync();
+          assertAccountSessionBoundary(boundary);
           if (!active) return;
-          if (typeof pending.watchHistoryEnabled === 'boolean') {
-            privacyDirtyKeys.add(WATCH_HISTORY_ENABLED_KEY);
-            setWatchHistory(pending.watchHistoryEnabled);
-            await saveItem(
-              await accountScopedStorageKey(WATCH_HISTORY_ENABLED_KEY),
-              pending.watchHistoryEnabled,
-            );
-          }
-          if (typeof pending.marketingNotificationsEnabled === 'boolean') {
-            privacyDirtyKeys.add(MARKETING_NOTIFICATIONS_KEY);
-            setMarketingNotifications(pending.marketingNotificationsEnabled);
-            await saveItem(
-              await accountScopedStorageKey(MARKETING_NOTIFICATIONS_KEY),
-              pending.marketingNotificationsEnabled,
-            );
-          }
-          if (Object.keys(pending).length) {
-            await queuePrivacyPreferenceSync();
-            if (!active) return;
-          }
-          try {
-            const profile = await getProfile();
-            if (!active) return;
-            if (!privacyDirtyKeys.has(WATCH_HISTORY_ENABLED_KEY)) {
-              setWatchHistory(profile.watchHistoryEnabled);
-              await saveItem(
-                await accountScopedStorageKey(WATCH_HISTORY_ENABLED_KEY),
-                profile.watchHistoryEnabled,
-              );
-            }
-            if (!privacyDirtyKeys.has(MARKETING_NOTIFICATIONS_KEY)) {
-              setMarketingNotifications(profile.marketingNotificationsEnabled);
-              await saveItem(
-                await accountScopedStorageKey(MARKETING_NOTIFICATIONS_KEY),
-                profile.marketingNotificationsEnabled,
-              );
-            }
-            const profileQuality = normalizeStoredQuality(
-              profile.videoQualityPreference,
-            );
-            setQuality(profileQuality);
-            await Promise.all([
-              accountScopedStorageKey('VIDEO_QUALITY').then(key =>
-                saveItem(key, profileQuality),
-              ),
-              accountScopedStorageKey('VIDEO_PLAYBACK_SPEED').then(key =>
-                saveItem(key, profile.playbackSpeed),
-              ),
-            ]);
-          } catch {
-            // Settings remain readable without replacing server values.
-          }
         }
-      },
-    ).catch(() => undefined);
+        try {
+          const profile = await getProfile();
+          assertAccountSessionBoundary(boundary);
+          if (!active) return;
+          if (!privacyDirtyKeys.has(WATCH_HISTORY_ENABLED_KEY)) {
+            setWatchHistory(profile.watchHistoryEnabled);
+            await saveItem(
+              await scopedKey(WATCH_HISTORY_ENABLED_KEY),
+              profile.watchHistoryEnabled,
+            );
+            assertAccountSessionBoundary(boundary);
+          }
+          if (!privacyDirtyKeys.has(MARKETING_NOTIFICATIONS_KEY)) {
+            setMarketingNotifications(profile.marketingNotificationsEnabled);
+            await saveItem(
+              await scopedKey(MARKETING_NOTIFICATIONS_KEY),
+              profile.marketingNotificationsEnabled,
+            );
+            assertAccountSessionBoundary(boundary);
+          }
+          const profileQuality = normalizeStoredQuality(
+            profile.videoQualityPreference,
+          );
+          setQuality(profileQuality);
+          await Promise.all([
+            scopedKey('VIDEO_QUALITY').then(key =>
+              saveItem(key, profileQuality),
+            ),
+            scopedKey('VIDEO_PLAYBACK_SPEED').then(key =>
+              saveItem(key, profile.playbackSpeed),
+            ),
+          ]);
+          assertAccountSessionBoundary(boundary);
+        } catch {
+          // Settings remain readable without replacing server values.
+        }
+      }
+    })().catch(() => undefined);
     return () => {
       active = false;
     };
@@ -164,16 +176,24 @@ export const useSettingsPreferences = ({
 
   useEffect(() => {
     if (!hasAuthenticatedAccount) return;
-    void accountScopedStorageKey(PENDING_WATCH_HISTORY_CLEAR_KEY)
-      .then(async key => {
+    void captureAccountSessionBoundary()
+      .then(async boundary => {
+        const key = await accountScopedStorageKey(
+          PENDING_WATCH_HISTORY_CLEAR_KEY,
+          boundary,
+        );
         if (!(await getItem(key))) return;
+        assertAccountSessionBoundary(boundary);
         await clearWatchHistory();
+        assertAccountSessionBoundary(boundary);
         await removeItem(key);
+        assertAccountSessionBoundary(boundary);
       })
       .catch(() => undefined);
   }, [hasAuthenticatedAccount]);
 
   const updatePreference = async (key: string, value: boolean) => {
+    const boundary = await captureAccountSessionBoundary();
     if (
       key === WATCH_HISTORY_ENABLED_KEY ||
       key === MARKETING_NOTIFICATIONS_KEY
@@ -186,10 +206,22 @@ export const useSettingsPreferences = ({
       key === WATCH_HISTORY_ENABLED_KEY ||
       key === MARKETING_NOTIFICATIONS_KEY
     ) {
-      await saveItem(await accountScopedStorageKey(key), value);
+      const stored = await saveItem(
+        await accountScopedStorageKey(key, boundary),
+        value,
+      );
+      assertAccountSessionBoundary(boundary);
+      if (!stored) {
+        Alert.alert(
+          'لم يُحفظ التغيير',
+          'تعذّر حفظ الإعداد على الجهاز\nحاول مرة أخرى',
+        );
+        return;
+      }
     } else {
       await saveItem(key, value);
     }
+    assertAccountSessionBoundary(boundary);
     if (key === REMINDER_ENABLED_KEY) setNotifications(value);
     if (key === WATCH_HISTORY_ENABLED_KEY) setWatchHistory(value);
     if (key === MARKETING_NOTIFICATIONS_KEY) {
@@ -202,14 +234,17 @@ export const useSettingsPreferences = ({
       } catch {
         // The local reminder remains active until the next server sync.
       }
+      assertAccountSessionBoundary(boundary);
     }
     if (hasAuthenticatedAccount && key === WATCH_HISTORY_ENABLED_KEY) {
       await queuePrivacyPreferenceSync({watchHistoryEnabled: value});
+      assertAccountSessionBoundary(boundary);
     }
     if (hasAuthenticatedAccount && key === MARKETING_NOTIFICATIONS_KEY) {
       await queuePrivacyPreferenceSync({
         marketingNotificationsEnabled: value,
       });
+      assertAccountSessionBoundary(boundary);
     }
   };
 
@@ -224,12 +259,16 @@ export const useSettingsPreferences = ({
   };
 
   const confirmNotifications = async () => {
+    const boundary = await captureAccountSessionBoundary();
     const granted = await enableSmartReminders();
+    assertAccountSessionBoundary(boundary);
     if (!granted) return false;
     await updatePreference(REMINDER_ENABLED_KEY, true);
+    assertAccountSessionBoundary(boundary);
     await registerPushDeviceIfEligible({requestPermission: false}).catch(
       () => false,
     );
+    assertAccountSessionBoundary(boundary);
     return true;
   };
 
@@ -246,14 +285,21 @@ export const useSettingsPreferences = ({
     }
     const normalizedQuality = normalizeStoredQuality(key);
     setQuality(normalizedQuality);
-    void accountScopedStorageKey('VIDEO_QUALITY').then(storageKey =>
-      saveItem(storageKey, normalizedQuality),
-    );
-    if (hasAuthenticatedAccount) {
-      void updatePlaybackPreferences({
-        videoQualityPreference: normalizedQuality,
-      }).catch(() => undefined);
-    }
+    void captureAccountSessionBoundary()
+      .then(async boundary => {
+        await saveItem(
+          await accountScopedStorageKey('VIDEO_QUALITY', boundary),
+          normalizedQuality,
+        );
+        assertAccountSessionBoundary(boundary);
+        if (hasAuthenticatedAccount) {
+          await updatePlaybackPreferences({
+            videoQualityPreference: normalizedQuality,
+          });
+          assertAccountSessionBoundary(boundary);
+        }
+      })
+      .catch(() => undefined);
     setChoiceModal(null);
   };
 
@@ -267,18 +313,32 @@ export const useSettingsPreferences = ({
           text: 'مسح السجل',
           style: 'destructive',
           onPress: async () => {
+            const boundary = await captureAccountSessionBoundary();
             await clearLocalWatchHistory();
+            assertAccountSessionBoundary(boundary);
             let serverSynced = true;
             if (extractApiToken(userData)) {
               const pendingKey = await accountScopedStorageKey(
                 PENDING_WATCH_HISTORY_CLEAR_KEY,
+                boundary,
               );
               try {
                 await clearWatchHistory();
+                assertAccountSessionBoundary(boundary);
                 await removeItem(pendingKey);
+                assertAccountSessionBoundary(boundary);
               } catch {
+                assertAccountSessionBoundary(boundary);
                 serverSynced = false;
-                await saveItem(pendingKey, true);
+                const queued = await saveItem(pendingKey, true);
+                assertAccountSessionBoundary(boundary);
+                if (!queued) {
+                  Alert.alert(
+                    'لم يكتمل المسح',
+                    'تعذّر حفظ طلب المسح على الجهاز\nحاول مرة أخرى عند عودة الاتصال',
+                  );
+                  return;
+                }
               }
             }
             Alert.alert(

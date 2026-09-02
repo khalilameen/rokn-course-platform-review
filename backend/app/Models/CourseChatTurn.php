@@ -19,5 +19,7 @@ final class CourseChatTurn extends Model
     protected $casts = [
         'completed_at' => 'datetime',
         'expires_at' => 'datetime',
+        'admission_quota_consumed_at' => 'datetime',
+        'admission_quota_released_at' => 'datetime',
     ];
 }

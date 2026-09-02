@@ -20,6 +20,11 @@ final class PurgeExpiredApiTokens implements ShouldQueue
     public int $timeout = 300;
     public array $backoff = [60, 300];
 
+    public function __construct()
+    {
+        $this->onQueue((string) config('queue.channels.operations', 'operations'));
+    }
+
     public function handle(): void
     {
         $table = (string) config('multiple-tokens-auth.table', 'api_tokens');

@@ -6,11 +6,14 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\ProjectSubmission;
+use App\Models\AiInputAttachment;
 use App\Models\User;
+use App\Models\ProjectFeedbackMessage;
 use App\Services\ProjectSubmissionService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use App\Support\DownloadFilename;
@@ -63,14 +66,49 @@ class ProjectSubmissionController extends Controller
 
     public function show(ProjectSubmission $projectSubmission): View
     {
+        $isAdministrator = strtolower(trim((string) request()->user()?->role)) === 'admin';
         $projectSubmission->load([
             'user',
             'project.section.course',
             'reviewer',
+            'aiInputAttachments',
+            'feedbackThread',
         ]);
+
+        $threadMessages = collect();
+        if ($projectSubmission->feedbackThread) {
+            $query = ProjectFeedbackMessage::query()
+                ->where('thread_id', $projectSubmission->feedbackThread->id)
+                ->orderByDesc('id')
+                ->limit(60)
+                ->get()
+                ->reverse()
+                ->values();
+            $initial = ProjectFeedbackMessage::query()
+                ->where('thread_id', $projectSubmission->feedbackThread->id)
+                ->where('client_request_id', 'report:' . $projectSubmission->public_id)
+                ->first();
+            if ($isAdministrator) {
+                $query->load('usageEvent');
+                $initial?->load('usageEvent');
+            }
+            if ($initial && !$query->contains('id', $initial->id)) $query->prepend($initial);
+            $attachments = AiInputAttachment::query()
+                ->where('owner_type', AiInputAttachment::OWNER_PROJECT_FEEDBACK_MESSAGE)
+                ->whereIn('owner_id', $query->pluck('id'))
+                ->orderBy('id')
+                ->get()
+                ->groupBy('owner_id');
+            $threadMessages = $query->map(function (ProjectFeedbackMessage $message) use ($attachments) {
+                $message->setRelation('inputAttachments', $attachments->get($message->id, collect()));
+                return $message;
+            });
+        }
 
         return view('admin.project-submissions.show', [
             'submission' => $projectSubmission,
+            'threadMessages' => $threadMessages,
+            'isAdministrator' => $isAdministrator,
         ]);
     }
 
@@ -103,7 +141,43 @@ class ProjectSubmissionController extends Controller
 
         return $disk->download($path, $downloadName, [
             'Content-Disposition' => DownloadFilename::disposition($downloadName),
+            'Cache-Control' => 'private, no-store',
             'X-Content-Type-Options' => 'nosniff',
+            'Referrer-Policy' => 'no-referrer',
+        ]);
+    }
+
+    public function downloadAttachment(
+        ProjectSubmission $projectSubmission,
+        AiInputAttachment $attachment
+    ): StreamedResponse {
+        $isSubmissionFile = $attachment->owner_type === AiInputAttachment::OWNER_PROJECT_SUBMISSION
+            && (int) $attachment->owner_id === (int) $projectSubmission->id;
+        $isThreadFile = $attachment->owner_type === AiInputAttachment::OWNER_PROJECT_FEEDBACK_MESSAGE
+            && ProjectFeedbackMessage::query()
+                ->whereKey($attachment->owner_id)
+                ->whereHas('thread', fn ($query) =>
+                    $query->where('submission_id', $projectSubmission->id)
+                )->exists();
+        abort_unless($isSubmissionFile || $isThreadFile, 404);
+        $disk = Storage::disk((string) $attachment->storage_disk);
+        abort_unless($disk->exists((string) $attachment->storage_path), 404);
+        $name = DownloadFilename::safe(
+            (string) $attachment->original_file_name,
+            'project-submission',
+            pathinfo((string) $attachment->storage_path, PATHINFO_EXTENSION)
+        );
+        Log::info('Admin downloaded learner project artifact.', [
+            'admin_id' => auth()->id(),
+            'submission_id' => $projectSubmission->id,
+            'attachment_id' => $attachment->id,
+            'owner_type' => $attachment->owner_type,
+        ]);
+        return $disk->download((string) $attachment->storage_path, $name, [
+            'Content-Disposition' => DownloadFilename::disposition($name),
+            'Cache-Control' => 'private, no-store',
+            'X-Content-Type-Options' => 'nosniff',
+            'Referrer-Policy' => 'no-referrer',
         ]);
     }
 

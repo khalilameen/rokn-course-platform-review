@@ -15,10 +15,10 @@
         .chips,.links{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}.chip,.link{border:1px solid var(--line);background:rgba(255,255,255,.035);padding:7px 12px;border-radius:999px;font-size:13px;text-decoration:none}
         section{padding:42px 0}.section-head{display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:18px}.section-head h2{font-size:26px;margin:0}.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:16px}
         .project{grid-column:span 6;overflow:hidden;border:1px solid var(--line);border-radius:24px;background:linear-gradient(180deg,var(--surface2),var(--surface));box-shadow:0 18px 60px rgba(0,0,0,.16)}
-        .project.featured{grid-column:span 12}.cover{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:#0a1524}.project-body{padding:22px}.project h3{font-size:21px;margin:0 0 7px}.eyebrow{font-size:12px;color:#8ab3ff;margin-bottom:7px}.tools{display:flex;gap:6px;flex-wrap:wrap;margin-top:16px}.tools span{font-size:12px;color:var(--muted);background:rgba(255,255,255,.045);padding:5px 9px;border-radius:8px}
+        .project.featured{grid-column:span 12}.project-media{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line)}.project-media.single{grid-template-columns:1fr}.project-asset{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:#0a1524;border:0}.project-body{padding:22px}.project h3{font-size:21px;margin:0 0 7px}.eyebrow{font-size:12px;color:#8ab3ff;margin-bottom:7px}.tools{display:flex;gap:6px;flex-wrap:wrap;margin-top:16px}.tools span{font-size:12px;color:var(--muted);background:rgba(255,255,255,.045);padding:5px 9px;border-radius:8px}
         .certificate{grid-column:span 6;border:1px solid var(--line);border-radius:20px;background:var(--surface);padding:20px}.certificate.highlight{border-color:rgba(217,173,98,.75);box-shadow:0 0 0 3px rgba(217,173,98,.11)}.verified{color:var(--gold);font-size:13px}.certificate h3{margin:5px 0}.badge{grid-column:span 4;border:1px solid var(--line);background:var(--surface);border-radius:18px;padding:17px;display:flex;gap:14px;align-items:center}.badge img{width:52px;height:52px;object-fit:contain}
         footer{border-top:1px solid var(--line);padding:26px 0 max(30px,env(safe-area-inset-bottom));color:var(--muted);font-size:13px}
-        @media(max-width:720px){.wrap{width:min(100% - 24px,1120px)}.identity{grid-template-columns:76px 1fr;gap:15px}.avatar{width:76px;height:76px;border-radius:22px}.project,.project.featured,.certificate,.badge{grid-column:span 12}.hero{padding-top:max(28px,env(safe-area-inset-top))}section{padding:30px 0}.project{border-radius:20px}}
+        @media(max-width:720px){.wrap{width:min(100% - 24px,1120px)}.identity{grid-template-columns:76px 1fr;gap:15px}.avatar{width:76px;height:76px;border-radius:22px}.project,.project.featured,.certificate,.badge{grid-column:span 12}.hero{padding-top:max(28px,env(safe-area-inset-top))}section{padding:30px 0}.project{border-radius:20px}.project-media{grid-template-columns:1fr}}
     </style>
 </head>
 <body>
@@ -44,8 +44,18 @@
     <section><div class="section-head"><h2>المشروعات</h2></div><div class="grid">
         @foreach($portfolio['projects'] as $project)
         <article class="project {{ $project['is_featured'] ? 'featured' : '' }}">
-            @php($cover = collect($project['media'] ?? [])->firstWhere('file_type','image'))
-            @if($cover && $cover['image_url'])<img class="cover" src="{{ $cover['image_url'] }}" onerror="this.remove()" alt="{{ $project['title'] }}" loading="lazy">@endif
+            @php($media = collect($project['media'] ?? [])->filter(fn ($item) => ($item['file_type'] ?? null) === 'image' ? !empty($item['image_url']) : (($item['file_type'] ?? null) === 'video' && !empty($item['video_url'])))->values())
+            @if($media->isNotEmpty())
+                <div class="project-media {{ $media->count() === 1 ? 'single' : '' }}">
+                    @foreach($media as $asset)
+                        @if(($asset['file_type'] ?? null) === 'image')
+                            <img class="project-asset" src="{{ $asset['image_url'] }}" onerror="this.remove()" alt="{{ $asset['caption'] ?: $project['title'] }}" loading="lazy">
+                        @else
+                            <iframe class="project-asset" src="{{ $asset['video_url'] }}" title="{{ $asset['caption'] ?: $project['title'] }}" loading="lazy" allow="encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="no-referrer"></iframe>
+                        @endif
+                    @endforeach
+                </div>
+            @endif
             <div class="project-body">@if($project['course'])<div class="eyebrow">مشروع من كورس {{ $project['course']['name'] }}</div>@endif<h3>{{ $project['title'] }}</h3>@if($project['role'])<div class="muted">الدور: {{ $project['role'] }}</div>@endif<p class="muted">{{ $project['description'] }}</p><div class="tools">@foreach($project['tools'] as $tool)<span>{{ $tool }}</span>@endforeach</div>@if($project['external_url'])<p><a href="{{ $project['external_url'] }}" rel="noopener noreferrer">عرض المشروع ↗</a></p>@endif</div>
         </article>
         @endforeach

@@ -1,4 +1,5 @@
 import {publicRequest} from '../../constants/api';
+import {uploadPortfolioVideo} from '../portfolioVideoUpload';
 import {
   ApiRecord,
   firstBoolean,
@@ -8,7 +9,12 @@ import {
 } from './common';
 
 type WatchHistoryDto = ApiRecord;
-type PortfolioMediaDto = ApiRecord & {file_type?: unknown; image_url?: unknown};
+type PortfolioMediaDto = ApiRecord & {
+  file_type?: unknown;
+  image_url?: unknown;
+  video_url?: unknown;
+  playback_url?: unknown;
+};
 type PortfolioCourseDto = {name?: unknown; id?: unknown; image?: unknown};
 type PortfolioItemDto = ApiRecord & {
   media?: unknown;
@@ -71,6 +77,28 @@ export type PortfolioItem = {
   courseImage?: string;
   sourceProjectId?: string;
   featured: boolean;
+  media: PortfolioMedia[];
+  uploadState: 'draft' | 'uploading' | 'ready' | 'deleting';
+  uploadedMediaCount: number;
+  expectedMediaCount: number;
+};
+
+export type PortfolioMedia = {
+  id: string;
+  type: 'image' | 'video';
+  uri?: string;
+  status: 'ready' | 'processing' | 'failed';
+  caption?: string;
+  width?: number;
+  height?: number;
+  durationSeconds?: number;
+};
+
+export type PortfolioUpload = {
+  uri: string;
+  type?: string;
+  fileName?: string;
+  size?: number;
 };
 
 export type EligibleProject = {
@@ -85,7 +113,11 @@ export type EligibleProject = {
 };
 
 export const getProfile = async (): Promise<Profile> => {
-  const data = payload<unknown>(await publicRequest.get('user/profile'));
+  const data = payload<unknown>(
+    await publicRequest.get('user/profile', {
+      params: {include_learning: 0},
+    }),
+  );
   if (!isApiRecord(data)) {
     throw new Error('PROFILE_CONTRACT_INVALID');
   }
@@ -402,83 +434,222 @@ export const updatePortfolioProfile = async ({
   };
 };
 
+const portfolioMedia = (value: unknown): PortfolioMedia[] =>
+  resourceList<PortfolioMediaDto>(value)
+    .filter(item => item.id !== null && item.id !== undefined)
+    .map(item => {
+      const type =
+        String(item.file_type).toLowerCase() === 'video' ? 'video' : 'image';
+      const statusValue = String(item.status || '').toLowerCase();
+      const status = ['ready', 'processing', 'failed'].includes(statusValue)
+        ? (statusValue as PortfolioMedia['status'])
+        : type === 'image' && item.image_url
+        ? 'ready'
+        : 'processing';
+      const width = Number(item.width);
+      const height = Number(item.height);
+      const durationSeconds = Number(item.duration_seconds);
+      return {
+        id: String(item.id),
+        type,
+        uri:
+          type === 'video'
+            ? item.playback_url
+              ? String(item.playback_url)
+              : undefined
+            : item.image_url
+            ? String(item.image_url)
+            : undefined,
+        status,
+        caption: item.caption ? String(item.caption) : undefined,
+        width: Number.isFinite(width) && width > 0 ? width : undefined,
+        height: Number.isFinite(height) && height > 0 ? height : undefined,
+        durationSeconds:
+          Number.isFinite(durationSeconds) && durationSeconds >= 0
+            ? durationSeconds
+            : undefined,
+      };
+    });
+
+const portfolioItem = (
+  item: PortfolioItemDto,
+  fallback?: Partial<PortfolioItem>,
+): PortfolioItem => {
+  const media = portfolioMedia(item.media);
+  const cover = media.find(entry => entry.type === 'image' && entry.uri);
+  const course = item.course as PortfolioCourseDto | undefined;
+  return {
+    id: String(item.id ?? fallback?.id ?? ''),
+    title: String(item.title || fallback?.title || 'مشروع بدون عنوان'),
+    summary: String(item.description ?? fallback?.summary ?? ''),
+    coverUri: cover?.uri ?? fallback?.coverUri,
+    skills: Array.isArray(item.tools)
+      ? item.tools.map(String)
+      : fallback?.skills ?? [],
+    courseName: course?.name ? String(course.name) : fallback?.courseName,
+    courseId: course?.id ? String(course.id) : fallback?.courseId,
+    courseImage: course?.image ? String(course.image) : fallback?.courseImage,
+    sourceProjectId: item.source_project_id
+      ? String(item.source_project_id)
+      : fallback?.sourceProjectId,
+    featured: firstBoolean(item.is_featured) ?? fallback?.featured ?? false,
+    media: media.length ? media : fallback?.media ?? [],
+    uploadState: ['draft', 'uploading', 'ready', 'deleting'].includes(
+      String(item.upload_state),
+    )
+      ? (String(item.upload_state) as PortfolioItem['uploadState'])
+      : firstBoolean(item.is_public)
+      ? 'ready'
+      : 'draft',
+    uploadedMediaCount: Math.max(
+      0,
+      Number(item.uploaded_media_count) || media.length,
+    ),
+    expectedMediaCount: Math.max(0, Number(item.expected_media_count) || 0),
+  };
+};
+
 export const getPortfolio = async (): Promise<PortfolioItem[]> => {
-  const data = payload(await publicRequest.get('portfolio'));
+  const data = payload(
+    await publicRequest.get('portfolio', {params: {summary: 1}}),
+  );
   const items = resourceList<PortfolioItemDto>(data);
   return items
     .filter(item => item.id !== null && item.id !== undefined)
-    .map(item => {
-      const media = resourceList<PortfolioMediaDto>(item.media);
-      const cover = media.find(entry => entry.file_type === 'image');
-      return {
-        id: String(item.id),
-        title: String(item.title || 'مشروع بدون عنوان'),
-        summary: String(item.description || ''),
-        coverUri: cover?.image_url ? String(cover.image_url) : undefined,
-        skills: Array.isArray(item.tools) ? item.tools.map(String) : [],
-        courseName: item.course?.name ? String(item.course.name) : undefined,
-        courseId: item.course?.id ? String(item.course.id) : undefined,
-        courseImage: item.course?.image ? String(item.course.image) : undefined,
-        sourceProjectId: item.source_project_id
-          ? String(item.source_project_id)
-          : undefined,
-        featured: firstBoolean(item.is_featured) ?? false,
-      };
-    });
+    .map(item => portfolioItem(item));
+};
+
+export const getPortfolioItem = async (id: string): Promise<PortfolioItem> => {
+  const data = payload(await publicRequest.get(`portfolio/${id}`));
+  if (!isApiRecord(data) || data.id === null || data.id === undefined) {
+    throw new Error('PORTFOLIO_ITEM_CONTRACT_INVALID');
+  }
+  return portfolioItem(data as PortfolioItemDto);
 };
 
 export const createPortfolioItem = async ({
   title,
   summary,
-  cover,
   sourceProjectId,
   courseId,
   clientRequestId,
+  expectedMediaCount,
 }: {
   title: string;
   summary: string;
-  cover?: {uri: string; type?: string; fileName?: string; size?: number};
   sourceProjectId?: string;
   courseId?: string;
   clientRequestId: string;
+  expectedMediaCount: number;
 }): Promise<PortfolioItem> => {
+  const data = payload(
+    await publicRequest.post(
+      'portfolio',
+      {
+        client_request_id: clientRequestId,
+        title,
+        description: summary,
+        expected_media_count: Math.max(0, Math.min(12, expectedMediaCount)),
+        ...(sourceProjectId ? {source_project_id: sourceProjectId} : {}),
+        ...(courseId ? {course_id: courseId} : {}),
+      },
+      {
+        headers: {'Idempotency-Key': clientRequestId},
+      },
+    ),
+  );
+  return portfolioItem(data as PortfolioItemDto, {
+    title,
+    summary,
+    skills: [],
+    courseId,
+    sourceProjectId,
+    featured: false,
+    media: [],
+    uploadState: expectedMediaCount > 0 ? 'draft' : 'ready',
+    uploadedMediaCount: 0,
+    expectedMediaCount,
+  });
+};
+
+export const finalizePortfolioItem = async (
+  id: string,
+): Promise<PortfolioItem> => {
+  const data = payload(await publicRequest.post(`portfolio/${id}/finalize`));
+  if (!isApiRecord(data)) throw new Error('PORTFOLIO_ITEM_CONTRACT_INVALID');
+  return portfolioItem(data as PortfolioItemDto);
+};
+
+export const updatePortfolioItem = async (
+  id: string,
+  input: {title: string; summary: string},
+): Promise<PortfolioItem> => {
+  const data = payload(
+    await publicRequest.post(`portfolio/${id}`, {
+      title: input.title,
+      description: input.summary,
+    }),
+  );
+  if (!isApiRecord(data)) throw new Error('PORTFOLIO_ITEM_CONTRACT_INVALID');
+  return portfolioItem(data as PortfolioItemDto, {
+    id,
+    title: input.title,
+    summary: input.summary,
+    uploadState: 'ready',
+    uploadedMediaCount: 0,
+    expectedMediaCount: 0,
+  });
+};
+
+export const appendPortfolioMedia = async (
+  id: string,
+  file: PortfolioUpload,
+  clientRequestId: string,
+): Promise<PortfolioMedia> => {
+  const type = String(file.type || '')
+    .toLowerCase()
+    .startsWith('video/')
+    ? 'video'
+    : 'image';
+  if (type === 'video') {
+    const direct = await uploadPortfolioVideo(id, file, clientRequestId);
+    const item = portfolioMedia([direct])[0];
+    if (!item) throw new Error('PORTFOLIO_MEDIA_CONTRACT_INVALID');
+    return item;
+  }
   const form = new FormData();
   form.append('client_request_id', clientRequestId);
-  form.append('title', title);
-  form.append('description', summary);
-  if (sourceProjectId) form.append('source_project_id', sourceProjectId);
-  if (courseId) form.append('course_id', courseId);
-  if (cover?.uri) {
-    form.append('files[]', {
-      uri: cover.uri,
-      type: cover.type || 'image/jpeg',
-      name: cover.fileName || `portfolio-${Date.now()}.jpg`,
-    } as unknown as Blob);
-    form.append('file_types[]', 'image');
-  }
+  form.append('file_type', type);
+  form.append('file', {
+    uri: file.uri,
+    type: file.type || 'image/jpeg',
+    name: file.fileName || `portfolio-${Date.now()}.jpg`,
+  } as unknown as Blob);
   const data = payload(
-    await publicRequest.post('portfolio', form, {
-      timeout: 45000,
+    await publicRequest.post(`portfolio/${id}/media`, form, {
+      timeout: 60000,
       headers: {'Idempotency-Key': clientRequestId},
     }),
   );
-  const media = resourceList<PortfolioMediaDto>(data.media);
-  const image = media.find(entry => entry.file_type === 'image');
-  const course = data.course as PortfolioCourseDto | undefined;
-  return {
-    id: String(data.id),
-    title: String(data.title || title),
-    summary: String(data.description || summary),
-    coverUri: image?.image_url ? String(image.image_url) : cover?.uri,
-    skills: Array.isArray(data.tools) ? data.tools.map(String) : [],
-    courseName: course?.name ? String(course.name) : undefined,
-    courseId: course?.id ? String(course.id) : courseId,
-    courseImage: course?.image ? String(course.image) : undefined,
-    sourceProjectId: data.source_project_id
-      ? String(data.source_project_id)
-      : sourceProjectId,
-    featured: firstBoolean(data.is_featured) ?? false,
-  };
+  const item = portfolioMedia([data])[0];
+  if (!item) throw new Error('PORTFOLIO_MEDIA_CONTRACT_INVALID');
+  return item;
+};
+
+export const deletePortfolioMedia = async (
+  portfolioId: string,
+  mediaId: string,
+): Promise<void> => {
+  try {
+    await publicRequest.delete(`portfolio/${portfolioId}/media/${mediaId}`);
+  } catch (error: unknown) {
+    const status = Number(
+      (error as {status?: unknown; response?: {status?: unknown}})?.status ??
+        (error as {response?: {status?: unknown}})?.response?.status ??
+        0,
+    );
+    if (status !== 404) throw error;
+  }
 };
 
 export const getEligibleProjects = async (): Promise<EligibleProject[]> => {
@@ -534,5 +705,9 @@ export const getProductionWatchHistory = getWatchHistory;
 export const updateProductionPortfolioProfile = updatePortfolioProfile;
 export const getProductionPortfolio = getPortfolio;
 export const createProductionPortfolioItem = createPortfolioItem;
+export const getProductionPortfolioItem = getPortfolioItem;
+export const updateProductionPortfolioItem = updatePortfolioItem;
+export const appendProductionPortfolioMedia = appendPortfolioMedia;
+export const deleteProductionPortfolioMedia = deletePortfolioMedia;
 export const getProductionEligibleProjects = getEligibleProjects;
 export const deleteProductionPortfolioItem = deletePortfolioItem;

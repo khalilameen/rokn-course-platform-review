@@ -4,6 +4,31 @@ jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
 );
 
+require('react-native-gesture-handler/jestSetup');
+
+// react-native-fs ships Flow syntax in its CommonJS entrypoint. Native I/O is
+// covered by focused suites; facade/import tests need a deterministic bridge.
+jest.mock('react-native-fs', () => ({
+  CachesDirectoryPath: '/tmp/rokn-cache',
+  DocumentDirectoryPath: '/tmp/rokn-documents',
+  MainBundlePath: '/tmp/rokn-bundle',
+  copyFile: jest.fn(async () => undefined),
+  downloadFile: jest.fn(() => ({jobId: 1, promise: Promise.resolve({statusCode: 200})})),
+  exists: jest.fn(async () => false),
+  getFSInfo: jest.fn(async () => ({freeSpace: 1024 * 1024 * 1024})),
+  hash: jest.fn(async () => 'a'.repeat(64)),
+  mkdir: jest.fn(async () => undefined),
+  moveFile: jest.fn(async () => undefined),
+  read: jest.fn(async () => ''),
+  readDir: jest.fn(async () => []),
+  readFile: jest.fn(async () => ''),
+  readFileAssets: jest.fn(async () => ''),
+  stat: jest.fn(async () => ({isFile: () => true, size: 0})),
+  stopDownload: jest.fn(),
+  unlink: jest.fn(async () => undefined),
+  writeFile: jest.fn(async () => undefined),
+}));
+
 jest.mock('expo-secure-store', () => ({
   WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'WHEN_UNLOCKED_THIS_DEVICE_ONLY',
   isAvailableAsync: jest.fn(async () => true),

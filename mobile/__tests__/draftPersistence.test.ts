@@ -10,6 +10,7 @@ jest.mock('../src/services/learnerDraftFiles', () => ({
   cacheLearnerDraftFile: jest.fn(),
   learnerDraftFileIsReadable: jest.fn(async () => true),
   removeLearnerDraftFile: jest.fn(async () => undefined),
+  retainLearnerDraftFiles: jest.fn(async () => undefined),
 }));
 
 import {

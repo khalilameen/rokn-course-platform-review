@@ -12,6 +12,7 @@ use App\Models\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Intervention\Image\Facades\Image;
 
@@ -69,17 +70,21 @@ final class SupportCaseService
             return $existing;
         }
 
-        $storedPath = null;
-        try {
-            return DB::transaction(function () use (
+        $stagedAttachment = $screenshot
+            ? $this->stageSanitizedImage($report, $clientRequestId, $screenshot)
+            : null;
+
+        return DB::transaction(function () use (
                 $report,
                 $user,
                 $body,
                 $clientRequestId,
                 $fingerprint,
-                $screenshot,
-                &$storedPath
+                $stagedAttachment
             ): SupportCaseMessage {
+                if ($user) {
+                    User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+                }
                 $locked = FeedbackReport::query()->lockForUpdate()->findOrFail($report->id);
                 $existing = SupportCaseMessage::query()
                     ->where('feedback_report_id', $locked->id)
@@ -103,9 +108,8 @@ final class SupportCaseService
                     'request_fingerprint' => $fingerprint,
                 ]);
 
-                if ($screenshot) {
-                    $attachment = $this->storeSanitizedImage($locked, $message, $screenshot);
-                    $storedPath = $attachment->path;
+                if ($stagedAttachment) {
+                    $this->attachStagedImage($locked, $message, $stagedAttachment);
                 }
 
                 $updates = [
@@ -126,12 +130,6 @@ final class SupportCaseService
 
                 return $message;
             }, 3);
-        } catch (\Throwable $exception) {
-            if ($storedPath) {
-                app(StoredFileDeletionService::class)->deleteOrQueue('feedback', $storedPath);
-            }
-            throw $exception;
-        }
     }
 
     public function appendStaffMessage(
@@ -197,10 +195,19 @@ final class SupportCaseService
 
     public function customerPayload(FeedbackReport $report): array
     {
-        $report->loadMissing(['course:id,name_ar,name_en', 'messages' => fn ($query) => $query
+        $report->load([
+            'course:id,name_ar,name_en',
+            'attachments' => fn ($query) => $query
+                ->whereNull('support_case_message_id')
+                ->where('scan_status', 'sanitized')
+                ->orderBy('id'),
+            'messages' => fn ($query) => $query
             ->where('visibility', SupportCaseMessage::VISIBILITY_CUSTOMER)
-            ->withCount('attachments')
-            ->orderBy('id')]);
+            ->with(['attachments' => fn ($attachments) => $attachments
+                ->where('scan_status', 'sanitized')
+                ->orderBy('id')])
+            ->orderBy('id'),
+        ]);
 
         return [
             'public_id' => $report->public_id,
@@ -211,13 +218,46 @@ final class SupportCaseService
             'course' => $report->course ? ['id' => (int) $report->course->id, 'title' => $report->course->title] : null,
             'created_at' => $report->created_at?->toIso8601String(),
             'updated_at' => $report->updated_at?->toIso8601String(),
+            'attachments' => $report->attachments
+                ->map(fn (FeedbackAttachment $attachment): array => $this->customerAttachment(
+                    $report,
+                    $attachment
+                ))->values()->all(),
             'messages' => $report->messages->map(fn (SupportCaseMessage $message): array => [
                 'public_id' => $message->public_id,
                 'author' => $message->author_type === SupportCaseMessage::AUTHOR_LEARNER ? 'learner' : 'support',
                 'text' => $message->body,
-                'has_attachment' => (int) $message->attachments_count > 0,
+                'has_attachment' => $message->attachments->isNotEmpty(),
+                'attachments' => $message->attachments
+                    ->map(fn (FeedbackAttachment $attachment): array => $this->customerAttachment(
+                        $report,
+                        $attachment
+                    ))->values()->all(),
                 'created_at' => $message->created_at?->toIso8601String(),
             ])->values()->all(),
+        ];
+    }
+
+    /** @return array{id:string,name:string,mime:string,size:int,width:?int,height:?int,url:string,expires_at:string} */
+    private function customerAttachment(
+        FeedbackReport $report,
+        FeedbackAttachment $attachment
+    ): array {
+        $expiresAt = now()->addMinutes(15);
+        return [
+            'id' => (string) $attachment->id,
+            'name' => 'support-' . strtoupper(substr((string) $report->public_id, -8))
+                . '-' . $attachment->id . '.jpg',
+            'mime' => (string) ($attachment->mime_type ?: 'image/jpeg'),
+            'size' => max(0, (int) $attachment->size_bytes),
+            'width' => $attachment->width ? (int) $attachment->width : null,
+            'height' => $attachment->height ? (int) $attachment->height : null,
+            'url' => URL::temporarySignedRoute(
+                'api.feedback.attachment',
+                $expiresAt,
+                ['publicId' => $report->public_id, 'attachment' => $attachment->id]
+            ),
+            'expires_at' => $expiresAt->toIso8601String(),
         ];
     }
 
@@ -246,7 +286,8 @@ final class SupportCaseService
             'rokn://support/'.$report->public_id,
             FeedbackReport::class,
             (int) $report->id,
-            $deliveryKey
+            $deliveryKey,
+            ['case' => strtoupper(substr((string) $report->public_id, -8))]
         );
     }
 
@@ -268,11 +309,12 @@ final class SupportCaseService
         ]);
     }
 
-    private function storeSanitizedImage(
+    /** @return array{path:string,mime_type:string,size_bytes:int,width:int,height:int,sha256:string} */
+    private function stageSanitizedImage(
         FeedbackReport $report,
-        SupportCaseMessage $message,
+        string $clientRequestId,
         UploadedFile $upload
-    ): FeedbackAttachment {
+    ): array {
         try {
             $image = Image::make($upload->getRealPath());
         } catch (\Throwable) {
@@ -285,18 +327,42 @@ final class SupportCaseService
         });
         $encoded = (string) $image->encode('jpg', 86);
         abort_if($encoded === '', 422, 'تعذّرت قراءة الصورة\nاختر صورة أخرى');
-        $path = now()->format('Y/m').'/'.$report->public_id.'/'.$message->public_id.'.jpg';
+        $sha = hash('sha256', $encoded);
+        $directory = ($report->created_at ?: now())->format('Y/m');
+        $path = $directory.'/'.$report->public_id.'/'.hash(
+            'sha256',
+            'support-message|'.$report->public_id.'|'.strtolower($clientRequestId).'|'.$sha
+        ).'.jpg';
+        app(StoredFileDeletionService::class)
+            ->trackPotentialOrphan('feedback', $path, 60);
         abort_unless(Storage::disk('feedback')->put($path, $encoded), 503, 'تعذّر حفظ الصورة الآن');
 
-        return $report->attachments()->create([
-            'support_case_message_id' => $message->id,
-            'disk' => 'feedback',
+        return [
             'path' => $path,
             'mime_type' => 'image/jpeg',
             'size_bytes' => strlen($encoded),
             'width' => $image->width(),
             'height' => $image->height(),
-            'sha256' => hash('sha256', $encoded),
+            'sha256' => $sha,
+        ];
+    }
+
+    /** @param array{path:string,mime_type:string,size_bytes:int,width:int,height:int,sha256:string} $staged */
+    private function attachStagedImage(
+        FeedbackReport $report,
+        SupportCaseMessage $message,
+        array $staged
+    ): FeedbackAttachment {
+        return $report->attachments()->firstOrCreate([
+            'support_case_message_id' => $message->id,
+            'path' => $staged['path'],
+        ], [
+            'disk' => 'feedback',
+            'mime_type' => $staged['mime_type'],
+            'size_bytes' => $staged['size_bytes'],
+            'width' => $staged['width'],
+            'height' => $staged['height'],
+            'sha256' => $staged['sha256'],
             'scan_status' => 'sanitized',
         ]);
     }
@@ -322,7 +388,8 @@ final class SupportCaseService
             'rokn://support/'.$report->public_id,
             FeedbackReport::class,
             (int) $report->id,
-            'support-case:'.$report->id.':message:'.$message->id
+            'support-case:'.$report->id.':message:'.$message->id,
+            ['case' => strtoupper(substr((string) $report->public_id, -8))]
         );
     }
 

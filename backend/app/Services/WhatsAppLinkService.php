@@ -46,7 +46,9 @@ final readonly class WhatsAppLinkService
         $result = DB::transaction(function () use ($user, $method, $rawToken, $expiresAt): array {
             /** @var User $lockedUser */
             $lockedUser = User::query()->lockForUpdate()->findOrFail($user->id);
-            $lockedMethod = CoinEarningMethod::query()->lockForUpdate()->findOrFail($method->id);
+            // Starting a link does not consume the campaign quota. The actual
+            // inbound claim below is its financial boundary.
+            $lockedMethod = CoinEarningMethod::query()->findOrFail($method->id);
             if (!$lockedMethod->isAvailableNow() || !$lockedMethod->hasClaimCapacity()) {
                 throw new \DomainException('task_unavailable');
             }
@@ -127,9 +129,12 @@ final readonly class WhatsAppLinkService
             /** @var User $user */
             $user = User::query()->lockForUpdate()->findOrFail($link->user_id);
             /** @var CoinEarningMethod $method */
-            $method = CoinEarningMethod::query()
-                ->lockForUpdate()
-                ->findOrFail($link->coin_earning_method_id);
+            $method = CoinEarningMethod::query()->findOrFail($link->coin_earning_method_id);
+            if ($method->total_claim_limit !== null) {
+                $method = CoinEarningMethod::query()
+                    ->lockForUpdate()
+                    ->findOrFail($method->id);
+            }
 
             if ($link->consumed_at) {
                 $alreadyClaimed = $user->coinEarnings()

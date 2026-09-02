@@ -17,6 +17,7 @@ use App\Services\AppleService;
 use App\Services\SocialAuthProviderRegistry;
 use App\Services\DeviceLoginService;
 use App\Services\PortfolioShareIdentityService;
+use App\Services\SocialIdentityGuardService;
 use App\Support\RoknLocale;
 use Exception;
 use Illuminate\Http\Request;
@@ -35,6 +36,7 @@ class SignController extends Controller
     private SocialAuthProviderRegistry $socialProviders;
     private DeviceLoginService $deviceLogin;
     private PortfolioShareIdentityService $portfolioShares;
+    private SocialIdentityGuardService $identityGuards;
 
     public function __construct(
         FacebookService $facebookService,
@@ -43,7 +45,8 @@ class SignController extends Controller
         AppleService $appleService,
         SocialAuthProviderRegistry $socialProviders,
         DeviceLoginService $deviceLogin,
-        PortfolioShareIdentityService $portfolioShares
+        PortfolioShareIdentityService $portfolioShares,
+        SocialIdentityGuardService $identityGuards
     ) {
         $this->facebookService = $facebookService;
         $this->googleService = $googleService;
@@ -52,6 +55,7 @@ class SignController extends Controller
         $this->socialProviders = $socialProviders;
         $this->deviceLogin = $deviceLogin;
         $this->portfolioShares = $portfolioShares;
+        $this->identityGuards = $identityGuards;
     }
 
     /**
@@ -62,6 +66,7 @@ class SignController extends Controller
      */
     public function socialLogin(Request $request)
     {
+        $attemptStartedAt = $request->attributes->get('social_attempt_started_at') ?: now();
         $nonceRules = $request->input('provider') === 'apple'
             ? ['bail', 'required', 'string', 'size:64', 'regex:/\A[a-f0-9]{64}\z/']
             : ['nullable', 'string', 'max:255'];
@@ -155,8 +160,15 @@ class SignController extends Controller
                 $email,
                 $emailIsVerified,
                 $name,
-                $picture
+                $picture,
+                $attemptStartedAt,
+                $preferredLocale
             ): array {
+                $this->identityGuards->assertLoginStartedAfterLastDeletion(
+                    $provider,
+                    $providerId,
+                    $attemptStartedAt
+                );
                 $socialAccount = SocialAccount::query()
                     ->where('provider', $provider)
                     ->where('provider_user_id', $providerId)
@@ -283,6 +295,9 @@ class SignController extends Controller
                 if ($updates !== []) {
                     $user->forceFill($updates)->save();
                 }
+                if ($preferredLocale !== null && $user->preferred_locale !== $preferredLocale) {
+                    $user->forceFill(['preferred_locale' => $preferredLocale])->save();
+                }
 
                 return [$user, $isNewUser];
             });
@@ -299,6 +314,16 @@ class SignController extends Controller
         } catch (\DomainException $e) {
             report($e);
 
+            if ($e->getMessage() === 'social_login_predates_account_deletion') {
+                return response()->json([
+                    'status' => 410,
+                    'success' => false,
+                    'code' => 'social_login_expired',
+                    'message' => "انتهت محاولة تسجيل الدخول\nابدأ مرة أخرى",
+                    'data' => null,
+                ], 410);
+            }
+
             return response()->json([
                 'status' => 409,
                 'success' => false,
@@ -306,10 +331,6 @@ class SignController extends Controller
                 'message' => "هذا الحساب مرتبط بهوية أخرى\nتواصل مع الدعم إذا استمرت المشكلة",
                 'data' => null,
             ], 409);
-        }
-
-        if ($preferredLocale !== null && $user->preferred_locale !== $preferredLocale) {
-            $user->forceFill(['preferred_locale' => $preferredLocale])->save();
         }
 
         // Check if user is active
@@ -676,6 +697,15 @@ class SignController extends Controller
                 if (\Illuminate\Support\Facades\Schema::hasColumn('user_device_tokens', 'device_id')) {
                     $deviceId = trim((string) $request->input('device_id'));
                     $tokenAttributes['device_id'] = Str::isUuid($deviceId) ? $deviceId : null;
+                    if ($tokenAttributes['device_id']) {
+                        // One installation has one current FCM/account owner.
+                        // Retire an older token before binding its replacement,
+                        // including an interrupted account switch or rotation.
+                        \App\Models\UserDeviceToken::query()
+                            ->where('device_id', $tokenAttributes['device_id'])
+                            ->where('device_token', '<>', $deviceToken)
+                            ->delete();
+                    }
                 }
 
                 \App\Models\UserDeviceToken::updateOrCreate(

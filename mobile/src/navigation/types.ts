@@ -4,7 +4,10 @@ import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 export type CourseDetailsRouteParams = {
   courseId: string | number;
   openCodeRedemption?: boolean;
+  openFullTrackUpgrade?: boolean;
   openPurchase?: boolean;
+  purchasePlanCode?: string;
+  purchaseCouponCode?: string;
   coinPrice?: number | null;
   title?: string;
   description?: string;
@@ -23,12 +26,12 @@ export type ReelsRouteParams = {
   coinPrice?: number | null;
   title?: string;
   description?: string;
+  openCourseChatUpgrade?: boolean;
 };
 
 export const LOGIN_RETURN_TO_PARAMLESS_ROUTES = [
   'Wallet',
   'MyCorner',
-  'Profile',
   'Settings',
   'EditAccount',
   'DeviceSessions',
@@ -50,7 +53,12 @@ export type LoginReturnTo =
         lessonId?: string;
         preview?: boolean;
         previewCount?: number;
+        openCourseChatUpgrade?: boolean;
       };
+    }
+  | {
+      name: 'Profile';
+      params?: {tab: 'portfolio' | 'certificates' | 'saved'};
     }
   | {
       name: LoginReturnToParamlessRoute;
@@ -70,7 +78,7 @@ export type RootStackParamList = {
   Reels: ReelsRouteParams;
   CourseDetails: CourseDetailsRouteParams;
   MyCorner: undefined;
-  Wallet: undefined;
+  Wallet: {returnTo?: LoginReturnTo} | undefined;
   Profile: {tab?: 'portfolio' | 'certificates' | 'saved'} | undefined;
   AboutUs: undefined;
   PrivacyPolicy: undefined;

@@ -57,6 +57,17 @@ final class AdminCourseSectionStateContractTest extends TestCase
         );
     }
 
+    public function test_publishing_a_draft_preserves_the_explicit_catalog_visibility_choice(): void
+    {
+        $controller = $this->source('app/Http/Controllers/Admin/CourseController.php');
+
+        self::assertStringContainsString('$catalogAnnouncementRequested,', $controller);
+        self::assertStringContainsString(
+            "'is_coming_soon' => false,\n                        'is_catalog_visible' => \$catalogAnnouncementRequested,",
+            str_replace("\r\n", "\n", $controller)
+        );
+    }
+
     private function source(string $path): string
     {
         $source = file_get_contents(dirname(__DIR__, 2).'/'.$path);

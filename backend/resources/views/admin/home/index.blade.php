@@ -145,7 +145,10 @@
                     </div>
                     <div class="stats-info">
                         <h3 class="revenue-count">{{ number_format($revenueStats['total_revenue'], 0) }}</h3>
-                        <p>إجمالي المبيعات المسجل بكل القنوات (جنيه)</p>
+                        <p>إجمالي التحصيل المؤكد بكل القنوات (جنيه)</p>
+                        @if($revenueStats['catalog_estimated_revenue'] > 0)
+                            <small class="text-warning">{{ number_format($revenueStats['catalog_estimated_revenue'], 0) }} تقدير كتالوج خارج الإجمالي</small><br>
+                        @endif
                         @if($revenueStats['revenue_growth'] > 0)
                             <small class="text-success">
                                 <i class="fa fa-arrow-up"></i> {{ number_format($revenueStats['revenue_growth'], 1) }}%
@@ -209,7 +212,7 @@
                         <i class="fa fa-line-chart"></i>
                         شحن الرصيد النقدي شهريًا
                     </h4>
-                    <p class="chart-card-subtitle">Kashier وGoogle Play وApp Store؛ عمليات الاختبار مستبعدة</p>
+                    <p class="chart-card-subtitle">Kashier وGoogle Play وApp Store؛ التحصيل المؤكد فقط</p>
                 </div>
                 <div class="chart-card-body">
                     <div class="chart-container dashboard-chart--large">

@@ -18,7 +18,10 @@ import {
   removeItem,
   saveItem,
 } from '../constants/helpers';
-import {getSmartRemindersEnabled} from './smartReminders';
+import {
+  cancelLearningReminders,
+  getSmartRemindersEnabled,
+} from './smartReminders';
 import {
   getStoredPushDeviceToken,
   invalidateLocalPushDeviceRegistration,
@@ -150,6 +153,9 @@ const registerTokenForCurrentAccount = async (token: string) => {
     return false;
   }
   await saveItem(tokenKey, token);
+  // The backend now owns authenticated learning-reminder cadence. Clear any
+  // guest timer left on this installation before login so it cannot double it.
+  cancelLearningReminders();
   await removeItem(
     await pushStorageKey(LEGACY_PUSH_UNREGISTER_PENDING_KEY),
   );
@@ -209,18 +215,33 @@ export const clearCurrentPushDeviceRegistration = async () => {
   openNotificationByIdFlights.clear();
   responseOpenFlights.clear();
   recentlyOpenedResponses.clear();
-  await Promise.allSettled([
+  const [invalidation] = await Promise.allSettled([
     invalidateLocalPushDeviceRegistration(),
     removeItem(pendingKey),
     Notifications.clearLastNotificationResponseAsync(),
+    // Delivered notifications belong to the account being closed. Leaving
+    // their title/body in the OS tray leaks the previous learner's inbox on a
+    // shared phone even though tap routing itself is account-scoped.
+    Notifications.dismissAllNotificationsAsync(),
+    Notifications.setBadgeCountAsync(0),
   ]);
+  if (invalidation.status === 'rejected') throw invalidation.reason;
+  return invalidation.value;
 };
 
 /** Reconcile token rotation or a previously interrupted unregister. Never prompts. */
 export const reconcilePushRegistration = async () => {
   // Runs during bootstrap and foreground transitions even for guests.
+  const hasSession = Boolean(await currentSessionToken());
+  if (hasSession) {
+    // Authentication transfers reminder ownership to the backend even before
+    // a token refresh succeeds. Retire a guest timer here as well as after
+    // registration, otherwise an offline first login can fire the old local
+    // reminder beside the durable inbox campaign later.
+    cancelLearningReminders();
+  }
   if (!(await retryPendingNativePushTokenInvalidation())) return false;
-  if (!(await currentSessionToken())) return false;
+  if (!hasSession) return false;
   const optedIn = await getSmartRemindersEnabled();
   if (optedIn) {
     return registerPushDeviceIfEligible({requestPermission: false}).catch(

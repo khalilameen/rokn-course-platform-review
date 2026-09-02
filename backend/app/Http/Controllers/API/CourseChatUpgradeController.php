@@ -160,7 +160,7 @@ final class CourseChatUpgradeController extends Controller
                 $expectedPrice
             ): array {
                 User::query()->lockForUpdate()->findOrFail($user->id);
-                Course::query()->lockForUpdate()->findOrFail($course->id);
+                Course::query()->findOrFail($course->id);
                 $entitlement = $access->entitlementFor((int) $user->id, (int) $course->id);
                 if (!$entitlement['has_learning_access']) {
                     throw new \DomainException('course_access_required');
@@ -170,10 +170,10 @@ final class CourseChatUpgradeController extends Controller
                     throw new \DomainException('full_track_upgrade_not_available');
                 }
                 // A section can route to an enrollment on its parent course.
-                // Lock that commercial aggregate too, so its dashboard plans
-                // cannot change between quote, debit and snapshot.
+                // The selected terms are copied into the immutable purchase
+                // snapshot. The learner row is the financial lock; locking a
+                // shared course row here would serialize unrelated buyers.
                 $paidCourse = Course::query()
-                    ->lockForUpdate()
                     ->findOrFail($enrollment->course_id);
                 $enrollment->setRelation('course', $paidCourse);
                 $currentPlan = $plans->planForEnrollment($enrollment);
@@ -348,7 +348,7 @@ final class CourseChatUpgradeController extends Controller
                     'order_id' => $order->id,
                     'user_id' => $user->id,
                     'course_id' => $paidCourse->id,
-                    'bill_number' => Bill::generateBillNumber(),
+                    'bill_number' => Bill::numberForOrder((int) $order->id),
                     'amount' => $price,
                     'tax_amount' => 0,
                     'total_amount' => $price,
@@ -482,7 +482,8 @@ final class CourseChatUpgradeController extends Controller
         ?string $requestedCode = null
     ): ?CourseAccessPlan
     {
-        // Purchases and plan edits synchronize through the course row lock.
+        // Purchases retain these exact terms in their order snapshot. A
+        // concurrent catalogue edit affects the next quote, never this debit.
         $available = $plans->publicPlans($course)->filter->chat_enabled->values();
         if ($available->isEmpty()) {
             return null;

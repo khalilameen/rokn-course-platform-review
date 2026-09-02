@@ -16,7 +16,7 @@ class Category extends Model
 {
 	use HasPhoto,HasTranslate;
     //
-    protected $fillable = ['name_ar', 'name_en','type', 'description_ar', 'description_en'];
+    protected $fillable = ['name_ar', 'name_en','type', 'description_ar', 'description_en', 'authoring_request_id'];
     /** @deprecated Use itemLists(); retained for old callers only. */
     public function courses()
     {

@@ -7,8 +7,22 @@ jest.mock('expo-web-browser', () => ({
 jest.mock('../src/constants/api', () => ({
   publicRequest: {get: jest.fn(), post: jest.fn()},
 }));
+let mockCoinAccountEpoch = 1;
+let mockCoinAccountScope = 'user-a';
 jest.mock('../src/constants/helpers', () => ({
-  accountScopedStorageKey: jest.fn(async (key: string) => key),
+  accountScopedStorageKey: jest.fn(
+    async (key: string, boundary?: {scope: string}) =>
+      `${key}:${boundary?.scope ?? mockCoinAccountScope}`,
+  ),
+  captureAccountSessionBoundary: jest.fn(async () => ({
+    epoch: mockCoinAccountEpoch,
+    scope: mockCoinAccountScope,
+  })),
+  assertAccountSessionBoundary: jest.fn((boundary: {epoch: number}) => {
+    if (boundary.epoch !== mockCoinAccountEpoch) {
+      throw new Error('ACCOUNT_CHANGED_DURING_REQUEST');
+    }
+  }),
   getItem: jest.fn(async () => null),
   removeItem: jest.fn(async () => undefined),
   saveItem: jest.fn(async () => true),
@@ -33,6 +47,8 @@ describe('coin checkout boundary', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockCoinAccountEpoch = 1;
+    mockCoinAccountScope = 'user-a';
     const helpers = require('../src/constants/helpers') as {
       getItem: jest.Mock;
       saveItem: jest.Mock;
@@ -119,6 +135,92 @@ describe('coin checkout boundary', () => {
       openCoinCheckout({id: '7', coins: 600, price: 49, label: 'باقة'}),
     ).resolves.toMatchObject({cancelled: true});
     expect(removeItem).not.toHaveBeenCalled();
+  });
+
+  it('does not finish an old account checkout after the learner switches accounts', async () => {
+    process.env.EXPO_PUBLIC_BUILD_PROFILE = 'production';
+    process.env.EXPO_PUBLIC_ENABLE_LOCAL_DEMO = '0';
+    jest.resetModules();
+
+    const WebBrowser = require('expo-web-browser') as {
+      openAuthSessionAsync: jest.Mock;
+    };
+    const {publicRequest} = require('../src/constants/api') as {
+      publicRequest: {post: jest.Mock};
+    };
+    const {openCoinCheckout} = require('../src/services/coinCheckout') as {
+      openCoinCheckout: (coinPackage: {
+        id: string;
+        coins: number;
+        price: number;
+        label: string;
+      }) => Promise<unknown>;
+    };
+
+    publicRequest.post.mockResolvedValueOnce({
+      data: {
+        payment_url: 'https://checkout.kashier.io/session',
+        order_ref: 'PKG-OLD-ACCOUNT',
+        idempotency_key: '11111111-1111-4111-8111-111111111111',
+      },
+    });
+    WebBrowser.openAuthSessionAsync.mockImplementationOnce(async () => {
+      mockCoinAccountEpoch = 2;
+      mockCoinAccountScope = 'user-b';
+      return {type: 'cancel'};
+    });
+
+    await expect(
+      openCoinCheckout({id: '7', coins: 600, price: 49, label: 'باقة'}),
+    ).rejects.toThrow('ACCOUNT_CHANGED_DURING_REQUEST');
+  });
+
+  it('notifies the mounted wallet/course after foreground reconciliation credits coins', async () => {
+    process.env.EXPO_PUBLIC_BUILD_PROFILE = 'production';
+    process.env.EXPO_PUBLIC_ENABLE_LOCAL_DEMO = '0';
+    jest.resetModules();
+
+    const {publicRequest} = require('../src/constants/api') as {
+      publicRequest: {post: jest.Mock};
+    };
+    const helpers = require('../src/constants/helpers') as {getItem: jest.Mock};
+    const checkout = require('../src/services/coinCheckout') as {
+      reconcilePendingCoinCheckout: () => Promise<unknown>;
+      subscribeCoinCheckoutCredits: (listener: jest.Mock) => () => void;
+    };
+    helpers.getItem.mockResolvedValue({
+      attempts: [
+        {
+          idempotencyKey: '11111111-1111-4111-8111-111111111111',
+          packageId: 7,
+          expectedPrice: 49,
+          expectedCoins: 600,
+          createdAt: new Date().toISOString(),
+          orderRef: 'PKG-FOREGROUND-CREDIT',
+        },
+      ],
+    });
+    publicRequest.post.mockResolvedValue({
+      data: {
+        data: {
+          status: 'approved',
+          financial_status: 'settled',
+          package: {coins: 600},
+        },
+      },
+    });
+    const listener = jest.fn();
+    const unsubscribe = checkout.subscribeCoinCheckoutCredits(listener);
+
+    await expect(checkout.reconcilePendingCoinCheckout()).resolves.toMatchObject({
+      success: true,
+      coinsAdded: 600,
+      orderRef: 'PKG-FOREGROUND-CREDIT',
+    });
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({success: true, coinsAdded: 600}),
+    );
+    unsubscribe();
   });
 
   it('recovers a captured payment after the browser was closed', async () => {

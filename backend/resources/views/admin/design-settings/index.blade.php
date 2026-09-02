@@ -22,6 +22,8 @@
     <div class="design-card">
         <form action="{{ route('admin.design-settings.store') }}" method="POST" enctype="multipart/form-data" id="designSettingsForm">
             @csrf
+            <input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">
+            <input type="hidden" name="editor_version" value="{{ $editorVersion }}">
 
             <div class="accordion-design">
                 <!-- Basic Settings Section -->
@@ -731,6 +733,7 @@
                 </button>
             </div>
         </form>
+        @include('admin.partials.course-authoring-draft', ['formId' => 'designSettingsForm'])
     </div>
 </div>
 

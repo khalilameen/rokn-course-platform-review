@@ -90,14 +90,14 @@ final class CourseCommercialReportServiceTest extends TestCase
         DB::table('ai_usage_events')->insert([
             [
                 'request_id' => '11111111-1111-4111-8111-111111111111',
-                'user_id' => 1, 'course_id' => 10, 'status' => 'completed',
+                'user_id' => 1, 'course_id' => 10, 'feature' => 'course_chat', 'status' => 'completed',
                 'total_tokens' => 500, 'cost_usd' => 0.2, 'fx_rate_to_egp' => 50, 'cost_egp' => 10,
                 'metadata' => json_encode(['cost_usage_source' => 'provider']),
                 'created_at' => $now, 'updated_at' => $now,
             ],
             [
                 'request_id' => '22222222-2222-4222-8222-222222222222',
-                'user_id' => 1, 'course_id' => 10, 'status' => 'failed',
+                'user_id' => 1, 'course_id' => 10, 'feature' => 'course_chat', 'status' => 'failed',
                 'total_tokens' => 0, 'cost_usd' => 0, 'fx_rate_to_egp' => 50, 'cost_egp' => 0,
                 'metadata' => null,
                 'created_at' => $now, 'updated_at' => $now,
@@ -287,7 +287,7 @@ final class CourseCommercialReportServiceTest extends TestCase
         });
         Schema::create('ai_usage_events', function (Blueprint $table): void {
             $table->id(); $table->uuid('request_id'); $table->unsignedBigInteger('user_id');
-            $table->unsignedBigInteger('course_id'); $table->string('status');
+            $table->unsignedBigInteger('course_id'); $table->string('feature'); $table->string('status');
             $table->unsignedInteger('total_tokens')->default(0); $table->decimal('cost_usd', 12, 6)->default(0);
             $table->decimal('fx_rate_to_egp', 12, 4)->nullable(); $table->decimal('cost_egp', 14, 6)->nullable();
             $table->json('metadata')->nullable();

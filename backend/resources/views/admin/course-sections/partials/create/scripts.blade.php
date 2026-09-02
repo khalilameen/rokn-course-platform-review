@@ -357,6 +357,13 @@ document.addEventListener('DOMContentLoaded', function() {
                           placeholder="أدخل نص السؤال" data-required="true"></textarea>
             </div>
 
+            <div class="form-group mb-3">
+                <label class="form-label" for="questions_${index}_image">صورة توضيحية للسؤال</label>
+                <input type="file" id="questions_${index}_image" name="questions[${index}][question_image]"
+                       class="form-control" accept="image/jpeg,image/png,image/webp,image/gif">
+                <small class="text-muted">اختيارية وتظهر فوق نص السؤال داخل الاختبار</small>
+            </div>
+
             <div class="row mb-2">
                 <div class="col-md-6">
                     <div class="form-group">

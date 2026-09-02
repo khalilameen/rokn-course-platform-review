@@ -6,19 +6,27 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Models\CourseEnrollment;
+use App\Models\Course;
+use App\Models\AiInputAttachment;
+use App\Models\AiEntitlementUsage;
 use App\Models\CourseSection;
+use App\Models\CourseChatTurn;
 use App\Models\Project;
 use App\Models\ProjectSubmission;
 use App\Models\ProjectFeedbackThread;
+use App\Models\ProjectFeedbackMessage;
+use App\Models\User;
 use App\Models\UserProjectEvaluation;
 use App\Services\ProjectSubmissionService;
 use App\Services\ProjectFeedbackThreadService;
 use App\Services\CourseCompletionService;
 use App\Services\CourseChatAccessService;
 use App\Services\CourseAccessPlanService;
+use App\Services\AiInputAttachmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 use App\Support\DownloadFilename;
@@ -30,7 +38,8 @@ final class ProjectController extends Controller
         private CourseCompletionService $courseCompletion,
         private ProjectFeedbackThreadService $feedbackThreads,
         private CourseChatAccessService $courseAccess,
-        private CourseAccessPlanService $accessPlans
+        private CourseAccessPlanService $accessPlans,
+        private AiInputAttachmentService $attachments
     ) {
     }
 
@@ -76,6 +85,8 @@ final class ProjectController extends Controller
                     'requirements_text' => $project->requirements_text,
                     // Prompt/model settings deliberately stay server-side.
                     'passing_score' => $project->passing_score,
+                    'submission_max_files' => max(1, min(5, (int) ($project->submission_max_files ?: 3))),
+                    'submission_allowed_mime_types' => $this->projectAllowedMimeTypes($project),
                     'is_graduation_project' => $project->is_graduation_project,
                     'project_feedback' => [
                         'level' => $feedbackLevel,
@@ -140,12 +151,17 @@ final class ProjectController extends Controller
             }
 
             $request->validate([
-                'submission_text' => 'nullable|string|max:80000|required_without:submission_file',
+                'submission_text' => 'nullable|string|max:80000',
                 'submission_file' => [
                     'nullable',
                     'file',
                     'min:1',
-                    'required_without:submission_text',
+                    'max:' . (int) config('projects.maximum_file_kilobytes', 25600),
+                    'mimetypes:' . implode(',', (array) config('projects.allowed_mime_types', [])),
+                ],
+                'submission_files' => 'nullable|array|max:5',
+                'submission_files.*' => [
+                    'file', 'min:1',
                     'max:' . (int) config('projects.maximum_file_kilobytes', 25600),
                     'mimetypes:' . implode(',', (array) config('projects.allowed_mime_types', [])),
                 ],
@@ -154,6 +170,23 @@ final class ProjectController extends Controller
             ]);
 
             $project = Project::with('section')->findOrFail($projectId);
+            $files = array_values(array_filter([
+                ...($request->file('submission_files', []) ?: []),
+                $request->file('submission_file'),
+            ]));
+            $maximumFiles = max(1, min(5, (int) ($project->submission_max_files ?: 3)));
+            $allowedMimeTypes = $this->projectAllowedMimeTypes($project);
+            if (count($files) > $maximumFiles) {
+                return $this->projectValidationError('submission_files', "اختر {$maximumFiles} ملفات على الأكثر");
+            }
+            if (!$request->filled('submission_text') && $files === []) {
+                return $this->projectValidationError('submission_files', 'أضف نصًا أو ملفًا واحدًا على الأقل');
+            }
+            foreach ($files as $file) {
+                if (!in_array(strtolower((string) $file->getMimeType()), $allowedMimeTypes, true)) {
+                    return $this->projectValidationError('submission_files', 'أحد الملفات بصيغة غير متاحة لهذا المشروع');
+                }
+            }
             $courseId = (int) optional($project->section)->course_id;
             if (!$courseId || !$project->section || !$this->checkCourseAccess($user->id, $courseId)) {
                 return $this->error('لا يمكنك تسليم هذا المشروع من حسابك', 403);
@@ -172,6 +205,7 @@ final class ProjectController extends Controller
             $feedbackContract = $this->accessPlans->publicPayloadFromTerms($terms ?? []);
             if (
                 (bool) $feedbackContract['project_report_enabled']
+                && $files === []
                 && mb_strlen(trim(strip_tags((string) $request->input('submission_text')))) < 10
             ) {
                 return response()->json([
@@ -181,6 +215,54 @@ final class ProjectController extends Controller
                     'message' => 'اكتب سطرًا واضحًا عما نفذته لنعد تقرير مشروعك',
                     'data' => null,
                 ], 422);
+            }
+            if ((bool) $feedbackContract['project_report_enabled']) {
+                $providerMaximum = (int) config('openrouter.attachment_provider_max_bytes', 8388608);
+                $attachmentTokens = 0;
+                foreach ($files as $file) {
+                    if ((int) $file->getSize() > $providerMaximum) {
+                        return $this->projectValidationError('submission_files', 'اختر ملفات أصغر من 8 ميجابايت لنتمكن من مراجعتها');
+                    }
+                    try {
+                        $attachmentTokens += $this->attachments
+                            ->estimatedUploadedFileTokens($file);
+                    } catch (\UnexpectedValueException) {
+                        return $this->projectValidationError(
+                            'submission_files',
+                            'أحد الملفات لا يمكن قراءته للتقرير\nاختر نسخة أخرى'
+                        );
+                    }
+                }
+                $maxOutputTokens = max(80, min(
+                    (int) config('openrouter.max_tokens', 500),
+                    (int) ($terms['max_output_tokens'] ?? 320),
+                    (int) ($project->tokens_number ?: 500)
+                ));
+                $semanticText = trim(strip_tags(implode("\n", [
+                    (string) $request->input('submission_text'),
+                    (string) $project->requirements_text,
+                    (string) $project->ai_prompt,
+                ])));
+                $estimatedRequestTokens = $maxOutputTokens
+                    + (int) ceil(strlen($semanticText) / 4)
+                    + $attachmentTokens;
+                $reportBudget = max(0, (int) ($terms['project_feedback_token_budget'] ?? 0));
+                $usage = AiEntitlementUsage::query()
+                    ->where('enrollment_id', $enrollment->id)
+                    ->where('feature', AiEntitlementUsage::FEATURE_PROJECT_FEEDBACK)
+                    ->first(['used_tokens', 'reserved_tokens']);
+                $remainingReportTokens = max(
+                    0,
+                    $reportBudget
+                        - (int) ($usage?->used_tokens ?? 0)
+                        - (int) ($usage?->reserved_tokens ?? 0)
+                );
+                if ($remainingReportTokens <= 0 || $estimatedRequestTokens > $remainingReportTokens) {
+                    return $this->projectValidationError(
+                        'submission_files',
+                        "الملفات أكبر من مساحة التقرير في فئتك\nاختر ملفات أقل أو صورًا أوضح وأصغر"
+                    );
+                }
             }
 
             $idempotencyKey = (string) (
@@ -193,7 +275,7 @@ final class ProjectController extends Controller
                 $user,
                 $project,
                 $request->input('submission_text'),
-                $request->file('submission_file'),
+                $files,
                 $idempotencyKey,
                 (array) $request->input('metadata', [])
             );
@@ -281,7 +363,9 @@ final class ProjectController extends Controller
             $request->merge(['client_request_id' => $request->header('Idempotency-Key')]);
         }
         $validated = $request->validate([
-            'message' => 'required|string|min:1|max:20000',
+            'message' => 'nullable|string|max:20000|required_without:attachment_ids',
+            'attachment_ids' => 'nullable|array|max:5|required_without:message',
+            'attachment_ids.*' => 'uuid|distinct',
             'client_request_id' => 'required|string|min:8|max:100',
         ]);
 
@@ -289,8 +373,9 @@ final class ProjectController extends Controller
             $this->feedbackThreads->queueReply(
                 $user,
                 $thread,
-                (string) $validated['message'],
-                (string) $validated['client_request_id']
+                (string) ($validated['message'] ?? ''),
+                (string) $validated['client_request_id'],
+                array_values($validated['attachment_ids'] ?? [])
             );
         } catch (\Illuminate\Auth\Access\AuthorizationException $exception) {
             return $this->error('الردود غير متاحة لهذا المشروع', 403);
@@ -310,6 +395,60 @@ final class ProjectController extends Controller
             'message' => 'استلمنا رسالتك',
             'data' => $this->feedbackThreads->payload($thread->fresh()),
         ], 202);
+    }
+
+    public function uploadFeedbackAttachment(Request $request, ProjectFeedbackThread $thread): JsonResponse
+    {
+        $user = auth('api')->user();
+        if (!$user || (int) $thread->user_id !== (int) $user->id || !$thread->can_reply) {
+            return $this->error('محادثة المشروع غير متاحة', 404);
+        }
+        $thread->loadMissing('enrollment');
+        $terms = $thread->enrollment ? $this->accessPlans->termsForEnrollment($thread->enrollment) : null;
+        $contract = $this->accessPlans->publicPayloadFromTerms($terms ?? []);
+        $course = Course::query()->findOrFail($thread->course_id);
+        if (!(bool) ($contract['project_thread_reply_enabled'] ?? false)
+            || !(bool) ($contract['project_attachments_enabled'] ?? false)) {
+            return $this->error('المرفقات غير متاحة في هذه الفئة', 403);
+        }
+        $validated = $request->validate([
+            'client_upload_id' => 'required|uuid',
+            'attachment' => [
+                'required', 'file',
+                'max:' . min(
+                    (int) config('projects.maximum_file_kilobytes', 25600),
+                    (int) floor((int) config('openrouter.attachment_provider_max_bytes', 8388608) / 1024)
+                ),
+                'mimetypes:' . implode(',', $this->attachments->allowedMimeTypes()),
+            ],
+        ]);
+        try {
+            $attachment = $this->attachments->store(
+                $user,
+                $course,
+                $validated['attachment'],
+                AiInputAttachment::PURPOSE_PROJECT_FOLLOWUP,
+                (string) $validated['client_upload_id']
+            );
+        } catch (\UnexpectedValueException $exception) {
+            return response()->json([
+                'status' => 409, 'success' => false,
+                'code' => 'project_attachment_upload_conflict',
+                'message' => "تغيّر الملف أثناء الإرسال\nاختره مرة أخرى",
+                'data' => null,
+            ], 409);
+        }
+        return response()->json([
+            'status' => 200,
+            'success' => true,
+            'message' => 'تم رفع الملف',
+            'data' => [
+                'id' => (string) $attachment->public_id,
+                'name' => (string) $attachment->original_file_name,
+                'mime_type' => (string) $attachment->mime_type,
+                'size_bytes' => (int) $attachment->size_bytes,
+            ],
+        ]);
     }
 
     public function downloadSubmissionFile(ProjectSubmission $submission): Response
@@ -349,6 +488,92 @@ final class ProjectController extends Controller
             'X-Content-Type-Options' => 'nosniff',
             'Cache-Control' => 'private, no-store',
             'Content-Disposition' => DownloadFilename::disposition($downloadName),
+        ]);
+    }
+
+    public function downloadSubmissionAttachment(AiInputAttachment $attachment): Response
+    {
+        $user = auth('api')->user();
+        if (!$user || (int) $attachment->user_id !== (int) $user->id
+            || $attachment->owner_type !== AiInputAttachment::OWNER_PROJECT_SUBMISSION) {
+            return $this->error('ملف المشروع غير متاح', 404);
+        }
+        $disk = Storage::disk((string) $attachment->storage_disk);
+        $path = ltrim((string) $attachment->storage_path, '/');
+        if ($path === '' || str_contains($path, '../') || !$disk->exists($path)) {
+            return $this->error('ملف المشروع غير متاح', 404);
+        }
+        $name = DownloadFilename::safe(
+            (string) $attachment->original_file_name,
+            'project-submission',
+            pathinfo($path, PATHINFO_EXTENSION)
+        );
+        return $disk->download($path, $name, [
+            'Content-Type' => (string) $attachment->mime_type,
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'private, no-store',
+            'Content-Disposition' => DownloadFilename::disposition($name),
+        ]);
+    }
+
+    /**
+     * Short-lived download used by the device viewer. The signature binds the
+     * learner id and attachment id, so the viewer does not need to forward the
+     * app bearer token to a second process.
+     */
+    public function downloadInputAttachment(Request $request, AiInputAttachment $attachment): Response
+    {
+        $signedUserId = (int) $request->query('user');
+        if (
+            $signedUserId <= 0
+            || $signedUserId !== (int) $attachment->user_id
+            || !User::query()->whereKey($signedUserId)->where('active', true)->exists()
+            || !$this->inputAttachmentBelongsToUser($attachment, $signedUserId)
+        ) {
+            abort(404);
+        }
+        $disk = Storage::disk((string) $attachment->storage_disk);
+        $path = ltrim((string) $attachment->storage_path, '/');
+        if ($path === '' || str_contains($path, '../') || !$disk->exists($path)) {
+            abort(404);
+        }
+        $name = DownloadFilename::safe(
+            (string) $attachment->original_file_name,
+            'project-attachment',
+            pathinfo($path, PATHINFO_EXTENSION)
+        );
+        return $disk->download($path, $name, [
+            'Content-Type' => (string) $attachment->mime_type,
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'private, no-store',
+            'Content-Disposition' => DownloadFilename::disposition($name),
+        ]);
+    }
+
+    /** Refresh short-lived artifact metadata without exposing storage paths. */
+    public function showInputAttachment(AiInputAttachment $attachment): JsonResponse
+    {
+        $user = auth('api')->user();
+        if (!$user || !$this->inputAttachmentBelongsToUser($attachment, (int) $user->id)) {
+            abort(404);
+        }
+        $expiresAt = now()->addMinutes(30);
+        return response()->json([
+            'status' => 200,
+            'success' => true,
+            'message' => 'تم تجهيز الملف',
+            'data' => [
+                'id' => (string) $attachment->public_id,
+                'name' => (string) $attachment->original_file_name,
+                'mime_type' => (string) $attachment->mime_type,
+                'size_bytes' => (int) $attachment->size_bytes,
+                'download_url' => URL::temporarySignedRoute(
+                    'api.project-input-attachments.download',
+                    $expiresAt,
+                    ['attachment' => $attachment->public_id, 'user' => $attachment->user_id]
+                ),
+                'download_url_expires_at' => $expiresAt->toIso8601String(),
+            ],
         ]);
     }
 
@@ -475,6 +700,7 @@ final class ProjectController extends Controller
 
     private function submissionPayload(ProjectSubmission $submission): array
     {
+        $submission->loadMissing('aiInputAttachments');
         $metadata = is_array($submission->submission_metadata)
             ? $submission->submission_metadata
             : [];
@@ -495,6 +721,14 @@ final class ProjectController extends Controller
             'needs_resubmission' => $submission->review_status === ProjectSubmission::STATUS_NEEDS_RESUBMISSION,
             'feedback' => $submission->feedback,
             'file_url' => $submission->submission_file_url,
+            'attachments' => $submission->aiInputAttachments->map(fn (AiInputAttachment $attachment): array => [
+                'id' => (string) $attachment->public_id,
+                'name' => (string) $attachment->original_file_name,
+                'mime_type' => (string) $attachment->mime_type,
+                'size_bytes' => (int) $attachment->size_bytes,
+                'download_url' => $this->inputAttachmentDownloadUrl($attachment),
+                'download_url_expires_at' => now()->addMinutes(30)->toIso8601String(),
+            ])->values()->all(),
             'submitted_at' => $submission->submitted_at?->toIso8601String(),
             'reviewed_at' => $submission->reviewed_at?->toIso8601String(),
             'poll_after_seconds' => $submission->review_status === ProjectSubmission::STATUS_PENDING ? 3 : null,
@@ -510,5 +744,71 @@ final class ProjectController extends Controller
             'message' => $message,
             'data' => null,
         ], $status);
+    }
+
+    /** @return list<string> */
+    private function projectAllowedMimeTypes(Project $project): array
+    {
+        $configured = array_values(array_intersect(
+            array_map('strtolower', (array) ($project->submission_allowed_mime_types ?: [])),
+            $this->attachments->allowedMimeTypes()
+        ));
+        return $configured !== [] ? $configured : $this->attachments->allowedMimeTypes();
+    }
+
+    private function inputAttachmentDownloadUrl(AiInputAttachment $attachment): string
+    {
+        return URL::temporarySignedRoute(
+            'api.project-input-attachments.download',
+            now()->addMinutes(30),
+            ['attachment' => $attachment->public_id, 'user' => $attachment->user_id]
+        );
+    }
+
+    private function inputAttachmentBelongsToUser(
+        AiInputAttachment $attachment,
+        int $userId
+    ): bool {
+        if (
+            $userId <= 0
+            || (int) $attachment->user_id !== $userId
+            || $attachment->status !== AiInputAttachment::READY
+        ) return false;
+
+        return match ($attachment->owner_type) {
+            AiInputAttachment::OWNER_COURSE_CHAT_TURN =>
+                $attachment->purpose === AiInputAttachment::PURPOSE_COURSE_CHAT
+                && CourseChatTurn::query()
+                    ->whereKey($attachment->owner_id)
+                    ->where('user_id', $userId)
+                    ->where('course_id', $attachment->course_id)
+                    ->exists(),
+            AiInputAttachment::OWNER_PROJECT_SUBMISSION =>
+                $attachment->purpose === AiInputAttachment::PURPOSE_PROJECT_SUBMISSION
+                && ProjectSubmission::query()
+                    ->whereKey($attachment->owner_id)
+                    ->where('user_id', $userId)
+                    ->whereHas('project.section', fn ($query) =>
+                        $query->where('course_id', $attachment->course_id)
+                    )->exists(),
+            AiInputAttachment::OWNER_PROJECT_FEEDBACK_MESSAGE =>
+                $attachment->purpose === AiInputAttachment::PURPOSE_PROJECT_FOLLOWUP
+                && ProjectFeedbackMessage::query()
+                    ->whereKey($attachment->owner_id)
+                    ->whereHas('thread', fn ($query) => $query
+                        ->where('user_id', $userId)
+                        ->where('course_id', $attachment->course_id)
+                    )->exists(),
+            default => false,
+        };
+    }
+
+    private function projectValidationError(string $field, string $message): JsonResponse
+    {
+        return response()->json([
+            'status' => 422, 'success' => false,
+            'message' => 'راجع ملفات المشروع',
+            'data' => null, 'errors' => [$field => [$message]],
+        ], 422);
     }
 }

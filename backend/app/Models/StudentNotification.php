@@ -78,6 +78,11 @@ class StudentNotification extends Model
         return $this->morphTo();
     }
 
+    public function pushDeliveries()
+    {
+        return $this->hasMany(NotificationPushDelivery::class, 'student_notification_id');
+    }
+
     /**
      * Scope a query to only include unread notifications.
      *

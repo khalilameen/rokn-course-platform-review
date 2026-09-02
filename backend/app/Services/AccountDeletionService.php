@@ -18,7 +18,10 @@ use Illuminate\Support\Str;
 final class AccountDeletionService
 {
     public function __construct(
-        private readonly AcquisitionRewardTombstoneService $rewardTombstones
+        private readonly AcquisitionRewardTombstoneService $rewardTombstones,
+        private readonly AiEntitlementBudgetService $aiBudget,
+        private readonly PaidAiCallExecutionService $paidAiCalls,
+        private readonly SocialIdentityGuardService $identityGuards
     ) {
     }
 
@@ -30,6 +33,10 @@ final class AccountDeletionService
      */
     public function delete(User $user): array
     {
+        // Mark every currently linked provider before taking the user lock.
+        // A provider callback already in flight can then be rejected without
+        // deadlocking against the account aggregate deletion transaction.
+        $this->identityGuards->markDeletionStarted((int) $user->id);
         $publicFiles = [];
         $localFiles = [];
         $storedFiles = [];
@@ -45,12 +52,28 @@ final class AccountDeletionService
             &$cleanupOutboxIds
         ): void {
             $locked = User::query()->lockForUpdate()->findOrFail($user->id);
+            // Cover a provider linked in the narrow interval between the first
+            // identity snapshot and this aggregate lock.
+            $this->identityGuards->markDeletionStarted((int) $locked->id);
             $userId = (int) $locked->id;
             $originalPhone = trim((string) $locked->getRawOriginal('phone'));
             $profileImage = trim((string) $locked->getRawOriginal('profile_image'));
 
             if ($profileImage !== '' && !filter_var($profileImage, FILTER_VALIDATE_URL)) {
                 $publicFiles[] = ltrim($profileImage, '/');
+            }
+
+            if (Schema::hasTable('ai_input_attachments')) {
+                DB::table('ai_input_attachments')
+                    ->where('user_id', $userId)
+                    ->get(['storage_disk', 'storage_path'])
+                    ->each(function ($attachment) use (&$storedFiles): void {
+                        $storedFiles[] = [
+                            'disk' => (string) $attachment->storage_disk,
+                            'path' => (string) $attachment->storage_path,
+                        ];
+                    });
+                $this->deleteByUserIdIfPresent('ai_input_attachments', $userId);
             }
 
             if (Schema::hasTable('project_submissions')) {
@@ -122,6 +145,15 @@ final class AccountDeletionService
             if (Schema::hasTable('portfolio_items')) {
                 $portfolioItemIds = DB::table('portfolio_items')->where('user_id', $userId)->pluck('id');
                 if ($portfolioItemIds->isNotEmpty() && Schema::hasTable('portfolio_media')) {
+                    $itemsWithMedia = DB::table('portfolio_media')
+                        ->whereIn('portfolio_item_id', $portfolioItemIds)
+                        ->distinct()
+                        ->pluck('portfolio_item_id');
+                    $emptyItemIds = $portfolioItemIds->diff($itemsWithMedia);
+                    if ($emptyItemIds->isNotEmpty()) {
+                        DB::table('portfolio_items')->whereIn('id', $emptyItemIds)->delete();
+                    }
+                    $portfolioItemIds = $itemsWithMedia;
                     // Bunny deletions are external and cannot be atomic with the DB
                     // transaction. Keep private references for a retriable cleanup.
                     $remotePortfolioCleanupPending = DB::table('portfolio_media')
@@ -139,6 +171,9 @@ final class AccountDeletionService
                             ->whereIn('portfolio_item_id', $portfolioItemIds)
                             ->update($mediaUpdate);
                     }
+                } elseif ($portfolioItemIds->isNotEmpty()) {
+                    DB::table('portfolio_items')->whereIn('id', $portfolioItemIds)->delete();
+                    $portfolioItemIds = collect();
                 }
 
                 $portfolioUpdate = $this->onlyExistingColumns('portfolio_items', [
@@ -153,7 +188,10 @@ final class AccountDeletionService
                     'updated_at' => now(),
                 ]);
                 if ($portfolioUpdate !== []) {
-                    DB::table('portfolio_items')->where('user_id', $userId)->update($portfolioUpdate);
+                    DB::table('portfolio_items')
+                        ->where('user_id', $userId)
+                        ->whereIn('id', $portfolioItemIds)
+                        ->update($portfolioUpdate);
                 }
             }
 
@@ -181,10 +219,62 @@ final class AccountDeletionService
             // Usage totals and costs remain as financial/operational evidence,
             // but accepted AI replies and request context are personal content.
             if (Schema::hasTable('ai_usage_events')) {
-                DB::table('ai_usage_events')->where('user_id', $userId)->update([
-                    'metadata' => null,
-                    'updated_at' => now(),
-                ]);
+                // Preserve whether a paid provider call had started before
+                // scrubbing metadata. Started work becomes unknown exposure;
+                // work that never left our queue simply releases its reserve.
+                \App\Models\AiUsageEvent::query()
+                    ->where('user_id', $userId)
+                    ->where('status', 'reserved')
+                    ->lockForUpdate()
+                    ->get()
+                    ->each(function ($event): void {
+                        $landed = $this->paidAiCalls->landedResult($event);
+                        if ($landed !== null) {
+                            // The provider result and actual usage are known,
+                            // but deletion forbids presenting or retaining the
+                            // answer. Settle the cost exactly, without charging
+                            // learner entitlement, then scrub the landing.
+                            $landed['entitlement_delivered'] = false;
+                            $landed['request_context'] = ['reason' => 'account_deleted'];
+                            $this->aiBudget->settle($event, $landed);
+                            $this->paidAiCalls->markPresented($event->fresh());
+                            return;
+                        }
+                        if ($this->paidAiCalls->providerWasStarted($event)) {
+                            $this->paidAiCalls->settleUnknown(
+                                $this->aiBudget, $event, ['reason' => 'account_deleted']
+                            );
+                        } else {
+                            $this->aiBudget->release($event, 'account_deleted');
+                        }
+                    });
+                \App\Models\AiUsageEvent::query()
+                    ->where('user_id', $userId)
+                    ->get()
+                    ->each(function ($event): void {
+                        $metadata = is_array($event->metadata) ? $event->metadata : [];
+                        $context = is_array($metadata['request_context'] ?? null)
+                            ? $metadata['request_context'] : [];
+                        $operational = array_filter([
+                            'entitlement_delivered' => $metadata['entitlement_delivered'] ?? null,
+                            'token_usage_source' => $metadata['token_usage_source'] ?? null,
+                            'cost_usage_source' => $metadata['cost_usage_source'] ?? null,
+                            'usage_source' => $metadata['usage_source'] ?? null,
+                            'provider_call_state' => $metadata['provider_call_state'] ?? null,
+                            'provider_outcome_reason' => $metadata['provider_outcome_reason'] ?? null,
+                            'provider_call_attempt' => $metadata['provider_call_attempt'] ?? null,
+                            'provider_outcome_recorded_at' => $metadata['provider_outcome_recorded_at'] ?? null,
+                            'reservation_detached' => $metadata['reservation_detached'] ?? null,
+                            'entitlement_transition_reason' => $metadata['entitlement_transition_reason'] ?? null,
+                            'entitlement_transitioned_at' => $metadata['entitlement_transitioned_at'] ?? null,
+                            'prompt_version' => $context['prompt_version'] ?? null,
+                            'feedback_level' => $context['feedback_level'] ?? null,
+                        ], static fn ($value): bool => $value !== null && $value !== '');
+                        $event->forceFill([
+                            'metadata' => $operational ?: null,
+                            'updated_at' => now(),
+                        ])->save();
+                    });
             }
             if (Schema::hasTable('playback_sessions')) {
                 // Aggregate playback timings remain useful for media health;
@@ -259,6 +349,9 @@ final class AccountDeletionService
             // These are user-controlled or communication records, not the
             // financial/learning evidence retained for legal disputes.
             $this->deleteByUserIdIfPresent('saved_folders', $userId);
+            $this->deleteByUserIdIfPresent('classification_user', $userId);
+            $this->deleteByUserIdIfPresent('portfolio_video_uploads', $userId);
+            $this->deleteByUserIdIfPresent('ai_conversation_contexts', $userId);
             $this->deleteByUserIdIfPresent('student_notifications', $userId);
             $this->deleteByUserIdIfPresent('messages', $userId);
             $this->deleteByUserIdIfPresent('user_notes', $userId);
@@ -346,7 +439,8 @@ final class AccountDeletionService
 
         foreach ($cleanupOutboxIds as $deletionId) {
             try {
-                DeleteAccountFile::dispatch((int) $deletionId)->onQueue('default');
+                DeleteAccountFile::dispatch((int) $deletionId)
+                    ->onQueue((string) config('queue.channels.media', 'media'));
             } catch (\Throwable $exception) {
                 Log::warning('Unable to dispatch account-file cleanup.', [
                     'deletion_id' => $deletionId,
@@ -365,7 +459,7 @@ final class AccountDeletionService
         if ($remotePortfolioCleanupPending) {
             try {
                 CleanupDeletedAccountPortfolioMedia::dispatch((int) $user->id)
-                    ->onQueue('default');
+                    ->onQueue((string) config('queue.channels.media', 'media'));
             } catch (\Throwable $exception) {
                 // Account deletion has already committed. Keep the private DB
                 // references so the scheduled recovery command can retry later.

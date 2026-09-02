@@ -41,10 +41,18 @@ final class BunnyUploadSafetyTest extends TestCase
             $table->string('provider_media_id');
             $table->string('status');
             $table->string('protocol')->nullable();
+            $table->unsignedInteger('duration_seconds')->nullable();
             $table->json('available_qualities')->nullable();
+            $table->json('manifest')->nullable();
+            $table->timestamp('last_probe_at')->nullable();
             $table->string('last_error_code')->nullable();
             $table->text('last_error_message')->nullable();
             $table->unsignedSmallInteger('retry_count')->default(0);
+            $table->string('integrity_status')->default('unknown');
+            $table->json('integrity_issues')->nullable();
+            $table->timestamp('last_reconciled_at')->nullable();
+            $table->timestamp('quarantined_at')->nullable();
+            $table->unsignedBigInteger('probe_generation')->default(0);
             $table->timestamps();
         });
         Schema::create('bunny_video_cleanup_candidates', function (Blueprint $table): void {
@@ -62,6 +70,9 @@ final class BunnyUploadSafetyTest extends TestCase
             $table->timestamp('last_attempt_at')->nullable();
             $table->timestamps();
         });
+        (require database_path('migrations/2026_09_01_000069_create_bunny_video_allocation_intents.php'))->up();
+        (require database_path('migrations/2026_09_01_000034_create_bunny_storage_cleanup_candidates.php'))->up();
+        (require database_path('migrations/2026_09_01_000051_quarantine_bunny_storage_cleanup.php'))->up();
 
         config()->set('bunny.stream_api_key', 'test-stream-key');
         config()->set('bunny.library_id', '123');
@@ -70,6 +81,8 @@ final class BunnyUploadSafetyTest extends TestCase
 
     protected function tearDown(): void
     {
+        Schema::dropIfExists('bunny_video_allocation_intents');
+        Schema::dropIfExists('bunny_storage_cleanup_candidates');
         Schema::dropIfExists('bunny_video_cleanup_candidates');
         Schema::dropIfExists('lesson_media_states');
         Schema::dropIfExists('lessons');
@@ -115,7 +128,9 @@ final class BunnyUploadSafetyTest extends TestCase
             'reason' => 'superseded_video',
             'requires_review' => true,
         ]);
-        Http::assertSentCount(3);
+        // One marker-recovery probe precedes allocation, followed by create,
+        // upload and provider-integrity verification.
+        Http::assertSentCount(4);
         Http::assertNotSent(fn (Request $request) => $request->method() === 'DELETE');
     }
 
@@ -146,7 +161,7 @@ final class BunnyUploadSafetyTest extends TestCase
         $this->assertDatabaseHas('bunny_video_cleanup_candidates', [
             'video_guid' => 'candidate-guid',
             'reason' => 'unpublished_upload',
-            'requires_review' => true,
+            'requires_review' => false,
         ]);
         Http::assertNotSent(fn (Request $request) => $request->method() === 'DELETE');
     }

@@ -5,13 +5,10 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\Course;
-use App\Models\ItemList;
 use App\Models\User;
 use App\Models\Grade;
 use App\Models\DesignSetting;
 use Illuminate\Http\Request;
-use Carbon\Carbon;
-use Illuminate\Support\Facades\DB;
 
 class UrgentTasksController extends Controller
 {
@@ -42,13 +39,6 @@ class UrgentTasksController extends Controller
             ->latest('id')
             ->get();
 
-        // Get courses without quizzes
-        $coursesWithoutQuiz = Course::leftJoin('lists', 'courses.id', '=', 'lists.course_id')
-            ->whereNull('lists.id')
-            ->select('courses.*')
-            ->orderByDesc('courses.id')
-            ->get();
-
         // Check for missing critical data
         $hasGrades = Grade::exists();
         $hasCourses = Course::exists();
@@ -57,20 +47,17 @@ class UrgentTasksController extends Controller
         $stats = [
             'pending_orders_count' => $pendingOrders->count(),
             'inactive_students_count' => $inactiveStudents->count(),
-            'courses_without_quiz_count' => $coursesWithoutQuiz->count(),
             'total_urgent_tasks' => 0
         ];
 
         $stats['total_urgent_tasks'] = $stats['pending_orders_count'] +
-                                     $stats['inactive_students_count'] +
-                                     $stats['courses_without_quiz_count'];
+                                     $stats['inactive_students_count'];
 
         $designSettings = $this->getDesignSettings();
         
         return view('admin.urgent-tasks.index', compact(
             'pendingOrders',
             'inactiveStudents',
-            'coursesWithoutQuiz',
             'stats',
             'hasGrades',
             'hasCourses',
@@ -106,18 +93,16 @@ class UrgentTasksController extends Controller
         return view('admin.urgent-tasks.inactive-students', compact('inactiveStudents', 'designSettings'));
     }
 
-    /**
-     * Show courses without quizzes.
-     */
+    /** Keep the legacy shortcut useful without treating optional quizzes as an incident. */
     public function coursesWithoutQuiz()
     {
-        $coursesWithoutQuiz = Course::leftJoin('lists', 'courses.id', '=', 'lists.course_id')
-            ->whereNull('lists.id')
-            ->select('courses.*')
-            ->paginate(20);
-
-        $designSettings = $this->getDesignSettings();
-        return view('admin.urgent-tasks.courses-without-quiz', compact('coursesWithoutQuiz', 'designSettings'));
+        // Quizzes are optional learning content. Readiness is evaluated by the
+        // course publishing contract, which already exposes the exact missing
+        // items on every course card instead of inventing a false urgent task.
+        return redirect()->route('admin.courses.index')->with(
+            'success',
+            'ستجد حالة اكتمال كل كورس وما ينقصه داخل قائمة الكورسات'
+        );
     }
 
     /**

@@ -12,7 +12,7 @@
                             <th>القناة</th>
                             <th>عمليات حقيقية</th>
                             <th>عملات مُصدرة</th>
-                            <th>الإجمالي</th>
+                            <th>الإجمالي المؤكد</th>
                             <th>رسوم مؤكدة</th>
                             <th>صافي مؤكد</th>
                             <th>الصافي الحالي</th>
@@ -26,11 +26,16 @@
                                     <a href="{{ route('admin.orders.index', ['payment_method' => $channel['method']]) }}">
                                         <strong>{{ $channel['label'] }}</strong>
                                     </a>
-                                    <br><small class="text-muted">{{ $channel['currency'] }}</small>
+                                    <br><small class="text-muted">{{ $channel['currency'] === 'PENDING' ? 'العملة بانتظار كشف المزود' : $channel['currency'] }}</small>
                                 </td>
                                 <td>{{ number_format($channel['live_count']) }}</td>
                                 <td>{{ number_format($channel['live_coins']) }}</td>
-                                <td>{{ number_format($channel['gross_amount'], 2) }}</td>
+                                <td>
+                                    {{ number_format($channel['confirmed_gross_amount'], 2) }}
+                                    @if($channel['catalog_estimated_gross_count'] > 0)
+                                        <br><small class="text-warning">+ {{ number_format($channel['catalog_estimated_gross_amount'], 2) }} تقدير كتالوج خارج الإجمالي · {{ $channel['catalog_estimated_gross_count'] }} عملية</small>
+                                    @endif
+                                </td>
                                 <td>
                                     {{ number_format($channel['confirmed_fee_amount'], 2) }}
                                     @if($channel['pending_settlement_count'] > 0)
@@ -59,7 +64,10 @@
                             <th>الإجمالي بالجنيه</th>
                             <th>{{ number_format($paymentChannelReport['egp']['live_count']) }}</th>
                             <th>{{ number_format($paymentChannelReport['egp']['live_coins']) }}</th>
-                            <th>{{ number_format($paymentChannelReport['egp']['gross_amount'], 2) }}</th>
+                            <th>
+                                {{ number_format($paymentChannelReport['egp']['confirmed_gross_amount'], 2) }}
+                                @if($paymentChannelReport['egp']['catalog_estimated_gross_count'] > 0)<br><small>+ {{ number_format($paymentChannelReport['egp']['catalog_estimated_gross_amount'], 2) }} تقديري خارج الإجمالي</small>@endif
+                            </th>
                             <th>{{ number_format($paymentChannelReport['egp']['confirmed_fee_amount'], 2) }}</th>
                             <th>{{ number_format($paymentChannelReport['egp']['confirmed_net_amount'], 2) }}</th>
                             <th>{{ number_format($paymentChannelReport['egp']['estimated_net_amount'], 2) }}</th>
@@ -70,7 +78,7 @@
             </div>
             @if($paymentChannelReport['has_other_currencies'])
                 <div class="card-footer text-muted">
-                    لا تُجمع العملات المختلفة مع الجنيه؛ يظهر كل صف بعملة العملية لتجنب رقم مالي مضلل.
+                    لا تُجمع العملات المختلفة أو العمليات التي لم يصل كشف عملتها مع الجنيه.
                 </div>
             @endif
         </div>

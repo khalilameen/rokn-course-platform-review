@@ -21,6 +21,7 @@
         <div class="payment-form-body">
             <form action="{{ route('admin.payment-methods.store') }}" method="post" enctype="multipart/form-data">
                 @csrf
+                <input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">
                 @include('admin.payment-methods._form')
             </form>
         </div>

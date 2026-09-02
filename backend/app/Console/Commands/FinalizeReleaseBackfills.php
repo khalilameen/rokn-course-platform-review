@@ -73,7 +73,27 @@ final class FinalizeReleaseBackfills extends Command
                 return self::FAILURE;
             }
 
-            Cache::forget('health:launch-schema:v3');
+            try {
+                // A readiness probe may have observed the schema while the
+                // rolling migration was incomplete. Both projections derive
+                // from the now-final database shape.
+                Cache::forget('health:critical-schema:v3');
+                Cache::forget('health:launch-schema:v3');
+                if ($reindexedCourses > 0) {
+                    // Search results are generation-keyed. The backfill writes
+                    // with the query builder on purpose, so no Course model
+                    // event can rotate that generation for us.
+                    Cache::add('courses:catalog-revision', 1, now()->addYears(10));
+                    Cache::increment('courses:catalog-revision');
+                }
+            } catch (Throwable $cacheException) {
+                // The durable backfill is already complete. A Redis outage may
+                // delay freshness until the short TTL expires, but must not
+                // report the release migration itself as failed and invite an
+                // unnecessary replay.
+                report($cacheException);
+                $this->warn('Backfills completed; cache projections will refresh on their normal TTL.');
+            }
 
             $this->info(
                 "Release backfills finalized; {$updated} exam snapshot(s) and "

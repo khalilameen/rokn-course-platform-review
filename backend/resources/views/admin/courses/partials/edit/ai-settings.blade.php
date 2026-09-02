@@ -91,6 +91,18 @@
 
                 <div class="form-row">
                     <div class="form-group-modern form-group-full">
+                        <input type="hidden" name="chat_attachments_enabled" value="0">
+                        <label class="course-editor__inline-check">
+                            <input type="checkbox" name="chat_attachments_enabled" value="1" {{ old('chat_attachments_enabled', $course->chat_attachments_enabled) ? 'checked' : '' }}>
+                            السماح بالمرفقات في شات هذا الكورس
+                        </label>
+                        <label class="form-label-modern">الحد الأعلى للمرفقات في الرسالة</label>
+                        <input class="form-control-modern" type="number" min="1" max="5" name="chat_attachment_max_files" value="{{ old('chat_attachment_max_files', $course->chat_attachment_max_files ?? 1) }}">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group-modern form-group-full">
                         <label for="chat_ai_prompt" class="form-label-modern">
                             <i class="fa fa-comment-dots label-icon"></i>
                             البرومبت الخاص بالشات (System Prompt)

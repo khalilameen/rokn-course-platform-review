@@ -8,6 +8,11 @@ import {serverNow, serverNowMs} from '../utils/serverClock';
 import {openAndroidAuthSession} from './androidAuthSession';
 import {getInstallationId} from './installationIdentity';
 import {savePendingWelcomeBonus} from './pendingWelcomeBonus';
+import {
+  hasNativeSocialCapability,
+  signInWithNativeSocialProvider,
+  type NativeSocialProvider,
+} from './nativeSocialAuth';
 import {roknApiUrl} from '../constants/apiBaseUrl';
 import {
   resolveSocialAuthStartUrl,
@@ -15,6 +20,8 @@ import {
 } from './socialAuthUrlPolicy';
 import {
   deletePendingSocialAuthAttempt,
+  extractApiToken,
+  loadSecureSession,
   loadPendingSocialAuthAttempt,
   saveSecureSession,
   savePendingSocialAuthAttempt,
@@ -117,6 +124,24 @@ const createPkcePair = async () => {
     verifier,
     challenge: sha256Base64Url(verifier),
   };
+};
+
+const createNativeAttempt = async (
+  provider: NativeSocialProvider,
+  purpose: SocialAuthPurpose,
+) => {
+  const verifier = `${Crypto.randomUUID()}${Crypto.randomUUID()}`.replace(
+    /-/g,
+    '',
+  );
+  const attempt = {
+    provider,
+    verifier,
+    startedAt: serverNow().toISOString(),
+    purpose,
+  };
+  await savePendingSocialAuthAttempt(attempt);
+  return attempt;
 };
 
 const encodeQuery = (values: Record<string, string>) =>
@@ -260,6 +285,35 @@ const completeSocialAttempt = async (
   throw new Error('LOGIN_UNAVAILABLE');
 };
 
+const exchangeNativeSocialToken = async (
+  provider: NativeSocialProvider,
+  token: string,
+  pending: Awaited<ReturnType<typeof createNativeAttempt>>,
+  options: SocialAuthOptions,
+) => {
+  const installationId = await getInstallationId();
+  const response = await publicRequest.post(
+    'social-login',
+    {
+      provider,
+      token,
+      device_os: Platform.OS,
+      device_type: Platform.OS,
+      ...(installationId ? {device_id: installationId} : {}),
+    },
+    {skipAuthorization: true} as RoknRequestConfig,
+  );
+  const session = normalizeSocialSession(response?.data, provider);
+  if ((options.purpose ?? 'login') === 'login') {
+    if (!(await persistCompletedLogin(pending, session))) {
+      throw new Error('LOGIN_SESSION_INVALID');
+    }
+  } else {
+    await deletePendingSocialAuthAttempt();
+  }
+  return session;
+};
+
 const persistCompletedLogin = async (
   pending: Awaited<ReturnType<typeof loadPendingSocialAuthAttempt>>,
   session: SocialAuthSession,
@@ -273,7 +327,14 @@ const persistCompletedLogin = async (
       current.startedAt === pending.startedAt &&
       (current.purpose ?? 'login') === (pending.purpose ?? 'login'),
   );
-  if (!stillOwnsAttempt) return false;
+  if (!stillOwnsAttempt) {
+    // AppState foreground recovery and the Login screen can observe the same
+    // Android callback. If the sibling path already committed this exact
+    // replayable backend session, treat it as the same successful login rather
+    // than reporting that storage failed after the account is already active.
+    const committed = await loadSecureSession().catch(() => null);
+    return extractApiToken(committed) === session.api_token;
+  }
   // The provider code is one-time but the hand-off to local secure storage is
   // not atomic. Persist the completed response in the encrypted attempt first;
   // a process death after backend completion can then finish locally instead
@@ -315,14 +376,17 @@ export const resumePendingSocialAuth = async (
     return null;
   }
 
-  const startedAt = Date.parse(pending.startedAt);
-  const elapsed = serverNowMs() - startedAt;
-  if (!Number.isFinite(startedAt) || elapsed < -60_000 || elapsed > 10 * 60 * 1000) {
-    await deletePendingSocialAuthAttempt();
-    return null;
-  }
-
   if (pending.completedSession) {
+    const completedAt = Date.parse(pending.startedAt);
+    const completedAge = serverNowMs() - completedAt;
+    if (
+      !Number.isFinite(completedAt) ||
+      completedAge < -60_000 ||
+      completedAge > 24 * 60 * 60 * 1000
+    ) {
+      await deletePendingSocialAuthAttempt();
+      return null;
+    }
     const completed = normalizeSocialSession(
       pending.completedSession,
       pending.provider,
@@ -333,6 +397,13 @@ export const resumePendingSocialAuth = async (
       await deletePendingSocialAuthAttempt();
     }
     return completed;
+  }
+
+  const startedAt = Date.parse(pending.startedAt);
+  const elapsed = serverNowMs() - startedAt;
+  if (!Number.isFinite(startedAt) || elapsed < -60_000 || elapsed > 10 * 60 * 1000) {
+    await deletePendingSocialAuthAttempt();
+    return null;
   }
 
   const returnedUrl =
@@ -468,6 +539,13 @@ export const signInWithSocialProvider = async (
       // native request. Apple signs the digest into the ID token; the server
       // receives the unpredictable preimage and verifies that binding.
       const nonce = await createAppleNonce();
+      const appleAttempt = {
+        provider: 'apple' as const,
+        verifier: nonce.raw,
+        startedAt: new Date(serverNowMs()).toISOString(),
+        purpose: options.purpose ?? 'login',
+      };
+      await savePendingSocialAuthAttempt(appleAttempt);
       const credential = await AppleAuthentication.signInAsync({
         requestedScopes: [
           AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
@@ -501,16 +579,57 @@ export const signInWithSocialProvider = async (
       );
       const session = normalizeSocialSession(response?.data, provider);
       if ((options.purpose ?? 'login') === 'login') {
-        await saveSecureSession(session);
-        await savePendingWelcomeBonus(session.welcome_bonus_granted);
+        if (!(await persistCompletedLogin(appleAttempt, session))) {
+          throw new Error('LOGIN_SESSION_INVALID');
+        }
+      } else {
+        await deletePendingSocialAuthAttempt();
       }
       return session;
     } catch (error: unknown) {
       if (asRecord(error)?.code === 'ERR_REQUEST_CANCELED') {
+        await deletePendingSocialAuthAttempt().catch(() => undefined);
         throw new Error('LOGIN_CANCELLED');
       }
       throw error;
     }
+  }
+
+  if (
+    (provider === 'google' || provider === 'facebook') &&
+    hasNativeSocialCapability(provider)
+  ) {
+    const nativeAttempt = await createNativeAttempt(
+      provider,
+      options.purpose ?? 'login',
+    );
+    const nativeResult = await signInWithNativeSocialProvider(provider);
+    if (nativeResult.type === 'cancel') {
+      await deletePendingSocialAuthAttempt();
+      throw new Error('LOGIN_CANCELLED');
+    }
+    if (nativeResult.type === 'success') {
+      try {
+        return await exchangeNativeSocialToken(
+          provider,
+          nativeResult.token,
+          nativeAttempt,
+          options,
+        );
+      } catch (error) {
+        const code = responseCode(error);
+        if (
+          responseStatus(error) !== 422 ||
+          code !== 'SOCIAL_IDENTITY_VERIFICATION_FAILED'
+        ) {
+          throw error;
+        }
+      }
+    }
+    // Native configuration drift, an unavailable bridge, or an audience
+    // mismatch must not strand the learner. Retire that durable attempt before
+    // the normal PKCE path creates its own independently recoverable intent.
+    await deletePendingSocialAuthAttempt().catch(() => undefined);
   }
 
   // The backend owns the canonical provider start route for the active

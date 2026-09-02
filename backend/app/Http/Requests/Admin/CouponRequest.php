@@ -6,6 +6,7 @@ use App\Support\BusinessClock;
 use App\Support\UnicodeText;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use App\Models\Coupon;
 
 class CouponRequest extends FormRequest
 {
@@ -38,6 +39,9 @@ class CouponRequest extends FormRequest
      */
     public function rules()
     {
+        $intentCouponId = $this->isMethod('post')
+            ? Coupon::withTrashed()->where('authoring_request_id', (string) $this->input('authoring_request_id'))->value('id')
+            : null;
         return [
             'name_ar' => 'required|string|min:2|max:100',
             'name_en' => 'nullable|string|max:100',
@@ -46,7 +50,7 @@ class CouponRequest extends FormRequest
                 'string',
                 'min:3',
                 'max:50',
-                Rule::unique('coupons', 'code')->ignore($this->route('coupon')),
+                Rule::unique('coupons', 'code')->ignore($this->route('coupon') ?: $intentCouponId),
             ],
             'balance' => 'required|integer|between:1,100',
             'course_id' => 'nullable|integer|exists:courses,id',
@@ -54,6 +58,8 @@ class CouponRequest extends FormRequest
             'max_redemptions' => 'nullable|integer|min:1|max:10000000',
             'expiry_date' => 'required|date_format:Y-m-d',
             'active' => 'required|boolean',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:4096',
+            'authoring_request_id' => [$this->isMethod('post') ? 'required' : 'nullable', 'uuid'],
         ];
     }
 

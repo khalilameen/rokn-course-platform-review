@@ -1,0 +1,231 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import {
+  accountScopedStorageKey,
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+  type AccountSessionBoundary,
+} from '../constants/helpers';
+import type {LearnerDraftFile} from './learnerDraftFiles';
+import {
+  learnerDraftFileIsReadable,
+  removeLearnerDraftFile,
+  retainLearnerDraftFiles,
+} from './learnerDraftFiles';
+
+export type PortfolioMediaOutboxEntry = {
+  projectId: string;
+  clientRequestId: string;
+  file: LearnerDraftFile;
+  createdAt: number;
+  storageKey?: string;
+};
+
+const STORAGE_KEY = '@rokn/portfolio-media-outbox/v1';
+const REFERENCE_OWNER = 'portfolio-media-outbox';
+const TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const MAX_ENTRIES = 96;
+let operation: Promise<unknown> = Promise.resolve();
+
+const withLock = <T>(callback: () => Promise<T>): Promise<T> => {
+  const result = operation.then(callback, callback);
+  operation = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+};
+
+const validEntry = (value: unknown): value is PortfolioMediaOutboxEntry => {
+  if (!value || typeof value !== 'object') return false;
+  const entry = value as Partial<PortfolioMediaOutboxEntry>;
+  return (
+    /^\d+$/.test(String(entry.projectId || '')) &&
+    /^[0-9a-f-]{36}$/i.test(String(entry.clientRequestId || '')) &&
+    Boolean(entry.file?.uri) &&
+    Number.isFinite(entry.createdAt)
+  );
+};
+
+const readStored = async (
+  key: string,
+): Promise<PortfolioMediaOutboxEntry[]> => {
+  const raw = await AsyncStorage.getItem(key);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter(validEntry) : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeStored = async (
+  key: string,
+  entries: PortfolioMediaOutboxEntry[],
+): Promise<void> => {
+  if (!entries.length) {
+    await AsyncStorage.removeItem(key);
+    return;
+  }
+  await AsyncStorage.setItem(key, JSON.stringify(entries));
+};
+
+const retainStoredFiles = (
+  entries: PortfolioMediaOutboxEntry[],
+  accountScope: string,
+) =>
+  retainLearnerDraftFiles(
+    REFERENCE_OWNER,
+    entries.map(entry => entry.file),
+    accountScope,
+  );
+
+const repairStored = async (
+  key: string,
+  entries: PortfolioMediaOutboxEntry[],
+  accountScope: string,
+): Promise<PortfolioMediaOutboxEntry[]> => {
+  const now = Date.now();
+  const inspected = await Promise.all(
+    entries.map(async entry => ({
+      entry,
+      keep:
+        now - entry.createdAt <= TTL_MS &&
+        (await learnerDraftFileIsReadable(entry.file)),
+    })),
+  );
+  const readable = inspected
+    .filter(result => result.keep)
+    .map(result => result.entry)
+    .sort((left, right) => left.createdAt - right.createdAt);
+  const kept = readable.slice(-MAX_ENTRIES);
+  const keptIds = new Set(kept.map(entry => entry.clientRequestId));
+  await retainStoredFiles(kept, accountScope);
+  if (kept.length !== entries.length) await writeStored(key, kept);
+  await Promise.all(
+    inspected
+      .filter(result => !keptIds.has(result.entry.clientRequestId))
+      .map(result => removeLearnerDraftFile(result.entry.file)),
+  );
+  return kept;
+};
+
+const scopedKey = async (
+  boundary: AccountSessionBoundary,
+  supplied?: string,
+): Promise<string> => {
+  assertAccountSessionBoundary(boundary);
+  const expected = await accountScopedStorageKey(STORAGE_KEY, boundary);
+  if (supplied && supplied !== expected) {
+    throw new Error('ACCOUNT_CHANGED_DURING_REQUEST');
+  }
+  assertAccountSessionBoundary(boundary);
+  return expected;
+};
+
+export const listPortfolioMediaUploads = async (
+  projectId?: string,
+): Promise<PortfolioMediaOutboxEntry[]> => {
+  const boundary = await captureAccountSessionBoundary();
+  const key = await scopedKey(boundary);
+  return withLock(async () => {
+    assertAccountSessionBoundary(boundary);
+    const entries = await repairStored(
+      key,
+      await readStored(key),
+      boundary.scope,
+    );
+    assertAccountSessionBoundary(boundary);
+    return entries
+      .filter(
+        entry =>
+          projectId === undefined || entry.projectId === String(projectId),
+      )
+      .map(entry => ({...entry, storageKey: key}));
+  });
+};
+
+export const stagePortfolioMediaUpload = async (
+  entry: PortfolioMediaOutboxEntry,
+): Promise<PortfolioMediaOutboxEntry> => {
+  const boundary = await captureAccountSessionBoundary();
+  if (!validEntry(entry) || !(await learnerDraftFileIsReadable(entry.file))) {
+    throw new Error('PORTFOLIO_MEDIA_OUTBOX_INVALID');
+  }
+  const key = await scopedKey(boundary, entry.storageKey);
+  const scopedEntry = {...entry, storageKey: key};
+  await withLock(async () => {
+    assertAccountSessionBoundary(boundary);
+    const entries = await repairStored(
+      key,
+      await readStored(key),
+      boundary.scope,
+    );
+    const replaced = entries.find(
+      candidate => candidate.clientRequestId === scopedEntry.clientRequestId,
+    );
+    const next = [
+      ...entries.filter(
+        candidate => candidate.clientRequestId !== scopedEntry.clientRequestId,
+      ),
+      scopedEntry,
+    ].sort((left, right) => left.createdAt - right.createdAt);
+    const overflow = next.slice(0, Math.max(0, next.length - MAX_ENTRIES));
+    const kept = next.slice(-MAX_ENTRIES);
+    await retainStoredFiles(kept, boundary.scope);
+    await writeStored(key, kept);
+    assertAccountSessionBoundary(boundary);
+    await Promise.all(
+      overflow.map(candidate => removeLearnerDraftFile(candidate.file)),
+    );
+    if (replaced && replaced.file.uri !== scopedEntry.file.uri) {
+      await removeLearnerDraftFile(replaced.file);
+    }
+  });
+  return scopedEntry;
+};
+
+export const completePortfolioMediaUpload = async (
+  entry: Pick<PortfolioMediaOutboxEntry, 'clientRequestId' | 'storageKey'>,
+): Promise<void> => {
+  const boundary = await captureAccountSessionBoundary();
+  const key = await scopedKey(boundary, entry.storageKey);
+  await withLock(async () => {
+    assertAccountSessionBoundary(boundary);
+    const entries = await readStored(key);
+    const completed = entries.find(
+      candidate => candidate.clientRequestId === entry.clientRequestId,
+    );
+    const remaining = entries.filter(
+      candidate => candidate.clientRequestId !== entry.clientRequestId,
+    );
+    await retainStoredFiles(remaining, boundary.scope);
+    await writeStored(key, remaining);
+    assertAccountSessionBoundary(boundary);
+    await removeLearnerDraftFile(completed?.file);
+  });
+};
+
+export const discardPortfolioMediaUploads = async (
+  projectId: string,
+): Promise<void> => {
+  const boundary = await captureAccountSessionBoundary();
+  const key = await scopedKey(boundary);
+  await withLock(async () => {
+    assertAccountSessionBoundary(boundary);
+    const entries = await readStored(key);
+    const discarded = entries.filter(
+      entry => entry.projectId === String(projectId),
+    );
+    const remaining = entries.filter(
+      entry => entry.projectId !== String(projectId),
+    );
+    await retainStoredFiles(remaining, boundary.scope);
+    await writeStored(key, remaining);
+    assertAccountSessionBoundary(boundary);
+    await Promise.all(
+      discarded.map(entry => removeLearnerDraftFile(entry.file)),
+    );
+  });
+};

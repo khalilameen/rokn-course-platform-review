@@ -7,6 +7,7 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\StudentProfileResource;
 use App\Models\ProfileUpdateReceipt;
+use App\Models\User;
 use App\Services\StoredFileDeletionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -27,15 +28,25 @@ final class ProfileController extends Controller
      *
      * @return \Illuminate\Http\JsonResponse
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
         $user = auth('api')->user();
+        $profile = new StudentProfileResource($user);
+
+        // Account/settings screens only consume identity and preferences. Keep
+        // the default full snapshot for learning clients, but do not build the
+        // enrolled-course graph and aggregate history when it was not asked for.
+        if (!$request->boolean('include_learning', true)) {
+            $request->boolean('include_badges')
+                ? $profile->onlyEarnedBadges()
+                : $profile->withoutLearningSnapshot();
+        }
 
         return response()->json([
             'status' => 200,
             'success' => true,
             'message' => 'تم تحميل الملف الشخصي',
-            'data' => new StudentProfileResource($user),
+            'data' => $profile,
         ]);
     }
 
@@ -326,7 +337,12 @@ final class ProfileController extends Controller
             'classification_ids.*' => 'exists:classifications,id',
         ]);
 
-        $user->interests()->sync($request->classification_ids);
+        $user = DB::transaction(function () use ($user, $request): User {
+            $locked = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $locked->interests()->sync($request->classification_ids);
+
+            return $locked->fresh();
+        });
 
         return response()->json([
             'status' => 200,
@@ -355,6 +371,8 @@ final class ProfileController extends Controller
             ->insert($image)
             ->encode('jpg', 86);
         $path = 'profiles/' . Str::uuid() . '.jpg';
+        app(StoredFileDeletionService::class)
+            ->trackPotentialOrphan('public', $path, 60);
 
         if (!Storage::disk('public')->put($path, (string) $canvas)) {
             throw new \RuntimeException('Could not store profile image.');

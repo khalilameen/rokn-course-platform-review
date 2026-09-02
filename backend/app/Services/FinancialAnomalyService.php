@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Jobs\SendFinancialAnomalyAlert;
 use App\Models\CourseEnrollment;
 use App\Models\FinancialAnomaly;
 use Illuminate\Support\Facades\DB;
@@ -16,7 +15,8 @@ final readonly class FinancialAnomalyService
 {
     public function __construct(
         private CourseAccessPlanService $plans,
-        private WalletService $wallet
+        private WalletService $wallet,
+        private InternalSignalService $internalSignals
     ) {
     }
 
@@ -89,6 +89,7 @@ final readonly class FinancialAnomalyService
                 $wasNewAlert = true;
             } elseif ($anomaly->status !== FinancialAnomaly::STATUS_OPEN) {
                 $wasNewAlert = true;
+                $anomaly->detected_at = now();
             }
 
             $anomaly->fill([
@@ -107,6 +108,18 @@ final readonly class FinancialAnomalyService
                 'resolution_note' => null,
             ])->save();
 
+            if ($wasNewAlert) {
+                $occurrence = (string) $anomaly->detected_at?->format('Y-m-d\TH:i:s.uP');
+                $this->internalSignals->record(
+                    'financial_anomaly.opened',
+                    'anomaly:' . $anomaly->public_id . ':opened:'
+                        . $occurrence,
+                    ['anomaly_id' => (int) $anomaly->id, 'occurrence' => $occurrence],
+                    FinancialAnomaly::class,
+                    (int) $anomaly->id
+                );
+            }
+
             return $anomaly;
         }, 3);
 
@@ -118,7 +131,6 @@ final readonly class FinancialAnomalyService
                 'expected_paid_coins' => $expected,
                 'actual_paid_coins' => $actual,
             ]);
-            SendFinancialAnomalyAlert::dispatch((int) $anomaly->id)->afterCommit();
         }
 
         return false;

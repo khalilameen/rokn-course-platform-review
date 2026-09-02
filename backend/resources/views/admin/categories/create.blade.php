@@ -10,6 +10,7 @@
                 </div>
                 <div class="card-body card-block">
                     {!! Form::open(['method' => 'POST','files' => true, 'route' => ['admin.categories.store'], 'id' => 'categoryForm']) !!}
+                    <input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">
                         @include('admin.categories._form')
                     {!! Form::close() !!}
                 </div>

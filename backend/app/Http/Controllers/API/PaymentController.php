@@ -43,4 +43,12 @@ final class PaymentController extends Controller
     ): JsonResponse {
         return $checkout->status($request, $orderRef, true);
     }
+
+    public function abandon(
+        Request $request,
+        string $orderRef,
+        KashierCheckoutFlowService $checkout
+    ): JsonResponse {
+        return $checkout->abandon($request, $orderRef);
+    }
 }

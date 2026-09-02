@@ -44,6 +44,7 @@
                         <!-- Form -->
                         <form action="{{ route('admin.grades.store') }}" method="post" id="gradeForm">
                             @csrf
+                            <input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">
                             @include('admin.grades._form')
                         </form>
                     </div>

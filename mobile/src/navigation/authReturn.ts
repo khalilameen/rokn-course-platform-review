@@ -7,6 +7,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {serverNowMs} from '../utils/serverClock';
 import {safeRoknRouteId} from './deepLinks';
 import {LOCAL_DEMO_ENABLED} from '../config/runtime';
+import {
+  getCurrentAccountStorageScope,
+  getCurrentGuestJourneyScope,
+} from '../constants/helpers';
 
 const PENDING_LOGIN_RETURN_KEY = '@rokn/pending-login-return/v1';
 const PENDING_LOGIN_RETURN_TTL_MS = 15 * 60 * 1000;
@@ -25,6 +29,35 @@ const cleanId = (value: unknown): string | undefined => {
     : undefined;
 };
 
+const cleanPurchasePlanCode = (value: unknown): string | undefined => {
+  const normalized =
+    typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return /^[a-z0-9][a-z0-9_-]{0,63}$/.test(normalized) ? normalized : undefined;
+};
+
+const cleanPurchaseCouponCode = (value: unknown): string | undefined => {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized &&
+    normalized.length <= 100 &&
+    !Array.from(normalized).some(character => {
+      const code = character.charCodeAt(0);
+      return code <= 31 || code === 127;
+    })
+    ? normalized
+    : undefined;
+};
+
+const purchaseReturnFields = (params: Record<string, unknown> | null) => {
+  const purchasePlanCode = cleanPurchasePlanCode(params?.purchasePlanCode);
+  const purchaseCouponCode = cleanPurchaseCouponCode(
+    params?.purchaseCouponCode,
+  );
+  return {
+    ...(purchasePlanCode ? {purchasePlanCode} : {}),
+    ...(purchaseCouponCode ? {purchaseCouponCode} : {}),
+  };
+};
+
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -35,9 +68,19 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
  * both for live navigation and for the one durable hand-off that survives an
  * OAuth browser process killing the app.
  */
-export const safeLoginReturnTo = (value: unknown): LoginReturnTo | undefined => {
+export const safeLoginReturnTo = (
+  value: unknown,
+): LoginReturnTo | undefined => {
   const candidate = asRecord(value);
   const name = typeof candidate?.name === 'string' ? candidate.name : '';
+  if (name === 'Profile') {
+    const params = asRecord(candidate?.params);
+    if (candidate?.params === undefined) return {name};
+    const tab = params?.tab;
+    return tab === 'portfolio' || tab === 'certificates' || tab === 'saved'
+      ? {name, params: {tab}}
+      : undefined;
+  }
   if (
     LOGIN_RETURN_TO_PARAMLESS_ROUTES.includes(
       name as LoginReturnToParamlessRoute,
@@ -59,7 +102,9 @@ export const safeLoginReturnTo = (value: unknown): LoginReturnTo | undefined => 
       params: {
         courseId,
         openCodeRedemption: params?.openCodeRedemption === true,
+        openFullTrackUpgrade: params?.openFullTrackUpgrade === true,
         openPurchase: params?.openPurchase === true,
+        ...(params?.openPurchase === true ? purchaseReturnFields(params) : {}),
         resumeAfterPreview: params?.resumeAfterPreview === true,
         resumeReelId: cleanId(params?.resumeReelId),
       },
@@ -74,6 +119,7 @@ export const safeLoginReturnTo = (value: unknown): LoginReturnTo | undefined => 
       reelId: cleanId(params?.reelId),
       lessonId: cleanId(params?.lessonId),
       preview: params?.preview === true,
+      openCourseChatUpgrade: params?.openCourseChatUpgrade === true,
       previewCount:
         Number.isInteger(previewCount) && previewCount > 0
           ? previewCount
@@ -90,6 +136,13 @@ export const safeLoginReturnTo = (value: unknown): LoginReturnTo | undefined => 
 export const safeLoginReturnToFromRoute = (
   route?: RouteSnapshot,
 ): LoginReturnTo | undefined => {
+  if (route?.name === 'Profile') {
+    const params = asRecord(route.params);
+    const tab = params?.tab;
+    return tab === 'portfolio' || tab === 'certificates' || tab === 'saved'
+      ? {name: 'Profile', params: {tab}}
+      : {name: 'Profile'};
+  }
   if (
     typeof route?.name === 'string' &&
     LOGIN_RETURN_TO_PARAMLESS_ROUTES.includes(
@@ -109,7 +162,9 @@ export const safeLoginReturnToFromRoute = (
       params: {
         courseId,
         openCodeRedemption: params.openCodeRedemption === true,
+        openFullTrackUpgrade: params.openFullTrackUpgrade === true,
         openPurchase: params.openPurchase === true,
+        ...(params.openPurchase === true ? purchaseReturnFields(params) : {}),
         resumeAfterPreview: params.resumeAfterPreview === true,
         resumeReelId: cleanId(params.resumeReelId),
       },
@@ -125,6 +180,7 @@ export const safeLoginReturnToFromRoute = (
         reelId: cleanId(params.reelId),
         lessonId: cleanId(params.lessonId),
         preview: params.preview === true,
+        openCourseChatUpgrade: params.openCourseChatUpgrade === true,
         previewCount:
           Number.isInteger(previewCount) && previewCount > 0
             ? previewCount
@@ -136,15 +192,30 @@ export const safeLoginReturnToFromRoute = (
   return undefined;
 };
 
-export const savePendingLoginReturnTo = async (value: unknown) => {
+export const savePendingLoginReturnTo = async (
+  value: unknown,
+  reason: 'login' | 'reauthentication' = 'login',
+) => {
   const returnTo = safeLoginReturnTo(value);
   if (!returnTo) {
     await AsyncStorage.removeItem(PENDING_LOGIN_RETURN_KEY);
     return;
   }
+  const [sourceScope, guestJourneyScope] = await Promise.all([
+    getCurrentAccountStorageScope(),
+    getCurrentGuestJourneyScope(),
+  ]);
   await AsyncStorage.setItem(
     PENDING_LOGIN_RETURN_KEY,
-    JSON.stringify({returnTo, createdAt: serverNowMs()}),
+    JSON.stringify({
+      version: 2,
+      returnTo,
+      createdAt: serverNowMs(),
+      reason,
+      sourceKind: sourceScope.startsWith('guest-') ? 'guest' : 'account',
+      sourceScope,
+      guestJourneyScope,
+    }),
   );
 };
 
@@ -181,6 +252,31 @@ export const claimPendingLoginReturnTo = async (): Promise<
     }
     const returnTo = safeLoginReturnTo(envelope?.returnTo);
     if (!returnTo) {
+      await AsyncStorage.removeItem(PENDING_LOGIN_RETURN_KEY);
+      return undefined;
+    }
+    const sourceKind = envelope?.sourceKind;
+    const sourceScope =
+      typeof envelope?.sourceScope === 'string' ? envelope.sourceScope : '';
+    const guestJourneyScope =
+      typeof envelope?.guestJourneyScope === 'string'
+        ? envelope.guestJourneyScope
+        : '';
+    if (
+      envelope?.version !== 2 ||
+      (sourceKind !== 'guest' && sourceKind !== 'account') ||
+      !sourceScope
+    ) {
+      await AsyncStorage.removeItem(PENDING_LOGIN_RETURN_KEY);
+      return undefined;
+    }
+    const currentOwner =
+      sourceKind === 'guest'
+        ? await getCurrentGuestJourneyScope()
+        : await getCurrentAccountStorageScope();
+    const expectedOwner =
+      sourceKind === 'guest' ? guestJourneyScope : sourceScope;
+    if (!expectedOwner || currentOwner !== expectedOwner) {
       await AsyncStorage.removeItem(PENDING_LOGIN_RETURN_KEY);
       return undefined;
     }

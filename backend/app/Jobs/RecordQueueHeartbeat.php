@@ -56,7 +56,10 @@ final class RecordQueueHeartbeat implements ShouldQueue
         $configured = config('operations.queue_heartbeat_required_queues', [
             'default',
             'notifications',
+            'ai-chat',
             'ai-feedback',
+            'media',
+            'operations',
             'webhooks',
         ]);
 

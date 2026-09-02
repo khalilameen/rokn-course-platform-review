@@ -51,6 +51,10 @@ final class BunnyDirectUploadLeaseTest extends TestCase
 
         Crypt::shouldReceive('encryptString')->once()->andReturn('signed-claim');
         $bunny = Mockery::mock(BunnyService::class);
+        $bunny->shouldReceive('findVideoGuidsByTitleMarker')
+            ->once()
+            ->with('[rokn:' . $key . ']')
+            ->andReturn([]);
         $bunny->shouldReceive('createVideo')->once()->andReturn([
             'guid' => $guid,
             'title' => 'الدرس الأول',

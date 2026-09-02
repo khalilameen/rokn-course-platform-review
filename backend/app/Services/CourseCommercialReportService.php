@@ -82,7 +82,8 @@ final class CourseCommercialReportService
             $cost = $costReport['users']->get(
                 (int) $enrollment->user_id,
                 [
-                    'ai_requests' => 0, 'ai_failed_requests' => 0, 'ai_tokens' => 0,
+                    'ai_requests' => 0, 'ai_failed_requests' => 0,
+                    'ai_unanswered_requests' => 0, 'ai_tokens' => 0,
                     'ai_estimated_requests' => 0, 'ai_cost_complete' => true,
                     'ai_measurement_available' => true,
                     'ai_cost_usd' => 0.0, 'ai_cost_egp' => 0.0,
@@ -146,9 +147,11 @@ final class CourseCommercialReportService
         })->values();
 
         $gross = round((float) $rows->sum('cash_gross_egp'), 2);
+        $estimatedGross = round((float) $rows->sum('cash_estimated_gross_egp'), 2);
         $knownNet = round((float) $rows->sum('cash_net_known_egp'), 2);
         $pendingGross = round((float) $rows->sum('cash_pending_settlement_egp'), 2);
         $cashNetComplete = $rows->every(fn (array $row): bool => (bool) $row['cash_net_complete']);
+        $cashGrossComplete = $rows->every(fn (array $row): bool => (bool) $row['cash_gross_complete']);
         $foreignCurrencyExposure = $rows
             ->flatMap(fn (array $row): array => collect($row['cash_foreign_currency_amounts'])
                 ->map(fn (float $amount, string $currency): array => [
@@ -171,6 +174,33 @@ final class CourseCommercialReportService
                 ? round($knownNet - (float) $serviceCost, 2)
                 : null
         );
+        $cashChannels = $rows
+            ->flatMap(fn (array $row): array => array_values($row['cash_channels'] ?? []))
+            ->groupBy('method')
+            ->map(function (Collection $items): array {
+                $foreign = $items->flatMap(function (array $item): array {
+                    return collect($item['foreign_currency_amounts'] ?? [])
+                        ->map(fn (float $amount, string $currency): array => [
+                            'currency' => $currency,
+                            'amount' => $amount,
+                        ])->values()->all();
+                })->groupBy('currency')->map(
+                    fn (Collection $amounts): float => round((float) $amounts->sum('amount'), 2)
+                )->all();
+
+                return [
+                    'method' => (string) $items->first()['method'],
+                    'label' => (string) $items->first()['label'],
+                    'paid_coins' => (int) $items->sum('paid_coins'),
+                    'gross_egp' => round((float) $items->sum('gross_egp'), 2),
+                    'estimated_gross_egp' => round((float) $items->sum('estimated_gross_egp'), 2),
+                    'gross_complete' => $items->every(fn (array $item): bool => (bool) $item['gross_complete']),
+                    'net_known_egp' => round((float) $items->sum('net_known_egp'), 2),
+                    'pending_settlement_egp' => round((float) $items->sum('pending_settlement_egp'), 2),
+                    'net_complete' => $items->every(fn (array $item): bool => (bool) $item['net_complete']),
+                    'foreign_currency_amounts' => $foreign,
+                ];
+            })->values();
 
         return [
             'rows' => $rows,
@@ -184,10 +214,13 @@ final class CourseCommercialReportService
             'paid_coins' => (int) $orders->sum('paid_coins'),
             'reward_coins' => (int) $orders->sum('reward_coins'),
             'cash_gross_egp' => $gross,
+            'cash_estimated_gross_egp' => $estimatedGross,
+            'cash_gross_complete' => $cashGrossComplete,
             'cash_net_known_egp' => $knownNet,
             'cash_pending_settlement_egp' => $pendingGross,
             'cash_net_complete' => $cashNetComplete,
             'cash_foreign_currency_exposure' => $foreignCurrencyExposure,
+            'cash_channel_breakdown' => $cashChannels,
             'cash_net_egp' => $cashNetComplete ? $knownNet : null,
             'ai_cost_usd' => $costReport['ai_cost_usd'],
             'ai_estimated_requests' => (int) $rows->sum('ai_estimated_requests'),
@@ -229,11 +262,12 @@ final class CourseCommercialReportService
         $margin = $net !== null && $cost !== null ? round($net - $cost, 2) : null;
         $aiRequests = (int) $rows->sum('ai_requests');
         $aiFailedRequests = (int) $rows->sum('ai_failed_requests');
+        $aiUnansweredRequests = (int) $rows->sum('ai_unanswered_requests');
         $aiEstimatedRequests = (int) $rows->sum('ai_estimated_requests');
         $aiMeasurementAvailable = $rows->every(
             fn (array $row): bool => (bool) ($row['ai_measurement_available'] ?? true)
         );
-        $aiAttempts = $aiRequests + $aiFailedRequests;
+        $aiAttempts = $aiRequests + $aiFailedRequests + $aiUnansweredRequests;
 
         return [
             'students' => $students,
@@ -244,10 +278,11 @@ final class CourseCommercialReportService
             'net_egp' => $net,
             'ai_requests' => $aiRequests,
             'ai_failed_requests' => $aiFailedRequests,
+            'ai_unanswered_requests' => $aiUnansweredRequests,
             'ai_estimated_requests' => $aiEstimatedRequests,
             'ai_cost_complete' => $aiMeasurementAvailable && $aiEstimatedRequests === 0,
             'ai_failure_rate_percentage' => $aiAttempts > 0
-                ? round(($aiFailedRequests / $aiAttempts) * 100, 2)
+                ? round((($aiFailedRequests + $aiUnansweredRequests) / $aiAttempts) * 100, 2)
                 : null,
             'ai_tokens' => (int) $rows->sum('ai_tokens'),
             'ai_measurement_available' => $aiMeasurementAvailable,
@@ -318,11 +353,13 @@ final class CourseCommercialReportService
     private function cashForOrders(Collection $orders, Collection $allocationsByOrder): array
     {
         $gross = 0.0;
+        $estimatedGross = 0.0;
         $netKnown = 0.0;
         $pendingGross = 0.0;
         $allocatedCoins = 0;
         $reconciliationMissing = false;
         $foreignCurrencyAmounts = [];
+        $channels = [];
 
         foreach ($orders as $order) {
             $orderAllocatedCoins = 0;
@@ -343,33 +380,104 @@ final class CourseCommercialReportService
 
                 $ratio = min(1, $coins / $lotCoins);
                 $sourceGross = (float) ($source->gateway_gross_amount ?? $source->final_amount ?? 0);
+                $sourceGrossKnown = $source->gateway_gross_amount !== null
+                    && $source->gateway_settlement_status !== 'catalog_estimate';
                 $attributedGross = $sourceGross * $ratio;
-                $sourceCurrency = strtoupper((string) ($source->gateway_currency ?: 'EGP'));
-                if ($sourceCurrency !== 'EGP') {
-                    $foreignCurrencyAmounts[$sourceCurrency] =
-                        ($foreignCurrencyAmounts[$sourceCurrency] ?? 0.0) + $attributedGross;
+                $method = (string) $source->payment_method;
+                $sourceCurrency = strtoupper((string) (
+                    $source->gateway_currency
+                    ?: (in_array($method, [
+                        Order::PAYMENT_METHOD_GOOGLE_PLAY,
+                        Order::PAYMENT_METHOD_APP_STORE,
+                    ], true) ? 'PENDING' : 'EGP')
+                ));
+                $channels[$method] ??= [
+                    'method' => $method,
+                    'label' => match ($method) {
+                        Order::PAYMENT_METHOD_KASHIER => 'Kashier',
+                        Order::PAYMENT_METHOD_GOOGLE_PLAY => 'Google Play',
+                        Order::PAYMENT_METHOD_APP_STORE => 'App Store',
+                        default => $method,
+                    },
+                    'paid_coins' => 0,
+                    'gross_egp' => 0.0,
+                    'estimated_gross_egp' => 0.0,
+                    'gross_complete' => true,
+                    'net_known_egp' => 0.0,
+                    'pending_settlement_egp' => 0.0,
+                    'net_complete' => true,
+                    'foreign_currency_amounts' => [],
+                ];
+                $channels[$method]['paid_coins'] += $coins;
+                if ($sourceCurrency === 'PENDING') {
+                    // Store catalogue prices are not cash evidence. Until the
+                    // provider supplies the settlement currency, do not turn a
+                    // local package price into apparent EGP course revenue.
+                    $channels[$method]['gross_complete'] = false;
+                    $channels[$method]['net_complete'] = false;
                     $reconciliationMissing = true;
                     continue;
                 }
-                $gross += $attributedGross;
+                if ($sourceCurrency !== 'EGP') {
+                    $foreignCurrencyAmounts[$sourceCurrency] =
+                        ($foreignCurrencyAmounts[$sourceCurrency] ?? 0.0) + $attributedGross;
+                    $channels[$method]['foreign_currency_amounts'][$sourceCurrency] =
+                        ($channels[$method]['foreign_currency_amounts'][$sourceCurrency] ?? 0.0)
+                        + $attributedGross;
+                    $channels[$method]['net_complete'] = false;
+                    $channels[$method]['gross_complete'] = false;
+                    $reconciliationMissing = true;
+                    continue;
+                }
+                if ($sourceGrossKnown) {
+                    $gross += $attributedGross;
+                    $channels[$method]['gross_egp'] += $attributedGross;
+                } else {
+                    $estimatedGross += $attributedGross;
+                    $channels[$method]['estimated_gross_egp'] += $attributedGross;
+                    $channels[$method]['gross_complete'] = false;
+                }
 
                 if ($source->gateway_net_amount !== null) {
-                    $netKnown += (float) $source->gateway_net_amount * $ratio;
+                    $attributedNet = (float) $source->gateway_net_amount * $ratio;
+                    $netKnown += $attributedNet;
+                    $channels[$method]['net_known_egp'] += $attributedNet;
                 } elseif ($source->gateway_fee_amount !== null) {
-                    $netKnown += max(0, $sourceGross - (float) $source->gateway_fee_amount) * $ratio;
+                    $attributedNet = max(0, $sourceGross - (float) $source->gateway_fee_amount) * $ratio;
+                    $netKnown += $attributedNet;
+                    $channels[$method]['net_known_egp'] += $attributedNet;
                 } else {
                     $pendingGross += $attributedGross;
+                    $channels[$method]['pending_settlement_egp'] += $attributedGross;
+                    $channels[$method]['net_complete'] = false;
                 }
             }
 
             $missingPaidCoins = max(0, (int) $order->paid_coins - $orderAllocatedCoins);
             if ($missingPaidCoins > 0) {
+                $channels['unreconciled'] ??= [
+                    'method' => 'unreconciled',
+                    'label' => 'مصدر شحن غير مُسوّى',
+                    'paid_coins' => 0,
+                    'gross_egp' => 0.0,
+                    'estimated_gross_egp' => 0.0,
+                    'gross_complete' => false,
+                    'net_known_egp' => 0.0,
+                    'pending_settlement_egp' => 0.0,
+                    'net_complete' => false,
+                    'foreign_currency_amounts' => [],
+                ];
+                $channels['unreconciled']['paid_coins'] += $missingPaidCoins;
                 $reconciliationMissing = true;
             }
         }
 
         return [
             'cash_gross_egp' => round($gross, 2),
+            'cash_estimated_gross_egp' => round($estimatedGross, 2),
+            'cash_gross_complete' => collect($channels)->every(
+                fn (array $channel): bool => (bool) $channel['gross_complete']
+            ),
             'cash_net_known_egp' => round($netKnown, 2),
             'cash_pending_settlement_egp' => round($pendingGross, 2),
             'cash_net_complete' => $pendingGross < 0.005 && !$reconciliationMissing,
@@ -377,6 +485,23 @@ final class CourseCommercialReportService
             'cash_foreign_currency_amounts' => collect($foreignCurrencyAmounts)
                 ->map(fn (float $amount): float => round($amount, 2))
                 ->all(),
+            'cash_channels' => collect($channels)->map(function (array $channel): array {
+                $channel['gross_egp'] = round((float) $channel['gross_egp'], 2);
+                $channel['estimated_gross_egp'] = round(
+                    (float) $channel['estimated_gross_egp'],
+                    2
+                );
+                $channel['net_known_egp'] = round((float) $channel['net_known_egp'], 2);
+                $channel['pending_settlement_egp'] = round(
+                    (float) $channel['pending_settlement_egp'],
+                    2
+                );
+                $channel['foreign_currency_amounts'] = collect(
+                    $channel['foreign_currency_amounts']
+                )->map(fn (float $amount): float => round($amount, 2))->all();
+
+                return $channel;
+            })->all(),
         ];
     }
 }

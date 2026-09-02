@@ -62,6 +62,7 @@ import {
   type ReelsNavigation,
 } from './reels/useReelsFeedRenderer';
 import {useProjectReview} from './reels/useProjectReview';
+import {selectPrimaryViewableItem} from '../components/VideoPlayer/courseLearning/viewability';
 import {useReelsProgress} from './reels/useReelsProgress';
 
 const Reels = () => {
@@ -80,6 +81,9 @@ const Reels = () => {
   const watchedProjectRef = useRef<string | null>(null);
   const currentIndexRef = useRef(0);
   const feedLengthRef = useRef(0);
+  const frameHeightRef = useRef(0);
+  const scrollOffsetRef = useRef(0);
+  const scrollDirectionRef = useRef<1 | -1>(1);
   const [layout, setLayout] = useState({width: 0, height: 0});
   const [course, setCourse] = useState<CourseLearningData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -87,6 +91,7 @@ const Reels = () => {
   const [connectionNote, setConnectionNote] = useState('');
   const [currentIndex, setCurrentIndex] = useState(0);
   const [serverSession, setServerSession] = useState<boolean | null>(null);
+  frameHeightRef.current = layout.height;
   const {
     autoplay,
     changePlaybackSpeed,
@@ -101,6 +106,25 @@ const Reels = () => {
   const [savedLessons, setSavedLessons] = useState<Set<string>>(new Set());
   const [savingLessons, setSavingLessons] = useState<Set<string>>(new Set());
   const [chatVisible, setChatVisible] = useState(false);
+
+  useEffect(() => {
+    if (!isScreenFocused || !course || params.openCourseChatUpgrade !== true) return;
+    setChatVisible(true);
+    navigation.setParams({openCourseChatUpgrade: false});
+  }, [course, isScreenFocused, navigation, params.openCourseChatUpgrade]);
+  const [contentOverlayVisible, setContentOverlayVisible] = useState(false);
+  const contentOverlayScopesRef = useRef(new Set<string>());
+  const handleContentOverlayVisibility = useCallback(
+    (scopeKey: string, visible: boolean) => {
+      if (visible) {
+        contentOverlayScopesRef.current.add(scopeKey);
+      } else {
+        contentOverlayScopesRef.current.delete(scopeKey);
+      }
+      setContentOverlayVisible(contentOverlayScopesRef.current.size > 0);
+    },
+    [],
+  );
   const [previewGateVisible, setPreviewGateVisible] = useState(false);
   const {
     closeReminderNudge,
@@ -458,8 +482,8 @@ const Reels = () => {
   );
 
   const submitProject = useCallback(
-    async (projectId: string, file: SelectedProjectFile, note?: string) => {
-      const result = await submitProjectAttempt(projectId, file, note);
+    async (projectId: string, files: SelectedProjectFile[], note?: string) => {
+      const result = await submitProjectAttempt(projectId, files, note);
       if (result.passed) {
         if (course && isLocalDemoId(course.id)) {
           if (demoRewardsEnabledRef.current) {
@@ -526,7 +550,13 @@ const Reels = () => {
 
   const onViewableItemsChanged = useRef(
     ({viewableItems}: {viewableItems: ViewToken<CourseFeedItem>[]}) => {
-      const visible = viewableItems.find(item => item.isViewable);
+      const height = Math.max(1, frameHeightRef.current);
+      const visible = selectPrimaryViewableItem(
+        viewableItems,
+        scrollOffsetRef.current,
+        height,
+        scrollDirectionRef.current,
+      );
       if (typeof visible?.index === 'number') {
         if (visible.index !== currentIndexRef.current) {
           void flushPendingPlaybackPositions();
@@ -610,12 +640,17 @@ const Reels = () => {
     navigation,
     persistProgress,
     playbackSpeed,
-    playbackBlocked: !isScreenFocused || chatVisible || reminderNudgeVisible,
+    playbackBlocked:
+      !isScreenFocused ||
+      chatVisible ||
+      reminderNudgeVisible ||
+      contentOverlayVisible,
     preloadNext:
       isScreenFocused &&
       !chatVisible &&
       !reminderNudgeVisible &&
       !previewGateVisible &&
+      !contentOverlayVisible &&
       !dataSaver,
     positions: positionsRef,
     preview: params.preview === true,
@@ -631,6 +666,7 @@ const Reels = () => {
     selectedQuality,
     serverSession,
     setChatVisible,
+    onContentOverlayVisibilityChange: handleContentOverlayVisibility,
     submitProject,
     passQuiz,
     toggleSaved,
@@ -732,7 +768,10 @@ const Reels = () => {
             renderItem={renderItem}
             pagingEnabled
             scrollEnabled={
-              !chatVisible && !reminderNudgeVisible && !previewGateVisible
+              !chatVisible &&
+              !reminderNudgeVisible &&
+              !previewGateVisible &&
+              !contentOverlayVisible
             }
             bounces={false}
             decelerationRate="fast"
@@ -753,6 +792,14 @@ const Reels = () => {
             })}
             viewabilityConfig={viewabilityConfig}
             onViewableItemsChanged={onViewableItemsChanged}
+            scrollEventThrottle={16}
+            onScroll={event => {
+              const nextOffset = event.nativeEvent.contentOffset.y;
+              if (Math.abs(nextOffset - scrollOffsetRef.current) > 1) {
+                scrollDirectionRef.current = nextOffset > scrollOffsetRef.current ? 1 : -1;
+              }
+              scrollOffsetRef.current = nextOffset;
+            }}
             onScrollToIndexFailed={info =>
               listRef.current?.scrollToOffset({
                 offset: info.index * layout.height,

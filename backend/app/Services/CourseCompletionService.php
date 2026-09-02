@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Events\CourseCompleted;
 use App\Models\Course;
 use App\Models\CourseSection;
 use App\Models\ExamAttempt;
@@ -20,7 +19,8 @@ final readonly class CourseCompletionService
         private CourseReadCompatibilityService $courseReads,
         private CoursePresentationService $coursePresentation,
         private LearningEvidenceService $learningEvidence,
-        private CourseModuleAccessService $courseAccess
+        private CourseModuleAccessService $courseAccess,
+        private InternalSignalService $internalSignals
     ) {
     }
 
@@ -85,12 +85,24 @@ final readonly class CourseCompletionService
         }
 
         if ($existingProgress && $existingProgress->is_completed) {
+            $courseProgress = DB::transaction(function () use ($user, $courseId): array {
+                User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+
+                return $this->recordCourseCompletionIfEligible(
+                    (int) $user->id,
+                    $courseId
+                );
+            }, 3);
+
             return $this->success(
                 'Section already completed',
-                ['section' => $this->sectionPayload(
-                    $section,
-                    $existingProgress->completed_at ?? $existingProgress->updated_at
-                )]
+                [
+                    'section' => $this->sectionPayload(
+                        $section,
+                        $existingProgress->completed_at ?? $existingProgress->updated_at
+                    ),
+                    'course_progress' => $courseProgress,
+                ]
             );
         }
 
@@ -117,7 +129,11 @@ final readonly class CourseCompletionService
             );
         }
 
-        $progress = DB::transaction(function () use ($user, $sectionId): StudentSectionProgress {
+        $progress = DB::transaction(function () use (
+            $user,
+            $sectionId,
+            $courseId
+        ): StudentSectionProgress {
             User::query()->lockForUpdate()->findOrFail($user->id);
 
             $progress = StudentSectionProgress::firstOrNew([
@@ -128,17 +144,17 @@ final readonly class CourseCompletionService
             $progress->completed_at ??= now();
             $progress->save();
 
+            // The completion signal is part of the same commit as the last
+            // section. Queue availability is irrelevant to this guarantee.
+            $this->recordCourseCompletionIfEligible((int) $user->id, $courseId);
+
             return $progress;
-        });
+        }, 3);
 
         $courseProgress = $this->coursePresentation->progressSummary(
             (int) $user->id,
             $courseId
         );
-        if ($courseProgress['is_completed']) {
-            event(new CourseCompleted((int) $user->id, (int) $course->id));
-        }
-
         return $this->success('Section marked as completed successfully', [
             'section' => $this->sectionPayload(
                 $section,
@@ -146,6 +162,23 @@ final readonly class CourseCompletionService
             ),
             'course_progress' => $courseProgress,
         ]);
+    }
+
+    /** @return array<string, mixed> */
+    private function recordCourseCompletionIfEligible(int $userId, int $courseId): array
+    {
+        $progress = $this->coursePresentation->progressSummary($userId, $courseId);
+        if ($progress['is_completed']) {
+            $this->internalSignals->record(
+                'course.completed',
+                "user:{$userId}:course:{$courseId}",
+                ['user_id' => $userId, 'course_id' => $courseId],
+                'course_enrollment',
+                "{$userId}:{$courseId}"
+            );
+        }
+
+        return $progress;
     }
 
     public function canAccessSection(User $user, CourseSection $section): bool

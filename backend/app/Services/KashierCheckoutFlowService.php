@@ -180,6 +180,22 @@ final readonly class KashierCheckoutFlowService
                 : null;
             if ($pendingOrder) {
                 $pendingOrder = $this->reconcileProviderOrder($pendingOrder);
+                if ($pendingOrder->status === Order::STATUS_APPROVED) {
+                    // A locally forgotten attempt can settle while the learner
+                    // starts a fresh intent. Return the captured order instead
+                    // of opening a second payable checkout in the same tap.
+                    return $this->responses->make(
+                        false,
+                        'تمت معالجة عملية الدفع السابقة',
+                        [
+                            'order_ref' => (string) $pendingOrder->order_ref,
+                            'status' => (string) $pendingOrder->status,
+                            'financial_status' => (string) $pendingOrder->financial_status,
+                        ],
+                        409,
+                        'checkout_attempt_closed'
+                    );
+                }
                 if ($pendingOrder->status !== Order::STATUS_PENDING && $allowPendingRecovery) {
                     return $this->initiate($request, false);
                 }
@@ -312,6 +328,72 @@ final readonly class KashierCheckoutFlowService
                 'coins' => $this->payments->coinAmount($order),
             ] : null,
             'approved_at' => $order->approved_at,
+        ]);
+    }
+
+    public function abandon(Request $request, string $orderRef): JsonResponse
+    {
+        /** @var User $user */
+        $user = auth('api')->user();
+        $order = Order::byOrderRef($orderRef)
+            ->where('user_id', $user->id)
+            ->with('package')
+            ->first();
+
+        if (!$order) {
+            return $this->responses->make(
+                false,
+                'عملية الدفع غير متاحة',
+                [],
+                404,
+                'order_not_found'
+            );
+        }
+
+        if ($order->status !== Order::STATUS_PENDING) {
+            return $this->responses->make(true, 'تم تحميل حالة الدفع', [
+                'order_ref' => (string) $order->order_ref,
+                'status' => (string) $order->status,
+                'financial_status' => (string) $order->financial_status,
+                'coins_added' => $order->isFinanciallyEffective()
+                    ? $this->payments->coinAmount($order)
+                    : 0,
+            ]);
+        }
+
+        // Closing a browser surface is not payment evidence. Ask Kashier
+        // before releasing the local intent so a capture racing with the
+        // learner's back gesture is never lost or turned into a second debit.
+        $provider = $this->payments->verifyOrderViaApi((string) $order->order_ref);
+        if ($this->payments->isOrderCaptured($provider)) {
+            $order = $this->payments->fulfillOrder(
+                $order,
+                $this->payments->extractTransactionId($provider),
+                [
+                    'verified_via' => 'kashier_api_checkout_abandon',
+                    'kashier_api_response' => $provider,
+                ]
+            );
+        } elseif ($provider !== null) {
+            $providerStatus = $this->payments->providerOrderStatus($provider);
+            if (!$this->payments->providerStatusMayCaptureWithoutLearner($providerStatus)) {
+                $order = $this->payments->cancelPendingOrder($order, [
+                    'verified_via' => 'kashier_api_checkout_abandon',
+                    'provider_status' => $providerStatus,
+                    'kashier_api_response' => $provider,
+                ]);
+            }
+        }
+
+        $order = $order->fresh(['package']);
+
+        return $this->responses->make(true, 'تم تحميل حالة الدفع', [
+            'order_ref' => (string) $order->order_ref,
+            'status' => (string) $order->status,
+            'financial_status' => (string) $order->financial_status,
+            'coins_added' => $order->isFinanciallyEffective()
+                ? $this->payments->coinAmount($order)
+                : 0,
         ]);
     }
 

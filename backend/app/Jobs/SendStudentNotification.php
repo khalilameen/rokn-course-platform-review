@@ -7,6 +7,8 @@ namespace App\Jobs;
 use App\Models\User;
 use App\Models\AdminNotification;
 use App\Models\NotificationCampaign;
+use App\Models\NotificationCampaignRecipient;
+use App\Services\NotificationDeliveryPolicy;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -15,6 +17,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class SendStudentNotification implements ShouldQueue, ShouldBeUnique
@@ -139,7 +142,7 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
 
             // Promotions are opt-in both in the inbox and over push. Learning,
             // payment and account notifications remain unaffected.
-            if (in_array($this->notificationType, ['course_promotion', 'admin_broadcast'], true)) {
+            if (NotificationDeliveryPolicy::isMarketing($this->notificationType)) {
                 $query->where('marketing_notifications_enabled', true);
             }
 
@@ -185,31 +188,85 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
                 });
             }
 
-            // The coordinator never holds the whole audience in memory. Each
-            // bounded job can be retried independently; the database delivery
-            // key remains the final authority against duplicate inbox rows.
+            $campaign = Schema::hasTable('notification_campaigns')
+                ? NotificationCampaign::query()->where('delivery_key', $this->deliveryKey)->first()
+                : null;
+            $durableAudience = $campaign && Schema::hasTable('notification_campaign_recipients');
             $queuedRecipientsCount = 0;
-            $query->select('id')->orderBy('id')->chunkById(500, function ($students) use (&$queuedRecipientsCount): void {
-                $queuedRecipientsCount += $students->count();
-                DeliverStudentNotificationChunk::dispatch(
-                    $students->pluck('id')->map(fn ($id): int => (int) $id)->all(),
-                    $this->deliveryKey,
-                    $this->notificationType,
-                    $this->notifiableType,
-                    $this->notifiableId,
-                    $this->titleAr,
-                    $this->titleEn,
-                    $this->messageAr,
-                    $this->messageEn,
-                    $this->link,
-                    $this->imageUrl,
-                    $this->actionLabelAr,
-                    $this->actionLabelEn
-                )->onQueue((string) config('queue.channels.notifications', 'notifications'));
-            }, 'id');
+
+            if ($durableAudience) {
+                // Snapshot selection progress itself. A coordinator crash resumes
+                // after its last committed user ID instead of selecting a changed
+                // audience from the beginning or losing already selected chunks.
+                if (!$campaign->selection_finished_at) {
+                    $query->where('id', '>', (int) $campaign->selection_cursor);
+                    $query->select('id')->orderBy('id')->chunkById(500, function ($students) use ($campaign): void {
+                        $now = now();
+                        $rows = $students->map(fn ($student): array => [
+                            'notification_campaign_id' => $campaign->id,
+                            'user_id' => (int) $student->id,
+                            'status' => NotificationCampaignRecipient::STATUS_PENDING,
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ])->all();
+                        if ($rows !== []) {
+                            NotificationCampaignRecipient::query()->insertOrIgnore($rows);
+                            NotificationCampaign::query()->whereKey($campaign->id)->update([
+                                'selection_cursor' => (int) $students->max('id'),
+                                'updated_at' => now(),
+                            ]);
+                        }
+                        $this->dispatchChunk($students->pluck('id')->map(fn ($id): int => (int) $id)->all());
+                    }, 'id');
+
+                    $queuedRecipientsCount = NotificationCampaignRecipient::query()
+                        ->where('notification_campaign_id', $campaign->id)
+                        ->count();
+                    NotificationCampaign::query()->whereKey($campaign->id)->update([
+                        'recipients_count' => $queuedRecipientsCount,
+                        'selection_finished_at' => now(),
+                        'coordinator_finished_at' => now(),
+                        'status' => $queuedRecipientsCount > 0
+                            ? NotificationCampaign::STATUS_DELIVERING
+                            : NotificationCampaign::STATUS_COMPLETED,
+                        'completed_at' => $queuedRecipientsCount > 0 ? null : now(),
+                        'failed_at' => null,
+                        'failure_code' => null,
+                        'updated_at' => now(),
+                    ]);
+                    $this->dispatchPendingRecipients($campaign);
+                    $this->completeResolvedCampaign($campaign, $queuedRecipientsCount);
+                } else {
+                    // Recovery only requeues unresolved members of the original
+                    // snapshot. New users are not silently added to an old campaign.
+                    NotificationCampaignRecipient::query()
+                        ->where('notification_campaign_id', $campaign->id)
+                        ->where('status', NotificationCampaignRecipient::STATUS_DELIVERING)
+                        ->where('claimed_at', '<=', now()->subMinutes(15))
+                        ->update([
+                            'status' => NotificationCampaignRecipient::STATUS_PENDING,
+                            'claimed_at' => null,
+                            'resolution_code' => 'coordinator_recovery',
+                            'updated_at' => now(),
+                        ]);
+                    $this->dispatchPendingRecipients($campaign);
+                    $queuedRecipientsCount = (int) $campaign->recipients_count;
+                    NotificationCampaign::query()->whereKey($campaign->id)->update([
+                        'coordinator_finished_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                    $this->completeResolvedCampaign($campaign, $queuedRecipientsCount);
+                }
+            } else {
+                // Rolling-deploy fallback until the resumable-recipient table is present.
+                $query->select('id')->orderBy('id')->chunkById(500, function ($students) use (&$queuedRecipientsCount): void {
+                    $queuedRecipientsCount += $students->count();
+                    $this->dispatchChunk($students->pluck('id')->map(fn ($id): int => (int) $id)->all());
+                }, 'id');
+            }
 
             $updated = 0;
-            if (Schema::hasTable('notification_campaigns')) {
+            if (Schema::hasTable('notification_campaigns') && !$durableAudience) {
                 $updated = NotificationCampaign::query()
                     ->where('delivery_key', $this->deliveryKey)
                     ->update([
@@ -337,18 +394,89 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
             !Schema::hasTable('admin_notifications')
             || !Schema::hasColumn('admin_notifications', 'system_key')
         ) {
-            return 0;
+            return NotificationDeliveryPolicy::defaultCooldownHours($this->notificationType);
         }
 
-        return max(0, (int) AdminNotification::query()
+        $configured = AdminNotification::query()
             ->where('system_key', $this->notificationType)
-            ->value('cooldown_hours'));
+            ->value('cooldown_hours');
+
+        return $configured === null
+            ? NotificationDeliveryPolicy::defaultCooldownHours($this->notificationType)
+            : max(0, (int) $configured);
+    }
+
+    /** @param array<int> $userIds */
+    private function dispatchChunk(array $userIds): void
+    {
+        if ($userIds === []) return;
+        DeliverStudentNotificationChunk::dispatch(
+            $userIds,
+            $this->deliveryKey,
+            $this->notificationType,
+            $this->notifiableType,
+            $this->notifiableId,
+            $this->titleAr,
+            $this->titleEn,
+            $this->messageAr,
+            $this->messageEn,
+            $this->link,
+            $this->imageUrl,
+            $this->actionLabelAr,
+            $this->actionLabelEn
+        )->onQueue((string) config('queue.channels.notifications', 'notifications'));
+    }
+
+    private function dispatchPendingRecipients(NotificationCampaign $campaign): void
+    {
+        NotificationCampaignRecipient::query()
+            ->where('notification_campaign_id', $campaign->id)
+            ->where('status', NotificationCampaignRecipient::STATUS_PENDING)
+            ->select(['id', 'user_id'])
+            ->orderBy('id')
+            ->chunkById(500, function ($recipients): void {
+                $this->dispatchChunk($recipients->pluck('user_id')->map(
+                    fn ($id): int => (int) $id
+                )->all());
+            });
+    }
+
+    private function completeResolvedCampaign(NotificationCampaign $campaign, int $recipientCount): void
+    {
+        DB::transaction(function () use ($campaign, $recipientCount): void {
+            $freshCampaign = NotificationCampaign::query()
+                ->whereKey($campaign->id)
+                ->lockForUpdate()
+                ->first();
+            if (!$freshCampaign) return;
+            $inbox = NotificationCampaignRecipient::query()
+                ->where('notification_campaign_id', $campaign->id)
+                ->where('status', NotificationCampaignRecipient::STATUS_INBOX)
+                ->count();
+            $skipped = NotificationCampaignRecipient::query()
+                ->where('notification_campaign_id', $campaign->id)
+                ->where('status', NotificationCampaignRecipient::STATUS_SKIPPED)
+                ->count();
+            $resolved = $inbox + $skipped;
+            $complete = $resolved >= $recipientCount;
+            $freshCampaign->forceFill([
+                'inbox_count' => $inbox,
+                'skipped_count' => $skipped,
+                'resolved_count' => $resolved,
+                'status' => $complete
+                    ? NotificationCampaign::STATUS_COMPLETED
+                    : NotificationCampaign::STATUS_DELIVERING,
+                'completed_at' => $complete ? now() : null,
+                'failed_at' => null,
+                'failure_code' => $complete ? null : $freshCampaign->failure_code,
+            ])->save();
+        }, 3);
     }
 
     /** @return array<int,string> */
     private function cooldownFamily(): array
     {
-        return match ($this->notificationType) {
+        $knownFamily = match ($this->notificationType) {
             'new_course_lesson', 'new_quiz', 'course_update' => [
                 'new_course_lesson',
                 'new_quiz',
@@ -358,7 +486,9 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
                 'learning_nudge',
                 'continue_course',
             ],
-            default => [$this->notificationType],
+            default => null,
         };
+
+        return $knownFamily ?: NotificationDeliveryPolicy::frequencyFamily($this->notificationType);
     }
 }

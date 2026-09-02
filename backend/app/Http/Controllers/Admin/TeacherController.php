@@ -9,7 +9,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
 use App\Services\StoredFileDeletionService;
+use App\Services\AdminAuthoringCreateIntentService;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Validation\Rule;
 
 class TeacherController extends Controller
 {
@@ -56,29 +58,44 @@ class TeacherController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
      */
-    public function store(Request $request)
+    public function store(Request $request, AdminAuthoringCreateIntentService $createIntents)
     {
+        $intentTeacherId = User::withTrashed()
+            ->where('authoring_request_id', (string) $request->input('authoring_request_id'))
+            ->value('id');
         $request->validate([
             'name_ar' => 'required|string|max:255',
             'name_en' => 'nullable|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
-            'phone' => 'required|string|max:20|unique:users',
+            'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users', 'email')->ignore($intentTeacherId)],
+            'phone' => ['required', 'string', 'max:20', Rule::unique('users', 'phone')->ignore($intentTeacherId)],
             'password' => 'required|string|min:6|confirmed',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:4096',
             'job_title' => 'nullable|string|max:255',
             'bio_ar' => 'nullable|string',
             'bio_en' => 'nullable|string',
+            'authoring_request_id' => 'required|uuid',
         ]);
 
+        $requestId = (string) $request->input('authoring_request_id');
         $imagePath = $request->hasFile('image')
-            ? $request->file('image')->store('users', 'public')
+            ? app(StoredFileDeletionService::class)
+                ->storeTrackedUpload(
+                    $request->file('image'),
+                    'users',
+                    'public',
+                    60,
+                    'admin-teacher|'.strtolower($requestId).'|'.hash_file('sha256', $request->file('image')->getRealPath())
+                )
             : null;
         if ($request->hasFile('image') && (!is_string($imagePath) || $imagePath === '')) {
             throw new \RuntimeException('Teacher image storage failed');
         }
         try {
-            DB::transaction(function () use ($request, $imagePath): void {
-                $teacher = User::create([
+            DB::transaction(function () use ($request, $imagePath, $requestId, $createIntents): void {
+                $teacher = User::withTrashed()->where('authoring_request_id', $requestId)
+                    ->lockForUpdate()->first();
+                if (!$teacher) {
+                    $teacher = User::create([
                     'name_ar' => $request->string('name_ar')->trim(),
                     'name_en' => $request->filled('name_en') ? $request->string('name_en')->trim() : null,
                     'email' => strtolower($request->string('email')->trim()),
@@ -87,11 +104,20 @@ class TeacherController extends Controller
                     'job_title' => $request->input('job_title'),
                     'bio_ar' => $request->input('bio_ar'),
                     'bio_en' => $request->input('bio_en'),
-                ]);
-                $teacher->forceFill(['role' => 'teacher', 'active' => $request->boolean('active')])->save();
-                if ($imagePath) {
-                    $teacher->allPhotos()->create(['path' => $imagePath, 'type' => 'featured']);
+                    'authoring_request_id' => $requestId,
+                    ]);
+                    $teacher->forceFill(['role' => 'teacher', 'active' => $request->boolean('active')])->save();
                 }
+                if ($imagePath) {
+                    $teacher->allPhotos()->firstOrCreate(['path' => $imagePath, 'type' => 'featured']);
+                }
+                $createIntents->completeRedirect(
+                    $request,
+                    route('admin.teachers.index'),
+                    302,
+                    User::class,
+                    $teacher->id
+                );
             }, 3);
         } catch (\Throwable $exception) {
             if ($imagePath) app(StoredFileDeletionService::class)->deleteOrQueue('public', $imagePath);
@@ -168,7 +194,8 @@ class TeacherController extends Controller
         }
 
         $newImagePath = $request->hasFile('image')
-            ? $request->file('image')->store('users', 'public')
+            ? app(StoredFileDeletionService::class)
+                ->storeTrackedUpload($request->file('image'), 'users')
             : null;
         if ($request->hasFile('image') && (!is_string($newImagePath) || $newImagePath === '')) {
             throw new \RuntimeException('Teacher image storage failed');

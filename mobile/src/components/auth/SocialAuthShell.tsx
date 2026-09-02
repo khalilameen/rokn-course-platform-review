@@ -80,6 +80,12 @@ const isParamlessReturnTo = (
 const validReturnTo = (value?: LoginReturnTo): value is LoginReturnTo => {
   if (!value) return false;
   if (isParamlessReturnTo(value)) return value.params === undefined;
+  if (value.name === 'Profile') {
+    return (
+      value.params === undefined ||
+      ['portfolio', 'certificates', 'saved'].includes(value.params.tab)
+    );
+  }
   return (
     (value.name === 'CourseDetails' || value.name === 'Reels') &&
     typeof value.params?.courseId === 'string' &&
@@ -190,8 +196,30 @@ export default function SocialAuthShell() {
         void clearPendingLoginReturnTo().catch(() => undefined);
         return;
       }
+      if (returnTo.name === 'Profile') {
+        const navigationState = navigation.getState?.();
+        const previousRoute =
+          navigationState?.routes?.[
+            Math.max(0, (navigationState?.index ?? 0) - 1)
+          ];
+        const previousProfileTab =
+          previousRoute?.name === 'Profile'
+            ? (previousRoute.params as {tab?: unknown} | undefined)?.tab
+            : undefined;
+        if (
+          previousRoute?.name === 'Profile' &&
+          previousProfileTab === returnTo.params?.tab &&
+          navigation.canGoBack?.()
+        ) {
+          navigation.goBack();
+          void clearPendingLoginReturnTo().catch(() => undefined);
+          return;
+        }
+      }
       const targetParams =
-        returnTo.name === 'CourseDetails'
+        returnTo.name === 'Profile'
+          ? returnTo.params
+          : returnTo.name === 'CourseDetails'
           ? {
               ...returnTo.params,
               courseId: returnTo.params.courseId.trim(),
@@ -246,9 +274,14 @@ export default function SocialAuthShell() {
     setLoading(provider);
     try {
       await assertSecureSessionStorageAvailable();
-      await savePendingLoginReturnTo(route.params?.returnTo);
+      await savePendingLoginReturnTo(route.params?.returnTo).catch(
+        () => undefined,
+      );
       const guestScope = await getCurrentAccountStorageScope();
-      await stageGuestAccountMigration(guestScope);
+      // These two records preserve the interrupted guest journey, but neither
+      // is part of the OAuth credential. A full AsyncStorage database must not
+      // prevent a session that SecureStore can safely persist.
+      await stageGuestAccountMigration(guestScope).catch(() => undefined);
       const availableMethods = authMethods ?? (await loadAuthMethods());
       if (!stillOwnsIntent()) return;
       setAuthMethods(availableMethods);
@@ -262,7 +295,7 @@ export default function SocialAuthShell() {
       // disk must not turn an already durable OAuth session into a failed
       // login; the copy-before-delete migration retries on the next launch.
       await runAuthenticatedStorageUpgrade().catch(() => undefined);
-      await resumePendingGuestAccountMigration(false);
+      await resumePendingGuestAccountMigration(false).catch(() => false);
       void resumePendingGuestAccountMigration(true).catch(() => undefined);
       const restoredSession = await getItem(AsyncKeys.USER_DATA);
       if (!stillOwnsIntent()) return;
@@ -334,6 +367,13 @@ export default function SocialAuthShell() {
               },
             },
           ],
+        });
+        return;
+      }
+      if (returnTo.name === 'Profile') {
+        navigation.reset({
+          index: 1,
+          routes: [{name: 'Home'}, {name: 'Profile', params: returnTo.params}],
         });
         return;
       }
@@ -521,6 +561,13 @@ export default function SocialAuthShell() {
               <Text style={styles.authStatusText}>
                 طرق تسجيل الدخول غير متاحة الآن
               </Text>
+              <Pressable
+                accessibilityLabel="إعادة تحميل طرق تسجيل الدخول"
+                accessibilityRole="button"
+                onPress={() => void retryAuthMethods()}
+                style={styles.retryMethods}>
+                <Text style={styles.retryMethodsText}>حاول مرة أخرى</Text>
+              </Pressable>
             </View>
           )}
 

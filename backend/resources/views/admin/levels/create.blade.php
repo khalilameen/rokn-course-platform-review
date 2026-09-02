@@ -14,6 +14,7 @@
     <div class="card-body card-block">
         <form action="{{ route('admin.levels.store') }}" method="post" class="form-horizontal" enctype="multipart/form-data" id="levelForm">
             @csrf
+            <input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">
             <div class="row form-group">
                 <div class="col col-md-3"><label for="name_ar" class=" form-control-label">الاسم (AR)</label></div>
                 <div class="col-12 col-md-9">

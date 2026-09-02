@@ -199,6 +199,87 @@ class AppVersionPolicyTest extends TestCase
             ->assertJsonPath('data.client_compatible', false);
     }
 
+    public function test_invalid_active_release_can_never_trap_clients_behind_a_broken_update_link(): void
+    {
+        $this->insertVersion('android', '3.1.0', 31, null, false, 'play');
+        DB::table('app_versions')->insert([
+            'platform' => 'android',
+            'distribution_channel' => 'play',
+            'version_name' => '9.0.0',
+            'version_code' => 90,
+            'build_number' => null,
+            'is_force_update' => true,
+            'is_active' => true,
+            'download_url' => 'https://example.invalid/not-rokn',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->postJson('/api/v1/app/check-version', [
+            'platform' => 'android',
+            'version' => 30,
+            'distribution_channel' => 'play',
+        ])->assertOk()
+            ->assertJsonPath('data.update_required', true)
+            ->assertJsonPath('data.is_force_update', false)
+            ->assertJsonPath('data.latest_version_code', 31)
+            ->assertJsonPath(
+                'data.download_url',
+                'https://play.google.com/store/apps/details?id=com.rokn',
+            );
+
+        DB::table('app_versions')->where('version_code', 31)->delete();
+
+        $this->postJson('/api/v1/app/check-version', [
+            'platform' => 'android',
+            'version' => 30,
+            'distribution_channel' => 'play',
+        ])->assertOk()
+            ->assertJsonPath('data.update_required', false)
+            ->assertJsonPath('data.is_force_update', false)
+            ->assertJsonPath('data.policy_configured', false)
+            ->assertJsonMissingPath('data.download_url');
+    }
+
+    public function test_invalid_channel_row_falls_back_to_a_valid_legacy_release(): void
+    {
+        DB::table('app_versions')->insert([
+            [
+                'platform' => 'android',
+                'distribution_channel' => 'play',
+                'version_name' => '9.0.0',
+                'version_code' => 90,
+                'build_number' => null,
+                'is_force_update' => true,
+                'is_active' => true,
+                'download_url' => 'https://example.invalid/not-rokn',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'platform' => 'android',
+                'distribution_channel' => null,
+                'version_name' => '3.2.0',
+                'version_code' => 32,
+                'build_number' => null,
+                'is_force_update' => false,
+                'is_active' => true,
+                'download_url' => 'https://play.google.com/store/apps/details?id=com.rokn',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+
+        $this->postJson('/api/v1/app/check-version', [
+            'platform' => 'android',
+            'version' => 30,
+            'distribution_channel' => 'play',
+        ])->assertOk()
+            ->assertJsonPath('data.latest_version_code', 32)
+            ->assertJsonPath('data.is_force_update', false)
+            ->assertJsonPath('data.download_url', 'https://play.google.com/store/apps/details?id=com.rokn');
+    }
+
     public function test_launch_readiness_requires_an_active_valid_release_for_each_declared_channel(): void
     {
         config()->set('mobile_contract.launch_channels', ['direct']);
@@ -231,7 +312,9 @@ class AppVersionPolicyTest extends TestCase
             'download_url' => match ($channel) {
                 'appstore' => 'https://apps.apple.com/app/id123456789',
                 'direct' => 'https://rokn.app/downloads/Rokn.apk',
-                default => 'https://play.google.com/store/apps/details?id=com.rokn',
+                default => $platform === 'ios'
+                    ? 'https://apps.apple.com/app/id123456789'
+                    : 'https://play.google.com/store/apps/details?id=com.rokn',
             },
             'created_at' => now(),
             'updated_at' => now(),

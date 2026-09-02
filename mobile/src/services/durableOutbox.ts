@@ -3,6 +3,11 @@ import {serverNowMs} from '../utils/serverClock';
 
 export type DurableOutboxItem<T> = {
   id: string;
+  /**
+   * Monotonic per logical id. A delivery may finish after the same id was
+   * replaced; its acknowledgement must only consume the version it sent.
+   */
+  generation: number;
   payload: T;
   createdAt: string;
   expiresAt: string;
@@ -56,6 +61,8 @@ const validItem = <T>(value: unknown): value is DurableOutboxItem<T> => {
   return (
     typeof item.id === 'string' &&
     item.id.length > 0 &&
+    (item.generation === undefined ||
+      (Number.isInteger(item.generation) && item.generation >= 0)) &&
     typeof item.createdAt === 'string' &&
     Number.isFinite(Date.parse(item.createdAt)) &&
     typeof item.expiresAt === 'string' &&
@@ -110,9 +117,11 @@ export const enqueueDurableOutbox = async <T>({
   const timestamp = new Date(now).toISOString();
   await withLock(storageKey, async () => {
     const current = await read<T>(storageKey, now);
+    const replaced = current.find(item => item.id === id);
     const next = current.filter(item => item.id !== id);
     next.push({
       id,
+      generation: Math.max(0, replaced?.generation || 0) + 1,
       payload,
       createdAt: timestamp,
       expiresAt: new Date(now + Math.max(60_000, ttlMs)).toISOString(),
@@ -153,9 +162,16 @@ export const flushDurableOutbox = async <T>({
       }
       await withLock(storageKey, async () => {
         const current = await read<T>(storageKey, now());
-        const eligibleIds = new Set(eligible.map(item => item.id));
+        const eligibleVersions = new Map(
+          eligible.map(item => [item.id, item.generation || 0]),
+        );
         const next = current.flatMap(item => {
-          if (!eligibleIds.has(item.id)) return [item];
+          const sentGeneration = eligibleVersions.get(item.id);
+          if (
+            sentGeneration === undefined ||
+            (item.generation || 0) !== sentGeneration
+          )
+            return [item];
           if (result === 'ack' || result === 'drop') return [];
           const attempts = item.attempts + 1;
           const retryMs = Math.min(
@@ -185,7 +201,11 @@ export const flushDurableOutbox = async <T>({
 
       await withLock(storageKey, async () => {
         const current = await read<T>(storageKey, now());
-        const index = current.findIndex(item => item.id === candidate.id);
+        const index = current.findIndex(
+          item =>
+            item.id === candidate.id &&
+            (item.generation || 0) === (candidate.generation || 0),
+        );
         if (index < 0) return;
         if (result === 'ack' || result === 'drop') {
           current.splice(index, 1);

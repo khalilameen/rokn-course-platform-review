@@ -43,9 +43,11 @@ const mapCertificate = (value: unknown): Certificate | null => {
   ).trim();
   if (!id || !publicId) return null;
   const rawStatus = String(item.status || 'pending').toLowerCase();
-  const status: Certificate['status'] = ['active', 'pending', 'revoked'].includes(
-    rawStatus,
-  )
+  const status: Certificate['status'] = [
+    'active',
+    'pending',
+    'revoked',
+  ].includes(rawStatus)
     ? (rawStatus as Certificate['status'])
     : 'pending';
   const rawVerification = String(
@@ -92,14 +94,17 @@ export const getCertificates = async (): Promise<Certificate[]> => {
 
 export const issueCertificate = async (
   courseId: string,
+  holderName?: string,
 ): Promise<Certificate | null> => {
   const normalizedCourseId = String(courseId).trim();
   if (!/^\d+$/.test(normalizedCourseId)) {
     throw new Error('INVALID_CERTIFICATE_COURSE_ID');
   }
-  const response = await publicRequest.post(
-    `certificates/${normalizedCourseId}/issue`,
-  );
+  const endpoint = `certificates/${normalizedCourseId}/issue`;
+  const normalizedHolderName = holderName?.trim();
+  const response = normalizedHolderName
+    ? await publicRequest.post(endpoint, {holder_name: normalizedHolderName})
+    : await publicRequest.post(endpoint);
   const data = payload<unknown>(response);
   return mapCertificate(data);
 };

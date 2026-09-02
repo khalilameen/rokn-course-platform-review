@@ -60,6 +60,7 @@
                   data-bunny-upload-renew="{{ route('admin.courses.sections.video-uploads.renew', $course) }}"
                   data-course-id="{{ $course->id }}" data-section-id="">
                 @csrf
+                <input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">
                 <input type="hidden" name="return_to" value="{{ request('return_to') === 'studio' ? 'studio' : '' }}">
                 <input type="hidden" name="authoring_version" id="authoringVersion" value="{{ $course->authoring_version }}">
 

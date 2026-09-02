@@ -20,18 +20,26 @@ This backend is prepared for the first production load, but capacity is an opera
   `REDIS_DB`, and `REDIS_CACHE_DB`, and point every web/worker node at the same
   Redis service.
 - Run one scheduler process (`php artisan schedule:work`) and isolated workers
-  for `default`, `notifications`, `ai-feedback`, and `webhooks`. Never let slow provider
-  calls occupy the default queue. Baseline workers are
+  for `default`, `notifications`, `ai-chat`, `ai-feedback`, `media`, `operations`, and `webhooks`.
+  Never let slow provider, object-storage, certificate-rendering or operational-mail
+  work occupy the default queue. Baseline workers are
   `php artisan queue:work redis --queue=default --sleep=1 --tries=3 --timeout=300 --backoff=15 --max-jobs=1000 --max-time=3600` and
   `php artisan queue:work redis --queue=notifications --sleep=1 --tries=3 --timeout=120 --backoff=15 --max-jobs=1000 --max-time=3600`.
-  A baseline AI worker command is
+  Keep interactive course chat ahead of longer project reports with
+  `php artisan queue:work redis --queue=ai-chat --sleep=1 --tries=3 --timeout=60 --backoff=5 --max-jobs=1000 --max-time=3600`.
+  A baseline project-feedback worker command is
   `php artisan queue:work redis --queue=ai-feedback --sleep=1 --tries=3 --timeout=60 --backoff=20 --max-jobs=500 --max-time=3600`;
+  run media/storage/certificate work with
+  `php artisan queue:work redis --queue=media --sleep=1 --tries=12 --timeout=180 --backoff=15 --max-jobs=500 --max-time=3600`;
+  run durable operational signals, maintenance and alert mail with
+  `php artisan queue:work redis --queue=operations --sleep=1 --tries=3 --timeout=300 --backoff=15 --max-jobs=500 --max-time=3600`;
   run webhook deliveries separately with
   `php artisan queue:work redis --queue=webhooks --sleep=1 --tries=5 --timeout=90 --backoff=10 --max-jobs=1000 --max-time=3600`;
   the Redis `retry_after` must remain greater than every worker and job timeout
   (currently 360 > the 300-second token-pruning job). Start with at least two workers for `default` and `notifications`;
-  scale `ai-feedback` and `webhooks` separately within their provider budgets.
-  Keep `QUEUE_HEARTBEAT_REQUIRED_QUEUES=default,notifications,ai-feedback,webhooks`
+  scale `ai-chat` for response latency and scale `ai-feedback` and `webhooks`
+  separately within their provider budgets.
+  Keep `QUEUE_HEARTBEAT_REQUIRED_QUEUES=default,notifications,ai-chat,ai-feedback,media,operations,webhooks`
   aligned with this topology; `/api/health/launch-ready` requires a recent
   heartbeat executed by a worker on every listed queue.
 - Serve every reel and thumbnail from Bunny CDN. Never proxy video bytes through Laravel.
@@ -103,7 +111,8 @@ The August 5 migrations add the hot-path indexes, collapse duplicate section pro
   errors, failed jobs, and disk/object-storage errors. Track oldest-job age per
   queue, not as one aggregate: page immediately when `default` or
   `notifications` age exceeds 60 seconds, when `webhooks` exceeds two minutes,
-  or when `ai-feedback` exceeds five minutes. Alert if any `ai_usage_events` reservation remains reserved past
+  when `media` or `operations` exceeds two minutes, or when `ai-feedback`
+  exceeds five minutes. Alert if any `ai_usage_events` reservation remains reserved past
   `reservation_expires_at` for more than two scheduler cycles.
 - Alert on Kashier callback failures separately; captured payments and coin credits are idempotent and must be replayed rather than edited in SQL.
 - Alert on OpenRouter 402/429/5xx and Bunny signing/CDN failures. AI failure must not interrupt reel playback or project progression.

@@ -233,6 +233,15 @@ final readonly class BunnyDirectUploadService
         $videoId = strtolower(trim((string) $session->video_guid));
         if ($this->validGuid($videoId)) {
             $this->queueAbandonedAllocation($videoId, $admin, 'direct_upload_stale_allocation');
+            return;
+        }
+        $marker = '[rokn:' . strtolower((string) $session->idempotency_key) . ']';
+        foreach ($this->bunny->findVideoGuidsByTitleMarker($marker) as $recoveredId) {
+            $this->queueAbandonedAllocation(
+                $recoveredId,
+                $admin,
+                'direct_upload_interrupted_allocation'
+            );
         }
     }
 

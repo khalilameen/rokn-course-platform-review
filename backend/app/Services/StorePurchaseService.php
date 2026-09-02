@@ -94,7 +94,10 @@ final readonly class StorePurchaseService
                 $contractCoins
             ): StorePurchase {
                 /** @var Package $lockedPackage */
-                $lockedPackage = Package::query()->lockForUpdate()->findOrFail($package->id);
+                // Store product id and coin quantity are immutable after the
+                // contract is issued. A row lock here only made independent
+                // receipt verifications for the same SKU wait on each other.
+                $lockedPackage = Package::query()->findOrFail($package->id);
                 $providerProductColumn = $provider === StorePurchase::PROVIDER_GOOGLE
                     ? 'google_product_id'
                     : 'apple_product_id';
@@ -126,10 +129,8 @@ final readonly class StorePurchaseService
 
                 $catalogAmount = (float) $package->price;
                 $isTest = in_array(strtolower($verified->environment), ['test', 'sandbox', 'xcode'], true);
-                $gatewayGross = $isTest
-                    ? 0.0
-                    : ($verified->grossAmount ?? $catalogAmount);
-                $gatewayCurrency = $verified->currency ?? 'EGP';
+                $gatewayGross = $isTest ? 0.0 : $verified->grossAmount;
+                $gatewayCurrency = $verified->currency;
                 $transactionKey = $provider . ':' . $verified->externalTransactionId;
 
                 $order = Order::query()->create([
@@ -415,6 +416,8 @@ final readonly class StorePurchaseService
             // The issued order is the purchase receipt. Package rows remain
             // editable catalogue data and must never rewrite a past credit.
             'coins_added' => $creditedCoins,
+            'credited' => $isSettled,
+            'financial_status' => $order?->financial_status,
             'already_processed' => $alreadyProcessed,
             'finalize_transaction' => true,
             'wallet' => $this->wallet->summary($user),

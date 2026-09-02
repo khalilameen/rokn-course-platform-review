@@ -32,6 +32,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
@@ -40,6 +41,7 @@ final class BackendHardeningTest extends TestCase
 {
     /** @var list<string> */
     private array $tables = [
+        'internal_signals', 'ai_input_attachments', 'account_file_deletions',
         'social_oauth_attempts',
         'product_feature_flags',
         'contacts', 'user_level', 'levels', 'user_project_evaluations', 'project_submissions',
@@ -646,8 +648,19 @@ final class BackendHardeningTest extends TestCase
             '*' => Http::response(['choices' => [['message' => ['content' => 'الإجابة المختصرة']]]], 200),
         ]);
 
+        $requestId = (string) Str::uuid();
         $this->actingAs($user, 'api')
-            ->postJson('/api/v1/courses/' . $course->id . '/chat', ['message' => 'اشرح الفكرة'])
+            ->postJson('/api/v1/courses/' . $course->id . '/chat', [
+                'message' => 'اشرح الفكرة',
+                'client_request_id' => $requestId,
+            ])
+            ->assertOk()
+            ->assertJsonPath('code', 'chat_answer_in_progress');
+        $this->actingAs($user, 'api')
+            ->postJson('/api/v1/courses/' . $course->id . '/chat', [
+                'message' => 'اشرح الفكرة',
+                'client_request_id' => $requestId,
+            ])
             ->assertOk()
             ->assertJsonPath('data.message', 'الإجابة المختصرة');
         Http::assertSentCount(1);
@@ -748,12 +761,26 @@ final class BackendHardeningTest extends TestCase
             '*' => Http::response(['choices' => [['message' => ['content' => 'رد']]]], 200),
         ]);
 
+        $firstRequestId = (string) Str::uuid();
         $this->actingAs($user, 'api')
-            ->postJson('/api/v1/courses/' . $course->id . '/chat', ['message' => 'السؤال الأول'])
+            ->postJson('/api/v1/courses/' . $course->id . '/chat', [
+                'message' => 'السؤال الأول',
+                'client_request_id' => $firstRequestId,
+            ])
+            ->assertOk()
+            ->assertJsonPath('code', 'chat_answer_in_progress');
+        $this->actingAs($user, 'api')
+            ->postJson('/api/v1/courses/' . $course->id . '/chat', [
+                'message' => 'السؤال الأول',
+                'client_request_id' => $firstRequestId,
+            ])
             ->assertOk()
             ->assertJsonPath('data.unavailable', false);
         $this->actingAs($user, 'api')
-            ->postJson('/api/v1/courses/' . $course->id . '/chat', ['message' => 'السؤال الثاني'])
+            ->postJson('/api/v1/courses/' . $course->id . '/chat', [
+                'message' => 'السؤال الثاني',
+                'client_request_id' => (string) Str::uuid(),
+            ])
             ->assertOk()
             ->assertJsonPath('code', 'chat_daily_limit_reached');
         Http::assertSentCount(1);
@@ -1693,5 +1720,10 @@ final class BackendHardeningTest extends TestCase
             $table->json('resolution_metadata')->nullable();
             $table->timestamps();
         });
+
+        (require database_path('migrations/2026_08_07_000022_create_account_file_deletions_table.php'))->up();
+        (require database_path('migrations/2026_09_01_000063_track_course_chat_admission_quota.php'))->up();
+        (require database_path('migrations/2026_09_01_000066_create_ai_input_attachments.php'))->up();
+        (require database_path('migrations/2026_09_01_000078_create_internal_signals_table.php'))->up();
     }
 }

@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
-use App\Jobs\SendStudentNotification;
 use App\Models\NotificationCampaign;
+use App\Services\NotificationCampaignService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Schema;
 
@@ -14,7 +14,7 @@ final class RetryStalledNotificationCampaigns extends Command
     protected $signature = 'notifications:retry-campaigns {--limit=50}';
     protected $description = 'Requeue notification campaigns that never completed their durable inbox delivery';
 
-    public function handle(): int
+    public function handle(NotificationCampaignService $campaigns): int
     {
         if (!Schema::hasTable('notification_campaigns')) {
             return self::SUCCESS;
@@ -80,25 +80,21 @@ final class RetryStalledNotificationCampaigns extends Command
                 continue;
             }
 
-            SendStudentNotification::dispatch(
-                (string) $campaign->notification_type,
-                (array) ($campaign->user_ids ?? []),
-                $campaign->notifiable_type,
-                $campaign->notifiable_id ? (int) $campaign->notifiable_id : null,
-                (string) $campaign->title_ar,
-                (string) $campaign->title_en,
-                (string) $campaign->message_ar,
-                (string) $campaign->message_en,
-                $campaign->link,
-                (array) ($campaign->exclude_user_ids ?? []),
-                (string) $campaign->delivery_key,
-                $campaign->course_id ? (int) $campaign->course_id : null,
-                (string) $campaign->audience,
-                $campaign->image_url,
-                $campaign->action_label_ar,
-                $campaign->action_label_en
-            )->onQueue((string) config('queue.channels.notifications', 'notifications'));
-            $queued++;
+            try {
+                dispatch($campaigns->jobForCampaign($campaign))
+                    ->onQueue((string) config('queue.channels.notifications', 'notifications'));
+                $queued++;
+            } catch (\Throwable $exception) {
+                // A broken queue write for one campaign must not prevent the
+                // rest of the recovery batch from being considered.
+                NotificationCampaign::query()->whereKey($campaign->id)->update([
+                    'status' => NotificationCampaign::STATUS_FAILED,
+                    'failed_at' => now(),
+                    'failure_code' => 'recovery_queue_' . substr(hash('sha256', $exception::class), 0, 12),
+                    'updated_at' => now(),
+                ]);
+                report($exception);
+            }
         }
 
         $this->info("Queued {$queued} stalled notification campaign(s).");

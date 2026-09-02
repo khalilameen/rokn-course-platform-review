@@ -19,6 +19,7 @@ final class ProjectFeedbackMessage extends Model
     protected $casts = [
         'reserved_tokens' => 'integer',
         'completed_at' => 'datetime',
+        'provider_annotations' => 'array',
     ];
 
     public function thread() { return $this->belongsTo(ProjectFeedbackThread::class, 'thread_id'); }

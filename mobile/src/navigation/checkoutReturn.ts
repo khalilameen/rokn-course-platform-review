@@ -1,5 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {accountScopedStorageKey} from '../constants/helpers';
+import {
+  accountScopedStorageKey,
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+  type AccountSessionBoundary,
+} from '../constants/helpers';
 import {serverNowMs} from '../utils/serverClock';
 import {safeLoginReturnTo} from './authReturn';
 import type {LoginReturnTo} from './types';
@@ -13,6 +18,7 @@ type CheckoutReturnEnvelope = {
 };
 
 export type PendingCheckoutReturnClaim = {
+  accountBoundary: AccountSessionBoundary;
   returnTo: LoginReturnTo;
   receipt: string;
   storageKey: string;
@@ -24,52 +30,76 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
     : null;
 
 /** Persist only a canonical in-app destination, never provider/browser data. */
-export const savePendingCheckoutReturn = async (value: unknown) => {
+export const savePendingCheckoutReturn = async (
+  value: unknown,
+  boundary?: AccountSessionBoundary,
+) => {
   const returnTo = safeLoginReturnTo(value);
   if (!returnTo) return undefined;
-  const storageKey = await accountScopedStorageKey(CHECKOUT_RETURN_KEY);
+  const owner = boundary || (await captureAccountSessionBoundary());
+  assertAccountSessionBoundary(owner);
+  const storageKey = await accountScopedStorageKey(CHECKOUT_RETURN_KEY, owner);
   const envelope: CheckoutReturnEnvelope = {
     returnTo,
     createdAt: serverNowMs(),
   };
   const receipt = JSON.stringify(envelope);
   await AsyncStorage.setItem(storageKey, receipt);
-  return {returnTo, receipt, storageKey} satisfies PendingCheckoutReturnClaim;
+  assertAccountSessionBoundary(owner);
+  return {
+    accountBoundary: owner,
+    returnTo,
+    receipt,
+    storageKey,
+  } satisfies PendingCheckoutReturnClaim;
 };
 
 export const claimPendingCheckoutReturn = async (): Promise<
   PendingCheckoutReturnClaim | undefined
 > => {
-  const storageKey = await accountScopedStorageKey(CHECKOUT_RETURN_KEY);
+  const accountBoundary = await captureAccountSessionBoundary();
+  const storageKey = await accountScopedStorageKey(
+    CHECKOUT_RETURN_KEY,
+    accountBoundary,
+  );
   const receipt = await AsyncStorage.getItem(storageKey);
+  assertAccountSessionBoundary(accountBoundary);
   if (!receipt) return undefined;
+  let envelope: Record<string, unknown> | null;
   try {
-    const envelope = asRecord(JSON.parse(receipt));
-    const createdAt = Number(envelope?.createdAt);
-    const age = serverNowMs() - createdAt;
-    const returnTo = safeLoginReturnTo(envelope?.returnTo);
-    if (
-      !returnTo ||
-      !Number.isFinite(createdAt) ||
-      age < -60_000 ||
-      age > CHECKOUT_RETURN_TTL_MS
-    ) {
-      await AsyncStorage.removeItem(storageKey);
-      return undefined;
-    }
-    return {returnTo, receipt, storageKey};
+    envelope = asRecord(JSON.parse(receipt));
   } catch {
+    assertAccountSessionBoundary(accountBoundary);
     await AsyncStorage.removeItem(storageKey);
+    assertAccountSessionBoundary(accountBoundary);
     return undefined;
   }
+  const createdAt = Number(envelope?.createdAt);
+  const age = serverNowMs() - createdAt;
+  const returnTo = safeLoginReturnTo(envelope?.returnTo);
+  if (
+    !returnTo ||
+    !Number.isFinite(createdAt) ||
+    age < -60_000 ||
+    age > CHECKOUT_RETURN_TTL_MS
+  ) {
+    assertAccountSessionBoundary(accountBoundary);
+    await AsyncStorage.removeItem(storageKey);
+    assertAccountSessionBoundary(accountBoundary);
+    return undefined;
+  }
+  return {accountBoundary, returnTo, receipt, storageKey};
 };
 
 export const acknowledgePendingCheckoutReturn = async (
   claim: PendingCheckoutReturnClaim,
 ) => {
+  assertAccountSessionBoundary(claim.accountBoundary);
   const current = await AsyncStorage.getItem(claim.storageKey);
+  assertAccountSessionBoundary(claim.accountBoundary);
   if (current === claim.receipt) {
     await AsyncStorage.removeItem(claim.storageKey);
+    assertAccountSessionBoundary(claim.accountBoundary);
     return true;
   }
   return false;

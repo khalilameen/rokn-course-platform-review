@@ -96,7 +96,13 @@ export default function CourseDetails() {
   const [ratingBusy, setRatingBusy] = useState(false);
   const [submittedRating, setSubmittedRating] = useState<number | null>(null);
   const autoPurchaseHandledRef = useRef(false);
+  const [purchaseRestoreState, setPurchaseRestoreState] = useState<{
+    key: string;
+    status: 'quoting' | 'ready' | 'failed';
+  } | null>(null);
+  const [purchasePlanRestoreKey, setPurchasePlanRestoreKey] = useState('');
   const autoRedemptionHandledRef = useRef(false);
+  const purchaseRestoreRequestRef = useRef('');
   const commerceInFlightRef = useRef(false);
   const ratingInFlightRef = useRef(false);
   const courseDetailsFocusedOnceRef = useRef(false);
@@ -176,10 +182,32 @@ export default function CourseDetails() {
 
   useEffect(() => {
     if (!accessPlans.length) return;
+    const resumedPlanCode = String(
+      route.params?.purchasePlanCode || '',
+    ).trim();
+    if (
+      route.params?.openPurchase &&
+      resumedPlanCode &&
+      accessPlans.some(plan => plan.code === resumedPlanCode) &&
+      purchasePlanRestoreKey !== `${courseId}|${resumedPlanCode}`
+    ) {
+      setPurchasePlanRestoreKey(`${courseId}|${resumedPlanCode}`);
+      if (selectedPlanCode !== resumedPlanCode) {
+        setSelectedPlanCode(resumedPlanCode);
+      }
+      return;
+    }
     if (!accessPlans.some(plan => plan.code === selectedPlanCode)) {
       setSelectedPlanCode(accessPlans[0].code);
     }
-  }, [accessPlans, selectedPlanCode]);
+  }, [
+    accessPlans,
+    courseId,
+    purchasePlanRestoreKey,
+    route.params?.openPurchase,
+    route.params?.purchasePlanCode,
+    selectedPlanCode,
+  ]);
 
   useEffect(() => {
     setCouponQuote(null);
@@ -207,6 +235,22 @@ export default function CourseDetails() {
   const effectiveSpendableBalance =
     currentPaidBalance +
     Math.min(currentRewardBalance, effectiveRewardContributionLimit);
+  const purchaseRestoreKey = [
+    courseId,
+    route.params?.openPurchase ? 'purchase' : 'closed',
+    String(route.params?.purchasePlanCode || '').trim(),
+    normalizeHumanIdentifier(route.params?.purchaseCouponCode),
+  ].join('|');
+  const purchaseRestoreStatus =
+    purchaseRestoreState?.key === purchaseRestoreKey
+      ? purchaseRestoreState.status
+      : 'idle';
+  useEffect(() => {
+    purchaseRestoreRequestRef.current = '';
+    return () => {
+      purchaseRestoreRequestRef.current = '';
+    };
+  }, [purchaseRestoreKey]);
   const effectiveShortfall = Math.max(
     0,
     effectivePurchasePrice - effectiveSpendableBalance,
@@ -338,18 +382,40 @@ export default function CourseDetails() {
     useStickyCourseAction(heroHeight);
 
   const openLoginForPurchase = useCallback(() => {
+    const routePlanCode = String(
+      route.params?.purchasePlanCode || '',
+    ).trim();
+    const planCode = accessPlans.some(plan => plan.code === routePlanCode)
+      ? routePlanCode
+      : selectedPlan?.code;
+    const couponCode = normalizeHumanIdentifier(
+      purchaseCouponCode || route.params?.purchaseCouponCode,
+    );
     const returnTo: LoginReturnTo = {
       name: 'CourseDetails',
       params: {
         courseId,
         openPurchase: true,
+        ...(planCode ? {purchasePlanCode: planCode} : {}),
+        ...(couponCode ? {purchaseCouponCode: couponCode} : {}),
         coinPrice: coursePrice,
         title: courseTitle,
         description: courseDescription,
       },
     };
     navigation.navigate('Login', {returnTo});
-  }, [courseDescription, courseId, coursePrice, courseTitle, navigation]);
+  }, [
+    accessPlans,
+    courseDescription,
+    courseId,
+    coursePrice,
+    courseTitle,
+    navigation,
+    purchaseCouponCode,
+    route.params?.purchaseCouponCode,
+    route.params?.purchasePlanCode,
+    selectedPlan?.code,
+  ]);
 
   const openLoginForCodeRedemption = useCallback(() => {
     const returnTo: LoginReturnTo = {
@@ -450,9 +516,20 @@ export default function CourseDetails() {
     setRedemptionVisible(false);
     setRetentionQueued(false);
     setRetentionVisible(false);
-  }, [courseId]);
+  }, [
+    courseId,
+    route.params?.openPurchase,
+    route.params?.purchaseCouponCode,
+    route.params?.purchasePlanCode,
+  ]);
 
   useEffect(() => {
+    const resumedPlanCode = String(
+      route.params?.purchasePlanCode || '',
+    ).trim();
+    const resumedCoupon = normalizeHumanIdentifier(
+      route.params?.purchaseCouponCode,
+    );
     if (
       !route.params?.openPurchase ||
       !CAN_START_COIN_CHECKOUT ||
@@ -463,12 +540,40 @@ export default function CourseDetails() {
     ) {
       return;
     }
-    autoPurchaseHandledRef.current = true;
-    setNotice('');
     if (!isDemoCourse && remoteSession === false) {
+      autoPurchaseHandledRef.current = true;
+      setNotice('');
       openLoginForPurchase();
       return;
     }
+    if (resumedPlanCode) {
+      const restoredPlanAvailable = accessPlans.some(
+        plan => plan.code === resumedPlanCode,
+      );
+      if (!restoredPlanAvailable) {
+        autoPurchaseHandledRef.current = true;
+        setNotice('تغيّرت فئات الكورس\nاختر الفئة المناسبة');
+        setDialogStep('plans');
+        return;
+      }
+      if (selectedPlan?.code !== resumedPlanCode) return;
+    }
+    if (
+      resumedCoupon &&
+      (purchaseRestoreStatus === 'idle' ||
+        purchaseRestoreStatus === 'quoting')
+    ) {
+      return;
+    }
+    if (resumedCoupon && purchaseRestoreStatus === 'failed') {
+      // Do not expose an enabled confirmation for the undiscounted price after
+      // restoring a coupon failed. The learner can reopen the sheet and retry
+      // the visible code deliberately.
+      autoPurchaseHandledRef.current = true;
+      return;
+    }
+    autoPurchaseHandledRef.current = true;
+    if (purchaseRestoreStatus !== 'failed') setNotice('');
     if (coursePrice === null) {
       setNotice('سعر الكورس لم يُنشر بعد\nلم نبدأ أي عملية شراء');
       return;
@@ -478,15 +583,16 @@ export default function CourseDetails() {
       return;
     }
     setDialogStep(
-      accessPlans.length > 1
+      !resumedPlanCode && accessPlans.length > 1
         ? 'plans'
-        : spendableBalance >= purchasePrice
+        : effectiveSpendableBalance >= effectivePurchasePrice
         ? 'confirm'
         : 'topup',
     );
   }, [
-    spendableBalance,
     coursePrice,
+    effectivePurchasePrice,
+    effectiveSpendableBalance,
     isDemoCourse,
     navigation,
     openLoginForPurchase,
@@ -495,8 +601,11 @@ export default function CourseDetails() {
     remoteBalance,
     remoteSession,
     route.params?.openPurchase,
-    accessPlans.length,
-    purchasePrice,
+    route.params?.purchaseCouponCode,
+    route.params?.purchasePlanCode,
+    accessPlans,
+    purchaseRestoreStatus,
+    selectedPlan,
   ]);
 
   useEffect(() => {
@@ -639,6 +748,63 @@ export default function CourseDetails() {
     }
   };
 
+  useEffect(() => {
+    const resumedCoupon = normalizeHumanIdentifier(
+      route.params?.purchaseCouponCode,
+    );
+    const resumedPlanCode = String(
+      route.params?.purchasePlanCode || '',
+    ).trim();
+    if (
+      !route.params?.openPurchase ||
+      !resumedCoupon ||
+      purchaseRestoreStatus !== 'idle' ||
+      !pageReady ||
+      remoteSession !== true ||
+      !selectedPlan ||
+      (resumedPlanCode && selectedPlan.code !== resumedPlanCode)
+    ) {
+      return undefined;
+    }
+
+    const requestKey = purchaseRestoreKey;
+    purchaseRestoreRequestRef.current = requestKey;
+    setPurchaseRestoreState({key: purchaseRestoreKey, status: 'quoting'});
+    setPurchaseCouponCode(resumedCoupon);
+    setCouponBusy(true);
+    void quoteCoursePurchase(courseId, selectedPlan.code, resumedCoupon)
+      .then(quote => {
+        if (purchaseRestoreRequestRef.current !== requestKey) return;
+        setPurchaseCouponCode(quote.couponCode);
+        setCouponQuote(quote);
+        setPurchaseRestoreState({key: purchaseRestoreKey, status: 'ready'});
+      })
+      .catch(error => {
+        if (purchaseRestoreRequestRef.current !== requestKey) return;
+        setCouponQuote(null);
+        setPurchaseRestoreState({key: purchaseRestoreKey, status: 'failed'});
+        setNotice(
+          learnerErrorMessage(error, 'تعذّر إعادة حساب الخصم\nراجعه ثم حاول'),
+        );
+      })
+      .finally(() => {
+        if (purchaseRestoreRequestRef.current === requestKey) {
+          setCouponBusy(false);
+        }
+      });
+    return undefined;
+  }, [
+    courseId,
+    pageReady,
+    remoteSession,
+    purchaseRestoreKey,
+    purchaseRestoreStatus,
+    route.params?.openPurchase,
+    route.params?.purchaseCouponCode,
+    route.params?.purchasePlanCode,
+    selectedPlan,
+  ]);
+
   const buyCoins = async (coinPackage: DemoCoinPackage) => {
     if (
       !CAN_START_COIN_CHECKOUT ||
@@ -654,30 +820,94 @@ export default function CourseDetails() {
       const result = await openCoinCheckout(coinPackage, {
         returnTo: {
           name: 'CourseDetails',
-          params: {courseId, openPurchase: true},
+          params: {
+            courseId,
+            openPurchase: true,
+            ...(selectedPlan?.code
+              ? {purchasePlanCode: selectedPlan.code}
+              : {}),
+            ...(appliedCoupon && couponQuote?.couponCode
+              ? {purchaseCouponCode: couponQuote.couponCode}
+              : {}),
+          },
         },
       });
       if (result.cancelled) {
-        setNotice('أُغلقت صفحة الدفع\nسنراجع العملية تلقائيًا');
+        setNotice(
+          result.pending
+            ? 'أُغلقت صفحة الدفع\nسنراجع العملية تلقائيًا'
+            : 'لم يكتمل الدفع\nيمكنك المحاولة مرة أخرى',
+        );
       } else if (result.pending) {
         setNotice('الدفع قيد التأكيد\nسنحدّث الرصيد تلقائيًا');
       } else if (result.success) {
         if (result.demo) {
           const state = await getDemoExperience();
           setExperience(state);
-          await activateSelectedCourse();
+          const paid = state.paidBalance ?? 0;
+          const reward = state.rewardBalance ?? Math.max(0, state.balance - paid);
+          const allowedReward = Math.min(
+            rewardContributionLimit,
+            Math.max(
+              0,
+              effectivePurchasePrice - (selectedPlan?.minimumPaidCoins ?? 0),
+            ),
+          );
+          const refreshedSpendable = paid + Math.min(reward, allowedReward);
+          setNotice('تم شحن رصيدك\nراجع الإجمالي ثم أكد الشراء');
+          setDialogStep(
+            refreshedSpendable >= effectivePurchasePrice ? 'confirm' : 'topup',
+          );
         } else {
           try {
-            const wallet = await getWallet();
+            const [wallet, refreshedQuote] = await Promise.all([
+              getWallet(),
+              quoteCoursePurchase(
+                courseId,
+                selectedPlan?.code,
+                appliedCoupon ? couponQuote?.couponCode || '' : '',
+              ),
+            ]);
             setRemoteBalance(wallet.balance);
             setRemoteSpendableBalance(wallet.spendableBalance);
             setRemotePaidBalance(wallet.paidBalance);
             setRemoteRewardBalance(wallet.rewardBalance);
-            await activateSelectedCourse();
+            if (refreshedQuote.originalPrice !== purchasePrice) {
+              setCouponQuote(null);
+              reloadRemote();
+              setNotice('تغيّر السعر\nراجع الفئات قبل الشراء');
+              setDialogStep('plans');
+              return;
+            }
+            setCouponQuote(refreshedQuote.couponCode ? refreshedQuote : null);
+            if (refreshedQuote.couponCode) {
+              setPurchaseCouponCode(refreshedQuote.couponCode);
+            }
+            const allowedReward = Math.min(
+              rewardContributionLimit,
+              Math.max(
+                0,
+                refreshedQuote.finalPrice -
+                  (selectedPlan?.minimumPaidCoins ?? 0),
+              ),
+            );
+            const refreshedSpendable =
+              wallet.paidBalance +
+              Math.min(wallet.rewardBalance, allowedReward);
+            setNotice('تم شحن رصيدك\nراجع الإجمالي ثم أكد الشراء');
+            setDialogStep(
+              refreshedSpendable >= refreshedQuote.finalPrice
+                ? 'confirm'
+                : 'topup',
+            );
           } catch {
-            setDialogStep(null);
+            if (appliedCoupon) {
+              setCouponQuote(null);
+            }
+            reloadRemote();
+            setDialogStep('topup');
             setNotice(
-              'وصل تأكيد الدفع\nسيظهر الرصيد بعد لحظات\nلا تدفع مرة أخرى',
+              'تم تأكيد الشحن\nنحدّث الرصيد والسعر\nلا تدفع مرة أخرى',
             );
           }
         }
@@ -704,7 +934,8 @@ export default function CourseDetails() {
     try {
       await activateSelectedCourse();
     } catch {
-      setNotice('تعذّر فتح الكورس\nرصيدك لم يتغير');
+      reloadRemote();
+      setNotice('تعذّر تأكيد فتح الكورس\nحدّث الصفحة قبل المحاولة مرة أخرى');
     } finally {
       commerceInFlightRef.current = false;
       setBusy(false);
@@ -767,7 +998,10 @@ export default function CourseDetails() {
       setDialogStep('success');
     } catch (error: unknown) {
       setNotice(
-        learnerErrorMessage(error, 'تعذّر تفعيل الكود\nلم يتغير رصيدك'),
+        learnerErrorMessage(
+          error,
+          'تعذّر تأكيد تفعيل الكود\nحدّث الصفحة قبل المحاولة مرة أخرى',
+        ),
       );
     } finally {
       commerceInFlightRef.current = false;
@@ -895,6 +1129,10 @@ export default function CourseDetails() {
         notice={notice}
         onApplyCoupon={applyPurchaseCoupon}
         onBuyCoins={buyCoins}
+        onChangePlan={() => {
+          setNotice('');
+          setDialogStep('plans');
+        }}
         onCouponCodeChange={value => {
           setPurchaseCouponCode(normalizeHumanIdentifier(value));
           setCouponQuote(null);

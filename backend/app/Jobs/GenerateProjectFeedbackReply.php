@@ -12,6 +12,12 @@ use App\Models\ProjectFeedbackThread;
 use App\Services\AiEntitlementBudgetService;
 use App\Services\CourseAccessPlanService;
 use App\Services\OpenRouterService;
+use App\Services\PaidAiCallExecutionService;
+use App\Services\AiInputAttachmentService;
+use App\Services\AiStreamCheckpointService;
+use App\Models\AiInputAttachment;
+use App\Models\User;
+use Illuminate\Support\Str;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -28,6 +34,7 @@ final class GenerateProjectFeedbackReply implements ShouldQueue
     public int $tries = 3;
     public int $timeout = 45;
     public bool $failOnTimeout = true;
+    public string $executionId;
 
     /** @return list<int> */
     public function backoff(): array
@@ -37,22 +44,87 @@ final class GenerateProjectFeedbackReply implements ShouldQueue
 
     public function __construct(public int $messageId)
     {
+        $this->executionId = (string) Str::uuid();
         $this->onQueue((string) config('queue.channels.ai_feedback', 'ai-feedback'));
     }
 
     public function handle(
         CourseAccessPlanService $plans,
         AiEntitlementBudgetService $budget,
-        OpenRouterService $openRouter
+        OpenRouterService $openRouter,
+        PaidAiCallExecutionService $paidCalls,
+        AiInputAttachmentService $attachments,
+        AiStreamCheckpointService $streamCheckpoints
     ): void {
         $message = ProjectFeedbackMessage::query()
             ->with(['thread.enrollment', 'thread.project', 'thread.submission'])
             ->find($this->messageId);
         if (!$message || $message->role !== 'user') return;
-        if (
-            $message->status === ProjectFeedbackMessage::SENT
-            && $this->attempts() > 1
-        ) {
+        if (!User::query()->whereKey($message->thread?->user_id)->where('active', true)->exists()) return;
+        if ($message->status === ProjectFeedbackMessage::COMPLETED) {
+            $paidCalls->markPresented(AiUsageEvent::query()
+                ->where('request_id', $message->public_id)
+                ->where('feature', 'project_followup')
+                ->first());
+            return;
+        }
+        if ($message->status === ProjectFeedbackMessage::SENT) {
+            $event = AiUsageEvent::query()
+                ->where('request_id', $message->public_id)
+                ->where('feature', 'project_followup')
+                ->first();
+            $accepted = trim((string) data_get($event?->metadata, 'accepted_response', ''));
+            if ($event?->status === 'completed' && $accepted !== '') {
+                $this->complete(
+                    (int) $message->id,
+                    (int) $message->thread_id,
+                    $event,
+                    $accepted,
+                    (array) data_get($event->metadata, 'provider_file_annotations', [])
+                );
+                $paidCalls->markPresented($event->fresh());
+                return;
+            }
+            if ($event?->status === 'reserved') {
+                $landed = $paidCalls->landedResult($event);
+                if ($landed !== null) {
+                    $settlement = $budget->settleForActiveUser(
+                        $event, $landed, (int) $message->thread->user_id
+                    );
+                    if (AiEntitlementBudgetService::settlementAllowsDelivery($settlement)) {
+                        $settled = $event->fresh();
+                        $this->complete(
+                            (int) $message->id,
+                            (int) $message->thread_id,
+                            $settled,
+                            trim((string) $landed['message']),
+                            (array) ($landed['file_annotations'] ?? [])
+                        );
+                        $paidCalls->markPresented($settled?->fresh());
+                    }
+                    return;
+                }
+                $startedState = $paidCalls->startedState($event);
+                if ($startedState === PaidAiCallExecutionService::LIVE) return;
+                if ($startedState === PaidAiCallExecutionService::STALE_STARTED) {
+                    $paidCalls->settleUnknown($budget, $event, [
+                        'thread_id' => (int) $message->thread_id,
+                    ]);
+                    $this->markFailedWithReply(
+                        (int) $message->id,
+                        (int) $message->thread_id,
+                        'provider_outcome_unknown'
+                    );
+                    return;
+                }
+                if (
+                    $event->reservation_expires_at
+                    && $event->reservation_expires_at->isFuture()
+                ) {
+                    return;
+                }
+                $budget->release($event, 'interrupted_project_followup_request');
+            }
             // The prior worker stopped after claiming the paid request. A
             // blind replay could bill the provider twice; close the visible
             // typing state and let the learner send a fresh request instead.
@@ -86,24 +158,7 @@ final class GenerateProjectFeedbackReply implements ShouldQueue
             (int) ($terms['max_output_tokens'] ?? 320),
             (int) ($thread->project?->tokens_number ?: 500)
         ));
-        $history = ProjectFeedbackMessage::query()
-            ->where('thread_id', $thread->id)
-            ->where('status', ProjectFeedbackMessage::COMPLETED)
-            ->whereIn('role', ['user', 'assistant'])
-            ->orderByDesc('id')
-            ->limit(16)
-            ->get()
-            ->reverse()
-            ->map(fn (ProjectFeedbackMessage $item): array => [
-                'role' => $item->role,
-                'content' => UnicodeText::limit(
-                    UnicodeText::clean(strip_tags((string) $item->body)),
-                    4000
-                ),
-            ])
-            ->filter(fn (array $item): bool => $item['content'] !== '')
-            ->values()
-            ->all();
+        $history = $this->boundedConversationHistory($thread, $terms);
         $requirements = UnicodeText::limit(
             UnicodeText::clean(strip_tags((string) $thread->project?->requirements_text)),
             6000
@@ -135,7 +190,30 @@ final class GenerateProjectFeedbackReply implements ShouldQueue
                 2000
             ),
         ]];
-        $estimatedTokens = $maxTokens + (int) ceil(strlen(json_encode($prompt, JSON_UNESCAPED_UNICODE) ?: '') / 4);
+        $messageAttachments = $attachments->forOwner(
+            AiInputAttachment::OWNER_PROJECT_FEEDBACK_MESSAGE,
+            (int) $message->id
+        );
+        if ($messageAttachments->count() !== (int) ($message->attachment_count ?? 0)) {
+            $this->markFailed($this->messageId, 'attachment_unavailable');
+            return;
+        }
+        if ($messageAttachments->isNotEmpty()) {
+            $last = count($prompt) - 1;
+            $prompt[$last]['content'] = array_merge([[
+                'type' => 'text',
+                'text' => (string) $prompt[$last]['content'],
+            ]], $attachments->providerParts($messageAttachments));
+        }
+        $semanticTextBytes = strlen((string) $prompt[0]['content'])
+            + strlen((string) $message->body)
+            + array_sum(array_map(
+                static fn (array $item): int => strlen((string) ($item['content'] ?? '')),
+                $history
+            ));
+        $estimatedTokens = $maxTokens
+            + (int) ceil($semanticTextBytes / 4)
+            + $attachments->estimatedInputTokens($messageAttachments);
 
         $claimed = DB::transaction(function () use ($thread, $message, $estimatedTokens): bool {
             $lockedMessage = ProjectFeedbackMessage::query()->lockForUpdate()->find($message->id);
@@ -164,8 +242,14 @@ final class GenerateProjectFeedbackReply implements ShouldQueue
             return true;
         }, 3);
         if (!$claimed) return;
+        $reply = ProjectFeedbackMessage::query()
+            ->where('thread_id', $thread->id)
+            ->where('role', 'assistant')
+            ->where('client_request_id', 'reply:' . $message->public_id)
+            ->firstOrFail();
 
         $reservation = null;
+        $providerResultKnown = false;
         try {
             $requestId = (string) $message->public_id;
             $reservation = $budget->reserve($enrollment, 'project_followup', $estimatedTokens, $model, $requestId);
@@ -179,45 +263,129 @@ final class GenerateProjectFeedbackReply implements ShouldQueue
                     $message->id,
                     $thread->id,
                     $reservation,
-                    $replay
+                    $replay,
+                    (array) data_get($reservation->metadata, 'provider_file_annotations', [])
                 );
+                $paidCalls->markPresented($reservation->fresh());
                 return;
             }
             if ($reservation && $reservation->status !== 'reserved') {
                 throw new \RuntimeException('AI request cannot be resumed.');
             }
-            if (
-                $reservation
-                && !$reservation->wasRecentlyCreated
-                && $this->attempts() <= 1
-            ) {
-                $budget->release($reservation, 'abandoned_followup_request');
-                $this->markFailedWithReply($message->id, $thread->id, 'request_interrupted');
+            $landed = $paidCalls->landedResult($reservation?->fresh());
+            if ($landed !== null) {
+                $settlement = $budget->settleForActiveUser(
+                    $reservation, $landed, (int) $thread->user_id
+                );
+                if (!AiEntitlementBudgetService::settlementAllowsDelivery($settlement)) return;
+                $settledEvent = $reservation->fresh();
+                $this->complete(
+                    $message->id, $thread->id, $settledEvent,
+                    trim((string) $landed['message']),
+                    (array) ($landed['file_annotations'] ?? [])
+                );
+                $paidCalls->markPresented($settledEvent?->fresh());
                 return;
             }
-            $result = $openRouter->chat($model, $prompt, .3, $maxTokens);
+            $callState = $paidCalls->beginForActiveUser(
+                $reservation, $this->executionId, (int) $thread->user_id
+            );
+            if ($callState === PaidAiCallExecutionService::INACTIVE) {
+                $budget->release($reservation, 'account_deleted_before_provider');
+                return;
+            }
+            if ($callState !== PaidAiCallExecutionService::START) {
+                if ($callState === PaidAiCallExecutionService::LIVE) return;
+                $fresh = $reservation->fresh();
+                if ($callState === PaidAiCallExecutionService::STALE_STARTED
+                    && $paidCalls->providerWasStarted($fresh)) {
+                    $paidCalls->settleUnknown($budget, $fresh, [
+                        'project_id' => (int) $thread->project_id,
+                        'thread_id' => (string) $thread->public_id,
+                    ]);
+                }
+                $this->markFailedWithReply($message->id, $thread->id, 'provider_outcome_unknown');
+                return;
+            }
+            $result = $openRouter->chat(
+                $model,
+                $prompt,
+                .3,
+                $maxTokens,
+                (string) $reservation->request_id,
+                function (array $providerResult) use (
+                    $paidCalls,
+                    $reservation,
+                    $thread,
+                    $promptVersion
+                ): void {
+                    $providerResult['request_context'] = [
+                        'project_id' => (int) $thread->project_id,
+                        'submission_id' => (string) $thread->submission?->public_id,
+                        'thread_id' => (string) $thread->public_id,
+                        'prompt_version' => $promptVersion,
+                    ];
+                    $paidCalls->landSuccessfulResultForActiveUser(
+                        $reservation,
+                        $this->executionId,
+                        (int) $thread->user_id,
+                        $providerResult
+                    );
+                },
+                function (string $partial) use ($streamCheckpoints, $reply): void {
+                    $streamCheckpoints->projectMessage($reply, $partial);
+                }
+            );
             $result['request_context'] = [
                 'project_id' => (int) $thread->project_id,
                 'submission_id' => (string) $thread->submission?->public_id,
                 'thread_id' => (string) $thread->public_id,
                 'prompt_version' => $promptVersion,
             ];
-            $budget->settle($reservation, $result);
+            $providerResultKnown = true;
+            $landingState = $paidCalls->landSuccessfulResultForActiveUser(
+                $reservation, $this->executionId, (int) $thread->user_id, $result
+            );
+            if ($landingState !== PaidAiCallExecutionService::LANDED) return;
+            $result = $paidCalls->landedResult($reservation->fresh()) ?? $result;
+            $settlement = $budget->settleForActiveUser(
+                $reservation, $result, (int) $thread->user_id
+            );
+            if (!AiEntitlementBudgetService::settlementAllowsDelivery($settlement)) return;
+            if ($messageAttachments->isNotEmpty()) {
+                $attachments->markProcessed(
+                    $messageAttachments,
+                    is_array($result['file_annotations'] ?? null) ? $result['file_annotations'] : []
+                );
+            }
             $settledEvent = $reservation?->fresh() ?: $reservation;
             $this->complete(
                 $message->id,
                 $thread->id,
                 $settledEvent,
-                trim((string) $result['message'])
+                trim((string) $result['message']),
+                is_array($result['file_annotations'] ?? null) ? $result['file_annotations'] : []
             );
+            $paidCalls->markPresented($settledEvent?->fresh());
         } catch (AiPlanLimitReachedException $exception) {
             $this->markFailedWithReply($message->id, $thread->id, 'plan_limit_reached');
         } catch (AiProviderUnavailableException $exception) {
+            if ($messageAttachments->isNotEmpty() && $exception->fileAnnotations !== []) {
+                $attachments->markProcessed($messageAttachments, $exception->fileAnnotations);
+            }
             if ($exception->retrySafe && $this->attempts() < $this->tries) {
+                if ($reservation) $paidCalls->markRetrySafe($reservation, $this->executionId);
                 $this->markRetryable($message->id, $thread->id);
                 throw $exception;
             }
-            $budget->release($reservation, 'provider_unavailable');
+            if ($exception->outcomeUnknown && $reservation) {
+                $paidCalls->settleUnknown($budget, $reservation, [
+                    'project_id' => (int) $thread->project_id,
+                    'thread_id' => (string) $thread->public_id,
+                ]);
+            } else {
+                $budget->release($reservation, 'provider_unavailable');
+            }
             $this->markFailedWithReply($message->id, $thread->id, 'provider_unavailable');
             if ($exception->retrySafe) {
                 throw $exception;
@@ -231,17 +399,152 @@ final class GenerateProjectFeedbackReply implements ShouldQueue
                         $message->id,
                         $thread->id,
                         $settledEvent,
-                        $acceptedResponse
+                        $acceptedResponse,
+                        (array) data_get(
+                            $settledEvent->metadata,
+                            'provider_file_annotations',
+                            []
+                        )
                     );
+                    $paidCalls->markPresented($settledEvent->fresh());
                     return;
                 } catch (Throwable $recoveryException) {
                     report($recoveryException);
+                    // Settlement is authoritative. Keep SENT/STREAMING for
+                    // the recovery command instead of replacing a paid reply
+                    // with a terminal failure because its final DB write was
+                    // temporarily unavailable.
+                    return;
                 }
             }
-            $budget->release($reservation, 'project_followup_failed');
+            if ($providerResultKnown || $paidCalls->landedResult($settledEvent) !== null) {
+                $this->markRetryable($message->id, $thread->id);
+                throw $exception;
+            }
+            if ($paidCalls->providerWasStarted($reservation?->fresh())) {
+                $paidCalls->settleUnknown($budget, $reservation, [
+                    'project_id' => (int) $thread->project_id,
+                    'thread_id' => (string) $thread->public_id,
+                ]);
+            } else {
+                $budget->release($reservation, 'project_followup_failed');
+            }
             $this->markFailedWithReply($message->id, $thread->id, 'provider_unavailable');
             report($exception);
         }
+    }
+
+    /**
+     * Build context from durable messages by complete exchanges rather than a
+     * row count. The initial report is always retained; older exchanges are
+     * reduced to factual excerpts and recent pairs keep exact annotations.
+     *
+     * @param array<string,mixed> $terms
+     * @return list<array<string,mixed>>
+     */
+    private function boundedConversationHistory(
+        ProjectFeedbackThread $thread,
+        array $terms
+    ): array {
+        $messages = ProjectFeedbackMessage::query()
+            ->where('thread_id', $thread->id)
+            ->where('status', ProjectFeedbackMessage::COMPLETED)
+            ->whereIn('role', ['user', 'assistant'])
+            ->orderByDesc('id')
+            ->limit(80)
+            ->get()
+            ->reverse()
+            ->values();
+        $initialReportId = 'report:' . $thread->submission?->public_id;
+        $initialReport = ProjectFeedbackMessage::query()
+            ->where('thread_id', $thread->id)
+            ->where('role', 'assistant')
+            ->where('client_request_id', $initialReportId)
+            ->where('status', ProjectFeedbackMessage::COMPLETED)
+            ->first();
+        $conversation = $messages->reject(
+            fn (ProjectFeedbackMessage $item): bool => $initialReport
+                && (int) $item->id === (int) $initialReport->id
+        );
+
+        $exchanges = collect();
+        $current = collect();
+        foreach ($conversation as $item) {
+            if ($item->role === 'user') {
+                if ($current->isNotEmpty()) $exchanges->push($current);
+                $current = collect([$item]);
+                continue;
+            }
+            if ($current->isEmpty()) $current->push($item);
+            else {
+                $current->push($item);
+                $exchanges->push($current);
+                $current = collect();
+            }
+        }
+        if ($current->isNotEmpty()) $exchanges->push($current);
+
+        $characterBudget = max(6000, min(
+            24000,
+            (int) (($terms['project_followup_token_budget'] ?? 8000) * 2)
+        ));
+        $recentBudget = (int) floor($characterBudget * .72);
+        $recent = collect();
+        $recentCharacters = 0;
+        foreach ($exchanges->reverse() as $exchange) {
+            $characters = $exchange->sum(
+                fn (ProjectFeedbackMessage $item): int => mb_strlen((string) $item->body)
+            );
+            if ($recent->count() >= 4 && $recentCharacters + $characters > $recentBudget) break;
+            $recent->prepend($exchange);
+            $recentCharacters += $characters;
+        }
+        $checkpointSummary = $recent->isNotEmpty()
+            ? app(\App\Services\AiConversationContextService::class)->projectThread(
+                $thread,
+                (int) $recent->flatten()->first()->id,
+                $initialReportId,
+                max(1000, $characterBudget - $recentCharacters - 4000),
+                (string) ProjectFeedbackMessage::query()
+                    ->whereKey($this->messageId)
+                    ->value('body')
+            )
+            : '';
+
+        $history = [];
+        if ($initialReport) {
+            $history[] = array_filter([
+                'role' => 'assistant',
+                'content' => UnicodeText::limit(
+                    UnicodeText::clean((string) $initialReport->body),
+                    4000
+                ),
+                'annotations' => is_array($initialReport->provider_annotations)
+                    ? $initialReport->provider_annotations : null,
+            ], static fn ($value): bool => $value !== null);
+        }
+        if ($checkpointSummary !== '') {
+            $history[] = [
+                'role' => 'system',
+                'content' => "حقائق من الرسائل الأقدم في هذا المشروع\n"
+                    . $checkpointSummary,
+            ];
+        }
+        foreach ($recent->flatten() as $item) {
+            $content = UnicodeText::limit(
+                UnicodeText::clean(strip_tags((string) $item->body)),
+                4000
+            );
+            if ($content === '') continue;
+            $history[] = array_filter([
+                'role' => $item->role,
+                'content' => $content,
+                'annotations' => $item->role === 'assistant'
+                    && is_array($item->provider_annotations)
+                    ? $item->provider_annotations : null,
+            ], static fn ($value): bool => $value !== null);
+        }
+        return $history;
     }
 
     private function markRetryable(int $messageId, int $threadId): void
@@ -268,9 +571,28 @@ final class GenerateProjectFeedbackReply implements ShouldQueue
         }, 3);
     }
 
-    private function complete(int $messageId, int $threadId, ?AiUsageEvent $event, string $body): void
+    private function complete(
+        int $messageId,
+        int $threadId,
+        ?AiUsageEvent $event,
+        string $body,
+        array $providerAnnotations = []
+    ): void
     {
-        DB::transaction(function () use ($messageId, $threadId, $event, $body): void {
+        if ($providerAnnotations !== []) {
+            $attachmentService = app(AiInputAttachmentService::class);
+            $ownedAttachments = $attachmentService->forOwner(
+                AiInputAttachment::OWNER_PROJECT_FEEDBACK_MESSAGE,
+                $messageId
+            );
+            if ($ownedAttachments->isNotEmpty()) {
+                $attachmentService->markProcessed($ownedAttachments, $providerAnnotations);
+            }
+        }
+        $userId = (int) ProjectFeedbackThread::query()->whereKey($threadId)->value('user_id');
+        DB::transaction(function () use ($messageId, $threadId, $event, $body, $providerAnnotations, $userId): void {
+            if ($userId <= 0 || !User::query()->whereKey($userId)->where('active', true)
+                ->lockForUpdate()->exists()) return;
             $message = ProjectFeedbackMessage::query()->lockForUpdate()->find($messageId);
             $thread = ProjectFeedbackThread::query()->lockForUpdate()->find($threadId);
             if (!$message || !$thread || $message->status === ProjectFeedbackMessage::COMPLETED) return;
@@ -278,6 +600,7 @@ final class GenerateProjectFeedbackReply implements ShouldQueue
                 'status' => ProjectFeedbackMessage::COMPLETED,
                 'usage_event_id' => $event?->id,
                 'completed_at' => now(),
+                'provider_annotations' => $providerAnnotations === [] ? null : $providerAnnotations,
                 'error_code' => null,
                 'reserved_tokens' => 0,
             ])->save();
@@ -290,6 +613,7 @@ final class GenerateProjectFeedbackReply implements ShouldQueue
             $reply->forceFill([
                 'status' => ProjectFeedbackMessage::COMPLETED,
                 'body' => $body,
+                'provider_annotations' => $providerAnnotations === [] ? null : $providerAnnotations,
                 'error_code' => null,
                 'completed_at' => now(),
             ])->save();
@@ -330,6 +654,46 @@ final class GenerateProjectFeedbackReply implements ShouldQueue
     {
         $message = ProjectFeedbackMessage::query()->find($this->messageId);
         if (!$message || $message->status === ProjectFeedbackMessage::COMPLETED) return;
+        $event = AiUsageEvent::query()
+            ->where('request_id', $message->public_id)
+            ->where('feature', 'project_followup')
+            ->first();
+        if ($event?->status === 'completed') {
+            $accepted = trim((string) data_get($event->metadata, 'accepted_response', ''));
+            if ($accepted !== '') {
+                try {
+                    $this->complete(
+                        (int) $message->id,
+                        (int) $message->thread_id,
+                        $event,
+                        $accepted,
+                        (array) data_get(
+                            $event->metadata,
+                            'provider_file_annotations',
+                            []
+                        )
+                    );
+                    app(PaidAiCallExecutionService::class)->markPresented($event->fresh());
+                    return;
+                } catch (Throwable $recoveryException) {
+                    report($recoveryException);
+                    return;
+                }
+            }
+        }
+        if ($event?->status === 'reserved') {
+            $calls = app(PaidAiCallExecutionService::class);
+            if ($calls->landedResult($event) !== null) {
+                return;
+            }
+            if ($calls->providerWasStarted($event)) {
+                $calls->settleUnknown(app(AiEntitlementBudgetService::class), $event, [
+                    'thread_id' => (int) $message->thread_id,
+                ]);
+            } else {
+                app(AiEntitlementBudgetService::class)->release($event, 'project_followup_worker_failed');
+            }
+        }
         $this->markFailedWithReply(
             (int) $message->id,
             (int) $message->thread_id,

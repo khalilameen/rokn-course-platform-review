@@ -195,7 +195,10 @@ final class ReconcileMedia extends Command
             }
         }
 
-        foreach (['integrity_status', 'integrity_issues', 'last_reconciled_at', 'quarantined_at'] as $column) {
+        foreach ([
+            'integrity_status', 'integrity_issues', 'last_reconciled_at',
+            'quarantined_at', 'probe_generation',
+        ] as $column) {
             if (!Schema::hasColumn('lesson_media_states', $column)) {
                 return false;
             }

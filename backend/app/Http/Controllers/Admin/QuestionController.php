@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Database\QueryException;
 use Illuminate\Validation\ValidationException;
 use App\Support\UnicodeText;
+use App\Services\AdminAuthoringCreateIntentService;
 
 class QuestionController extends Controller
 {
@@ -57,32 +58,59 @@ class QuestionController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
      */
-    public function store(Request $request)
+    public function store(Request $request, AdminAuthoringCreateIntentService $createIntents)
     {
         $payload = $this->validatedPayload($request);
         $request->validate(['authoring_request_id' => 'required|uuid']);
         $this->assertStandaloneQuiz((int) $payload['list_id']);
         $requestId = (string) $request->input('authoring_request_id');
         $question = Question::query()->where('authoring_request_id', $requestId)->first();
-        $alreadySaved = $question !== null;
         if (!$question) {
             try {
-                $question = DB::transaction(function () use ($payload, $requestId): Question {
+                $question = DB::transaction(function () use (
+                    $request,
+                    $payload,
+                    $requestId,
+                    $createIntents
+                ): Question {
                     $quiz = ItemList::quiz()->whereKey($payload['list_id'])->lockForUpdate()->firstOrFail();
                     $this->assertStandaloneQuiz((int) $quiz->id);
-                    return Question::create($payload + ['authoring_request_id' => $requestId]);
+                    $question = Question::create($payload + ['authoring_request_id' => $requestId]);
+                    $createIntents->checkpointResource($request, Question::class, $question->id);
+                    return $question;
                 }, 3);
             } catch (QueryException $exception) {
                 $question = Question::query()->where('authoring_request_id', $requestId)->first();
                 if (!$question) throw $exception;
-                $alreadySaved = true;
             }
         }
-        
-        if (!$alreadySaved && $request->hasFile('image')) {
-            $file = $request->file('image');
-            $question->storeImage($file, 'questions', 'featured');
+        if ($question->wasRecentlyCreated === false) {
+            DB::transaction(function () use ($request, $question, $createIntents): void {
+                Question::query()->whereKey($question->id)->lockForUpdate()->firstOrFail();
+                $createIntents->checkpointResource($request, Question::class, $question->id);
+            }, 3);
         }
+        
+        if ($request->hasFile('image')) {
+            $file = $request->file('image');
+            $question->storeImage(
+                $file,
+                'questions',
+                'featured',
+                'admin-question|'.strtolower($requestId).'|'.hash_file('sha256', $file->getRealPath())
+            );
+        }
+
+        DB::transaction(function () use ($request, $question, $createIntents): void {
+            $locked = Question::query()->whereKey($question->id)->lockForUpdate()->firstOrFail();
+            $createIntents->completeRedirect(
+                $request,
+                route('admin.questions.index'),
+                302,
+                Question::class,
+                $locked->id
+            );
+        }, 3);
 
         return redirect()->route('admin.questions.index')->with('success', 'تمت الإضافة بنجاح');
     }
@@ -183,7 +211,7 @@ class QuestionController extends Controller
             'choice5' => 'nullable|string|max:1000',
             'choice6' => 'nullable|string|max:1000',
             'right_answer' => 'required|integer|min:1|max:6',
-            'image' => 'nullable|image|max:4096',
+            'image' => 'nullable|image|mimes:jpeg,jpg,png,webp,gif|max:4096',
         ]);
     }
 

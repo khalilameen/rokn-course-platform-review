@@ -61,7 +61,7 @@
 
     <!-- Statistics Cards -->
     <div class="row mb-5">
-        <div class="col-lg-4 col-md-6 mb-4">
+        <div class="col-lg-6 col-md-6 mb-4">
             <a href="{{ route('admin.urgent-tasks.pending-orders') }}" class="text-decoration-none">
                 <div class="urgent-stat-card danger fade-in-up-urgent urgent-delay-01">
                     <div class="urgent-stat-content">
@@ -78,7 +78,7 @@
             </a>
         </div>
 
-        <div class="col-lg-4 col-md-6 mb-4">
+        <div class="col-lg-6 col-md-6 mb-4">
             <a href="{{ route('admin.urgent-tasks.inactive-students') }}" class="text-decoration-none">
                 <div class="urgent-stat-card warning fade-in-up-urgent urgent-delay-02">
                     <div class="urgent-stat-content">
@@ -95,22 +95,6 @@
             </a>
         </div>
 
-        <div class="col-lg-4 col-md-6 mb-4">
-            <a href="{{ route('admin.urgent-tasks.courses-without-quiz') }}" class="text-decoration-none">
-                <div class="urgent-stat-card info fade-in-up-urgent urgent-delay-03">
-                    <div class="urgent-stat-content">
-                        <div class="urgent-stat-info">
-                            <h3 class="count">{{ $stats['courses_without_quiz_count'] }}</h3>
-                            <p>كورسات بدون اختبارات</p>
-                            <small>تحتاج لإضافة امتحانات</small>
-                        </div>
-                        <div class="urgent-stat-icon info">
-                            <i class="fa fa-question-circle"></i>
-                        </div>
-                    </div>
-                </div>
-            </a>
-        </div>
     </div>
 
     <!-- Quick Actions and Details -->
@@ -252,81 +236,6 @@
         </div>
         @endif
     </div>
-
-    <!-- Courses Without Quiz Section -->
-    @if($coursesWithoutQuiz->count() > 0)
-    <div class="row">
-        <div class="col-12">
-            <div class="modern-section-card fade-in-up-urgent urgent-delay-06">
-                <div class="modern-card-header">
-                    <h5 class="modern-card-title">
-                        <i class="fa fa-question-circle text-info"></i>
-                        كورسات تحتاج إلى اختبارات
-                        <span class="badge badge-info">{{ $stats['courses_without_quiz_count'] }}</span>
-                    </h5>
-                    <a href="{{ route('admin.urgent-tasks.courses-without-quiz') }}" class="modern-btn btn-primary-center">
-                        <i class="fa fa-eye"></i>
-                        عرض الكل
-                    </a>
-                </div>
-                <div class="modern-table-container">
-                    <div class="table-responsive">
-                        <table class="modern-table table mb-0">
-                            <thead>
-                                <tr>
-                                    <th>اسم الكورس</th>
-                                    <th>المرحلة الدراسية</th>
-                                    <th>عدد الطلاب</th>
-                                    <th>تاريخ الإنشاء</th>
-                                    <th>الإجراءات</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach($coursesWithoutQuiz->take(8) as $course)
-                                <tr>
-                                    <td>
-                                        <div class="d-flex align-items-center">
-                                            <div class="course-icon">
-                                                <i class="fa fa-graduation-cap"></i>
-                                            </div>
-                                            <div class="urgent-course-copy">
-                                                <a href="{{ route('admin.courses.show', $course->id) }}" class="d-block urgent-entity-link">{{ $course->title }}</a>
-                                                @if($course->description)
-                                                    <small class="text-muted">{{ Str::limit($course->description, 40) }}</small>
-                                                @endif
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        @if($course->grade)
-                                            <a href="{{ route('admin.grades.index') }}" class="status-badge group urgent-grade-link">{{ $course->grade->name }}</a>
-                                        @else
-                                            <span class="text-muted">غير محدد</span>
-                                        @endif
-                                    </td>
-                                    <td>
-                                        <span class="status-badge amount">{{ $course->users_count ?? 0 }} طالب</span>
-                                    </td>
-                                    <td>
-                                        <small class="text-muted">{{ $course->created_at->format('Y-m-d') }}</small><br>
-                                        <small class="text-muted">{{ \App\Support\BusinessClock::relative($course->created_at) }}</small>
-                                    </td>
-                                    <td>
-                                        <a href="{{ route('admin.courses.sections.create', ['course' => $course->id, 'type' => 'quiz']) }}"
-                                           class="action-btn btn-secondary-center">
-                                            <i class="fa fa-plus"></i> إضافة اختبار
-                                        </a>
-                                    </td>
-                                </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    @endif
 
     <!-- Empty State -->
     @if($stats['total_urgent_tasks'] == 0)

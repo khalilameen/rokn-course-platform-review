@@ -25,7 +25,37 @@ final class PlaybackManifestService
 
     public function issue(User $user, Lesson $lesson, array $clientContext = []): array
     {
-        $lesson->loadMissing(['courseSection.module', 'course']);
+        [$lesson, $state] = DB::transaction(function () use ($lesson): array {
+            // Resolve the current media generation under the same short lock
+            // that synchronizes its durable readiness row. A route-bound model
+            // or an earlier request may still carry the superseded GUID.
+            $current = Lesson::query()->whereKey($lesson->id)->lockForUpdate()->firstOrFail();
+            $current->loadMissing(['courseSection.module', 'course']);
+            $state = LessonMediaState::query()->createOrFirst(
+                ['lesson_id' => $current->id],
+                [
+                    'provider' => 'bunny',
+                    'provider_media_id' => $current->bunny_video_id,
+                    'status' => 'unknown',
+                    'protocol' => 'hls',
+                    'duration_seconds' => max(0, (int) $current->duration_minutes * 60) ?: null,
+                    'available_qualities' => ['auto'],
+                ]
+            );
+            $state = LessonMediaState::query()
+                ->where('lesson_id', $current->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            if ((string) $state->provider_media_id !== (string) $current->bunny_video_id) {
+                $state->forceFill(LessonMediaState::resetForGeneration(
+                    (string) $current->bunny_video_id,
+                    'unknown'
+                ))->save();
+            }
+
+            return [$current, $state];
+        }, 3);
+
         $section = $lesson->courseSection;
         $course = $lesson->course;
 
@@ -55,40 +85,6 @@ final class PlaybackManifestService
             throw new RuntimeException('The lesson video is not ready for secure playback.');
         }
 
-        $source = $this->bunny->getVideo((string) $lesson->bunny_video_id);
-        if (!$source || empty($source['url'])) {
-            throw new RuntimeException('A secure playback source could not be issued.');
-        }
-        $fallback = $this->bunny->getFallbackVideo((string) $lesson->bunny_video_id);
-
-        // createOrFirst catches the unique-key race when a newly promoted
-        // lesson receives its first concurrent plays on multiple workers.
-        $state = LessonMediaState::query()->createOrFirst(
-            ['lesson_id' => $lesson->id],
-            [
-                'provider' => 'bunny',
-                'provider_media_id' => $lesson->bunny_video_id,
-                // A generated URL does not prove that Bunny finished encoding
-                // or that the media belongs to the configured library.
-                'status' => 'unknown',
-                'protocol' => 'hls',
-                'duration_seconds' => max(0, (int) $lesson->duration_minutes * 60) ?: null,
-                'available_qualities' => ['auto'],
-            ]
-        );
-
-        if ($state->provider_media_id !== $lesson->bunny_video_id) {
-            $state->forceFill([
-                'provider_media_id' => $lesson->bunny_video_id,
-                'status' => 'unknown',
-                'protocol' => 'hls',
-                'available_qualities' => ['auto'],
-                'last_error_code' => null,
-                'last_error_message' => null,
-                'last_probe_at' => null,
-            ])->save();
-        }
-
         // Bunny's control-plane API is deliberately kept out of the playback
         // request. The scheduled media reconciliation owns remote probes;
         // learners receive the last durable readiness result immediately.
@@ -98,6 +94,15 @@ final class PlaybackManifestService
         if ($state->status !== 'ready') {
             throw new RuntimeException('The lesson video is still being prepared.');
         }
+
+        // Signing is stateless and remains outside the database transaction.
+        // Superseded objects are retained for seven days, so a manifest issued
+        // immediately before an authoring replacement stays valid for its TTL.
+        $source = $this->bunny->getVideo((string) $lesson->bunny_video_id);
+        if (!$source || empty($source['url'])) {
+            throw new RuntimeException('A secure playback source could not be issued.');
+        }
+        $fallback = $this->bunny->getFallbackVideo((string) $lesson->bunny_video_id);
 
         $qualities = collect($state->available_qualities ?: ['auto'])
             ->filter(fn ($quality) => in_array($quality, ['auto', '1080p', '720p', '480p', '360p'], true))

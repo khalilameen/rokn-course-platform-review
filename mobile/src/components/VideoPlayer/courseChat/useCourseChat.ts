@@ -9,9 +9,12 @@ import {
   askCourseAssistant,
   courseIncludesAssistant,
   loadCourseAssistantHistory,
+  pollCourseAssistantTurn,
+  uploadCourseAssistantAttachment,
+  cancelCourseAssistantTurn,
 } from '../courseLearningApi';
 import {isGrantCourseAccess} from '../courseEntitlements';
-import type {ChatMessage, CourseLearningData, CourseReel} from '../types';
+import type {ChatAttachmentDraft, ChatMessage, CourseLearningData, CourseReel} from '../types';
 import {courseChatErrorCode} from './policy';
 import {secureRandomUuid} from '../../../utils/secureRandom';
 import {cleanUnicodeText} from '../../../utils/unicodeText';
@@ -19,6 +22,7 @@ import {isLocalDemoId} from '../../../config/runtime';
 import {loadCourseChatHistory, saveCourseChatHistory} from './persistence';
 import {useAppActiveState} from '../../../hooks/useAppActiveState';
 import {getCurrentAccountStorageScope} from '../../../constants/helpers';
+import {removeLearnerDraftFile} from '../../../services/learnerDraftFiles';
 
 export type AssistantPresence = 'online' | 'working';
 const MAX_IN_MEMORY_MESSAGES = 37;
@@ -72,6 +76,7 @@ export const useCourseChat = ({
   ]);
   const [accountEpoch, setAccountEpoch] = useState(0);
   const [input, setInput] = useState('');
+  const [attachments, setAttachments] = useState<ChatAttachmentDraft[]>([]);
   const [sending, setSending] = useState(false);
   const assistantPresence: AssistantPresence =
     sending ||
@@ -93,17 +98,20 @@ export const useCourseChat = ({
   const activeAccountScopeRef = useRef<string | null>(null);
   const visibleRef = useRef(interactive);
   const sendFlightRef = useRef<symbol | null>(null);
+  const sendGenerationRef = useRef(0);
   const upgradeFlightRef = useRef<symbol | null>(null);
   const upgradeGenerationRef = useRef(0);
   const resumeInterruptedTurnRef = useRef(false);
   const messagesRef = useRef(messages);
+  const attachmentsRef = useRef(attachments);
   const runTurnRef = useRef<
-    (clientRequestId?: string, message?: string) => Promise<void>
+    (clientRequestId?: string, message?: string, files?: ChatAttachmentDraft[]) => Promise<void>
   >(async () => undefined);
   activeCourseIdRef.current = courseId;
   activeConversationRef.current = conversationScope;
   visibleRef.current = interactive;
   messagesRef.current = messages;
+  attachmentsRef.current = attachments;
 
   const scheduleScrollToEnd = useCallback(
     (animated: boolean, delayMs: number) => {
@@ -123,6 +131,8 @@ export const useCourseChat = ({
     sendFlightRef.current = null;
     setMessages([welcomeMessage(courseId)]);
     setInput('');
+    void Promise.all(attachmentsRef.current.map(removeLearnerDraftFile));
+    setAttachments([]);
     setSending(false);
     void (async () => {
       const accountScope = await getCurrentAccountStorageScope();
@@ -140,6 +150,14 @@ export const useCourseChat = ({
         welcomeMessage(courseId),
         ...trimConversation(localHistory),
       ];
+      resumeInterruptedTurnRef.current = initialMessages.some(
+        message =>
+          message.role === 'assistant' &&
+          Boolean(message.clientRequestId) &&
+          ['queued', 'sent', 'streaming'].includes(
+            String(message.deliveryStatus || ''),
+          ),
+      );
       messagesRef.current = initialMessages;
       setMessages(initialMessages);
 
@@ -171,6 +189,14 @@ export const useCourseChat = ({
           welcomeMessage(courseId),
           ...trimConversation(history),
         ];
+        resumeInterruptedTurnRef.current = reconciled.some(
+          message =>
+            message.role === 'assistant' &&
+            Boolean(message.clientRequestId) &&
+            ['queued', 'sent', 'streaming'].includes(
+              String(message.deliveryStatus || ''),
+            ),
+        );
         messagesRef.current = reconciled;
         setMessages(reconciled);
       } catch {
@@ -210,7 +236,16 @@ export const useCourseChat = ({
 
   useEffect(() => {
     if (messages.length <= MAX_IN_MEMORY_MESSAGES) return;
-    setMessages(current => trimConversation(current));
+    setMessages(current => {
+      const trimmed = trimConversation(current);
+      const retained = new Set(trimmed.map(message => message.id));
+      const discardedFiles = current
+        .filter(message => !retained.has(message.id))
+        .flatMap(message => message.attachments || [])
+        .filter(file => !file.serverId);
+      void Promise.all(discardedFiles.map(removeLearnerDraftFile));
+      return trimmed;
+    });
   }, [messages.length]);
 
   useEffect(() => {
@@ -238,10 +273,12 @@ export const useCourseChat = ({
   const runTurn = async (
     retryClientRequestId?: string,
     retryMessage?: string,
+    retryAttachments?: ChatAttachmentDraft[],
   ) => {
     const cleanMessage = cleanUnicodeText(retryMessage ?? input);
+    const selectedAttachments = retryAttachments ?? attachments;
     if (
-      !cleanMessage ||
+      (!cleanMessage && selectedAttachments.length === 0) ||
       sending ||
       sendFlightRef.current ||
       !assistantIncluded ||
@@ -250,6 +287,7 @@ export const useCourseChat = ({
       return;
     }
     const flight = Symbol('course-chat-send');
+    const sendGeneration = ++sendGenerationRef.current;
     let clientRequestId = retryClientRequestId || secureRandomUuid();
     sendFlightRef.current = flight;
     const existingUser = retryClientRequestId
@@ -269,11 +307,12 @@ export const useCourseChat = ({
     const userMessage: ChatMessage = existingUser || {
       id: `user-${clientRequestId}`,
       role: 'user',
-      text: cleanMessage,
+      text: cleanMessage || 'راجع المرفق',
       createdAt: Date.now(),
       clientRequestId,
       deliveryStatus: 'sent',
       contextEligible: true,
+      attachments: selectedAttachments,
     };
     const pendingId = existingAssistant?.id || `assistant-${clientRequestId}`;
     const conversationGeneration = conversationGenerationRef.current;
@@ -315,7 +354,10 @@ export const useCourseChat = ({
           ];
     messagesRef.current = queuedMessages;
     setMessages(queuedMessages);
-    if (!retryMessage) setInput('');
+    if (!retryMessage) {
+      setInput('');
+      setAttachments([]);
+    }
     setSending(true);
     scheduleScrollToEnd(true, 80);
 
@@ -323,8 +365,31 @@ export const useCourseChat = ({
       // Persist the outbox before the paid request leaves the phone. If the
       // process dies after this point, the same client id can recover the
       // accepted server response without another provider call or debit.
-      await saveCourseChatHistory(courseId, queuedMessages, lessonId).catch(
-        () => undefined,
+      await saveCourseChatHistory(courseId, queuedMessages, lessonId);
+      const uploadedWithLocalFiles = await Promise.all(
+        selectedAttachments.map(async file => ({
+          ...file,
+          serverId:
+            file.serverId ||
+            (await uploadCourseAssistantAttachment({courseId, file})),
+        })),
+      );
+      const uploadedAttachments = uploadedWithLocalFiles.map(file => ({...file, uri: ''}));
+      queuedMessages = queuedMessages.map(item =>
+        item.id === userMessage.id
+          ? {...item, attachments: uploadedAttachments}
+          : item,
+      );
+      messagesRef.current = queuedMessages;
+      setMessages(queuedMessages);
+      // The upload mapping is the recovery source of truth. Commit it before
+      // removing app-owned files; a crash can then resume with the same server
+      // ids and immutable client request id.
+      await saveCourseChatHistory(courseId, queuedMessages, lessonId);
+      await Promise.all(
+        selectedAttachments
+          .filter(file => file.uri && !file.serverId)
+          .map(removeLearnerDraftFile),
       );
       let response = await askCourseAssistant({
         course: upgraded
@@ -333,6 +398,9 @@ export const useCourseChat = ({
         reel,
         message: cleanMessage,
         clientRequestId,
+        attachmentIds: uploadedAttachments
+          .map(file => file.serverId)
+          .filter((id): id is string => Boolean(id)),
       });
 
       // A failed server turn cannot reuse its immutable usage id. First ask
@@ -357,14 +425,19 @@ export const useCourseChat = ({
           reel,
           message: cleanMessage,
           clientRequestId,
+          attachmentIds: uploadedAttachments
+            .map(file => file.serverId)
+            .filter((id): id is string => Boolean(id)),
         });
       }
 
       let recoveryAttempts = 0;
+      let observedPartialLength = 0;
       while (
         response.code === 'chat_answer_in_progress' &&
         recoveryAttempts < 20 &&
         visibleRef.current &&
+        sendGeneration === sendGenerationRef.current &&
         conversationGeneration === conversationGenerationRef.current
       ) {
         setMessages(current =>
@@ -374,31 +447,59 @@ export const useCourseChat = ({
               : item,
           ),
         );
-        const waitMs = Math.max(
-          1000,
-          Math.min(5000, (response.retryAfterSeconds || 3) * 1000),
+        // Spread queued clients over time instead of making every open chat
+        // hit the status endpoint on the same fixed three-second boundary.
+        const baseWaitMs = Math.max(
+          response.partial ? 900 : 1500,
+          (response.retryAfterSeconds || 3) * 1000,
+        );
+        const backoffMs = Math.min(
+          12000,
+          baseWaitMs * Math.pow(1.45, recoveryAttempts),
+        );
+        const jitterSeed = Array.from(clientRequestId).reduce(
+          (sum, character) => sum + character.charCodeAt(0),
+          0,
+        );
+        const waitMs = Math.round(
+          backoffMs * (0.85 + (jitterSeed % 31) / 100),
         );
         await new Promise<void>(resolve => setTimeout(resolve, waitMs));
         recoveryAttempts += 1;
         if (!visibleRef.current) break;
-        response = await askCourseAssistant({
-          course: upgraded
-            ? {...course, accessType: 'paid', chatAvailable: true}
-            : course,
-          reel,
-          message: cleanMessage,
-          clientRequestId,
-        });
+        response = await pollCourseAssistantTurn(clientRequestId);
+        if (response.partial && response.text) {
+          const partialLength = response.text.length;
+          if (partialLength > observedPartialLength) {
+            observedPartialLength = partialLength;
+            recoveryAttempts = 0;
+          }
+          setMessages(current =>
+            current.map(item =>
+              item.id === pendingId
+                ? {
+                    ...item,
+                    text: response.text,
+                    pending: true,
+                    deliveryStatus: 'streaming',
+                  }
+                : item,
+            ),
+          );
+        }
       }
       if (response.code === 'chat_answer_in_progress') {
         response = {
           ...response,
-          text: 'الرد قيد التجهيز\nاستعده عند فتح الشات',
+          text: response.partial && response.text
+            ? response.text
+            : 'الرد قيد التجهيز\nاستعده عند فتح الشات',
           unavailable: true,
-          turnStatus: 'failed',
+          turnStatus: 'queued',
         };
       }
-      if (conversationGeneration !== conversationGenerationRef.current) return;
+      if (conversationGeneration !== conversationGenerationRef.current
+        || sendGeneration !== sendGenerationRef.current) return;
       if (
         response.blocked &&
         ['chat_upgrade_required', 'chat_plan_limit_reached'].includes(
@@ -411,18 +512,23 @@ export const useCourseChat = ({
         !response.unavailable &&
         !response.blocked &&
         (!response.offline || isLocalDemoId(course.id));
+      const acceptedPending =
+        response.code === 'chat_answer_in_progress' &&
+        ['queued', 'streaming'].includes(response.turnStatus || '');
       setMessages(current =>
         current.map(item => {
           if (item.id === userMessage.id) {
-            return completed
-              ? item
-              : {...item, deliveryStatus: 'failed', contextEligible: false};
+            if (completed) return item;
+            if (acceptedPending) {
+              return {...item, deliveryStatus: 'sent', contextEligible: false};
+            }
+            return {...item, deliveryStatus: 'failed', contextEligible: false};
           }
           return item.id === pendingId
             ? {
                 ...item,
                 text: response.text,
-                pending: false,
+                pending: acceptedPending,
                 clientRequestId: response.clientRequestId || clientRequestId,
                 deliveryStatus: completed
                   ? 'completed'
@@ -468,7 +574,31 @@ export const useCourseChat = ({
     const userMessage = messages.find(
       item => item.role === 'user' && item.clientRequestId === clientRequestId,
     );
-    if (userMessage) void runTurn(clientRequestId, userMessage.text);
+    if (userMessage) {
+      void runTurn(clientRequestId, userMessage.text, userMessage.attachments);
+    }
+  };
+
+  const stop = async () => {
+    const pending = [...messagesRef.current].reverse().find(
+      item => item.role === 'assistant' && item.clientRequestId
+        && ['queued', 'sent', 'streaming'].includes(String(item.deliveryStatus || '')),
+    );
+    if (!pending?.clientRequestId) return;
+    const cancelledAtServer = await cancelCourseAssistantTurn(pending.clientRequestId);
+    sendGenerationRef.current += 1;
+    setMessages(current => current.map(item =>
+      item.clientRequestId === pending.clientRequestId
+        ? cancelledAtServer
+          ? {...item, pending: false, deliveryStatus: 'cancelled', errorCode: 'learner_cancelled'}
+          : item.role === 'assistant'
+          ? {...item, text: 'الرد قيد التجهيز\nسيظهر عند فتح الشات', pending: false,
+              deliveryStatus: 'queued', errorCode: 'chat_answer_in_progress'}
+          : {...item, deliveryStatus: 'sent', contextEligible: false}
+        : item,
+    ));
+    sendFlightRef.current = null;
+    setSending(false);
   };
 
   runTurnRef.current = runTurn;
@@ -510,7 +640,13 @@ export const useCourseChat = ({
         message.role === 'user' &&
         message.clientRequestId === assistant.clientRequestId,
     );
-    if (user) void runTurnRef.current(assistant.clientRequestId, user.text);
+    if (user) {
+      void runTurnRef.current(
+        assistant.clientRequestId,
+        user.text,
+        user.attachments,
+      );
+    }
   }, [interactive, messages, sending]);
 
   const loadUpgradeQuote = async () => {
@@ -596,25 +732,37 @@ export const useCourseChat = ({
       )
         return;
       const code = courseChatErrorCode(error);
-      if (code === 'insufficient_coins' || code === 'course_price_changed') {
-        try {
-          const refreshedQuote = await getCourseChatUpgradeQuote(courseId);
-          if (
-            activeCourseIdRef.current === courseId &&
-            upgradeGenerationRef.current === upgradeGeneration
-          ) {
-            setUpgradeQuote(refreshedQuote);
-          }
-        } catch {
-          // The last confirmed quote remains actionable when refresh fails.
+      setUpgradeError(
+        code === 'course_price_changed'
+          ? 'تغير السعر\nراجع الإجمالي قبل الترقية'
+          : code === 'insufficient_coins'
+          ? 'تغيّر الرصيد المتاح\nراجع المبلغ الناقص قبل الترقية'
+          : 'تعذّر تأكيد النتيجة\nنتحقق منها الآن',
+      );
+      try {
+        const refreshedQuote = await getCourseChatUpgradeQuote(courseId);
+        if (
+          activeCourseIdRef.current !== courseId ||
+          upgradeGenerationRef.current !== upgradeGeneration
+        )
+          return;
+        if (refreshedQuote.alreadyUpgraded || refreshedQuote.chatAvailable) {
+          setUpgraded(true);
+          setServerBlocked(false);
+          setUpgradeQuote(null);
+          setUpgradeError('');
+          return;
         }
+        setUpgradeQuote(refreshedQuote);
         setUpgradeError(
           code === 'course_price_changed'
             ? 'تغير السعر\nراجع الإجمالي قبل الترقية'
-            : 'تغيّر الرصيد المتاح\nراجع المبلغ الناقص قبل الترقية',
+            : code === 'insufficient_coins'
+            ? 'تغيّر الرصيد المتاح\nراجع المبلغ الناقص قبل الترقية'
+            : 'لم تكتمل العملية\nحاول مرة أخرى',
         );
-      } else {
-        setUpgradeError('لم يتم الخصم\nحاول مرة أخرى');
+      } catch {
+        setUpgradeError('تعذّر تأكيد النتيجة\nحدّث الصفحة قبل المحاولة مرة أخرى');
       }
     } finally {
       if (
@@ -630,6 +778,7 @@ export const useCourseChat = ({
   return {
     assistantPresence,
     assistantIncluded,
+    attachments,
     confirmUpgrade,
     input,
     loadUpgradeQuote,
@@ -640,7 +789,9 @@ export const useCourseChat = ({
     retry,
     send,
     sending,
+    stop,
     setInput,
+    setAttachments,
     upgradeError,
     upgradeLoading,
     upgradeQuote,

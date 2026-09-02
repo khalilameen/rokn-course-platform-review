@@ -12,14 +12,9 @@ final class PortfolioShareIdentityService
 {
     public function ensure(User $user): string
     {
-        $current = trim((string) $user->portfolio_slug);
-        if ($current !== '' && !$this->isPredictableLegacySlug($current, (int) $user->id)) {
-            return $current;
-        }
-
         return DB::transaction(function () use ($user): string {
             /** @var User $locked */
-            $locked = User::withTrashed()->lockForUpdate()->findOrFail($user->id);
+            $locked = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
             $slug = trim((string) $locked->portfolio_slug);
             if ($slug === '' || $this->isPredictableLegacySlug($slug, (int) $locked->id)) {
                 $slug = $this->freshSlug();

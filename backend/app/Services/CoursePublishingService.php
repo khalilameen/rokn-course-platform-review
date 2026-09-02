@@ -477,6 +477,11 @@ class CoursePublishingService
                 ) {
                     $issues[] = "ميزانية المحادثة في الفئة «{$plan->name_ar}» غير صالحة";
                 }
+                if ((bool) $plan->chat_attachments_enabled
+                    && ((int) $plan->chat_attachment_max_files < 1
+                        || !(bool) $course->chat_attachments_enabled)) {
+                    $issues[] = "مرفقات المحادثة في الفئة «{$plan->name_ar}» غير مكتملة الإعداد";
+                }
             }
 
             if ($hasProjectCost && (
@@ -495,6 +500,12 @@ class CoursePublishingService
                 || (float) $plan->project_followup_reserve_usd > (float) $plan->project_followup_budget_usd
             )) {
                 $issues[] = "ميزانية متابعة تقرير المشروع في الفئة «{$plan->name_ar}» غير صالحة";
+            }
+            if ((bool) $plan->project_followup_attachments_enabled && (
+                $feedback !== CourseAccessPlan::FEEDBACK_ENHANCED
+                || (int) $plan->project_followup_attachment_max_files < 1
+            )) {
+                $issues[] = "مرفقات متابعة المشروع في الفئة «{$plan->name_ar}» غير مكتملة الإعداد";
             }
         }
 

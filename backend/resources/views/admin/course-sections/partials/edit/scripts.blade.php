@@ -1,6 +1,23 @@
+@php
+    $existingQuizQuestions = $section->getSectionType() === 'quiz' && $section->sectionable
+        ? $section->sectionable->questions->map(fn ($question) => [
+            'id' => $question->id,
+            'title' => $question->title,
+            'question' => $question->question,
+            'choice1' => $question->choice1,
+            'choice2' => $question->choice2,
+            'choice3' => $question->choice3,
+            'choice4' => $question->choice4,
+            'choice5' => $question->choice5,
+            'choice6' => $question->choice6,
+            'right_answer' => $question->right_answer,
+            'question_image' => $question->image,
+        ])->values()
+        : collect();
+@endphp
 <script>
 // Existing quiz questions data
-const existingQuestions = @json($section->getSectionType() == 'quiz' && $section->sectionable ? $section->sectionable->questions : []);
+const existingQuestions = @json($existingQuizQuestions);
 const flashedQuestions = @json(array_values(old('questions', [])));
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -23,11 +40,20 @@ document.addEventListener('DOMContentLoaded', function() {
     let questionsLoaded = false;
     const questionsContainer = document.getElementById('questionsContainer');
     const addQuestionBtn = document.getElementById('addQuestionBtn');
-    const initialQuestions = (flashedQuestions.length > 0 ? flashedQuestions : existingQuestions).map(question => ({
-        ...question,
-        question: question.question_text ?? question.question ?? '',
-        right_answer: question.correct_answer ?? question.right_answer ?? '',
-    }));
+    const existingQuestionsById = new Map(existingQuestions.map(question => [String(question.id), question]));
+    const initialQuestions = (flashedQuestions.length > 0 ? flashedQuestions : existingQuestions).map(question => {
+        const persisted = existingQuestionsById.get(String(question.id || '')) || {};
+        return {
+            ...question,
+            question: question.question_text ?? question.question ?? '',
+            right_answer: question.correct_answer ?? question.right_answer ?? '',
+            question_image: question.question_image || persisted.question_image || '',
+        };
+    });
+
+    const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;',
+    })[character]);
 
     // Function to update required fields
     function updateRequiredFields(selectedType) {
@@ -282,15 +308,16 @@ document.addEventListener('DOMContentLoaded', function() {
         const questionDiv = document.createElement('div');
         questionDiv.className = 'question-item mb-4';
         questionDiv.setAttribute('data-question-index', index);
-        const questionText = questionData?.question || '';
-        const choice1 = questionData?.choice1 || '';
-        const choice2 = questionData?.choice2 || '';
-        const choice3 = questionData?.choice3 || '';
-        const choice4 = questionData?.choice4 || '';
-        const choice5 = questionData?.choice5 || '';
-        const choice6 = questionData?.choice6 || '';
+        const questionText = escapeHtml(questionData?.question || '');
+        const choice1 = escapeHtml(questionData?.choice1 || '');
+        const choice2 = escapeHtml(questionData?.choice2 || '');
+        const choice3 = escapeHtml(questionData?.choice3 || '');
+        const choice4 = escapeHtml(questionData?.choice4 || '');
+        const choice5 = escapeHtml(questionData?.choice5 || '');
+        const choice6 = escapeHtml(questionData?.choice6 || '');
         const correctAnswer = questionData?.right_answer || '';
         const hasExtraChoices = choice5 || choice6;
+        const questionImage = escapeHtml(questionData?.question_image || '');
 
         questionDiv.innerHTML = `
             <div class="d-flex justify-content-between align-items-center mb-3">
@@ -306,6 +333,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 <label class="form-label" for="questions_${index}_text">نص السؤال *</label>
                 <textarea id="questions_${index}_text" name="questions[${index}][question_text]" class="form-control" rows="3"
                           placeholder="أدخل نص السؤال" data-required="true">${questionText}</textarea>
+            </div>
+
+            <div class="form-group mb-3">
+                <label class="form-label" for="questions_${index}_image">صورة توضيحية للسؤال</label>
+                ${questionImage ? `<img src="${questionImage}" alt="صورة السؤال الحالية" class="question-image-preview img-fluid rounded d-block mb-2">` : ''}
+                <input type="file" id="questions_${index}_image" name="questions[${index}][question_image]"
+                       class="form-control" accept="image/jpeg,image/png,image/webp,image/gif">
+                <small class="text-muted">اتركها فارغة للاحتفاظ بالصورة الحالية</small>
             </div>
 
             <div class="row mb-2">

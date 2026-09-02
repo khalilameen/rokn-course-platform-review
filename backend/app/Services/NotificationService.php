@@ -152,7 +152,8 @@ class NotificationService
             $audience,
             $data['image_url'] ?? null,
             $data['action_label_ar'] ?? null,
-            $data['action_label_en'] ?? null
+            $data['action_label_en'] ?? null,
+            $data['scheduled_at'] ?? null
         );
     }
 
@@ -163,7 +164,11 @@ class NotificationService
      * @param string $updateType
      * @return bool
      */
-    public static function notifyCourseUpdate(Course $course, string $updateType = 'general'): bool
+    public static function notifyCourseUpdate(
+        Course $course,
+        string $updateType = 'general',
+        ?string $deliveryKey = null
+    ): bool
     {
         if (!self::courseCanReceiveContentNotifications($course)) {
             return false;
@@ -198,9 +203,47 @@ class NotificationService
             $copy['message_en'],
             $link,
             [],
-            (string) Str::uuid(),
+            $deliveryKey ?: (string) Str::uuid(),
             (int) $course->id,
             SendStudentNotification::AUDIENCE_ENROLLED,
+            $copy['image_url'] ?? null,
+            $copy['action_label_ar'] ?? null,
+            $copy['action_label_en'] ?? null
+        );
+    }
+
+    public static function notifyNewCourse(Course $course, string $deliveryKey): bool
+    {
+        if (!self::courseCanReceiveContentNotifications($course)
+            || !$course->is_catalog_visible) {
+            return false;
+        }
+        $courseNameAr = (string) ($course->name_ar ?: $course->name_en ?: 'كورس ركن');
+        $courseNameEn = (string) ($course->name_en ?: $course->name_ar ?: 'Rokn course');
+        $copy = self::templatePayload('new_course', ['course' => $courseNameAr], [
+            'title_ar' => 'كورس جديد',
+            'title_en' => 'New course',
+            'message_ar' => $courseNameAr,
+            'message_en' => $courseNameEn,
+            'action_label_ar' => 'افتح الكورس',
+            'action_label_en' => 'View course',
+        ]);
+        if ($copy === null) return false;
+
+        return app(NotificationCampaignService::class)->queue(
+            'new_course',
+            [],
+            Course::class,
+            (int) $course->id,
+            $copy['title_ar'],
+            $copy['title_en'],
+            $copy['message_ar'],
+            $copy['message_en'],
+            '/Courses/' . $course->id,
+            [],
+            $deliveryKey,
+            (int) $course->id,
+            SendStudentNotification::AUDIENCE_NOT_ENROLLED,
             $copy['image_url'] ?? null,
             $copy['action_label_ar'] ?? null,
             $copy['action_label_en'] ?? null

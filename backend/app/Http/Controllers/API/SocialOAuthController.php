@@ -221,6 +221,7 @@ final class SocialOAuthController extends Controller
             'device_id' => $validated['device_id'] ?? null,
             'preferred_locale' => RoknLocale::fromRequest($request),
         ]);
+        $forward->attributes->set('social_attempt_started_at', $claimedAttempt->created_at);
 
         try {
             $response = $signController->socialLogin($forward);

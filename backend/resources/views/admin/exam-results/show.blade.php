@@ -194,7 +194,7 @@
                                                 <p class="text-muted"><small>{{ $question['description'] }}</small></p>
                                             @endif
                                             @if($question['question_image'])
-                                                <img src="{{ asset($question['question_image']) }}"
+                                                <img src="{{ filter_var($question['question_image'], FILTER_VALIDATE_URL) ? $question['question_image'] : asset(ltrim($question['question_image'], '/')) }}"
                                                      class="img-fluid question-image"
                                                      alt="صورة السؤال">
                                             @endif

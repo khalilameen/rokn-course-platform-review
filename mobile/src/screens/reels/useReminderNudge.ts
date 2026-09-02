@@ -1,6 +1,8 @@
 import {useCallback, useRef, useState} from 'react';
 import {
   accountScopedStorageKey,
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
   getItem,
   saveItem,
 } from '../../constants/helpers';
@@ -27,35 +29,58 @@ export const useReminderNudge = ({
   const maybeOfferReminders = useCallback(() => {
     if (reminderNudgeShownRef.current) return;
     reminderNudgeShownRef.current = true;
-    void Promise.all([
-      getSmartRemindersEnabled(),
-      accountScopedStorageKey('@rokn/reminders/nudge-seen/v1').then(getItem),
-    ]).then(([enabled, seen]) => {
-      if (enabled !== true && !seen) setReminderNudgeVisible(true);
-    });
+    void captureAccountSessionBoundary()
+      .then(async boundary => {
+        const [enabled, seen] = await Promise.all([
+          getSmartRemindersEnabled(),
+          accountScopedStorageKey(
+            '@rokn/reminders/nudge-seen/v1',
+            boundary,
+          ).then(getItem),
+        ]);
+        assertAccountSessionBoundary(boundary);
+        if (enabled !== true && !seen) setReminderNudgeVisible(true);
+      })
+      .catch(() => undefined);
   }, []);
 
   const closeReminderNudge = useCallback(() => {
     setReminderNudgeVisible(false);
-    void accountScopedStorageKey('@rokn/reminders/nudge-seen/v1').then(key =>
-      saveItem(key, true),
-    );
+    void captureAccountSessionBoundary()
+      .then(async boundary => {
+        await saveItem(
+          await accountScopedStorageKey(
+            '@rokn/reminders/nudge-seen/v1',
+            boundary,
+          ),
+          true,
+        );
+        assertAccountSessionBoundary(boundary);
+      })
+      .catch(() => undefined);
   }, []);
 
   const enableRemindersFromNudge = useCallback(async () => {
     if (enablingReminders) return false;
+    const boundary = await captureAccountSessionBoundary();
     setEnablingReminders(true);
     try {
       const granted = await enableSmartReminders();
+      assertAccountSessionBoundary(boundary);
       if (!granted) return false;
       await setSmartRemindersEnabled(true);
+      assertAccountSessionBoundary(boundary);
       if (await hasSession()) {
+        assertAccountSessionBoundary(boundary);
         await updateNotificationStatus(true).catch(() => undefined);
+        assertAccountSessionBoundary(boundary);
         await registerPushDeviceIfEligible({requestPermission: false}).catch(
           () => false,
         );
+        assertAccountSessionBoundary(boundary);
       }
       await scheduleNextLearningReminder({courseId, courseTitle});
+      assertAccountSessionBoundary(boundary);
       return true;
     } finally {
       setEnablingReminders(false);

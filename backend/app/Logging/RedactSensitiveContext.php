@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace App\Logging;
 
+use Illuminate\Log\Logger as IlluminateLogger;
 use Monolog\LogRecord;
-use Monolog\Logger;
+use Monolog\Logger as MonologLogger;
 use Throwable;
 
 final class RedactSensitiveContext
@@ -51,9 +52,10 @@ final class RedactSensitiveContext
         'whatsapp',
     ];
 
-    public function __invoke(Logger $logger): void
+    public function __invoke(IlluminateLogger|MonologLogger $logger): void
     {
-        $logger->pushProcessor(fn (LogRecord|array $record): LogRecord|array => $this->redactRecord($record));
+        $monolog = $logger instanceof IlluminateLogger ? $logger->getLogger() : $logger;
+        $monolog->pushProcessor(fn (LogRecord|array $record): LogRecord|array => $this->redactRecord($record));
     }
 
     private function redactRecord(LogRecord|array $record): LogRecord|array

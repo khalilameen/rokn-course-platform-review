@@ -13,6 +13,7 @@
                 <div class="card-body card-block">
                     <form action="{{ route('admin.teachers.store') }}" method="POST" enctype="multipart/form-data" class="form-horizontal" id="teacherForm">
                         @csrf
+                        <input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">
                         @include('admin.teachers._form')
                         
                         <div class="form-actions form-group">

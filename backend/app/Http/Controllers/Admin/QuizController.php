@@ -18,6 +18,8 @@ use Illuminate\Database\QueryException;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use App\Support\UnicodeText;
+use App\Services\StoredFileDeletionService;
+use App\Services\AdminAuthoringCreateIntentService;
 
 final class QuizController extends Controller
 {
@@ -37,7 +39,10 @@ final class QuizController extends Controller
         return view('admin.quizzes.create', compact('questions'));
     }
 
-    public function store(Request $request): JsonResponse|RedirectResponse
+    public function store(
+        Request $request,
+        AdminAuthoringCreateIntentService $createIntents
+    ): JsonResponse|RedirectResponse
     {
         $validated = $this->validateQuiz($request, true);
         $request->validate(['authoring_request_id' => 'required|uuid']);
@@ -53,18 +58,34 @@ final class QuizController extends Controller
         }
         $requestId = (string) $request->input('authoring_request_id');
         $existing = ItemList::quiz()->where('authoring_request_id', $requestId)->first();
-        if ($existing) return $this->storedResponse($request, $existing, true);
+        if ($existing) {
+            DB::transaction(function () use ($request, $existing, $createIntents): void {
+                ItemList::quiz()->whereKey($existing->id)->lockForUpdate()->firstOrFail();
+                $createIntents->checkpointResource($request, ItemList::class, $existing->id);
+            }, 3);
+            $this->ensureQuizImage($request, $existing, $requestId);
+            $existing = $this->completeStoredIntent($request, $existing, $createIntents);
+            return $this->storedResponse($request, $existing, true);
+        }
         $alreadySaved = false;
+        $inlineImages = $this->stageInlineQuestionImages($request, 'quiz-create|'.strtolower($requestId));
 
         try {
-            $quiz = DB::transaction(function () use ($request, $validated, $requestId): ItemList {
+            $quiz = DB::transaction(function () use (
+                $request,
+                $validated,
+                $requestId,
+                $inlineImages,
+                $createIntents
+            ): ItemList {
                 $quiz = new ItemList(['authoring_request_id' => $requestId]);
                 $quiz->fill($this->quizPayload($validated))->save();
 
-                $this->syncInlineQuestions($request, $quiz);
+                $this->syncInlineQuestions($request, $quiz, $inlineImages);
                 if (!$request->has('q_title')) {
                     $this->copySelectedQuestions($quiz, (array) ($validated['questions'] ?? []), false);
                 }
+                $createIntents->checkpointResource($request, ItemList::class, $quiz->id);
 
                 return $quiz;
             }, 3);
@@ -74,9 +95,8 @@ final class QuizController extends Controller
             $alreadySaved = true;
         }
 
-        if (!$alreadySaved && $request->hasFile('image')) {
-            $quiz->replaceImage($request->file('image'), 'quizzes', 'featured');
-        }
+        $this->ensureQuizImage($request, $quiz, $requestId);
+        $quiz = $this->completeStoredIntent($request, $quiz, $createIntents);
 
         return $this->storedResponse($request, $quiz, $alreadySaved);
     }
@@ -159,18 +179,28 @@ final class QuizController extends Controller
             ]);
         }
 
-        DB::transaction(function () use ($request, $quiz, $validated): void {
+        $inlineImages = $this->stageInlineQuestionImages(
+            $request,
+            'quiz-update|'.$quiz->id.'|'.(string) $request->input('editor_version')
+        );
+        DB::transaction(function () use ($request, $quiz, $validated, $inlineImages): void {
             $lockedQuiz = ItemList::quiz()->whereKey($quiz->id)->lockForUpdate()->firstOrFail();
             $this->assertEditorVersion($lockedQuiz, (string) $request->input('editor_version'));
             $lockedQuiz->update($this->quizPayload($validated));
-            $this->syncInlineQuestions($request, $lockedQuiz);
+            $this->syncInlineQuestions($request, $lockedQuiz, $inlineImages);
             if (!$request->has('q_title')) {
                 $this->copySelectedQuestions($lockedQuiz, (array) ($validated['questions'] ?? []), true);
             }
         }, 3);
 
         if ($request->hasFile('image')) {
-            $quiz->replaceImage($request->file('image'), 'quizzes', 'featured');
+            $file = $request->file('image');
+            $quiz->replaceImage(
+                $file,
+                'quizzes',
+                'featured',
+                'quiz-update|'.$quiz->id.'|'.(string) $request->input('editor_version').'|'.hash_file('sha256', $file->getRealPath())
+            );
         }
 
         return !empty($validated['course_id'])
@@ -255,7 +285,7 @@ final class QuizController extends Controller
                 'q_choice5.*' => 'nullable|string|max:1000',
                 'q_choice6.*' => 'nullable|string|max:1000',
                 'q_right_answer.*' => 'nullable|integer|min:1|max:6',
-                'q_question_image.*' => 'nullable|image|max:4096',
+                'q_question_image.*' => 'nullable|image|mimes:jpeg,jpg,png,webp,gif|max:4096',
             ];
         }
 
@@ -276,7 +306,8 @@ final class QuizController extends Controller
         ];
     }
 
-    private function syncInlineQuestions(Request $request, ItemList $quiz): void
+    /** @param array<int|string, string> $stagedImages */
+    private function syncInlineQuestions(Request $request, ItemList $quiz, array $stagedImages = []): void
     {
         if (!$request->has('q_title')) {
             return;
@@ -318,13 +349,51 @@ final class QuizController extends Controller
             ])->save();
             $keptIds[] = (int) $question->id;
 
-            $image = $request->file("q_question_image.{$key}");
-            if ($image instanceof UploadedFile) {
-                $question->replaceImage($image, 'questions', 'featured');
+            $imagePath = $stagedImages[$key] ?? null;
+            if (is_string($imagePath) && $imagePath !== '') {
+                $oldPhotos = $question->allPhotos()->where('type', 'featured')->get();
+                $newPhoto = $question->allPhotos()->firstOrCreate([
+                    'path' => $imagePath,
+                    'type' => 'featured',
+                ]);
+                $oldPhotos->where('id', '!=', $newPhoto->id)->each->delete();
             }
         }
 
         $quiz->questions()->whereNotIn('id', $keptIds ?: [0])->get()->each->delete();
+    }
+
+    /** @return array<int|string, string> */
+    private function stageInlineQuestionImages(Request $request, string $operation): array
+    {
+        $paths = [];
+        foreach ((array) $request->file('q_question_image', []) as $key => $image) {
+            if (!$image instanceof UploadedFile) continue;
+            $sha = hash_file('sha256', $image->getRealPath());
+            if (!is_string($sha) || $sha === '') {
+                throw new \RuntimeException('Question image could not be fingerprinted.');
+            }
+            $paths[$key] = app(StoredFileDeletionService::class)->storeTrackedUpload(
+                $image,
+                'questions',
+                'public',
+                60,
+                $operation.'|'.$key.'|'.$sha
+            );
+        }
+        return $paths;
+    }
+
+    private function ensureQuizImage(Request $request, ItemList $quiz, string $operation): void
+    {
+        if (!$request->hasFile('image')) return;
+        $file = $request->file('image');
+        $quiz->replaceImage(
+            $file,
+            'quizzes',
+            'featured',
+            'admin-quiz|'.strtolower($operation).'|'.hash_file('sha256', $file->getRealPath())
+        );
     }
 
     /** @param array<int, mixed> $questionIds */
@@ -412,11 +481,40 @@ final class QuizController extends Controller
     private function storedResponse(Request $request, ItemList $quiz, bool $alreadySaved): JsonResponse|RedirectResponse
     {
         if ($request->ajax()) {
-            return response()->json(['quiz' => $quiz->fresh('questions')]);
+            return response()->json(['quiz' => $quiz]);
         }
 
         return redirect()->route('admin.quizzes.index')
             ->with('success', $alreadySaved ? 'تم حفظ الاختبار بالفعل' : 'تم حفظ الاختبار');
+    }
+
+    private function completeStoredIntent(
+        Request $request,
+        ItemList $quiz,
+        AdminAuthoringCreateIntentService $createIntents
+    ): ItemList {
+        return DB::transaction(function () use ($request, $quiz, $createIntents): ItemList {
+            $locked = ItemList::quiz()->whereKey($quiz->id)->lockForUpdate()->firstOrFail();
+            $locked->load('questions');
+            if ($request->ajax()) {
+                $createIntents->completeJson(
+                    $request,
+                    ['quiz' => $locked],
+                    200,
+                    ItemList::class,
+                    $locked->id
+                );
+            } else {
+                $createIntents->completeRedirect(
+                    $request,
+                    route('admin.quizzes.index'),
+                    302,
+                    ItemList::class,
+                    $locked->id
+                );
+            }
+            return $locked;
+        }, 3);
     }
 
     private function copiedResponse(Request $request, ItemList $copy, bool $alreadyCopied): JsonResponse|RedirectResponse

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\API;
 
+use App\Models\BunnyVideoCleanupCandidate;
 use App\Services\BunnyService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -57,22 +58,20 @@ class PortfolioEndpointTest extends ApiTestCase
         $mediaCountBefore = DB::table('portfolio_media')->count();
         $bunny = Mockery::mock(BunnyService::class);
         $bunny->shouldReceive('uploadFileToStorage')
-            ->twice()
-            ->with(Mockery::type(UploadedFile::class), 'portfolio')
-            ->andReturn('portfolio/first.jpg', null);
-        $bunny->shouldReceive('deleteFileFromStorage')
             ->once()
-            ->with('portfolio/first.jpg')
-            ->andReturnTrue();
+            ->with(
+                Mockery::type(UploadedFile::class),
+                'portfolio',
+                Mockery::type('string'),
+                'portfolio_upload_unpublished'
+            )
+            ->andReturnNull();
         $this->app->instance(BunnyService::class, $bunny);
 
         $response = $this->actingAs($this->user, 'api')->post('/api/v1/portfolio', [
             'title' => 'مشروع قابل لإعادة المحاولة',
-            'files' => [
-                UploadedFile::fake()->image('first.jpg', 10, 10)->size(2),
-                UploadedFile::fake()->image('second.jpg', 11, 11)->size(2),
-            ],
-            'file_types' => ['image', 'image'],
+            'files' => [UploadedFile::fake()->image('first.jpg', 10, 10)->size(2)],
+            'file_types' => ['image'],
         ]);
 
         $response->assertStatus(503)->assertJson(['status' => 503]);
@@ -85,7 +84,12 @@ class PortfolioEndpointTest extends ApiTestCase
         $bunny = Mockery::mock(BunnyService::class);
         $bunny->shouldReceive('uploadVerifiedVideo')
             ->once()
-            ->with('Sample Portfolio Item', Mockery::type(UploadedFile::class))
+            ->with(
+                'Sample Portfolio Item',
+                Mockery::type(UploadedFile::class),
+                null,
+                Mockery::type('string')
+            )
             ->andReturnNull();
         $this->app->instance(BunnyService::class, $bunny);
 
@@ -111,15 +115,18 @@ class PortfolioEndpointTest extends ApiTestCase
             'updated_at' => now(),
         ]);
         $bunny = Mockery::mock(BunnyService::class);
-        $bunny->shouldReceive('deleteVideo')->once()->with('remote-guid')->andReturnFalse();
+        $bunny->shouldReceive('queueVideoCleanup')
+            ->once()
+            ->with('remote-guid', null, 'portfolio_media_deleted', 1, false)
+            ->andReturn(new BunnyVideoCleanupCandidate(['video_guid' => 'remote-guid']));
         $this->app->instance(BunnyService::class, $bunny);
 
         $this->actingAs($this->user, 'api')
             ->deleteJson("/api/v1/portfolio/1/media/{$mediaId}")
-            ->assertStatus(503)
-            ->assertJsonPath('success', false);
+            ->assertOk()
+            ->assertJsonPath('success', true);
 
-        $this->assertDatabaseHas('portfolio_media', ['id' => $mediaId, 'file_path' => 'remote-guid']);
+        $this->assertDatabaseMissing('portfolio_media', ['id' => $mediaId]);
     }
 
     public function test_portfolio_contract_never_exposes_private_storage_identifiers(): void

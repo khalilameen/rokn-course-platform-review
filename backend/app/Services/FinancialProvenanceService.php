@@ -533,12 +533,20 @@ final readonly class FinancialProvenanceService
                     && $hold->enrollment_id
                     && $hold->enrollment_deactivated_at
                 ) {
-                    CourseEnrollment::query()
+                    $restoredEnrollment = CourseEnrollment::query()
                         ->whereKey($hold->enrollment_id)
                         ->where('order_id', $hold->course_order_id)
                         ->where('is_active', false)
                         ->where('updated_at', $hold->enrollment_deactivated_at)
-                        ->update(['is_active' => true, 'updated_at' => now()]);
+                        ->lockForUpdate()
+                        ->first();
+                    if ($restoredEnrollment) {
+                        // Persist through the model just like revocation. The
+                        // enrollment aggregate is embedded in catalogue/home
+                        // cards, and a bulk update would bypass its after-
+                        // commit revision invalidation.
+                        $restoredEnrollment->forceFill(['is_active' => true])->save();
+                    }
                 }
                 if (
                     $hold->entitlement_scope === 'course'

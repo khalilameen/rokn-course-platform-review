@@ -90,21 +90,39 @@ final class AppReleasePolicyService
             ->where('is_active', true);
 
         if ($channel !== null) {
-            $exact = (clone $base)->where('distribution_channel', $channel)->get();
+            $exact = $this->usableVersions(
+                (clone $base)->where('distribution_channel', $channel)->get(),
+                $platform,
+                $channel,
+            );
+            if ($exact->isNotEmpty()) {
+                return $exact;
+            }
 
-            return $exact->isNotEmpty()
-                ? $exact
-                : (clone $base)->whereNull('distribution_channel')->get();
+            return $this->usableVersions(
+                (clone $base)->whereNull('distribution_channel')->get(),
+                $platform,
+                $channel,
+            );
         }
 
         if ($platform === 'ios') {
-            $appStore = (clone $base)
-                ->where('distribution_channel', self::CHANNEL_APP_STORE)
-                ->get();
+            $appStore = $this->usableVersions(
+                (clone $base)
+                    ->where('distribution_channel', self::CHANNEL_APP_STORE)
+                    ->get(),
+                $platform,
+                self::CHANNEL_APP_STORE,
+            );
+            if ($appStore->isNotEmpty()) {
+                return $appStore;
+            }
 
-            return $appStore->isNotEmpty()
-                ? $appStore
-                : (clone $base)->whereNull('distribution_channel')->get();
+            return $this->usableVersions(
+                (clone $base)->whereNull('distribution_channel')->get(),
+                $platform,
+                self::CHANNEL_APP_STORE,
+            );
         }
 
         // Old Android APKs did not declare a channel. A legacy row remains the
@@ -112,14 +130,52 @@ final class AppReleasePolicyService
         // the only safe modern fallback: a store build must never be directed
         // to a sideloaded APK, while a direct install can move to Play when the
         // application identity and signer match.
-        $legacy = (clone $base)->whereNull('distribution_channel')->get();
+        $legacy = $this->usableVersions(
+            (clone $base)->whereNull('distribution_channel')->get(),
+            $platform,
+            null,
+        );
         if ($legacy->isNotEmpty()) {
             return $legacy;
         }
 
-        return (clone $base)
-            ->where('distribution_channel', self::CHANNEL_PLAY)
-            ->get();
+        return $this->usableVersions(
+            (clone $base)
+                ->where('distribution_channel', self::CHANNEL_PLAY)
+                ->get(),
+            $platform,
+            self::CHANNEL_PLAY,
+        );
+    }
+
+    /**
+     * Never turn a malformed or stale release row into a forced-update wall.
+     * Dashboard validation protects new writes, while this read-side guard
+     * also covers imported rows and direct database changes.
+     *
+     * @param Collection<int, AppVersion> $versions
+     * @return Collection<int, AppVersion>
+     */
+    private function usableVersions(Collection $versions, string $platform, ?string $requestedChannel): Collection
+    {
+        return $versions->filter(function (AppVersion $version) use ($platform, $requestedChannel): bool {
+            $declared = trim((string) $version->distribution_channel);
+            $channels = $declared !== ''
+                ? [$declared]
+                : ($requestedChannel !== null
+                    ? [$requestedChannel]
+                    : ($platform === 'ios'
+                        ? [self::CHANNEL_APP_STORE]
+                        : [self::CHANNEL_PLAY, self::CHANNEL_DIRECT]));
+
+            foreach ($channels as $channel) {
+                if ($this->isAllowedDownloadUrl($channel, $version->download_url)) {
+                    return true;
+                }
+            }
+
+            return false;
+        })->values();
     }
 
     /** @return array{ready: bool, required_channels: list<string>, channels: array<string, array{ready: bool, reason: ?string, release_id: ?int}>} */

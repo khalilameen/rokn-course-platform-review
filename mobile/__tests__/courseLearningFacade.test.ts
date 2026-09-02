@@ -39,6 +39,7 @@ describe('course learning facade', () => {
       WATCH_HISTORY_ENABLED_KEY: persistence.WATCH_HISTORY_ENABLED_KEY,
       applyLocalLearningState: persistence.applyLocalLearningState,
       askCourseAssistant: assistant.askCourseAssistant,
+      cancelCourseAssistantTurn: assistant.cancelCourseAssistantTurn,
       clearCurrentAccountLearningFiles:
         projects.clearCurrentAccountLearningFiles,
       clearLocalWatchHistory: persistence.clearLocalWatchHistory,
@@ -54,14 +55,19 @@ describe('course learning facade', () => {
       loadCourseLearningData: mapping.loadCourseLearningData,
       loadCourseQuiz: quizzes.loadCourseQuiz,
       loadProjectFeedbackThread: projects.loadProjectFeedbackThread,
+      loadProjectResolution: projects.loadProjectResolution,
       mapCoursePayload: mapping.mapCoursePayload,
       markSectionComplete: playback.markSectionComplete,
       migrateGuestLearningState: persistence.migrateGuestLearningState,
       migrateGuestSavedCollections:
         savedCollections.migrateGuestSavedCollections,
       openPlaybackSession: playback.openPlaybackSession,
+      openCourseAssistantAttachment: assistant.openCourseAssistantAttachment,
+      openProjectInputAttachment: projects.openProjectInputAttachment,
       persistLocalPlaybackPosition: playback.persistLocalPlaybackPosition,
+      pollCourseAssistantTurn: assistant.pollCourseAssistantTurn,
       quiesceLearningRuntime: projects.quiesceLearningRuntime,
+      readPlayerStateForScope: persistence.readPlayerStateForScope,
       reconcileServerSavedLessons:
         savedCollections.reconcileServerSavedLessons,
       removeLessonFromSavedFolder: savedCollections.removeLessonFromSavedFolder,
@@ -77,6 +83,11 @@ describe('course learning facade', () => {
       submitProjectAttempt: projects.submitProjectAttempt,
       toggleWatchLater: savedCollections.toggleWatchLater,
       unlockAfterProject: projects.unlockAfterProject,
+      uploadCourseAssistantAttachment:
+        assistant.uploadCourseAssistantAttachment,
+      uploadProjectFeedbackAttachment:
+        projects.uploadProjectFeedbackAttachment,
+      watchProjectResolution: projects.watchProjectResolution,
     };
 
     expect(facade).toMatchObject(expected);

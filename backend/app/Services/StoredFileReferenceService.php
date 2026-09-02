@@ -6,6 +6,7 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 
 /** Final guard against a delayed cleanup deleting a path reused by new data. */
 final class StoredFileReferenceService
@@ -38,6 +39,43 @@ final class StoredFileReferenceService
         return $this->exists('portfolio_media', 'file_path', $videoGuid);
     }
 
+    /**
+     * Account erasure retains its media row until the provider confirms the
+     * delete. Exclude only that retiring row so a legacy/shared object can
+     * never be removed while another portfolio item or lesson still owns it.
+     */
+    public function isBunnyStreamVideoReferencedElsewhere(
+        string $videoGuid,
+        int $portfolioMediaId
+    ): bool {
+        $videoGuid = strtolower(trim($videoGuid));
+        if ($videoGuid === '' || $portfolioMediaId <= 0) {
+            return true;
+        }
+
+        if (
+            Schema::hasTable('course_sections')
+            && Schema::hasTable('lessons')
+            && DB::table('course_sections')
+                ->join('lessons', function ($join): void {
+                    $join->on('lessons.id', '=', 'course_sections.sectionable_id')
+                        ->where('course_sections.sectionable_type', '=', \App\Models\Lesson::class);
+                })
+                ->whereNull('course_sections.deleted_at')
+                ->whereRaw('LOWER(lessons.bunny_video_id) = ?', [$videoGuid])
+                ->exists()
+        ) {
+            return true;
+        }
+
+        return Schema::hasTable('portfolio_media')
+            && Schema::hasColumn('portfolio_media', 'file_path')
+            && DB::table('portfolio_media')
+                ->where('id', '<>', $portfolioMediaId)
+                ->whereRaw('LOWER(file_path) = ?', [$videoGuid])
+                ->exists();
+    }
+
     /** Bunny Storage paths do not carry a Laravel disk column in legacy rows. */
     public function isBunnyStoragePathReferenced(string $path): bool
     {
@@ -59,6 +97,38 @@ final class StoredFileReferenceService
         return false;
     }
 
+    /** Same reference guard while one deleted-account media row is retained. */
+    public function isBunnyStoragePathReferencedElsewhere(
+        string $path,
+        int $portfolioMediaId
+    ): bool {
+        $path = ltrim(trim($path), '/');
+        if ($path === '' || $portfolioMediaId <= 0) {
+            return true;
+        }
+
+        if ($this->exists('lessons', 'thumbnail_path', $path)) {
+            return true;
+        }
+        if (!Schema::hasTable('portfolio_media')) {
+            return false;
+        }
+
+        foreach (['file_path', 'thumbnail_path'] as $column) {
+            if (
+                Schema::hasColumn('portfolio_media', $column)
+                && DB::table('portfolio_media')
+                    ->where('id', '<>', $portfolioMediaId)
+                    ->where($column, $path)
+                    ->exists()
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function isReferenced(string $disk, string $path): bool
     {
         $disk = trim($disk);
@@ -72,10 +142,38 @@ final class StoredFileReferenceService
                 ['photos', 'path'],
                 ['users', 'profile_image'],
                 ['courses', 'image'],
+                ['questions', 'question_image'],
             ] as [$table, $column]) {
                 if ($this->exists($table, $column, $path)) {
                     return true;
                 }
+            }
+            $publicUrl = Storage::disk('public')->url($path);
+            foreach ([
+                ['notification_campaigns', 'image_url'],
+                ['student_notifications', 'image_url'],
+                ['design_settings', 'logo_url'],
+                ['design_settings', 'icon_url'],
+                ['design_settings', 'home_background_url'],
+            ] as [$table, $column]) {
+                if ($this->exists($table, $column, $publicUrl)) {
+                    return true;
+                }
+            }
+            // Exam attempts are immutable evidence of the exact visual
+            // question shown to a learner. Replacing or deleting the live
+            // question must not retire that image while an attempt snapshot
+            // still points to it. The managed path is embedded inside the
+            // absolute URL, so one conservative JSON text lookup covers both
+            // URL formats used by historical releases.
+            if (
+                Schema::hasTable('exam_attempts')
+                && Schema::hasColumn('exam_attempts', 'exam_data')
+                && DB::table('exam_attempts')
+                    ->where('exam_data', 'like', '%'.$path.'%')
+                    ->exists()
+            ) {
+                return true;
             }
         }
 
@@ -86,6 +184,9 @@ final class StoredFileReferenceService
             return true;
         }
         if ($this->existsWithDisk('feedback_attachments', 'path', 'disk', $disk, $path, 'feedback')) {
+            return true;
+        }
+        if ($this->existsWithDisk('ai_input_attachments', 'storage_path', 'storage_disk', $disk, $path, 'local')) {
             return true;
         }
         if (

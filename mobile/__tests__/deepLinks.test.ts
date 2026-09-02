@@ -1,6 +1,7 @@
 import {
   isExternalWebLink,
   parseRoknDestination,
+  resolveInitialUrlWithinDeadline,
 } from '../src/navigation/deepLinks';
 
 describe('Rokn deep links', () => {
@@ -83,5 +84,42 @@ describe('Rokn deep links', () => {
     ).toBe(false);
     expect(isExternalWebLink('http://support.example.org/help')).toBe(false);
     expect(isExternalWebLink('tel:+201000000000')).toBe(false);
+  });
+
+  it('delivers a cold-start link that resolves after the navigation deadline', async () => {
+    jest.useFakeTimers();
+    let settle!: (value: string | null) => void;
+    const nativeInitialUrl = new Promise<string | null>(resolve => {
+      settle = resolve;
+    });
+    const late = jest.fn();
+    const initial = resolveInitialUrlWithinDeadline(
+      nativeInitialUrl,
+      late,
+      1_500,
+    );
+
+    jest.advanceTimersByTime(1_500);
+    await expect(initial).resolves.toBeNull();
+    settle('rokn://course/42');
+    await Promise.resolve();
+
+    expect(late).toHaveBeenCalledTimes(1);
+    expect(late).toHaveBeenCalledWith('rokn://course/42');
+    jest.useRealTimers();
+  });
+
+  it('does not redeliver an initial link that resolves inside the deadline', async () => {
+    jest.useFakeTimers();
+    const late = jest.fn();
+    await expect(
+      resolveInitialUrlWithinDeadline(
+        Promise.resolve('rokn://wallet'),
+        late,
+        1_500,
+      ),
+    ).resolves.toBe('rokn://wallet');
+    expect(late).not.toHaveBeenCalled();
+    jest.useRealTimers();
   });
 });

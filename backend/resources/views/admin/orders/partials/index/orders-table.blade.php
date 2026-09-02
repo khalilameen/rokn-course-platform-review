@@ -68,6 +68,9 @@
                                         @endphp
                                         <div class="amount-display">{{ number_format($displayAmount, $isWalletOrder ? 0 : 2) }}</div>
                                         <small class="text-muted">{{ $displayUnit }}</small>
+                                        @if($isCashChannel && ($order->gateway_gross_amount === null || $order->gateway_settlement_status === 'catalog_estimate'))
+                                            <br><small class="text-warning">تقدير كتالوج</small>
+                                        @endif
                                         @if($order->discount_amount > 0)
                                             <br><small class="discount-info"><i class="fa fa-tag"></i> خصم: {{ number_format($order->discount_amount, 2) }}</small>
                                         @endif

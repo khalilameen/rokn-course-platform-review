@@ -14,6 +14,7 @@
     <div class="card-body p-4">
         <form action="{{ route('admin.coin-earning-methods.store') }}" method="POST">
             @csrf
+            <input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">
             <div class="row">
                 <div class="col-md-6 mb-3">
                     <label class="form-label">العنوان (بالعربية)</label>

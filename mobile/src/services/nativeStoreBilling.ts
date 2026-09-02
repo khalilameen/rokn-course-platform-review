@@ -19,6 +19,7 @@ import {
 import type {DemoCoinPackage} from './demoExperience';
 import {firstBoolean, payload} from './api/common';
 import {reportClientError} from './operationalTelemetry';
+import {errorCode} from '../utils/errorPayload';
 
 type StoreBillingContext = {
   google_obfuscated_account_id?: unknown;
@@ -27,6 +28,8 @@ type StoreBillingContext = {
 
 type StoreVerificationResult = {
   coins_added?: unknown;
+  credited?: unknown;
+  financial_status?: unknown;
   finalize_transaction?: unknown;
   already_processed?: unknown;
 };
@@ -148,15 +151,17 @@ const purchaseBelongsTo = (
   const receiptBinding = purchaseBinding(purchase);
   if (receiptBinding) return receiptBinding === owner.accountBinding;
 
-  // Some listener bridges omit the binding from the live callback even though
-  // the provider receipt carries it. Only the still-active request for this
-  // exact Rokn account may use that narrow compatibility path.
-  const active = activePurchases.get(owner.accountScope);
-  return (
-    active?.productId === purchase.productId &&
-    active.accountBinding === owner.accountBinding
-  );
+  // Some bridges omit the account binding after a process restart even though
+  // it remains signed inside the provider receipt. Let the backend inspect an
+  // unbound callback: provider verification is authoritative and enforces the
+  // Rokn account binding before a single coin is credited.
+  return true;
 };
+
+const receiptBelongsToAnotherAccount = (error: unknown) =>
+  ['store_account_mismatch', 'store_purchase_already_claimed'].includes(
+    errorCode(error).trim().toLowerCase(),
+  );
 
 const packageProductId = (coinPackage: DemoCoinPackage) =>
   IS_PLAY_DISTRIBUTION
@@ -241,7 +246,14 @@ const verifyAndFinish = async (
       throw new Error('STORE_SERVER_DID_NOT_AUTHORIZE_FINALIZATION');
     }
     const coinsAdded = Number(verified.coins_added);
-    if (!Number.isSafeInteger(coinsAdded) || coinsAdded <= 0) {
+    const credited =
+      firstBoolean(verified.credited) ??
+      (Number.isSafeInteger(coinsAdded) && coinsAdded > 0);
+    if (
+      !Number.isSafeInteger(coinsAdded) ||
+      coinsAdded < 0 ||
+      (credited && coinsAdded <= 0)
+    ) {
       throw new Error('STORE_VERIFICATION_CONTRACT_INVALID');
     }
 
@@ -251,10 +263,10 @@ const verifyAndFinish = async (
     await finishTransaction({purchase, isConsumable: true});
 
     return {
-      success: true,
+      success: credited,
       pending: false,
-      cancelled: false,
-      coinsAdded,
+      cancelled: !credited,
+      coinsAdded: credited ? coinsAdded : 0,
       orderRef: purchaseTransactionId(purchase),
       demo: false,
     };
@@ -277,6 +289,13 @@ const handlePurchaseUpdate = async (purchase: Purchase) => {
       active.resolve(result),
     );
   } catch (error: unknown) {
+    if (receiptBelongsToAnotherAccount(error)) {
+      // An unbound callback from a previous Rokn account can be published by
+      // the store while this account has its own sheet open. The backend has
+      // rejected its owner authoritatively; it must not reject the new
+      // account's unrelated active purchase.
+      return;
+    }
     reportClientError(
       error instanceof Error
         ? error
@@ -379,9 +398,12 @@ const reconcileOutstandingPurchases = async (
         reconciled += result.success ? 1 : 0;
       } catch (error: unknown) {
         // One unresolved receipt must not hide later receipts in the queue.
-        // It still blocks a second purchase until it can be verified, because
-        // finishing or ignoring it locally could lose a paid transaction.
-        pendingProductIds.add(purchase.productId);
+        // A receipt authoritatively bound to another Rokn account must not
+        // block this learner from buying the same SKU. Other failures remain
+        // pending because ignoring those could lose a genuinely paid receipt.
+        if (!receiptBelongsToAnotherAccount(error)) {
+          pendingProductIds.add(purchase.productId);
+        }
         reportClientError(
           error instanceof Error
             ? error

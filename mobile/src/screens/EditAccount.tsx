@@ -253,6 +253,7 @@ export default function EditAccount() {
       return;
     saveFlightRef.current = true;
     setSaving(true);
+    let remoteProfileSaved = false;
     try {
       const accountScope = await getCurrentAccountStorageScope();
       const sessionAtStart = await getItem(AsyncKeys.USER_DATA);
@@ -307,6 +308,7 @@ export default function EditAccount() {
         remoteAvatar = profile.avatar || remoteAvatar;
         setProfileRevision(profile.profileRevision);
         setUsername(portfolio.slug);
+        remoteProfileSaved = true;
       }
       if ((await getCurrentAccountStorageScope()) !== accountScope) {
         throw new Error('ACCOUNT_CHANGED_DURING_PROFILE_UPDATE');
@@ -340,17 +342,28 @@ export default function EditAccount() {
       );
       dispatch(saveLoginData(next));
       profileRequestRef.current = null;
-      await removeLearnerDraftFile(avatarUpload);
+      await removeLearnerDraftFile(avatarUpload).catch(() => undefined);
       if (mountedRef.current) {
         setAvatarUpload(undefined);
         navigation.goBack();
       }
     } catch (error: unknown) {
       if (mountedRef.current) {
-        Alert.alert(
-          'تعذّر حفظ التغييرات',
-          learnerErrorMessage(error, 'لم تكتمل التغييرات\nحاول مرة أخرى'),
-        );
+        if (remoteProfileSaved) {
+          profileRequestRef.current = null;
+          setReloadProfile(value => value + 1);
+          await removeLearnerDraftFile(avatarUpload).catch(() => undefined);
+          setAvatarUpload(undefined);
+          Alert.alert(
+            'حُفظت التغييرات',
+            'سيُحدّث الحساب تلقائيًا',
+          );
+        } else {
+          Alert.alert(
+            'تعذّر حفظ التغييرات',
+            learnerErrorMessage(error, 'لم تكتمل التغييرات\nحاول مرة أخرى'),
+          );
+        }
       }
     } finally {
       saveFlightRef.current = false;

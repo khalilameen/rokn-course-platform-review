@@ -9,6 +9,7 @@ use App\Models\CourseCode;
 use App\Models\DesignSetting;
 use App\Models\Lesson;
 use App\Services\ArabicPdfService;
+use App\Services\AdminAuthoringCreateIntentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Support\BusinessClock;
@@ -87,12 +88,13 @@ class CourseCodeController extends Controller
      * @param  \App\Http\Requests\Admin\CourseCodeRequest  $request
      * @return \Illuminate\Http\Response
      */
-    public function store(CourseCodeRequest $request)
+    public function store(CourseCodeRequest $request, AdminAuthoringCreateIntentService $createIntents)
     {
         try {
             $numberOfCodes = max(1, (int) $request->input('number_of_codes', 1));
 
-            DB::transaction(function () use ($request, $numberOfCodes): void {
+            DB::transaction(function () use ($request, $numberOfCodes, $createIntents): void {
+                $firstCodeId = null;
                 for ($i = 0; $i < $numberOfCodes; $i++) {
                     $codeData = [
                         'code' => CourseCode::generateUniqueCode(),
@@ -110,8 +112,16 @@ class CourseCodeController extends Controller
                         'course_id' => $request->integer('course_id'),
                     ];
 
-                    CourseCode::create($codeData);
+                    $created = CourseCode::create($codeData);
+                    $firstCodeId ??= $created->id;
                 }
+                $createIntents->completeRedirect(
+                    $request,
+                    route('admin.course-codes.index'),
+                    302,
+                    CourseCode::class,
+                    $firstCodeId
+                );
             }, 3);
 
             $message = $numberOfCodes > 1
@@ -174,7 +184,7 @@ class CourseCodeController extends Controller
             $data = $request->validated();
 
             // Remove fields that shouldn't be updated
-            unset($data['number_of_codes']);
+            unset($data['number_of_codes'], $data['authoring_request_id']);
             $data['allowed_email_domains'] = $this->emailDomains(
                 $request->input('allowed_email_domains')
             );

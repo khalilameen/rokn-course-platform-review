@@ -85,7 +85,7 @@ final readonly class CourseAccessPlanService
     public function snapshot(CourseAccessPlan $plan, ?CarbonInterface $purchasedAt = null): array
     {
         return [
-            'version' => 3,
+            'version' => CourseAccessPlanSnapshot::CURRENT_VERSION,
             'plan_id' => (int) $plan->id,
             'code' => (string) $plan->code,
             'name_ar' => (string) $plan->name_ar,
@@ -95,6 +95,10 @@ final readonly class CourseAccessPlanService
             'chat_enabled' => (bool) $plan->chat_enabled,
             'chat_message_limit' => (int) $plan->chat_message_limit,
             'chat_token_budget' => (int) $plan->chat_token_budget,
+            'chat_attachments_enabled' => (bool) $plan->chat_attachments_enabled,
+            'chat_attachment_max_files' => (int) $plan->chat_attachment_max_files,
+            'project_followup_attachments_enabled' => (bool) $plan->project_followup_attachments_enabled,
+            'project_followup_attachment_max_files' => (int) $plan->project_followup_attachment_max_files,
             // Provider budgets remain fixed-decimal receipt values.
             'ai_budget_usd' => $this->formatUsd($plan->ai_budget_usd),
             'request_reserve_usd' => $this->formatUsd($plan->request_reserve_usd),
@@ -150,6 +154,10 @@ final readonly class CourseAccessPlanService
             'chat_enabled' => $plan->chat_enabled,
             'chat_message_limit' => $plan->chat_message_limit,
             'chat_token_budget' => $plan->chat_token_budget,
+            'chat_attachments_enabled' => $plan->chat_attachments_enabled,
+            'chat_attachment_max_files' => $plan->chat_attachment_max_files,
+            'project_followup_attachments_enabled' => $plan->project_followup_attachments_enabled,
+            'project_followup_attachment_max_files' => $plan->project_followup_attachment_max_files,
             'ai_budget_usd' => $plan->ai_budget_usd,
             'request_reserve_usd' => $plan->request_reserve_usd,
             'max_output_tokens' => $plan->max_output_tokens,
@@ -183,6 +191,9 @@ final readonly class CourseAccessPlanService
             && $chatBudget > 0
             && $chatReserve > 0
             && $chatReserve <= $chatBudget;
+        $chatAttachmentsEnabled = $chatEnabled
+            && (bool) ($terms['chat_attachments_enabled'] ?? false)
+            && max(0, (int) ($terms['chat_attachment_max_files'] ?? 0)) > 0;
         $reportBudget = max(0, (float) ($terms['project_feedback_budget_usd'] ?? 0));
         $reportReserve = max(0, (float) ($terms['project_feedback_reserve_usd'] ?? 0));
         $reportEnabled = in_array($feedback, [
@@ -202,6 +213,9 @@ final readonly class CourseAccessPlanService
             && $followupBudget > 0
             && $followupReserve > 0
             && $followupReserve <= $followupBudget;
+        $projectAttachmentsEnabled = $threadEnabled
+            && (bool) ($terms['project_followup_attachments_enabled'] ?? false)
+            && max(0, (int) ($terms['project_followup_attachment_max_files'] ?? 0)) > 0;
         $effectiveFeedback = !$reportEnabled
             ? CourseAccessPlan::FEEDBACK_PASS_ONLY
             : ($threadEnabled
@@ -217,6 +231,10 @@ final readonly class CourseAccessPlanService
             'chat_message_limit' => $chatEnabled
                 ? max(0, (int) ($terms['chat_message_limit'] ?? 0))
                 : 0,
+            'chat_attachments_enabled' => $chatAttachmentsEnabled,
+            'chat_attachment_max_files' => $chatAttachmentsEnabled
+                ? min(5, max(1, (int) ($terms['chat_attachment_max_files'] ?? 1)))
+                : 0,
             'project_feedback_level' => $effectiveFeedback,
             'project_report_enabled' => $reportEnabled,
             'project_thread_reply_enabled' => $threadEnabled,
@@ -225,6 +243,10 @@ final readonly class CourseAccessPlanService
                 : 0,
             'project_token_budget' => $threadEnabled
                 ? max(0, (int) ($terms['project_followup_token_budget'] ?? 0))
+                : 0,
+            'project_attachments_enabled' => $projectAttachmentsEnabled,
+            'project_attachment_max_files' => $projectAttachmentsEnabled
+                ? min(5, max(1, (int) ($terms['project_followup_attachment_max_files'] ?? 1)))
                 : 0,
             'project_output_enabled' => $threadEnabled
                 && (bool) ($terms['project_output_enabled'] ?? false),
@@ -301,6 +323,9 @@ final readonly class CourseAccessPlanService
                     $feedback = 'pass_only';
                 }
                 $chatEnabled = !empty($row['chat_enabled']);
+                $chatAttachmentsEnabled = $chatEnabled && !empty($row['chat_attachments_enabled']);
+                $projectAttachmentsEnabled = $feedback === 'enhanced'
+                    && !empty($row['project_followup_attachments_enabled']);
                 $minimumPaidCoins = max(0, (int) ($row['minimum_paid_coins'] ?? 0));
                 $chatBudget = max(0, (float) ($row['ai_budget_usd'] ?? 0));
                 $chatReserve = max(0, (float) ($row['request_reserve_usd'] ?? 0));
@@ -370,6 +395,14 @@ final readonly class CourseAccessPlanService
                     'chat_enabled' => $chatEnabled,
                     'chat_message_limit' => $chatEnabled ? max(1, (int) ($row['chat_message_limit'] ?? 1)) : 0,
                     'chat_token_budget' => $chatEnabled ? max(100, (int) ($row['chat_token_budget'] ?? 100)) : 0,
+                    'chat_attachments_enabled' => $chatAttachmentsEnabled,
+                    'chat_attachment_max_files' => $chatAttachmentsEnabled
+                        ? min(5, max(1, (int) ($row['chat_attachment_max_files'] ?? 1)))
+                        : 0,
+                    'project_followup_attachments_enabled' => $projectAttachmentsEnabled,
+                    'project_followup_attachment_max_files' => $projectAttachmentsEnabled
+                        ? min(5, max(1, (int) ($row['project_followup_attachment_max_files'] ?? 1)))
+                        : 0,
                     'ai_budget_usd' => $chatEnabled ? $chatBudget : 0,
                     'request_reserve_usd' => $chatEnabled ? $chatReserve : 0,
                     'project_feedback_token_budget' => $feedback !== 'pass_only'
@@ -393,6 +426,67 @@ final readonly class CourseAccessPlanService
                 ]);
             }
         }, 3);
+    }
+
+    /** Explicit additive grant; never runs as a side effect of editing a live plan. */
+    public function grantAttachmentsToCurrentEnrollments(
+        Course $course,
+        bool $grantCourseChat,
+        bool $grantProjectFollowup
+    ): int
+    {
+        if (!$grantCourseChat && !$grantProjectFollowup) return 0;
+        $plans = $course->accessPlans()->get()->keyBy('id');
+        $updated = 0;
+        CourseEnrollment::query()
+            ->where('course_id', $course->id)
+            ->whereNotNull('access_plan_id')
+            ->where('status', 'active')
+            ->orderBy('id')
+            ->chunkById(200, function ($enrollments) use (
+                $course, $plans, $grantCourseChat, $grantProjectFollowup, &$updated
+            ): void {
+                foreach ($enrollments as $enrollment) {
+                    $snapshot = is_array($enrollment->access_plan_snapshot)
+                        ? $enrollment->access_plan_snapshot
+                        : null;
+                    $plan = $plans->get($enrollment->access_plan_id);
+                    if (!$snapshot || (int) ($snapshot['version'] ?? 0) < 3 || !$plan) {
+                        continue;
+                    }
+                    $existingChat = (int) ($snapshot['version'] ?? 0) >= 4
+                        && (bool) ($snapshot['chat_attachments_enabled'] ?? false);
+                    $existingProject = (int) ($snapshot['version'] ?? 0) >= 5
+                        && (bool) ($snapshot['project_followup_attachments_enabled'] ?? false);
+                    $chatEnabled = $existingChat || ($grantCourseChat
+                        && (bool) ($snapshot['chat_enabled'] ?? false)
+                        && (bool) $plan->chat_attachments_enabled
+                        && (bool) $course->chat_attachments_enabled);
+                    $projectEnabled = $existingProject || ($grantProjectFollowup
+                        && (string) ($snapshot['project_feedback_level'] ?? '') === 'enhanced'
+                        && (bool) $plan->project_followup_attachments_enabled);
+                    if (!$chatEnabled && !$projectEnabled) continue;
+                    $snapshot['version'] = CourseAccessPlanSnapshot::CURRENT_VERSION;
+                    $snapshot['chat_attachments_enabled'] = $chatEnabled;
+                    $snapshot['chat_attachment_max_files'] = $chatEnabled ? min(
+                        5, max(1, (int) $course->chat_attachment_max_files),
+                        max(1, (int) $plan->chat_attachment_max_files)
+                    ) : 0;
+                    $snapshot['project_followup_attachments_enabled'] = $projectEnabled;
+                    $snapshot['project_followup_attachment_max_files'] = $projectEnabled
+                        ? min(5, max(1, (int) $plan->project_followup_attachment_max_files)) : 0;
+                    CourseAccessPlanSnapshot::assertValidForPlan((int) $enrollment->access_plan_id, $snapshot);
+                    $enrollment->forceFill(['access_plan_snapshot' => $snapshot])->save();
+                    $updated++;
+                }
+            });
+          return $updated;
+      }
+
+    /** Compatibility for older command callers: explicitly grants both families. */
+    public function grantChatAttachmentsToCurrentEnrollments(Course $course): int
+    {
+        return $this->grantAttachmentsToCurrentEnrollments($course, true, true);
     }
 
     private function defaultName(string $code): string
@@ -421,6 +515,10 @@ final readonly class CourseAccessPlanService
                 'chat_enabled' => false,
                 'chat_message_limit' => 0,
                 'chat_token_budget' => 0,
+                'chat_attachments_enabled' => false,
+                'chat_attachment_max_files' => 0,
+                'project_followup_attachments_enabled' => false,
+                'project_followup_attachment_max_files' => 0,
                 'ai_budget_usd' => 0,
                 'request_reserve_usd' => 0,
                 'max_output_tokens' => 260,
@@ -446,6 +544,10 @@ final readonly class CourseAccessPlanService
                 'chat_enabled' => true,
                 'chat_message_limit' => 25,
                 'chat_token_budget' => 12000,
+                'chat_attachments_enabled' => true,
+                'chat_attachment_max_files' => 2,
+                'project_followup_attachments_enabled' => false,
+                'project_followup_attachment_max_files' => 0,
                 'ai_budget_usd' => .45,
                 'request_reserve_usd' => .015,
                 'max_output_tokens' => 320,
@@ -471,6 +573,10 @@ final readonly class CourseAccessPlanService
                 'chat_enabled' => true,
                 'chat_message_limit' => 80,
                 'chat_token_budget' => 42000,
+                'chat_attachments_enabled' => true,
+                'chat_attachment_max_files' => 3,
+                'project_followup_attachments_enabled' => true,
+                'project_followup_attachment_max_files' => 3,
                 'ai_budget_usd' => 1.5,
                 'request_reserve_usd' => .025,
                 'max_output_tokens' => 480,

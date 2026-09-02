@@ -73,26 +73,51 @@ class StudentNotificationService
             'user_id' => $user->id,
             'delivery_key' => $deliveryKey,
         ];
-        try {
-            $notification = StudentNotification::query()->firstOrCreate($identity, [
-                'notification_type' => $type,
-                'notifiable_type' => $notifiableType,
-                'notifiable_id' => $notifiableId,
-                'title_ar' => $copy['title_ar'],
-                'title_en' => $copy['title_en'],
-                'message_ar' => $copy['message_ar'],
-                'message_en' => $copy['message_en'],
-                'link' => $link ?: ($copy['template_link'] ?? null),
-                'image_url' => $imageUrl ?: ($copy['image_url'] ?? null),
-                'action_label_ar' => $copy['action_label_ar'] ?? null,
-                'action_label_en' => $copy['action_label_en'] ?? null,
-                'is_read' => false,
-            ]);
-        } catch (QueryException $exception) {
-            $notification = StudentNotification::query()->where($identity)->first();
-            if (!$notification) {
-                throw $exception;
+        $notification = DB::transaction(function () use (
+            $user,
+            $identity,
+            $type,
+            $notifiableType,
+            $notifiableId,
+            $copy,
+            $link,
+            $imageUrl
+        ): ?StudentNotification {
+            // User is the aggregate lock. Account deletion takes the same lock
+            // before clearing inbox rows, so a stale callback cannot recreate
+            // personal notifications after the account has gone away.
+            $lockedUser = User::query()->whereKey($user->id)->lockForUpdate()->first();
+            if (!$lockedUser || !NotificationDeliveryPolicy::allowsInbox($lockedUser, $type)) {
+                return null;
             }
+
+            try {
+                return StudentNotification::query()->firstOrCreate($identity, [
+                    'notification_type' => $type,
+                    'notifiable_type' => $notifiableType,
+                    'notifiable_id' => $notifiableId,
+                    'title_ar' => $copy['title_ar'],
+                    'title_en' => $copy['title_en'],
+                    'message_ar' => $copy['message_ar'],
+                    'message_en' => $copy['message_en'],
+                    'link' => $link ?: ($copy['template_link'] ?? null),
+                    'image_url' => $imageUrl ?: ($copy['image_url'] ?? null),
+                    'action_label_ar' => $copy['action_label_ar'] ?? null,
+                    'action_label_en' => $copy['action_label_en'] ?? null,
+                    'is_read' => false,
+                ]);
+            } catch (QueryException $exception) {
+                $existing = StudentNotification::query()->where($identity)->first();
+                if (!$existing) {
+                    throw $exception;
+                }
+
+                return $existing;
+            }
+        });
+
+        if (!$notification) {
+            return null;
         }
 
         // Persist first so the in-app inbox is authoritative. Push delivery is

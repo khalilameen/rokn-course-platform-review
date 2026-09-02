@@ -39,10 +39,20 @@ final class AppReleaseChannelService
         };
         try {
             $releases = Cache::remember('app-release-channels:v2', 60, $load);
-        } catch (Throwable) {
-            // Static public content must remain available while a release
-            // table is temporarily unavailable. No channel is invented.
-            $releases = collect();
+        } catch (Throwable $cacheException) {
+            // Redis is only the accelerator. Falling straight to an empty
+            // collection here hid valid store/download links and then allowed
+            // PublicAppSettingsService to cache that false absence for five
+            // minutes.
+            report($cacheException);
+            try {
+                $releases = $load();
+            } catch (Throwable $databaseException) {
+                // A genuinely unavailable/absent release table has no safe URL
+                // to invent, so legacy store settings remain the fallback.
+                report($databaseException);
+                $releases = collect();
+            }
         }
 
         return [

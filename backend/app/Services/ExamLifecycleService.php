@@ -48,7 +48,7 @@ final readonly class ExamLifecycleService
                         'choice6',
                         'priority',
                         'right_answer'
-                    )->orderBy('priority');
+                    )->with('photo')->orderBy('priority');
                 }])
                 ->findOrFail($quizId);
 
@@ -101,7 +101,10 @@ final readonly class ExamLifecycleService
                         'id' => $question->id,
                         'title' => $question->title,
                         'question' => $question->question,
-                        'question_image' => $question->question_image,
+                        // Freeze the resolved public asset into the immutable
+                        // attempt so later question edits cannot change what
+                        // this learner was asked to answer.
+                        'question_image' => $question->image,
                         'description' => $question->description,
                         'choice1' => $question->choice1,
                         'choice2' => $question->choice2,

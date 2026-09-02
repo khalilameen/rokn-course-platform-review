@@ -101,6 +101,7 @@
                         @endif
                     </div>
                     {!! Form::open(['method' => 'POST', 'route' => ['admin.users.send_notification', $user->id], 'files' => true]) !!}
+                        <input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">
                         <div class="notification-form">
                             <input name="title" maxlength="80" placeholder="عنوان قصير" class="notification-input notification-input--title" type="text" required>
                             <input name="message" maxlength="240" id="notifications-input" placeholder="اكتب المطلوب مباشرة" class="notification-input" type="text" required>

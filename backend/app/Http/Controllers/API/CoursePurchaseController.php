@@ -140,9 +140,13 @@ final class CoursePurchaseController extends Controller
                 $clientIdempotencyKey,
                 $expectedPrice
             ): array {
-                // Money paths acquire learner and course locks in this order.
+                // The learner is the financial aggregate: wallet balance,
+                // enrollment and idempotency all serialize there. Course and
+                // plan rows are catalogue facts copied into the order
+                // snapshot; locking them would queue every buyer of the same
+                // popular course behind one shared row.
                 \App\Models\User::query()->lockForUpdate()->findOrFail($user->id);
-                $lockedCourse = Course::query()->lockForUpdate()->findOrFail($course->id);
+                $lockedCourse = Course::query()->findOrFail($course->id);
 
                 $existingEnrollment = CourseEnrollment::query()
                     ->where('user_id', $user->id)
@@ -201,7 +205,7 @@ final class CoursePurchaseController extends Controller
                     throw new \DomainException('course_not_available');
                 }
 
-                $selectedPlan = $planService->selectedPlan($lockedCourse, $requestedPlanCode, true);
+                $selectedPlan = $planService->selectedPlan($lockedCourse, $requestedPlanCode);
                 $amount = $selectedPlan
                     ? max(0, (int) $selectedPlan->price_coins)
                     : max(0, (int) ($lockedCourse->price ?? 0));
@@ -259,10 +263,10 @@ final class CoursePurchaseController extends Controller
                     'notes' => 'Wallet course purchase',
                 ]);
 
-                // The user and course rows are both locked above. Derive the
-                // remaining course-wide allowance from the immutable wallet
-                // ledger so base purchases and every plan upgrade share one
-                // cumulative reward cap.
+                // The learner row is the financial lock. Derive the remaining
+                // course-wide allowance from the immutable wallet ledger so
+                // base purchases and every plan upgrade share one cumulative
+                // reward cap without serializing unrelated learners.
                 $rewardContribution = $this->rewardContribution(
                     $walletService,
                     (int) $user->id,
@@ -309,7 +313,7 @@ final class CoursePurchaseController extends Controller
                     'order_id' => $order->id,
                     'user_id' => $user->id,
                     'course_id' => $lockedCourse->id,
-                    'bill_number' => Bill::generateBillNumber(),
+                    'bill_number' => Bill::numberForOrder((int) $order->id),
                     'amount' => $amount,
                     'tax_amount' => 0,
                     'total_amount' => $finalAmount,

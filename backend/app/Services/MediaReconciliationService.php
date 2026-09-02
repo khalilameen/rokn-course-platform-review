@@ -9,6 +9,7 @@ use App\Models\Course;
 use App\Models\Lesson;
 use App\Models\LessonMediaState;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
@@ -130,6 +131,21 @@ final class MediaReconciliationService
             // The existing probe remains the single writer of playback health.
             // Integrity fields below never overwrite its ready/failed state.
             $state = $this->health->probe($lesson);
+            if (
+                strtolower(trim((string) $state->provider_media_id))
+                !== strtolower(trim((string) $lesson->bunny_video_id))
+            ) {
+                $issues[] = $this->issue(
+                    'media_generation_changed_during_probe',
+                    'attention',
+                    'lesson',
+                    (int) $lesson->id
+                );
+
+                // A replacement won the race while the provider request was
+                // in flight. Its own probe owns the new generation.
+                return $this->completeLessonResult($lesson, $state, $issues, false);
+            }
         } else {
             $state = $this->readOnlyState($lesson);
         }
@@ -319,14 +335,41 @@ final class MediaReconciliationService
             && $state
             && $this->integritySchemaReady()
         ) {
-            $state->forceFill([
-                'integrity_status' => $integrityStatus,
-                'integrity_issues' => $issues ?: null,
-                'last_reconciled_at' => now(),
-                'quarantined_at' => $integrityStatus === 'quarantined'
-                    ? ($state->quarantined_at ?: now())
-                    : null,
-            ])->save();
+            $observedGuid = strtolower(trim((string) $lesson->bunny_video_id));
+            $observedProbeGeneration = (int) $state->probe_generation;
+            DB::transaction(function () use (
+                $lesson,
+                $state,
+                $observedGuid,
+                $observedProbeGeneration,
+                $integrityStatus,
+                $issues
+            ): void {
+                $currentLesson = Lesson::query()->whereKey($lesson->id)->lockForUpdate()->first();
+                $currentState = LessonMediaState::query()
+                    ->where('lesson_id', $lesson->id)
+                    ->lockForUpdate()
+                    ->first();
+                if (
+                    !$currentLesson
+                    || !$currentState
+                    || strtolower(trim((string) $currentLesson->bunny_video_id)) !== $observedGuid
+                    || strtolower(trim((string) $currentState->provider_media_id)) !== $observedGuid
+                    || (int) $currentState->probe_generation !== $observedProbeGeneration
+                ) {
+                    return;
+                }
+
+                $currentState->forceFill([
+                    'integrity_status' => $integrityStatus,
+                    'integrity_issues' => $issues ?: null,
+                    'last_reconciled_at' => now(),
+                    'quarantined_at' => $integrityStatus === 'quarantined'
+                        ? ($currentState->quarantined_at ?: now())
+                        : null,
+                ])->save();
+                $state->setRawAttributes($currentState->getAttributes(), true);
+            }, 3);
         }
 
         return [

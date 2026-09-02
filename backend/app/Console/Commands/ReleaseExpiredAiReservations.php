@@ -6,6 +6,7 @@ namespace App\Console\Commands;
 
 use App\Services\AiEntitlementBudgetService;
 use App\Services\CourseChatTurnService;
+use App\Services\PaidAiCallExecutionService;
 use Illuminate\Console\Command;
 
 final class ReleaseExpiredAiReservations extends Command
@@ -16,14 +17,16 @@ final class ReleaseExpiredAiReservations extends Command
 
     public function handle(
         AiEntitlementBudgetService $budget,
-        CourseChatTurnService $turns
+        CourseChatTurnService $turns,
+        PaidAiCallExecutionService $paidCalls
     ): int
     {
         $limit = max(1, min(5000, (int) $this->option('limit')));
+        $recovered = $paidCalls->recoverLandedSettlements($budget, $limit);
         $released = $budget->releaseExpiredReservations($limit);
         $failedTurns = $turns->failStalled($limit);
         $this->info(
-            "Released {$released} expired AI reservations; closed {$failedTurns} abandoned chat turn(s)."
+            "Recovered {$recovered} landed provider result(s); released {$released} expired AI reservations; closed {$failedTurns} abandoned chat turn(s)."
         );
 
         return self::SUCCESS;

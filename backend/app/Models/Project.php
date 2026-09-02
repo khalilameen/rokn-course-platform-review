@@ -21,6 +21,8 @@ class Project extends Model
         'passing_score',
         'fallback_review_delay_seconds',
         'is_graduation_project',
+        'submission_max_files',
+        'submission_allowed_mime_types',
     ];
 
     /**
@@ -53,6 +55,8 @@ class Project extends Model
         'temperature' => 'float',
         'tokens_number' => 'integer',
         'fallback_review_delay_seconds' => 'integer',
+        'submission_max_files' => 'integer',
+        'submission_allowed_mime_types' => 'array',
     ];
 
     /**

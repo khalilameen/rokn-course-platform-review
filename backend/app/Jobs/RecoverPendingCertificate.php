@@ -26,13 +26,13 @@ final class RecoverPendingCertificate implements ShouldQueue, ShouldBeUnique
 
     public int $tries = 3;
     public int $timeout = 120;
-    public int $uniqueFor = 600;
+    public int $uniqueFor = 900;
     public bool $failOnTimeout = true;
     public array $backoff = [15, 60, 300];
 
     public function __construct(public readonly int $certificateId)
     {
-        $this->onQueue('default');
+        $this->onQueue((string) config('queue.channels.media', 'media'));
     }
 
     public function uniqueId(): string

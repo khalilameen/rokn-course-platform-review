@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Classification;
+use App\Services\AdminAuthoringCreateIntentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -38,17 +39,29 @@ class ClassificationController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
      */
-    public function store(Request $request)
+    public function store(Request $request, AdminAuthoringCreateIntentService $createIntents)
     {
         $validated = $request->validate([
             'name_ar' => 'required|string|max:255',
             'name_en' => 'required|string|max:255',
             'show_on_home' => 'nullable|boolean',
             'home_order' => 'required|integer|min:0|max:10000',
+            'authoring_request_id' => 'required|uuid',
         ]);
 
+        unset($validated['authoring_request_id']);
         $validated['show_on_home'] = $request->boolean('show_on_home');
-        $classification = Classification::create($validated);
+        $classification = DB::transaction(function () use ($request, $validated, $createIntents): Classification {
+            $classification = Classification::create($validated);
+            $createIntents->completeRedirect(
+                $request,
+                route('admin.classifications.index'),
+                302,
+                Classification::class,
+                $classification->id
+            );
+            return $classification;
+        }, 3);
         $this->forgetHomeCache($classification->id);
 
         return redirect()->route('admin.classifications.index')
@@ -135,10 +148,12 @@ class ClassificationController extends Controller
             // keys so a dashboard row edit reaches current mobile clients
             // immediately without flushing unrelated application caches.
             $catalogRevisionKey = 'courses:catalog-revision';
-            Cache::forever(
-                $catalogRevisionKey,
-                max(1, (int) Cache::get($catalogRevisionKey, 1)) + 1
-            );
+            // Never publish a revision with a read-then-write sequence. A
+            // concurrent course/classification save may advance the counter
+            // after get() and before forever(), letting this request move the
+            // catalogue generation backwards and revive an older page.
+            Cache::add($catalogRevisionKey, 1, now()->addYears(10));
+            Cache::increment($catalogRevisionKey);
             Cache::forget('home:courses:v4');
             Cache::forget('mobile-home:main-courses:v3');
             Cache::forget('mobile-home:classifications:v4');

@@ -45,6 +45,7 @@
         <form method="POST" action="{{ $editPool ? route('admin.operating-costs.update', $editPool) : route('admin.operating-costs.store') }}">
             @csrf
             @if($editPool) @method('PUT') @endif
+            @unless($editPool)<input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">@endunless
             <div class="form-row">
                 <div class="form-group col-md-4"><label>اسم الفاتورة</label><input name="name" class="form-control" required maxlength="160" value="{{ old('name', $editPool?->name) }}"></div>
                 <div class="form-group col-md-4"><label>الخدمة</label><select name="service_key" class="form-control" required>@foreach(\App\Models\OperatingCostPool::SERVICES as $key => $label)<option value="{{ $key }}" @selected(old('service_key', $editPool?->service_key) === $key)>{{ $label }}</option>@endforeach</select></div>

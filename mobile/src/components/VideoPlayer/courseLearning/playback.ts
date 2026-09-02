@@ -5,7 +5,12 @@ import {AppState, Dimensions, Platform} from 'react-native';
 import appConfig from '../../../../app.json';
 import {isLocalDemoId} from '../../../config/runtime';
 import {publicRequest} from '../../../constants/api';
-import {getCurrentAccountStorageScope} from '../../../constants/helpers';
+import {
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+  getCurrentAccountStorageScope,
+  type AccountSessionBoundary,
+} from '../../../constants/helpers';
 import {requireProductFeature} from '../../../services/productFeatures';
 import {hasSession} from '../../../services/roknApi';
 import type {VideoQuality, VideoQualitySources} from '../types';
@@ -16,7 +21,11 @@ import {
   sanitizePlaybackDiagnostics,
   sanitizePlaybackErrorCode,
 } from '../playbackTelemetry';
-import {isWatchHistoryEnabled, updatePlayerState} from './persistence';
+import {
+  isWatchHistoryEnabled,
+  updatePlayerState,
+  updatePlayerStateForScope,
+} from './persistence';
 import {qualityOptions, qualitySources, valueAsString} from './shared';
 
 const SECTION_COMPLETION_PREFIX = '@rokn/section-completion/v1';
@@ -48,6 +57,7 @@ const watchHistoryFlights = new Map<string, Promise<void>>();
 const watchHistoryLastSyncedAt = new Map<string, number>();
 const playbackSequences = new Map<string, number>();
 const playbackRequestQueues = new Map<string, Promise<unknown>>();
+const sectionCompletionFlights = new Map<string, Promise<boolean>>();
 const MAX_RECENT_WATCH_SYNC_KEYS = 128;
 let playbackRuntimeGeneration = 0;
 
@@ -237,7 +247,12 @@ const flushWatchHistoryEntry = (key: string): Promise<void> => {
       }
       if (pendingWatchHistory.get(key) === pending) {
         pendingWatchHistory.delete(key);
-        return AsyncStorage.removeItem(watchEvidenceStorageKey(key));
+        // The sample is already committed remotely. Native storage cleanup
+        // must not route this success into the network catch and repeatedly
+        // POST the same completion/heartbeat.
+        void AsyncStorage.removeItem(watchEvidenceStorageKey(key)).catch(
+          () => undefined,
+        );
       }
       return undefined;
     })
@@ -582,48 +597,130 @@ export const openPlaybackSession = async (
   };
 };
 
-export const markSectionComplete = async (
+const assertPlaybackRuntime = (generation: number) => {
+  if (generation !== playbackRuntimeGeneration) {
+    throw new Error('ACCOUNT_SESSION_CHANGED');
+  }
+};
+
+const assertCompletionOwner = (
+  generation: number,
+  boundary: AccountSessionBoundary,
+) => {
+  assertPlaybackRuntime(generation);
+  assertAccountSessionBoundary(boundary);
+};
+
+const performSectionCompletion = async (
   courseId: string,
   sectionId: string,
+  boundary: AccountSessionBoundary,
+  generation: number,
 ) => {
+  const accountScope = boundary.scope;
   const recordLocalCompletion = () =>
-    updatePlayerState(state => ({
-      ...state,
-      completedSections: Array.from(
-        new Set([...state.completedSections, sectionId]),
-      ),
-      activityDays: Array.from(
-        new Set([...state.activityDays, roknCalendarDay()]),
-      ).slice(-60),
-    }));
+    updatePlayerStateForScope(
+      accountScope,
+      state => ({
+        ...state,
+        completedSections: Array.from(
+          new Set([...state.completedSections, sectionId]),
+        ),
+        activityDays: Array.from(
+          new Set([...state.activityDays, roknCalendarDay()]),
+        ).slice(-60),
+      }),
+      boundary,
+    );
 
   if (isLocalDemoId(courseId) || isLocalDemoId(sectionId)) {
+    assertCompletionOwner(generation, boundary);
     await recordLocalCompletion();
+    assertCompletionOwner(generation, boundary);
     return true;
   }
   if (!(await hasSession())) {
     return false;
   }
+  assertCompletionOwner(generation, boundary);
 
-  const storageKey = await sectionCompletionKey(courseId, sectionId);
+  const storageKey = sectionCompletionKey(courseId, sectionId, accountScope);
   try {
     await publicRequest.post(
       `courses/${courseId}/sections/${sectionId}/complete`,
     );
-    await AsyncStorage.removeItem(storageKey);
-    await recordLocalCompletion();
-    return true;
   } catch (error) {
+    try {
+      assertCompletionOwner(generation, boundary);
+    } catch {
+      // Logout/account replacement may already have erased the old scope.
+      // Never resurrect a retry marker after that privacy boundary.
+      return false;
+    }
     if (isRetryableCompletionError(error)) {
       await AsyncStorage.setItem(
         storageKey,
         JSON.stringify({courseId, sectionId}),
       );
+      try {
+        assertCompletionOwner(generation, boundary);
+      } catch {
+        await AsyncStorage.removeItem(storageKey);
+        return false;
+      }
     } else {
       await AsyncStorage.removeItem(storageKey);
     }
     return false;
   }
+
+  // The server completion is authoritative. Local marker removal and player
+  // cache repair are maintenance only; a storage failure must not block the
+  // next section or turn an idempotent completed request into a retry error.
+  try {
+    assertCompletionOwner(generation, boundary);
+  } catch {
+    return false;
+  }
+  try {
+    assertCompletionOwner(generation, boundary);
+    await recordLocalCompletion();
+    assertCompletionOwner(generation, boundary);
+    await AsyncStorage.removeItem(storageKey);
+  } catch {
+    // Server success remains authoritative. Keep a stale retry marker if
+    // present; its POST is idempotent and later reconciliation repairs the
+    // local projection. Awaiting this best-effort tail also keeps one logical
+    // completion inside one flight instead of leaking maintenance into the
+    // next retry or account lifecycle.
+  }
+  return true;
+};
+
+export const markSectionComplete = async (
+  courseId: string,
+  sectionId: string,
+) => {
+  const generation = playbackRuntimeGeneration;
+  const boundary = await captureAccountSessionBoundary();
+  assertCompletionOwner(generation, boundary);
+  const accountScope = boundary.scope;
+  const flightKey = `${accountScope}:${boundary.epoch}:${courseId}:${sectionId}`;
+  const existing = sectionCompletionFlights.get(flightKey);
+  if (existing) return existing;
+
+  const flight = performSectionCompletion(
+    courseId,
+    sectionId,
+    boundary,
+    generation,
+  ).finally(() => {
+    if (sectionCompletionFlights.get(flightKey) === flight) {
+      sectionCompletionFlights.delete(flightKey);
+    }
+  });
+  sectionCompletionFlights.set(flightKey, flight);
+  return flight;
 };
 
 const responseStatus = (error: unknown): number | null => {
@@ -668,17 +765,25 @@ const isRetryableCompletionError = (error: unknown) => {
   ].includes(completionErrorCode(error));
 };
 
-const sectionCompletionPrefix = async () =>
-  `${SECTION_COMPLETION_PREFIX}:${await getCurrentAccountStorageScope()}:`;
+const sectionCompletionPrefix = (accountScope: string) =>
+  `${SECTION_COMPLETION_PREFIX}:${accountScope}:`;
 
-const sectionCompletionKey = async (courseId: string, sectionId: string) =>
-  `${await sectionCompletionPrefix()}${courseId}:${sectionId}`;
+const sectionCompletionKey = (
+  courseId: string,
+  sectionId: string,
+  accountScope: string,
+) => `${sectionCompletionPrefix(accountScope)}${courseId}:${sectionId}`;
 
 export const retryPendingSectionCompletions = async () => {
+  const generation = playbackRuntimeGeneration;
+  const boundary = await captureAccountSessionBoundary();
+  assertCompletionOwner(generation, boundary);
+  const accountScope = boundary.scope;
   if (!(await hasSession())) {
     return;
   }
-  const prefix = await sectionCompletionPrefix();
+  assertCompletionOwner(generation, boundary);
+  const prefix = sectionCompletionPrefix(accountScope);
   const keys = (await AsyncStorage.getAllKeys()).filter(key =>
     key.startsWith(prefix),
   );
@@ -686,32 +791,33 @@ export const retryPendingSectionCompletions = async () => {
     return;
   }
   const entries = await AsyncStorage.multiGet(keys);
+  assertCompletionOwner(generation, boundary);
   for (const [key, value] of entries) {
+    assertCompletionOwner(generation, boundary);
     if (!value) {
       continue;
     }
+    let pending: {courseId: string; sectionId: string};
     try {
-      const pending = JSON.parse(value) as {
-        courseId: string;
-        sectionId: string;
-      };
-      await publicRequest.post(
-        `courses/${pending.courseId}/sections/${pending.sectionId}/complete`,
-      );
-      await AsyncStorage.removeItem(key);
-      await updatePlayerState(state => ({
-        ...state,
-        completedSections: Array.from(
-          new Set([...state.completedSections, pending.sectionId]),
-        ),
-        activityDays: Array.from(
-          new Set([...state.activityDays, roknCalendarDay()]),
-        ).slice(-60),
-      }));
-    } catch (error) {
-      if (!isRetryableCompletionError(error)) {
-        await AsyncStorage.removeItem(key);
+      pending = JSON.parse(value) as typeof pending;
+      if (!pending.courseId || !pending.sectionId) {
+        throw new Error('INVALID_SECTION_COMPLETION');
       }
+    } catch {
+      await AsyncStorage.removeItem(key);
+      continue;
+    }
+    try {
+      await markSectionComplete(pending.courseId, pending.sectionId);
+      assertCompletionOwner(generation, boundary);
+    } catch {
+      try {
+        assertCompletionOwner(generation, boundary);
+      } catch {
+        return;
+      }
+      // markSectionComplete owns retry classification and durable cleanup.
+      // A boundary change leaves the old account's evidence untouched.
     }
   }
 };
@@ -725,4 +831,5 @@ export const resetPlaybackRuntimeState = () => {
   watchHistoryLastSyncedAt.clear();
   playbackSequences.clear();
   playbackRequestQueues.clear();
+  sectionCompletionFlights.clear();
 };

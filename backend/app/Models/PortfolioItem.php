@@ -22,6 +22,8 @@ class PortfolioItem extends Model
         'is_public',
         'is_featured',
         'sort_order',
+        'expected_media_count',
+        'deletion_started_at',
     ];
 
     protected $casts = [
@@ -30,6 +32,8 @@ class PortfolioItem extends Model
         'is_public' => 'boolean',
         'is_featured' => 'boolean',
         'sort_order' => 'integer',
+        'expected_media_count' => 'integer',
+        'deletion_started_at' => 'datetime',
     ];
 
     public function user()

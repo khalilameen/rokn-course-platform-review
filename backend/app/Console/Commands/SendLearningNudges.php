@@ -45,6 +45,11 @@ final class SendLearningNudges extends Command
             ->whereDoesntHave('sectionProgress', function ($query) use ($cooldownBoundary): void {
                 $query->where('is_completed', true)->where('updated_at', '>=', $cooldownBoundary);
             })
+            ->whereDoesntHave('lessonWatchEvidence', function ($query) use ($cooldownBoundary): void {
+                // A heartbeat is the authoritative activity signal even when
+                // the learner disabled optional watch-history/resume storage.
+                $query->where('last_heartbeat_at', '>=', $cooldownBoundary);
+            })
             ->whereDoesntHave('studentNotifications', function ($query) use ($cooldownBoundary): void {
                 $query->where('notification_type', 'learning_nudge')
                     ->where('created_at', '>=', $cooldownBoundary);
@@ -74,7 +79,7 @@ final class SendLearningNudges extends Command
             /** @var CourseEnrollment|null $enrollment */
             $enrollment = $student->enrollments->first();
             $course = $enrollment?->course;
-            if (!$course) {
+            if (!$course || !$course->isPublishedForLearning() || $course->isNestedCourse()) {
                 continue;
             }
 

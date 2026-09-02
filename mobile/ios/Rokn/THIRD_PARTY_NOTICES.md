@@ -6,10 +6,10 @@
 
 This file retains the legal documents published with every production package, including NOTICE files. An exact name/version/integrity-bound review record is used only when an npm package publishes no standalone legal file.
 
-- Unique packages: 717
-- Resolved production package paths: 815
-- Exact package-root legal documents: 593
-- Reviewed legal-file absence records: 124
+- Unique packages: 719
+- Resolved production package paths: 817
+- Exact package-root legal documents: 594
+- Reviewed legal-file absence records: 125
 
 ## Explicit license choices
 
@@ -29,7 +29,7 @@ This file retains the legal documents published with every production package, i
 | CC-BY-4.0 | 1 |
 | CC0-1.0 | 1 |
 | ISC | 38 |
-| MIT | 553 |
+| MIT | 555 |
 | MPL-2.0 | 12 |
 | Python-2.0 | 1 |
 | Unlicense | 2 |
@@ -4967,7 +4967,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `23bf01662b818b4f513f411e7161b5c566037d81db18607bfd7e4e86d8dfd216`
+SHA-256: `7cb4e1b021b5593264d5e1b9ce4fe46f9667b0646c45f3a976618018e214e1cb`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -4987,7 +4987,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -5203,7 +5203,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `7b812395cc9d5923845c480dfc23d028af9d41778ece31fe2b166a340f81af01`
+SHA-256: `5b38ea3f6fe3a0f3a65e641d367e35ad5e0b1c89ee5bb3d25cf5a01c5b9f690c`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -5223,7 +5223,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -5439,7 +5439,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `45fad0a24e358fcd15b0a22b0d845aa7a5b3215ea79c00492d1784265be6b5f4`
+SHA-256: `a0be2e8c6abfd00bd9fe695f951e2d7bc93b9fcd3ac40d8a74dab7265d3a6992`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -5459,7 +5459,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -5675,7 +5675,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `a0e2dd46b74b2ff5c217de258a3fec6c72adbb874631bc9c8f6578c42d2ea640`
+SHA-256: `3efd6076aa93b602cdecfe1de767d175972f9851f71e47b17096debec9404cd3`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -5695,7 +5695,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -5911,7 +5911,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `23cd546b76f1e8e779a6972da7c58e5c270a2731a1ae68265fc5bad8a7258936`
+SHA-256: `4ca83a11c30efc0e81990b1e2776fc10dcb1f45e77dc930366d3c08c997906b6`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -5931,7 +5931,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -6147,7 +6147,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `ca9326ed42e2a8a3e8d67cb941557bc1a3f012160471d564b4e84d1d7932bd60`
+SHA-256: `34ec3013bc43514754e8cf8d7d3a640ab65d6c46873ca36001c8c623c234446c`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -6167,7 +6167,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -6383,7 +6383,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `0a8dfb1b79ba956fd55bc62ff0c02dd016ea107d1a506d530851d4c4e7b0ef98`
+SHA-256: `0c96b6b6fd49c4d2b92c0fd9d115607e7f7409fc758d789cd1e8163e9e4dc78e`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -6403,7 +6403,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -6619,7 +6619,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `8b6c24438dce611ca0ee09ac0eb67476f5f3c5fb2bd22ffb2a6466679915317c`
+SHA-256: `aded7e71679cdaf1dd385cde15b27ebc4dc50423e484b6ccd5a6c60e7b294b57`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -6639,7 +6639,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -6855,7 +6855,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `aedb24e2935e046f2c5cb3c6dad42ca04e64026ca6ad5101cd71ab5d805d30bd`
+SHA-256: `3866d601e579c784968e4017190f17809f7a96e679ac16a47c1583d9676d0848`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -6875,7 +6875,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -7091,7 +7091,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `7cd0d42451db9fec80b438351be031d76c60ff4ee10fa10e877af8ef9b78e006`
+SHA-256: `9f7a91d5c2b98870c2ab04a2a6c1215c7db65e610ede0a19ccf54153f31ec1bc`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -7111,7 +7111,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -7327,7 +7327,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `c46160b2ca845188060046a0fc2138f50e8a0cedb1ebeba8984fd05975da3870`
+SHA-256: `b9c7a0d8a6bda41d670176ddbe2bd87187702f5a81300523e6ce124bf6712465`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -7347,7 +7347,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -7563,7 +7563,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `ddba1fab1e2b6c8ba602079eb559e24798ba9aaeb397d6bea88376fc46b5eb9e`
+SHA-256: `fc7240527612c56d8f5bedc422ed9de152ea1e1fcac2e28638f9108d080df45a`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -7583,7 +7583,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -7799,7 +7799,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `15794243a9fec7928b176088c6792261851f55a9c4d3d3674d4d995d483357e9`
+SHA-256: `d6e4723c98fded2e446d3177ba3e55a8ea7eb916d9f94244f4c6f9504762c73d`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -7819,7 +7819,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -8035,7 +8035,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `8a2b6267e63c3402a734da7896c9c0150b1cc6d6726daad160b67cc3d8282b48`
+SHA-256: `c140be9156c340406e62e1a2f1f530ab6f589a9e685808608d94ff8b9e3af175`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -8055,7 +8055,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -8271,7 +8271,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `65a4612a8146683eff14fa8ec7dcf4c00ebe5c4224b792f3d8f5c343743c0609`
+SHA-256: `c6ebf3da605cda680261cdf0c953649e4dd6c957cd77bbaf8ccc15643afb78e6`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -8291,7 +8291,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -8507,7 +8507,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `a613b4c1f8c74b772396b4d8c861d01ec1ac18a2101606cd9dbe57eb65daefa2`
+SHA-256: `b8faf308bc3f91761ccb4ad46a6476abf3b30423fa649e04690728812e08f653`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -8527,7 +8527,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -8743,7 +8743,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `2f0de70c610041bdfeb2e5c2ef495b4fd39e1d57d0f18bafc007fff896b59e6e`
+SHA-256: `e1276de24f272da5e786784672056b130e203f5886d69a35ffbaa03e6bd0eb2c`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -8763,7 +8763,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -8979,7 +8979,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `0b420e51f1ae4d4f4215c02ae81302b0ae951c8f81de82bd8848ca045be2855f`
+SHA-256: `0f1e6443fbe6a799522bcff246bf04ccc0c2aad489d8876da2ec31c4dc43e68a`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -8999,7 +8999,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -9215,7 +9215,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `9682c56a2bb1ec45c3772b56dadfd6f5853bec75b0064c8acdd0cfbe47e61f71`
+SHA-256: `1dd9095994c40c593929fe20f83500c344b7c6688afe0f2a0a87b8c23c5a600a`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -9235,7 +9235,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -9451,7 +9451,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `7dabb191ae18eb4b5e8230865d81111a7ba7b17fc52bc3bdb2c6dfde29214baf`
+SHA-256: `4a7be15ca32f98c93a02bb46abc57530d7871aae3f236d1a0d4409354b3b05ee`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -9471,7 +9471,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -9687,7 +9687,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `d46963b31d588d70cb7078f4ad97c7d2c237b761aa9e2e4875e92264b9605821`
+SHA-256: `c088bcf0865652e8b00c775d704265c922d2a4e60f4996d6a9e7ccc69ff2ce56`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -9707,7 +9707,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -9923,7 +9923,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `112f6d3a5e480abd37276466379a57cc7f900a5c3cec9a6b59416ee2359108be`
+SHA-256: `f77dc730c34f0337734d7fbfbcb339b7228b568d88740c260360137e11f67605`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -9943,7 +9943,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -10159,7 +10159,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `2d76b71cf226096d13a23829c9c13b7f74bb959719a4d7fded4ea1cee84fdcdb`
+SHA-256: `7427ea3ee9ee6c7ab1c0badab4ff035f42c231b1d4d4e6c1c7bc5c4946c84d43`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -10179,7 +10179,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -10395,7 +10395,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `9a2d26942e20f7254d762c5e8e3b62755a96c0a0b472f17ea7cdfa3ae65b9d4b`
+SHA-256: `1257826849aedea36375bc7b19c721da139249fe9e4f4aeba6e44f7059d1cf3d`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -10415,7 +10415,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -10631,7 +10631,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `a8f6151d2665c70d7f973d899ad4124ed61af94e80e14cddf3587277432e9cb3`
+SHA-256: `bcce9a47cf67c6395fb4e23772861e0af10c3fe983b186e4418eb329bb1be953`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -10651,7 +10651,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -10867,7 +10867,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `e400f1a9ead462439f1d861f0a5baf3b0e2f5fe4eb219c403bb18eb77c07856e`
+SHA-256: `b4173b9f985a251878b4bde799c7042d42f1ed62aa6a738366e23fec20c71bed`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -10887,7 +10887,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -11103,7 +11103,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `bb0363554bf9a95cae750537ec2aed6ad60a28b63693e7413211666780c86c1e`
+SHA-256: `0249db47248d1ad6cec34cf735dd0501021232a66f1c266b123ae4754da204e8`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -11123,7 +11123,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -11339,7 +11339,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `354c141bd8f0f4e598a12b1dce176f877b4d1ea4f14ed875a5074d8721dd11b4`
+SHA-256: `3dc5e5f1134d036608b2cae394d0f46b0cf9504fa6a6f6a503cc009df0fd4f30`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -11359,7 +11359,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -11575,7 +11575,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `045762dfb73c20b19e4db497e2a74d20d99726dd59fed4895e039caa4ef17bdb`
+SHA-256: `8e99cdcf1e9def6e64ae0a6e4c1c2e4bf71b1522bc73be51f1109971422ba9e6`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -11595,7 +11595,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -11811,7 +11811,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `c962da970f5a53a880b4dc06560fccfc41602f68855e44b05906b0d6e99609f7`
+SHA-256: `f26708f649dee135567bf4e3de2e827c1c538e421597f52db74ef37aad5f690c`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -11831,7 +11831,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -12047,7 +12047,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `15139f74d4e8a0832eabae933d5d77c6bcfecc8f1572afa587e99954529612df`
+SHA-256: `118bc126f87e24272226fa794c8e3e97f4a6e1df226686a0395953fbd0b1edbf`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -12067,7 +12067,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -12283,7 +12283,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `c15497dc49696d66a3057453b129534d4b61d7d05c5bdcdb46e30f4ba1b5ce26`
+SHA-256: `78833565b388e747f3c9705225f654587acec87bfbb10b7284f2767c7e2f31ab`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -12303,7 +12303,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -12519,7 +12519,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `f17c8abad5aebdc7a96c1c0d392e877d7e62de09d8429fff85b807bc483de39a`
+SHA-256: `23ebe2d12803d04380e71785b24f0407e2cb4f33ca4c1b580b76b17afacd0ff9`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -12539,7 +12539,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -12755,7 +12755,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `ca36a04acb5a80b7275e9f8ebb756993383620ae5ee25a3890080efab7955427`
+SHA-256: `2f85132ddab75f5f58266f2ebd52764acbfde397957fdec9f373056b94d6dd07`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -12775,7 +12775,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -12991,7 +12991,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `39e704ce402933a7c5403feb6e42732f59c227a34e6872cdaa773d1707b8c959`
+SHA-256: `f285450c2cd65831f994842c57822ba548bcb723cf18e6d46f843f482c5ca739`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -13011,7 +13011,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -13227,7 +13227,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `bdab8b382b5aef3078754665848dab1329c51abfd569e5181ffb9a52ed5d5213`
+SHA-256: `006a3bd35f4afd490d68025fba248d75655b9fc4e5238c172a8c210e7bb86e92`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -13247,7 +13247,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -13463,7 +13463,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `630d044f6d2a113b0d54bf37dadaae4ff4d8d5ff8a69a32e0f195a424df20310`
+SHA-256: `3237948c8eafac22f256194dc9e699a8ff1d0885dd9b3ad383f71f6f80ee5a9b`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -13483,7 +13483,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -13699,7 +13699,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `98112bdfe3464555268b2545fd01d3b7430badca32d2ac0c9ee8ae397b7fdc0f`
+SHA-256: `7cf1c7d625469bee80028d0840e63078db0c1ee87a07beb39d3507a5d6a63946`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -13719,7 +13719,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -13935,7 +13935,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `4a1b3ad5a2f4729baf6d0464035d524e2158dff43333b57f5787894f593fca27`
+SHA-256: `2b99668acba64acb9ec516520d89dae180505235a0f4cccece3adb25591fe288`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -13955,7 +13955,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -14171,7 +14171,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `652a3c57b004e2da73e9d124aff3c8fb55de04f50c6842ab895d6b482591d1d6`
+SHA-256: `54c72a6d0e7b53beac801a62ff273f8d3808523a1d3b41000d417338511860d4`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -14191,7 +14191,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -14407,7 +14407,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `52b28a39a9e9ee9637941af43519140b6af9d9bb7505a8478f745752119bf030`
+SHA-256: `9603e06c9e40d38adcc624417f747f8f8e84ad225ffbceb3f4d94c03b7a58a27`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -14427,7 +14427,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -14643,7 +14643,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `808c5550bf210ce57874d275cb5b3ce9ed56e178039ecf6dbae5174c8131a3ca`
+SHA-256: `f8759630ca76d4001b3692166c300589f97ee03f40bb2ea1524356ec2d818ba3`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -14663,7 +14663,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -14879,7 +14879,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `e2694bc06c129647addb8ee7c58e9792252139e2a828de8a2ba6532f6d01ac98`
+SHA-256: `de36fe191041c385993a857044b1c75612aa1e9dd5dc3c0f038072a6aad74ca9`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -14899,7 +14899,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -15115,7 +15115,7 @@ Apache License
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `aa580c2539818d69171d86be9c8f432f89f81268c7a1981791a3cf0abeeb79a7`
+SHA-256: `d96e7f95f4ee05e30a1ca4214f6f6830206f31a31c981c1b8b5ae5c02a895eb0`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -15135,7 +15135,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -17328,6 +17328,42 @@ contained therein are licensed under the Apache License, Version 2.0 (the "Licen
 You may obtain a copy of the Creative Commons Attribution 3.0 License at
 
     https://creativecommons.org/licenses/by/3.0/
+```
+
+### @react-native-google-signin/google-signin@16.1.2
+
+- Selected license: `MIT`
+- Declared license: `MIT`
+- Legal source: `package-root`
+- Exact source: [npm](https://www.npmjs.com/package/%40react-native-google-signin%2Fgoogle-signin/v/16.1.2)
+- Integrity: `sha512-1hf4pRmpnS5t0dHtqU72Q1FmWzsCZR2Sm3uVQbbfMKeNPl5TKjpAsP6F8QTZ9L+Q6Cnn9tL9BXpDCb1nyutdCQ==`
+
+#### LICENSE
+
+SHA-256: `f1a3c53ad33fb021326fcb7764df848688bd93f1a4d9e415d9d4ff01f4ca1b32`
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2015 Apptailor
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 ### @react-native/assets-registry@0.83.10
@@ -20568,13 +20604,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### baseline-browser-mapping@2.9.11
+### baseline-browser-mapping@2.11.20
 
 - Selected license: `Apache-2.0`
 - Declared license: `Apache-2.0`
 - Legal source: `package-root`
-- Exact source: [npm](https://www.npmjs.com/package/baseline-browser-mapping/v/2.9.11)
-- Integrity: `sha512-Sg0xJUNDU1sJNGdfGWhVHX0kkZ+HWcvmVymJbj6NSgZZmW/8S9Y2HQ5euytnIgakgxN6papOAWiwDo1ctFDcoQ==`
+- Exact source: [npm](https://www.npmjs.com/package/baseline-browser-mapping/v/2.11.20)
+- Integrity: `sha512-H0ulySigv6icDJ1F7SjtdCD6PrhTpdYCmP0CactWy1+ekh0AFd0o1Wn5T8b+hnTmdBx19u9yhL6wvCylXMY7zw==`
 - Apache NOTICE: `not-published`
 
 #### LICENSE.txt
@@ -21094,22 +21130,22 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### browserslist@4.28.1
+### browserslist@4.28.8
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `package-root`
-- Exact source: [npm](https://www.npmjs.com/package/browserslist/v/4.28.1)
-- Integrity: `sha512-ZC5Bd0LgJXgwGqUknZY/vkUQ04r8NXnJZ3yYi4vDmSiZmC/pdSN0NbNRPxZpbtO4uAfDUAFffO8IZoM3Gj8IkA==`
+- Exact source: [npm](https://www.npmjs.com/package/browserslist/v/4.28.8)
+- Integrity: `sha512-V2NpofLblG64mfOtSgDhOJESZEGogzDMBv/q+W6oc4LXWP/q75eOXoOaaOu1EOadB9U4Bwx/e0yzbvwKH8zalA==`
 
 #### LICENSE
 
-SHA-256: `563603cb6ef4d1d0d667fea4b7a016b7788b02ee299e020dd01782978c4e7ed8`
+SHA-256: `2bccca04141ded409b82d07b1783909d66d53d2530ae60f9c39806695da173bc`
 
 ```text
 The MIT License (MIT)
 
-Copyright 2014 Andrey Sitnik <andrey@sitnik.ru> and other contributors
+Copyright 2014 Andrey Sitnik <andrey@sitnik.es> and other contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
@@ -21140,7 +21176,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `dca64287fb351014876040b4dc6bf5a008b53f930f4a9df065654be5fd096821`
+SHA-256: `5820a6fcde8829576f3ea9b2d94bca3be8e5eb94551e06ecafb958dedcb55af1`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -21160,7 +21196,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -21523,13 +21559,13 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### caniuse-lite@1.0.30001761
+### caniuse-lite@1.0.30001810
 
 - Selected license: `CC-BY-4.0`
 - Declared license: `CC-BY-4.0`
 - Legal source: `package-root`
-- Exact source: [npm](https://www.npmjs.com/package/caniuse-lite/v/1.0.30001761)
-- Integrity: `sha512-JF9ptu1vP2coz98+5051jZ4PwQgd2ni8A+gYSN7EA7dPKIMf0pDlSUxhdmVOaV3/fYK5uWBkgSXJaRLr4+3A6g==`
+- Exact source: [npm](https://www.npmjs.com/package/caniuse-lite/v/1.0.30001810)
+- Integrity: `sha512-TITQPUkaz+aVk5GL6NhOdwk1aEaNTSDPsGFWrTuhKGtjTF70jL/Oht2W4c6rXUe5fu7Ie19VIahAXHIIiWWNeg==`
 
 #### LICENSE
 
@@ -24043,13 +24079,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### electron-to-chromium@1.5.267
+### electron-to-chromium@1.5.419
 
 - Selected license: `ISC`
 - Declared license: `ISC`
 - Legal source: `package-root`
-- Exact source: [npm](https://www.npmjs.com/package/electron-to-chromium/v/1.5.267)
-- Integrity: `sha512-0Drusm6MVRXSOJpGbaSVgcQsuB4hEkMpHXaVstcPmhu5LIedxs1xNK/nIxmQIU/RPC0+1/o0AVZfBTkTNJOdUw==`
+- Exact source: [npm](https://www.npmjs.com/package/electron-to-chromium/v/1.5.419)
+- Integrity: `sha512-nHMPn8x4yCxCI0iSnL+LlHL5sUoUfjLXkcRIagZ4GBdrfFLFaiLNvzJWbJqZhFT9IAhw5tUSNlhggWN+otvp/A==`
 
 #### LICENSE
 
@@ -24879,6 +24915,62 @@ Selected license: MIT
 Author metadata: 650 Industries, Inc.
 Repository metadata: https://github.com/expo/expo.git
 Homepage metadata: https://docs.expo.dev/versions/latest/sdk/crypto/
+
+The exact npm package root was inspected and did not publish a standalone
+LICENSE, LICENCE, COPYING, NOTICE, or COPYRIGHT file. This coordinate is
+therefore covered by an exact, reviewed absence exception. The package
+metadata above and the selected standard license terms are retained here;
+the exception does not apply to any other name or version.
+
+Standard terms source: @babel/code-frame@7.29.7/LICENSE
+
+MIT License
+
+Copyright (c) 2014-present Sebastian McKenzie and other contributors
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+### expo-document-picker@55.0.17
+
+- Selected license: `MIT`
+- Declared license: `MIT`
+- Legal source: `reviewed-metadata-fallback`
+- Exact source: [npm](https://www.npmjs.com/package/expo-document-picker/v/55.0.17)
+- Integrity: `sha512-tyrPB+k3lTI03umNP8cc912yZF7tgyo9v/+rEeW9h/u0fmMJAvegyaQl/YNW2MeKpjYa4+WwiLBGXVj54XHDog==`
+
+#### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
+
+SHA-256: `ebac803a7ea7cc91aca36c21d0d6b643db84a39bddeb41e9875a1ca6c6d8c410`
+
+```text
+UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
+
+Package: expo-document-picker@55.0.17
+Exact npm tarball: https://registry.npmjs.org/expo-document-picker/-/expo-document-picker-55.0.17.tgz
+Tarball integrity: sha512-tyrPB+k3lTI03umNP8cc912yZF7tgyo9v/+rEeW9h/u0fmMJAvegyaQl/YNW2MeKpjYa4+WwiLBGXVj54XHDog==
+Declared license: MIT
+Selected license: MIT
+Author metadata: 650 Industries, Inc.
+Repository metadata: https://github.com/expo/expo.git
+Homepage metadata: https://docs.expo.dev/versions/latest/sdk/document-picker/
 
 The exact npm package root was inspected and did not publish a standalone
 LICENSE, LICENCE, COPYING, NOTICE, or COPYRIGHT file. This coordinate is
@@ -25892,7 +25984,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `153b9dbf61f90f4661d106c25a4faba6f57e1b9b00b6e95e505870c9853983a4`
+SHA-256: `f496100b62f1e11eb2be8adfd4dd5005bb49bf55430d50dcae6d8428f95b681d`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -25912,7 +26004,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -26301,7 +26393,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 #### ROKN-REVIEWED-LEGAL-FILE-ABSENCE.txt
 
-SHA-256: `feb68a7e4e5f3c5931edd5d60a95cc46951eb3afa82fe376705caa8a1a14364e`
+SHA-256: `69bda818824028a0c472758b02c809f2672f150dc067c7b2bdc064212957689c`
 
 ```text
 UPSTREAM PACKAGE LEGAL-FILE ABSENCE RECORD
@@ -26321,7 +26413,7 @@ therefore covered by an exact, reviewed absence exception. The package
 metadata above and the selected standard license terms are retained here;
 the exception does not apply to any other name or version.
 
-Standard terms source: baseline-browser-mapping@2.9.11/LICENSE.txt
+Standard terms source: baseline-browser-mapping@2.11.20/LICENSE.txt
 
 Apache License
                            Version 2.0, January 2004
@@ -37776,13 +37868,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### node-releases@2.0.27
+### node-releases@2.0.54
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `package-root`
-- Exact source: [npm](https://www.npmjs.com/package/node-releases/v/2.0.27)
-- Integrity: `sha512-nmh3lCkYZ3grZvqcCH+fjmQ7X+H0OeZgP40OierEaAptX4XofMh5kwNbWh7lBduUzCcV/8kZ+NDLCwm2iorIlA==`
+- Exact source: [npm](https://www.npmjs.com/package/node-releases/v/2.0.54)
+- Integrity: `sha512-YHs7BmmcsdAI5Ozuf8JZo6PT0mv2GIWC9vMfvUC3dp65M8hn7Ux8CPL+2oBI7juNuj9d0ndhTcznq2ODBps9cQ==`
 
 #### LICENSE
 
@@ -42753,22 +42845,22 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### update-browserslist-db@1.2.3
+### update-browserslist-db@1.3.2
 
 - Selected license: `MIT`
 - Declared license: `MIT`
 - Legal source: `package-root`
-- Exact source: [npm](https://www.npmjs.com/package/update-browserslist-db/v/1.2.3)
-- Integrity: `sha512-Js0m9cx+qOgDxo0eMiFGEueWztz+d4+M3rGlmKPT+T4IS/jP4ylw3Nwpu6cpTTP8R1MAC1kF4VbdLt3ARf209w==`
+- Exact source: [npm](https://www.npmjs.com/package/update-browserslist-db/v/1.3.2)
+- Integrity: `sha512-UQ+MSxlhRm1bzjhU+DcuXfjFO1FzNtqhK5+9Yvlp90ItDLk5vT932A0rFu619nf7RVS+Y/VeaUW1jaRDqZ8VJw==`
 
 #### LICENSE
 
-SHA-256: `5615587b2b53bb0e3dd020941023fe2479aabd226759f368cde59cd29e7f8821`
+SHA-256: `1017334f27eb733285b56c0ddc7769dd22db678d49d792ac174ea54ccdb0e303`
 
 ```text
 The MIT License (MIT)
 
-Copyright 2022 Andrey Sitnik <andrey@sitnik.ru> and other contributors
+Copyright 2022 Andrey Sitnik <andrey@sitnik.es> and other contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in

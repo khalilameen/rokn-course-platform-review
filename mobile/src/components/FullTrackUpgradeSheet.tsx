@@ -124,7 +124,15 @@ export default function FullTrackUpgradeSheet({
     if (!quote || loading || operationFlightRef.current) return;
     if (quote.deficit > 0) {
       onCloseRef.current();
-      navigation.navigate('Wallet');
+      navigation.navigate('Wallet', {
+        returnTo: {
+          name: 'CourseDetails',
+          params: {
+            courseId,
+            openFullTrackUpgrade: true,
+          },
+        },
+      });
       return;
     }
     const flight = Symbol('full-track-upgrade-purchase');

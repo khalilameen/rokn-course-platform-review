@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Package;
+use App\Services\AdminAuthoringCreateIntentService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -37,11 +39,20 @@ class PackageController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
      */
-    public function store(Request $request)
+    public function store(Request $request, AdminAuthoringCreateIntentService $createIntents)
     {
         $validated = $this->validated($request);
 
-        Package::create($validated);
+        DB::transaction(function () use ($request, $validated, $createIntents): void {
+            $package = Package::create($validated);
+            $createIntents->completeRedirect(
+                $request,
+                route('admin.packages.index'),
+                302,
+                Package::class,
+                $package->id
+            );
+        }, 3);
 
         return redirect()->route('admin.packages.index')->with('success', 'تم إضافة الباقة بنجاح');
     }
@@ -56,7 +67,7 @@ class PackageController extends Controller
             'apple_enabled' => $request->boolean('apple_enabled'),
         ]);
 
-        return $request->validate([
+        $validated = $request->validate([
             'name_ar' => 'required|string|max:255',
             'name_en' => 'required|string|max:255',
             'price' => 'required|numeric|min:0.01',
@@ -75,7 +86,11 @@ class PackageController extends Controller
             ],
             'google_enabled' => 'required|boolean',
             'apple_enabled' => 'required|boolean',
+            'authoring_request_id' => [$package ? 'nullable' : 'required', 'uuid'],
         ]);
+        unset($validated['authoring_request_id']);
+
+        return $validated;
     }
 
     /**

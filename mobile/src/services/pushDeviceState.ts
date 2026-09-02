@@ -51,7 +51,10 @@ export const invalidateLocalPushDeviceRegistration = async () => {
     await removeItem(PUSH_TOKEN_INVALIDATION_PENDING_KEY);
   } else {
     // Device-scoped tombstone only. Never retain a bearer, FCM token or PII.
-    await saveItem(PUSH_TOKEN_INVALIDATION_PENDING_KEY, true);
+    const durable = await saveItem(PUSH_TOKEN_INVALIDATION_PENDING_KEY, true);
+    if (!durable) {
+      throw new Error('PUSH_INVALIDATION_NOT_DURABLE');
+    }
   }
 
   await Promise.all([removeItem(tokenKey), removeItem(pendingKey)]);

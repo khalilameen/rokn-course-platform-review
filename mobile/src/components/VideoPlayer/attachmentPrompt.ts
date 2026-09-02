@@ -1,19 +1,42 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {accountScopedStorageKey} from '../../constants/helpers';
+import {
+  accountScopedStorageKey,
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+  type AccountSessionBoundary,
+} from '../../constants/helpers';
 
 const ATTACHMENT_PROMPT_SEEN = 'course-attachment-prompt-seen:v1';
 
-const seenKey = async (courseId: string, moduleId: string) =>
-  `${await accountScopedStorageKey(ATTACHMENT_PROMPT_SEEN)}:${encodeURIComponent(
-    courseId,
-  )}:${encodeURIComponent(moduleId)}`;
+const seenKey = async (
+  courseId: string,
+  moduleId: string,
+  boundary: AccountSessionBoundary,
+) =>
+  `${await accountScopedStorageKey(
+    ATTACHMENT_PROMPT_SEEN,
+    boundary,
+  )}:${encodeURIComponent(courseId)}:${encodeURIComponent(moduleId)}`;
 
 export const hasSeenAttachmentPrompt = async (
   courseId: string,
   moduleId: string,
-) => (await AsyncStorage.getItem(await seenKey(courseId, moduleId))) === '1';
+) => {
+  const boundary = await captureAccountSessionBoundary();
+  const seen =
+    (await AsyncStorage.getItem(
+      await seenKey(courseId, moduleId, boundary),
+    )) === '1';
+  assertAccountSessionBoundary(boundary);
+  return seen;
+};
 
 export const markAttachmentPromptSeen = async (
   courseId: string,
   moduleId: string,
-) => AsyncStorage.setItem(await seenKey(courseId, moduleId), '1');
+) => {
+  const boundary = await captureAccountSessionBoundary();
+  assertAccountSessionBoundary(boundary);
+  await AsyncStorage.setItem(await seenKey(courseId, moduleId, boundary), '1');
+  assertAccountSessionBoundary(boundary);
+};

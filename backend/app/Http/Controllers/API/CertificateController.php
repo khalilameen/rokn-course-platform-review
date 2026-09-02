@@ -13,7 +13,9 @@ use App\Models\Project;
 use App\Services\CertificateEligibilityService;
 use App\Services\CertificateService;
 use App\Services\CourseChatAccessService;
+use App\Support\UnicodeText;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 final class CertificateController extends Controller
 {
@@ -47,14 +49,7 @@ final class CertificateController extends Controller
             ->with('course')
             ->orderBy('generated_at', 'desc')
             ->orderByDesc('id')
-            ->get()
-            ->filter(fn (Certificate $certificate): bool =>
-                $this->courseAccess->hasCertificateAccess(
-                    (int) $user->id,
-                    (int) $certificate->course_id
-                )
-            )
-            ->values();
+            ->get();
 
         return response()->json([
             'status'  => 200,
@@ -100,15 +95,6 @@ final class CertificateController extends Controller
                 'data' => null,
             ], 410);
         }
-        if (!$this->courseAccess->hasCertificateAccess((int) $user->id, (int) $courseId)) {
-            return response()->json([
-                'status' => 410,
-                'success' => false,
-                'code' => 'certificate_access_revoked',
-                'message' => 'هذه الشهادة غير متاحة',
-                'data' => null,
-            ], 410);
-        }
         if (!$certificate->hasStoredArtifact()) {
             return response()->json([
                 'status' => 202,
@@ -128,7 +114,7 @@ final class CertificateController extends Controller
     }
 
     /** Issue a new certificate or recover its pending artifact. */
-    public function issue($courseId): JsonResponse
+    public function issue(Request $request, $courseId): JsonResponse
     {
         $user = auth('api')->user();
 
@@ -156,19 +142,6 @@ final class CertificateController extends Controller
                     'data' => null,
                 ], 410);
             }
-            if (!$this->courseAccess->hasCertificateAccess(
-                (int) $user->id,
-                (int) $courseId
-            )) {
-                return response()->json([
-                    'status' => 410,
-                    'success' => false,
-                    'code' => 'certificate_access_revoked',
-                    'message' => 'هذه الشهادة غير متاحة',
-                    'data' => null,
-                ], 410);
-            }
-
             if (!$certificate->hasStoredArtifact()) {
                 // A pending row remains retryable until generation succeeds.
                 $recovered = $this->certificates->generate(
@@ -287,15 +260,54 @@ final class CertificateController extends Controller
             ], 403);
         }
 
+        $request->validate([
+            'holder_name' => ['required', 'string', 'max:120'],
+        ]);
+        $holderName = UnicodeText::clean($request->input('holder_name'), false);
+        if (UnicodeText::graphemeLength($holderName) < 2) {
+            return response()->json([
+                'status' => 422,
+                'success' => false,
+                'code' => 'certificate_holder_name_invalid',
+                'message' => 'اكتب الاسم الذي سيظهر على الشهادة',
+                'data' => null,
+            ], 422);
+        }
+
         $graduationProject = Project::where('is_graduation_project', true)
             ->whereHas('section', function ($q) use ($courseId) {
                 $q->where('course_id', $courseId);
             })
             ->first();
 
-        $certificate = $this->certificates->generate($user, $course, $graduationProject);
+        $certificate = $this->certificates->generate(
+            $user,
+            $course,
+            $graduationProject,
+            $holderName
+        );
 
         if (!$certificate) {
+            // The immutable credential row is committed before rendering its
+            // image. A renderer/storage interruption is therefore pending
+            // work, not a failed issue action, and a retry must reuse it.
+            $pending = Certificate::query()
+                ->where('user_id', $user->id)
+                ->where('course_id', $courseId)
+                ->where(function ($query): void {
+                    $query->whereNull('status')->orWhere('status', 'active');
+                })
+                ->first();
+            if ($pending && !$pending->hasStoredArtifact()) {
+                return response()->json([
+                    'status' => 202,
+                    'success' => true,
+                    'code' => 'certificate_generating',
+                    'message' => 'نجهّز شهادتك الآن',
+                    'data' => null,
+                ], 202);
+            }
+
             return response()->json([
                 'status'  => 500,
                 'success' => false,

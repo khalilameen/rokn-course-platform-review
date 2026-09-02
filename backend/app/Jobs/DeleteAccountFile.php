@@ -23,12 +23,12 @@ final class DeleteAccountFile implements ShouldQueue, ShouldBeUnique
 
     public int $tries = 10;
     public int $timeout = 90;
-    public int $uniqueFor = 600;
+    public int $uniqueFor = 14400;
     public array $backoff = [30, 60, 120, 300, 600, 1200, 1800, 3600];
 
     public function __construct(public int $deletionId)
     {
-        $this->onQueue('default');
+        $this->onQueue((string) config('queue.channels.media', 'media'));
     }
 
     public function uniqueId(): string
@@ -44,6 +44,10 @@ final class DeleteAccountFile implements ShouldQueue, ShouldBeUnique
                 AccountFileDeletion::STATUS_COMPLETED,
                 AccountFileDeletion::STATUS_SKIPPED,
             ], true)) {
+                return null;
+            }
+            if ($row->available_at?->isFuture()) {
+                $this->release(max(1, now()->diffInSeconds($row->available_at)));
                 return null;
             }
             $row->forceFill([

@@ -23,6 +23,9 @@ final class AiEntitlementUsage extends Model
         'feature',
         'used_requests',
         'reserved_requests',
+        'unanswered_provider_requests',
+        'unanswered_provider_last_at',
+        'provider_exposure_paused_until',
         'used_tokens',
         'reserved_tokens',
         'used_cost_usd',
@@ -31,6 +34,9 @@ final class AiEntitlementUsage extends Model
 
     protected $casts = [
         'used_requests' => 'integer', 'reserved_requests' => 'integer',
+        'unanswered_provider_requests' => 'integer',
+        'unanswered_provider_last_at' => 'datetime',
+        'provider_exposure_paused_until' => 'datetime',
         'used_tokens' => 'integer', 'reserved_tokens' => 'integer',
         'used_cost_usd' => 'decimal:6', 'reserved_cost_usd' => 'decimal:6',
     ];

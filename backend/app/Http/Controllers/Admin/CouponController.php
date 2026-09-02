@@ -6,6 +6,8 @@ use App\Models\Coupon;
 use App\Models\Course;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\CouponRequest;
+use App\Services\AdminAuthoringCreateIntentService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use App\Support\BusinessClock;
 
@@ -44,15 +46,48 @@ class CouponController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
      */
-    public function store(CouponRequest $request)
+    public function store(CouponRequest $request, AdminAuthoringCreateIntentService $createIntents)
     {
         $payload = $request->safe()->except('image');
         $payload['starts_at'] = BusinessClock::localInputToUtc($payload['starts_at'] ?? null);
-        $coupon = Coupon::create($payload);
+        $requestId = (string) $payload['authoring_request_id'];
+        $coupon = Coupon::withTrashed()->where('authoring_request_id', $requestId)->first();
+        if (!$coupon) {
+            $coupon = DB::transaction(function () use (
+                $request,
+                $payload,
+                $createIntents
+            ): Coupon {
+                $coupon = Coupon::create($payload);
+                $createIntents->checkpointResource($request, Coupon::class, $coupon->id);
+                return $coupon;
+            }, 3);
+        } else {
+            DB::transaction(function () use ($request, $coupon, $createIntents): void {
+                Coupon::withTrashed()->whereKey($coupon->id)->lockForUpdate()->firstOrFail();
+                $createIntents->checkpointResource($request, Coupon::class, $coupon->id);
+            }, 3);
+        }
         if ($request->hasFile('image')) {
             $file = $request->file('image');
-            $coupon->storeImage($file, 'coupons', 'featured');
+            $coupon->storeImage(
+                $file,
+                'coupons',
+                'featured',
+                'admin-coupon|'.strtolower($requestId).'|'.hash_file('sha256', $file->getRealPath())
+            );
         }
+
+        DB::transaction(function () use ($request, $coupon, $createIntents): void {
+            $locked = Coupon::withTrashed()->whereKey($coupon->id)->lockForUpdate()->firstOrFail();
+            $createIntents->completeRedirect(
+                $request,
+                route('admin.coupons.index'),
+                302,
+                Coupon::class,
+                $locked->id
+            );
+        }, 3);
 
         return redirect()->route('admin.coupons.index')->with('success', 'تمت الإضافة بنجاح ');
     }
@@ -79,7 +114,7 @@ class CouponController extends Controller
     public function update(CouponRequest $request, Coupon $coupon)
     {
         try {
-            $payload = $request->safe()->except('image');
+            $payload = $request->safe()->except(['image', 'authoring_request_id']);
             $payload['starts_at'] = BusinessClock::localInputToUtc($payload['starts_at'] ?? null);
             $coupon->update($payload);
         } catch (\DomainException $exception) {

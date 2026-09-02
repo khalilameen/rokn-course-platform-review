@@ -38,7 +38,8 @@ final class DispatchPendingAccountFileDeletion extends Command
         $dispatched = 0;
         foreach ($rows as $row) {
             try {
-                DeleteAccountFile::dispatch((int) $row->id)->onQueue('default');
+                DeleteAccountFile::dispatch((int) $row->id)
+                    ->onQueue((string) config('queue.channels.media', 'media'));
                 $dispatched++;
             } catch (\Throwable $exception) {
                 Log::warning('Unable to dispatch account-file cleanup.', [

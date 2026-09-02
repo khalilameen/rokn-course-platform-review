@@ -14,7 +14,7 @@
     },
     {
       "path": "public/admin/assets/css/admin-shell.css",
-      "sha256": "a71569c7bb66c7a9521f5f657357f787ffaa1047957dfd08832fe1ada6127840",
+      "sha256": "a0b9de84ace6f9d9c03b3d481fe865a48f86c05a7c779586d7ebcba838bed606",
       "classification": "first_party"
     },
     {
@@ -106,7 +106,7 @@
     },
     {
       "path": "public/admin/assets/css/course-sections-editor.css",
-      "sha256": "9ddfae0719b04e20d2d73acb447d56e7452e549ffec38dfcda55989ef2e16201",
+      "sha256": "49ea23002ae1d490ff2d031f83bc790b480aff7c3c3b83741a01191e80330242",
       "classification": "first_party"
     },
     {
@@ -121,12 +121,7 @@
     },
     {
       "path": "public/admin/assets/css/course-studio.css",
-      "sha256": "f3832fa1e93b8d490f83154e62853cb5798c33e7f630148cdc87fcede2ddbf89",
-      "classification": "first_party"
-    },
-    {
-      "path": "public/admin/assets/css/courses-exist.css",
-      "sha256": "0891d03fb14f6c72a2029a008c177e1936ce9475d792a972fef6888a0997670e",
+      "sha256": "8dc152bcb02f962d5f3f6b7a594489e46405adea811969d37632dd3ac7efde49",
       "classification": "first_party"
     },
     {
@@ -141,7 +136,7 @@
     },
     {
       "path": "public/admin/assets/css/custom-global.css",
-      "sha256": "8f615e727138631b37ba4628b394aef16123886769a6d48a21f6d0ac5774f322",
+      "sha256": "00985ca5608cf02db930efabdb67b419713153d7e885bce6fe8aae2df157b0b9",
       "classification": "first_party"
     },
     {
@@ -228,7 +223,7 @@
     },
     {
       "path": "public/admin/assets/css/notifications-dashboard.css",
-      "sha256": "9d4adf72138b8a7043b5afe206d578d4a383ec61300adde0fa8c385c69500aed",
+      "sha256": "da63509a1bebaa41169f9dc9fd00b43926efa93f9500fbbbabe52723afb760be",
       "classification": "first_party"
     },
     {
@@ -393,9 +388,14 @@
     },
     {
       "path": "public/admin/assets/js/main.js",
-      "sha256": "1b3100f123a966c3442663d94e6f3972268d4cb9cae919556c33c08bbaad1af7",
+      "sha256": "aebf85b4dd79fcb412ac2935907d2421c41186be6914b8a2ac875c6fcb615d14",
       "classification": "third_party",
       "family": "sufee"
+    },
+    {
+      "path": "public/admin/assets/js/request.js",
+      "sha256": "edec096afc3f8db8a66618316608dafc9e6793595ea5dd64e053345dd919d180",
+      "classification": "first_party"
     },
     {
       "path": "public/admin/assets/js/vendor/select2/select2.min.css",
@@ -444,7 +444,7 @@
     },
     {
       "path": "public/css/landing.css",
-      "sha256": "77d6bd3200087c50dc84106494868ea67dd7a6d53d18344fe75071d47fc0299b",
+      "sha256": "d515333af143de3b5b2e7ad1ca5cb98b9ab7f8e64af5493312ee62efc7ca4fb8",
       "classification": "first_party"
     },
     {
@@ -490,7 +490,7 @@
     },
     {
       "path": "public/images/demo-course-cover.svg",
-      "sha256": "9181998e95fb72e91d80023e6931d0b1b257f77ca922b525387d74d6ccee9b47",
+      "sha256": "53f6af173645a9f9a4d9908d9a7585f26f22b0798d908f852c79633cac5140bb",
       "classification": "first_party"
     },
     {

@@ -25,7 +25,56 @@ document.addEventListener('DOMContentLoaded', function () {
     const ownerId = @json((string) auth()->id());
     const courseId = String(form.dataset.courseId || '');
     const sectionId = String(form.dataset.sectionId || 'new');
-    const storageKey = `rokn:bunny-upload:${ownerId}:${courseId}:${sectionId}`;
+    const legacyStorageKey = `rokn:bunny-upload:${ownerId}:${courseId}:${sectionId}`;
+    const operationId = () => {
+        if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+        const bytes = new Uint8Array(16);
+        window.crypto.getRandomValues(bytes);
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    };
+    const tabStorageKey = `rokn:bunny-upload-tab:${ownerId}`;
+    let tabId = sessionStorage.getItem(tabStorageKey) || operationId();
+    sessionStorage.setItem(tabStorageKey, tabId);
+    const pageInstanceId = operationId();
+    const tabChannel = typeof BroadcastChannel === 'function'
+        ? new BroadcastChannel(`rokn:bunny-upload-tabs:${ownerId}`)
+        : null;
+    let tabSettled = false;
+    const tabReady = new Promise(resolve => {
+        if (!tabChannel) {
+            tabSettled = true;
+            return resolve();
+        }
+        let collision = false;
+        tabChannel.onmessage = event => {
+            const message = event.data || {};
+            if (message.type === 'probe' && message.tabId === tabId && message.instance !== pageInstanceId) {
+                tabChannel.postMessage({
+                    type: 'occupied',
+                    tabId,
+                    target: message.instance,
+                    owner: pageInstanceId,
+                    settled: tabSettled,
+                });
+            }
+            if (message.type === 'occupied' && message.tabId === tabId && message.target === pageInstanceId) {
+                collision = collision || Boolean(message.settled)
+                    || pageInstanceId > String(message.owner || '');
+            }
+        };
+        tabChannel.postMessage({type: 'probe', tabId, instance: pageInstanceId});
+        window.setTimeout(() => {
+            if (collision) {
+                tabId = operationId();
+                sessionStorage.setItem(tabStorageKey, tabId);
+            }
+            tabSettled = true;
+            resolve();
+        }, 80);
+    });
     const terminalCodes = new Set([
         'bunny_upload_claim_unavailable',
         'bunny_upload_operation_unavailable',
@@ -38,6 +87,7 @@ document.addEventListener('DOMContentLoaded', function () {
     let uploading = false;
     let submittingAfterUpload = false;
     let lastSubmitter = null;
+    let currentStorageKey = null;
 
     const show = (message, percent, retry) => {
         progressBox?.classList.remove('is-hidden');
@@ -69,19 +119,20 @@ document.addEventListener('DOMContentLoaded', function () {
         file.type,
     ].join(':');
 
-    const operationId = () => {
-        if (window.crypto?.randomUUID) return window.crypto.randomUUID();
-        const bytes = new Uint8Array(16);
-        window.crypto.getRandomValues(bytes);
-        bytes[6] = (bytes[6] & 0x0f) | 0x40;
-        bytes[8] = (bytes[8] & 0x3f) | 0x80;
-        const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    const fingerprintKey = file => {
+        const bytes = new TextEncoder().encode(fingerprint(file));
+        let binary = '';
+        bytes.forEach(byte => { binary += String.fromCharCode(byte); });
+        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
     };
+    const storageKeyFor = file => `rokn:bunny-upload:${ownerId}:${courseId}:${sectionId}:${tabId}:${fingerprintKey(file)}`;
 
     const readRecord = file => {
         try {
-            const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
+            currentStorageKey = storageKeyFor(file);
+            const currentRaw = localStorage.getItem(currentStorageKey);
+            const legacyRaw = currentRaw === null ? localStorage.getItem(legacyStorageKey) : null;
+            const saved = JSON.parse(currentRaw || legacyRaw || 'null');
             const matchesContext = saved
                 && Number(saved.version) === recordVersion
                 && String(saved.ownerId) === ownerId
@@ -92,13 +143,18 @@ document.addEventListener('DOMContentLoaded', function () {
             const operationExpired = !saved?.claim
                 && Number(saved?.savedAt || 0) < Date.now() - (15 * 60 * 1000);
             if (!matchesContext || operationExpired || (saved.claim && claimExpiresAt <= Date.now())) {
-                localStorage.removeItem(storageKey);
+                localStorage.removeItem(currentStorageKey);
+                if (legacyRaw !== null) localStorage.removeItem(legacyStorageKey);
                 return null;
             }
             // performance.now is process-local. A reloaded page renews the
             // short-lived authorization while keeping the resumable TUS URL.
             saved.headers = null;
             saved.authorizationDeadline = 0;
+            if (legacyRaw !== null) {
+                localStorage.setItem(currentStorageKey, JSON.stringify(saved));
+                localStorage.removeItem(legacyStorageKey);
+            }
             return saved;
         } catch (_) {
             return null;
@@ -113,11 +169,18 @@ document.addEventListener('DOMContentLoaded', function () {
             sectionId,
             savedAt: Date.now(),
         });
-        localStorage.setItem(storageKey, JSON.stringify(currentRecord));
+        if (!currentStorageKey) throw new Error('تعذر حفظ حالة الرفع');
+        localStorage.setItem(currentStorageKey, JSON.stringify(currentRecord));
     };
 
     const clearRecord = () => {
-        localStorage.removeItem(storageKey);
+        if (currentStorageKey) {
+            localStorage.removeItem(currentStorageKey);
+        } else {
+            const prefix = `rokn:bunny-upload:${ownerId}:${courseId}:${sectionId}:${tabId}:`;
+            Object.keys(localStorage).filter(key => key.startsWith(prefix))
+                .forEach(key => localStorage.removeItem(key));
+        }
         currentRecord = null;
         claimInput.value = '';
         fileInput.disabled = false;
@@ -215,6 +278,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     const upload = async (file, restartCount = 0) => {
+        await tabReady;
         const extension = String(file.name || '').split('.').pop().toLowerCase();
         const declaredMime = file.type || mimeByExtension[extension] || '';
         if (!allowedMimes.includes(declaredMime) || mimeByExtension[extension] !== declaredMime) {
@@ -357,14 +421,17 @@ document.addEventListener('DOMContentLoaded', function () {
         this.disabled = false;
         if (this.dataset.videoRequired === 'true') this.setAttribute('data-required', 'true');
         if (!currentFile) return;
-        const saved = readRecord(currentFile);
-        if (saved) {
-            currentRecord = saved;
-            claimInput.value = saved.claim;
-            show('يمكن متابعة الرفع السابق', 0, true);
-        } else {
-            progressBox?.classList.add('is-hidden');
-        }
+        void tabReady.then(() => {
+            if (!currentFile) return;
+            const saved = readRecord(currentFile);
+            if (saved) {
+                currentRecord = saved;
+                claimInput.value = saved.claim;
+                show('يمكن متابعة الرفع السابق', 0, true);
+            } else {
+                progressBox?.classList.add('is-hidden');
+            }
+        });
     });
 
     form.addEventListener('submit', function (event) {
@@ -393,7 +460,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     if (serverRejectedClaim) {
-        clearRecord();
+        void tabReady.then(clearRecord);
     } else if (claimInput.value) {
         fileInput.removeAttribute('required');
         fileInput.removeAttribute('data-required');

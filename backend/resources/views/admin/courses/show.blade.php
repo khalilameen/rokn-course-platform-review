@@ -39,7 +39,7 @@
 
     <nav class="course-studio__tabs" aria-label="أقسام استوديو الكورس" role="tablist">
         <button type="button" class="course-studio__tab is-active" data-studio-tab="builder" role="tab" aria-controls="builder" aria-selected="true" tabindex="0"><i class="fa fa-magic" aria-hidden="true"></i> بناء الكورس</button>
-        <button type="button" class="course-studio__tab" data-studio-tab="statistics" role="tab" aria-controls="statistics" aria-selected="false" tabindex="-1"><i class="fa fa-bar-chart" aria-hidden="true"></i> إحصائيات المحتوى</button>
+        <button type="button" class="course-studio__tab" data-studio-tab="statistics" role="tab" aria-controls="statistics" aria-selected="false" tabindex="-1"><i class="fa fa-bar-chart" aria-hidden="true"></i> أداء الكورس</button>
         @if($commercialReport)<button type="button" class="course-studio__tab" data-studio-tab="commercial-report" role="tab" aria-controls="commercial-report" aria-selected="false" tabindex="-1"><i class="fa fa-line-chart" aria-hidden="true"></i> الطلاب والدخل</button>@endif
     </nav>
 

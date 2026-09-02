@@ -56,6 +56,9 @@ class CourseCodeRequest extends FormRequest
         // number_of_codes is only required when creating new codes
         if (!$isUpdating) {
             $rules['number_of_codes'] = 'required|integer|min:1|max:100';
+            $rules['authoring_request_id'] = 'required|uuid';
+        } else {
+            $rules['authoring_request_id'] = 'nullable|uuid';
         }
 
         // Add is_active for update

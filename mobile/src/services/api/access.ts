@@ -4,9 +4,12 @@ import {secureRandomUuid} from '../../utils/secureRandom';
 import {normalizeHumanIdentifier} from '../../utils/unicodeText';
 import {
   accountScopedStorageKey,
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
   removeItem,
   saveItem,
 } from '../../constants/helpers';
+import type {AccountSessionBoundary} from '../../constants/helpers';
 import type {DemoCoinPackage} from '../demoExperience';
 import {mapCoinPackages} from './coinPackageMapper';
 import {
@@ -68,7 +71,15 @@ type PersistedCoursePurchaseAttempt = {
   idempotencyKey: string;
 };
 
+type PersistedCourseUpgradeAttempt = {
+  courseId: number;
+  targetPlanCode: string;
+  expectedPrice: number;
+  idempotencyKey: string;
+};
+
 const COURSE_PURCHASE_ATTEMPT_KEY = '@rokn/course-purchase-attempt/v2';
+const COURSE_UPGRADE_ATTEMPT_KEY = '@rokn/course-upgrade-attempt/v1';
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let coursePurchaseStorageTail: Promise<void> = Promise.resolve();
@@ -88,11 +99,13 @@ const coursePurchaseStorageKey = (
   courseId: number,
   accessPlanCode: string,
   couponCode: string,
+  boundary?: AccountSessionBoundary,
 ) =>
   accountScopedStorageKey(
     `${COURSE_PURCHASE_ATTEMPT_KEY}:${courseId}:${accessPlanCode}:${encodeURIComponent(
       couponCode || 'none',
     )}`,
+    boundary,
   );
 
 const readCoursePurchaseAttempt = async (
@@ -143,12 +156,15 @@ const getOrCreateCoursePurchaseKey = async (
   courseId: number,
   accessPlanCode: string,
   couponCode: string,
+  boundary: AccountSessionBoundary,
 ): Promise<string> =>
   withCoursePurchaseStorageLock(async () => {
+    assertAccountSessionBoundary(boundary);
     const storageKey = await coursePurchaseStorageKey(
       courseId,
       accessPlanCode,
       couponCode,
+      boundary,
     );
     const stored = await readCoursePurchaseAttempt(
       storageKey,
@@ -177,18 +193,129 @@ const clearCoursePurchaseKey = async (
   accessPlanCode: string,
   couponCode: string,
   expectedIdempotencyKey: string,
+  boundary: AccountSessionBoundary,
 ) =>
   withCoursePurchaseStorageLock(async () => {
+    assertAccountSessionBoundary(boundary);
     const storageKey = await coursePurchaseStorageKey(
       courseId,
       accessPlanCode,
       couponCode,
+      boundary,
     );
     const stored = await readCoursePurchaseAttempt(
       storageKey,
       courseId,
       accessPlanCode,
       couponCode,
+    );
+    if (stored?.idempotencyKey === expectedIdempotencyKey) {
+      await removeItem(storageKey);
+    }
+  });
+
+const courseUpgradeStorageKey = (
+  courseId: number,
+  targetPlanCode: string,
+  expectedPrice: number,
+  boundary?: AccountSessionBoundary,
+) =>
+  accountScopedStorageKey(
+    `${COURSE_UPGRADE_ATTEMPT_KEY}:${courseId}:${targetPlanCode}:${expectedPrice}`,
+    boundary,
+  );
+
+const readCourseUpgradeAttempt = async (
+  storageKey: string,
+  courseId: number,
+  targetPlanCode: string,
+  expectedPrice: number,
+): Promise<PersistedCourseUpgradeAttempt | null> => {
+  const raw = await AsyncStorage.getItem(storageKey);
+  if (raw === null) return null;
+  let value: ApiRecord;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isApiRecord(parsed)) throw new Error('INVALID_SHAPE');
+    value = parsed;
+  } catch {
+    throw new Error('COURSE_UPGRADE_RECOVERY_RECORD_INVALID');
+  }
+  const storedCourseId = Number(value.courseId ?? value.course_id);
+  const storedPlanCode = String(
+    value.targetPlanCode ?? value.target_plan_code ?? '',
+  ).trim().toLowerCase();
+  const storedExpectedPrice = Number(
+    value.expectedPrice ?? value.expected_price,
+  );
+  const idempotencyKey = String(
+    value.idempotencyKey ?? value.idempotency_key ?? '',
+  ).toLowerCase();
+  if (
+    storedCourseId !== courseId ||
+    storedPlanCode !== targetPlanCode ||
+    storedExpectedPrice !== expectedPrice ||
+    !UUID_PATTERN.test(idempotencyKey)
+  ) {
+    throw new Error('COURSE_UPGRADE_RECOVERY_RECORD_INVALID');
+  }
+  return {courseId, targetPlanCode, expectedPrice, idempotencyKey};
+};
+
+const getOrCreateCourseUpgradeKey = async (
+  courseId: number,
+  targetPlanCode: string,
+  expectedPrice: number,
+  boundary: AccountSessionBoundary,
+): Promise<string> =>
+  withCoursePurchaseStorageLock(async () => {
+    assertAccountSessionBoundary(boundary);
+    const storageKey = await courseUpgradeStorageKey(
+      courseId,
+      targetPlanCode,
+      expectedPrice,
+      boundary,
+    );
+    const stored = await readCourseUpgradeAttempt(
+      storageKey,
+      courseId,
+      targetPlanCode,
+      expectedPrice,
+    );
+    if (stored) return stored.idempotencyKey;
+
+    const idempotencyKey = secureRandomUuid();
+    const persisted = await saveItem(storageKey, {
+      courseId,
+      targetPlanCode,
+      expectedPrice,
+      idempotencyKey,
+    } satisfies PersistedCourseUpgradeAttempt);
+    if (!persisted) throw new Error('COURSE_UPGRADE_IDEMPOTENCY_UNAVAILABLE');
+
+    return idempotencyKey;
+  });
+
+const clearCourseUpgradeKey = async (
+  courseId: number,
+  targetPlanCode: string,
+  expectedPrice: number,
+  expectedIdempotencyKey: string,
+  boundary: AccountSessionBoundary,
+) =>
+  withCoursePurchaseStorageLock(async () => {
+    assertAccountSessionBoundary(boundary);
+    const storageKey = await courseUpgradeStorageKey(
+      courseId,
+      targetPlanCode,
+      expectedPrice,
+      boundary,
+    );
+    const stored = await readCourseUpgradeAttempt(
+      storageKey,
+      courseId,
+      targetPlanCode,
+      expectedPrice,
     );
     if (stored?.idempotencyKey === expectedIdempotencyKey) {
       await removeItem(storageKey);
@@ -324,6 +451,7 @@ export const purchaseCourse = async (
   couponCode?: string,
   expectedPrice?: number,
 ): Promise<CoursePurchaseResult> => {
+  const boundary = await captureAccountSessionBoundary();
   const courseIdValue = numericCourseId(courseId);
   const normalizedPlanCode = accessPlanCode || 'default';
   const normalizedCouponCode = normalizeHumanIdentifier(couponCode);
@@ -331,8 +459,12 @@ export const purchaseCourse = async (
     courseIdValue,
     normalizedPlanCode,
     normalizedCouponCode,
+    boundary,
   );
   try {
+    // A mounted purchase sheet may outlive logout/account replacement. Never
+    // let its old intent authorize against the bearer of the new account.
+    assertAccountSessionBoundary(boundary);
     const data = payload<CourseAuthorizationDto>(
       await publicRequest.post('courses/authorize', {
         course_id: courseIdValue,
@@ -363,6 +495,7 @@ export const purchaseCourse = async (
       normalizedPlanCode,
       normalizedCouponCode,
       idempotencyKey,
+      boundary,
     );
     return {
       kind: 'success',
@@ -376,6 +509,7 @@ export const purchaseCourse = async (
       ? (body.data as CourseAuthorizationDto)
       : {};
     if (body.code === 'insufficient_coins' || data.deficit !== undefined) {
+      assertAccountSessionBoundary(boundary);
       const balances = mapBalanceBreakdown(data);
       const deficit = requireNonNegativeNumber(
         data.deficit,
@@ -556,6 +690,8 @@ export const purchaseCourseChatUpgrade = async (
   targetPlanCode?: string,
   expectedPrice?: number,
 ): Promise<CourseChatUpgradeQuote> => {
+  const boundary = await captureAccountSessionBoundary();
+  const courseIdValue = numericCourseId(courseId);
   const normalizedTargetPlan = String(targetPlanCode || '')
     .trim()
     .toLowerCase();
@@ -566,14 +702,37 @@ export const purchaseCourseChatUpgrade = async (
   ) {
     throw new Error('COURSE_UPGRADE_INTENT_INVALID');
   }
-  return mapCourseChatUpgradeQuote(
+  const normalizedExpectedPrice = Math.trunc(Number(expectedPrice));
+  const idempotencyKey = await getOrCreateCourseUpgradeKey(
+    courseIdValue,
+    normalizedTargetPlan,
+    normalizedExpectedPrice,
+    boundary,
+  );
+  assertAccountSessionBoundary(boundary);
+  const result = mapCourseChatUpgradeQuote(
     payload(
-      await publicRequest.post(`courses/${numericCourseId(courseId)}/full-track-upgrade`, {
-        target_plan_code: normalizedTargetPlan,
-        expected_price: expectedPrice,
-      }),
+      await publicRequest.post(
+        `courses/${courseIdValue}/full-track-upgrade`,
+        {
+          target_plan_code: normalizedTargetPlan,
+          expected_price: normalizedExpectedPrice,
+          idempotency_key: idempotencyKey,
+        },
+        {headers: {'Idempotency-Key': idempotencyKey}},
+      ),
     ),
   );
+  assertAccountSessionBoundary(boundary);
+  await clearCourseUpgradeKey(
+    courseIdValue,
+    normalizedTargetPlan,
+    normalizedExpectedPrice,
+    idempotencyKey,
+    boundary,
+  );
+
+  return result;
 };
 
 export const getFullTrackUpgradeQuote = getCourseChatUpgradeQuote;

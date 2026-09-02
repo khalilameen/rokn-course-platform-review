@@ -27,6 +27,7 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Mockery;
 use Tests\TestCase;
 
@@ -36,6 +37,7 @@ final class NotificationCertificateWorkflowTest extends TestCase
     private array $tables = [
         'classification_course', 'course_teacher',
         'photos',
+        'account_file_deletions',
         'user_device_tokens', 'student_notifications', 'user_project_evaluations',
         'portfolio_media', 'portfolio_items', 'user_level', 'levels',
         'project_submissions', 'projects', 'student_section_progress', 'course_sections', 'certificates', 'course_enrollments',
@@ -149,6 +151,7 @@ final class NotificationCertificateWorkflowTest extends TestCase
             'message_ar' => 'ابدأ أول خطوة الآن',
             'course_id' => $course->id,
             'audience' => 'not_enrolled',
+            'authoring_request_id' => (string) Str::uuid(),
         ]);
 
         app(NotificationsController::class)->store($request);
@@ -375,6 +378,16 @@ final class NotificationCertificateWorkflowTest extends TestCase
                 ])
                 ->all()
         );
+        Certificate::query()->create([
+            'public_id' => '99999999-2222-4333-8444-555555555555',
+            'user_id' => $user->id,
+            'course_id' => $course->id,
+            'holder_name' => 'Graduate Student',
+            'course_name' => (string) ($course->name_ar ?: $course->name_en),
+            'image_path' => 'pending',
+            'generated_at' => now(),
+            'status' => 'active',
+        ]);
 
         $service = Mockery::mock(CertificateService::class);
         $service->shouldReceive('generate')->once()->andReturnNull();
@@ -560,7 +573,10 @@ final class NotificationCertificateWorkflowTest extends TestCase
             $table->unsignedBigInteger('user_id');
             $table->unsignedBigInteger('course_id');
             $table->unsignedBigInteger('project_id')->nullable();
+            $table->string('holder_name')->nullable();
+            $table->string('course_name')->nullable();
             $table->string('image_path');
+            $table->uuid('generation_lease_id')->nullable()->index();
             $table->timestamp('generated_at')->nullable();
             $table->string('status')->default('active');
             $table->timestamp('revoked_at')->nullable();
@@ -693,5 +709,6 @@ final class NotificationCertificateWorkflowTest extends TestCase
             $table->string('device_type')->nullable();
             $table->timestamps();
         });
+        (require database_path('migrations/2026_08_07_000022_create_account_file_deletions_table.php'))->up();
     }
 }

@@ -216,6 +216,7 @@
             <div class="modal-content modal-content-modern">
                 <form method="POST" action="{{ route('admin.notifications.store') }}">
                     @csrf
+                    <input name="authoring_request_id" type="hidden" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">
                     <input name="audience" type="hidden" value="all">
                     <input name="notification_kind" type="hidden" value="marketing">
                     <div class="modal-header modal-header-modern">

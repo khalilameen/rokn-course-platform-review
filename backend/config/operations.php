@@ -6,16 +6,19 @@ return [
         static fn (string $queue): string => trim($queue),
         explode(',', (string) env(
             'QUEUE_HEARTBEAT_REQUIRED_QUEUES',
-            'default,notifications,ai-feedback,webhooks'
+            'default,notifications,ai-chat,ai-feedback,media,operations,webhooks'
         ))
     )))),
     'queue_heartbeat_ttl_seconds' => (int) env('QUEUE_HEARTBEAT_TTL_SECONDS', 600),
     'queue_heartbeat_max_age_seconds' => (int) env('QUEUE_HEARTBEAT_MAX_AGE_SECONDS', 180),
     'queue_backlog_limits' => [
-        'default' => (int) env('QUEUE_BACKLOG_DEFAULT_LIMIT', 1000),
-        'notifications' => (int) env('QUEUE_BACKLOG_NOTIFICATIONS_LIMIT', 5000),
-        'ai-feedback' => (int) env('QUEUE_BACKLOG_AI_FEEDBACK_LIMIT', 200),
-        'webhooks' => (int) env('QUEUE_BACKLOG_WEBHOOKS_LIMIT', 500),
+        (string) env('REDIS_QUEUE', 'default') => (int) env('QUEUE_BACKLOG_DEFAULT_LIMIT', 1000),
+        (string) env('NOTIFICATIONS_QUEUE', 'notifications') => (int) env('QUEUE_BACKLOG_NOTIFICATIONS_LIMIT', 5000),
+        (string) env('AI_CHAT_QUEUE', 'ai-chat') => (int) env('QUEUE_BACKLOG_AI_CHAT_LIMIT', 200),
+        (string) env('AI_FEEDBACK_QUEUE', 'ai-feedback') => (int) env('QUEUE_BACKLOG_AI_FEEDBACK_LIMIT', 200),
+        (string) env('MEDIA_QUEUE', 'media') => (int) env('QUEUE_BACKLOG_MEDIA_LIMIT', 500),
+        (string) env('OPERATIONS_QUEUE', 'operations') => (int) env('QUEUE_BACKLOG_OPERATIONS_LIMIT', 500),
+        (string) env('WEBHOOK_QUEUE', 'webhooks') => (int) env('QUEUE_BACKLOG_WEBHOOKS_LIMIT', 500),
     ],
     'scheduler_heartbeat_key' => env('SCHEDULER_HEARTBEAT_KEY', 'operations:scheduler-heartbeat:v1'),
     'scheduler_heartbeat_ttl_seconds' => (int) env('SCHEDULER_HEARTBEAT_TTL_SECONDS', 600),

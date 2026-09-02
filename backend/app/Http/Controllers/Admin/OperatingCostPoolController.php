@@ -9,11 +9,13 @@ use App\Models\Course;
 use App\Models\OperatingCostPool;
 use App\Models\Setting;
 use App\Services\CourseCostReportService;
+use App\Services\AdminAuthoringCreateIntentService;
 use App\Services\PlatformCommercialReportService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 use App\Support\CsvCell;
 
@@ -60,10 +62,13 @@ final class OperatingCostPoolController extends Controller
         ));
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(Request $request, AdminAuthoringCreateIntentService $createIntents): RedirectResponse
     {
         $data = $this->validated($request);
-        OperatingCostPool::query()->create($data + ['created_by' => $request->user()->id]);
+        DB::transaction(function () use ($request, $data, $createIntents): void {
+            $pool = OperatingCostPool::query()->create($data + ['created_by' => $request->user()->id]);
+            $createIntents->completeRedirect($request, url()->previous(), 302, OperatingCostPool::class, $pool->id);
+        }, 3);
 
         return back()->with('success', 'تمت إضافة فاتورة التكلفة وستدخل في تقارير الربحية.');
     }
@@ -185,7 +190,9 @@ final class OperatingCostPoolController extends Controller
             'allocation_driver' => ['required', Rule::in(array_keys(OperatingCostPool::DRIVERS))],
             'is_final' => ['nullable', 'boolean'],
             'notes' => ['nullable', 'string', 'max:2000'],
+            'authoring_request_id' => [$request->isMethod('post') ? 'required' : 'nullable', 'uuid'],
         ]);
+        unset($data['authoring_request_id']);
         $data['is_final'] = $request->boolean('is_final');
 
         return $data;

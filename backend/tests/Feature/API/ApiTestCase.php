@@ -962,13 +962,18 @@ abstract class ApiTestCase extends TestCase
             $table->timestamps();
         });
 
+        (require database_path('migrations/2026_09_01_000071_create_social_identity_guards_table.php'))->up();
+        (require database_path('migrations/2026_09_01_000068_add_portfolio_lifecycle_state.php'))->up();
+        (require database_path('migrations/2026_09_01_000073_create_portfolio_video_uploads_table.php'))->up();
+        (require database_path('migrations/2026_09_01_000078_create_internal_signals_table.php'))->up();
+
     }
 
     private function tearDownSchema(): void
     {
         $tables = [
-            'social_oauth_attempts', 'course_grant_claims', 'course_code_usages', 'exam_security_logs', 'exam_answers', 'student_section_progress', 'account_file_deletions', 'api_tokens', 'photos', 'verification_codes', 'user_device_tokens', 'deleted_social_reward_tombstones', 'social_accounts', 'user_coin_task_attempts', 'user_coin_earnings', 'coin_earning_methods',
-            'payment_methods', 'categories', 'portfolios', 'portfolio_media', 'portfolio_items', 'saved_folder_lessons', 'saved_sections', 'wallet_transactions', 'reward_rules', 'user_reward_checkins', 'user_daily_learning_activities', 'playback_sessions', 'lesson_media_states', 'lesson_watch_evidence', 'lessons', 'saved_folders',
+            'internal_signals', 'social_identity_guards', 'social_oauth_attempts', 'course_grant_claims', 'course_code_usages', 'exam_security_logs', 'exam_answers', 'student_section_progress', 'account_file_deletions', 'api_tokens', 'photos', 'verification_codes', 'user_device_tokens', 'deleted_social_reward_tombstones', 'social_accounts', 'user_coin_task_attempts', 'user_coin_earnings', 'coin_earning_methods',
+            'payment_methods', 'categories', 'portfolios', 'portfolio_video_uploads', 'portfolio_media', 'portfolio_items', 'saved_folder_lessons', 'saved_sections', 'wallet_transactions', 'reward_rules', 'user_reward_checkins', 'user_daily_learning_activities', 'playback_sessions', 'lesson_media_states', 'lesson_watch_evidence', 'lessons', 'saved_folders',
             'student_notifications', 'classification_user', 'classifications', 'paths', 'certificates', 'exam_attempts',
             'exams', 'random_quizzes', 'quizzes', 'questions', 'lists', 'course_pdfs', 'project_submissions', 'course_codes', 'bills', 'orders',
             'course_enrollments', 'course_access_plans', 'course_sections', 'projects', 'course_ratings', 'course_teacher', 'classification_course', 'courses', 'grades', 'profile_update_receipts', 'users', 'settings'

@@ -202,7 +202,8 @@ class ProductOperationsController extends Controller
 
         $paymentChannelReport = $paymentChannels->summary();
         $finance = [
-            'cash_revenue' => (float) $paymentChannelReport['egp']['gross_amount'],
+            'cash_revenue' => (float) $paymentChannelReport['egp']['confirmed_gross_amount'],
+            'cash_revenue_catalog_estimate' => (float) $paymentChannelReport['egp']['catalog_estimated_gross_amount'],
             'confirmed_net_revenue' => (float) $paymentChannelReport['egp']['confirmed_net_amount'],
             'estimated_net_revenue' => (float) $paymentChannelReport['egp']['estimated_net_amount'],
             'pending_settlements' => (int) $paymentChannelReport['egp']['pending_settlement_count'],

@@ -31,6 +31,10 @@ jest.mock('react-native', () => ({
 
 jest.mock('expo-notifications', () => ({
   AndroidImportance: {DEFAULT: 3},
+  SchedulableTriggerInputTypes: {DATE: 'date'},
+  cancelScheduledNotificationAsync: jest.fn(async () => undefined),
+  getAllScheduledNotificationsAsync: jest.fn(async () => []),
+  scheduleNotificationAsync: jest.fn(async () => 'scheduled-notification'),
   setNotificationHandler: jest.fn(),
   setNotificationChannelAsync: jest.fn(async () => null),
   getPermissionsAsync: () => mockGetPermissions(),
@@ -56,6 +60,11 @@ jest.mock('@react-native-firebase/messaging', () => ({
 jest.mock('../src/constants/helpers', () => ({
   AsyncKeys: {USER_DATA: 'USER_DATA'},
   accountScopedStorageKey: jest.fn(async (key: string) => `${key}:account-1`),
+  assertAccountSessionBoundary: jest.fn(),
+  captureAccountSessionBoundary: jest.fn(async () => ({
+    epoch: 0,
+    scope: mockAccountScope,
+  })),
   extractApiToken: (session: any) => session?.api_token || null,
   getCurrentAccountStorageScope: jest.fn(async () => mockAccountScope),
   getItem: (key: string) => mockGetItem(key),

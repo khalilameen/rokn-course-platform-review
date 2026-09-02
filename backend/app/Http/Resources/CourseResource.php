@@ -16,6 +16,9 @@ use App\Services\CourseChatAccessService;
 use App\Services\CourseAccessPlanService;
 use App\Services\CourseRatingEligibilityService;
 use App\Models\CourseEnrollment;
+use App\Models\ProjectSubmission;
+use App\Models\AiInputAttachment;
+use Illuminate\Support\Facades\URL;
 
 class CourseResource extends BaseCourseResource
 {
@@ -25,6 +28,7 @@ class CourseResource extends BaseCourseResource
     private Collection $sectionAccessStates;
     private Collection $orderedSections;
     private Collection $projectEvaluations;
+    private Collection $projectSubmissions;
     private Collection $passedQuizAttempts;
     private string $projectFeedbackLevel = 'pass_only';
     private array $projectFeedbackContract = [
@@ -82,6 +86,20 @@ class CourseResource extends BaseCourseResource
                 ->get()
                 ->keyBy('project_id')
             : collect();
+        if ($user && $projectIds->isNotEmpty()) {
+            $latestSubmissionIds = ProjectSubmission::query()
+                ->selectRaw('MAX(id)')
+                ->where('user_id', $user->id)
+                ->whereIn('project_id', $projectIds)
+                ->groupBy('project_id');
+            $this->projectSubmissions = ProjectSubmission::query()
+                ->whereIn('id', $latestSubmissionIds)
+                ->with(['aiInputAttachments', 'feedbackThread'])
+                ->get()
+                ->keyBy('project_id');
+        } else {
+            $this->projectSubmissions = collect();
+        }
         $quizIds = $sections
             ->filter(fn ($section) => $section->getSectionType() === 'quiz')
             ->pluck('sectionable_id')
@@ -185,6 +203,15 @@ class CourseResource extends BaseCourseResource
             'reason' => (string) $ratingEligibility['reason'],
             'version' => (int) ($userRating?->version ?? 0),
         ];
+        $planAttachmentMax = max(0, (int) ($this->projectFeedbackContract['chat_attachment_max_files'] ?? 0));
+        $courseAttachmentMax = min(5, max(1, (int) ($this->chat_attachment_max_files ?? 1)));
+        $baseData['chat_attachments_enabled'] = $hasCourseAccess
+            && (bool) $this->chat_attachments_enabled
+            && (bool) ($this->projectFeedbackContract['chat_attachments_enabled'] ?? false)
+            && $planAttachmentMax > 0;
+        $baseData['chat_attachment_max_files'] = $baseData['chat_attachments_enabled']
+            ? min($courseAttachmentMax, $planAttachmentMax)
+            : 0;
 
         // Override sections with full content and lock status
         $baseData['sections'] = $this->whenLoaded('sections', function() {
@@ -448,10 +475,54 @@ class CourseResource extends BaseCourseResource
                     $content['requirements_text'] = $section->sectionable->requirements_text ?? null;
                     $content['passing_score'] = $section->sectionable->passing_score ?? null;
                     $content['is_graduation_project'] = $section->sectionable->is_graduation_project ?? false;
+                    $content['submission_max_files'] = max(1, min(5, (int) (
+                        $section->sectionable->submission_max_files ?: 3
+                    )));
+                    $content['submission_allowed_mime_types'] = (array) (
+                        $section->sectionable->submission_allowed_mime_types
+                        ?: app(\App\Services\AiInputAttachmentService::class)->allowedMimeTypes()
+                    );
                     $evaluation = $this->projectEvaluations->get((int) $section->sectionable->id);
+                    $submission = $this->projectSubmissions->get((int) $section->sectionable->id);
                     $content['status'] = data_get($evaluation?->evaluation_data, 'status')
                         ?: ($evaluation ? ($evaluation->passed ? 'passed' : 'pending') : 'not_submitted');
                     $content['passed'] = (bool) ($evaluation?->passed ?? false);
+                    $content['latest_submission'] = $submission ? [
+                        'id' => (string) $submission->public_id,
+                        'status' => (string) $submission->review_status,
+                        'passed' => $submission->review_status === ProjectSubmission::STATUS_PASSED,
+                        'can_continue' => $submission->review_status === ProjectSubmission::STATUS_PASSED,
+                        'needs_resubmission' => $submission->review_status === ProjectSubmission::STATUS_NEEDS_RESUBMISSION,
+                        'attachments' => $submission->aiInputAttachments->map(
+                            static fn (AiInputAttachment $attachment): array => [
+                                'id' => (string) $attachment->public_id,
+                                'name' => (string) $attachment->original_file_name,
+                                'mime_type' => (string) $attachment->mime_type,
+                                'size_bytes' => (int) $attachment->size_bytes,
+                                'download_url' => URL::temporarySignedRoute(
+                                    'api.project-input-attachments.download',
+                                    now()->addMinutes(30),
+                                    [
+                                        'attachment' => $attachment->public_id,
+                                        'user' => $attachment->user_id,
+                                    ]
+                                ),
+                                'download_url_expires_at' => now()->addMinutes(30)->toIso8601String(),
+                            ]
+                        )->values()->all(),
+                        // The full transcript is deliberately fetched from
+                        // the thread endpoint only when this project is open.
+                        // Keeping the course payload to a summary avoids a
+                        // query/message explosion on long course maps.
+                        'feedback_thread' => $submission->feedbackThread ? [
+                            'id' => (string) $submission->feedbackThread->public_id,
+                            'feedback_level' => (string) $submission->feedbackThread->feedback_level,
+                            'can_reply' => (bool) $submission->feedbackThread->can_reply,
+                            'status' => (string) $submission->feedbackThread->status,
+                            'remaining_messages' => 0,
+                            'messages' => [],
+                        ] : null,
+                    ] : null;
                     $content['project_feedback'] = [
                         'level' => $this->projectFeedbackLevel,
                         'report_enabled' => (bool) (

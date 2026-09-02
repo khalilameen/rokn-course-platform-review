@@ -6,6 +6,7 @@ import {
   View,
   type GestureResponderHandlers,
 } from 'react-native';
+import {Gesture, GestureDetector} from 'react-native-gesture-handler';
 import LinearGradient from 'react-native-linear-gradient';
 import {Fonts} from '../../../constants/styleConstants';
 import {SkeletonBlock} from '../../ui/Skeleton';
@@ -56,22 +57,37 @@ export const VideoChrome = ({
   unsupportedSource,
 }: VideoChromeProps) => {
   const errorCopy = selectPlaybackErrorCopy(failureKind, unsupportedSource);
+  const surfaceTap = React.useMemo(
+    () => Gesture.Tap()
+      .maxDistance(12)
+      .runOnJS(true)
+      .onEnd((_event, success) => {
+        if (success) onTogglePaused();
+      }),
+    [onTogglePaused],
+  );
 
   return (
     <>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={pausedByUser ? 'تشغيل الفيديو' : 'إيقاف الفيديو'}
-        style={styles.tapLayer}
-        onPress={onTogglePaused}>
-        {pausedByUser && (
-          <View style={styles.playButton}>
-            <Text style={styles.playSymbol} maxFontSizeMultiplier={1.1}>
-              ▶
-            </Text>
-          </View>
-        )}
-      </Pressable>
+      <GestureDetector gesture={surfaceTap}>
+        <View
+          accessible
+          accessibilityRole="button"
+          accessibilityLabel={pausedByUser ? 'تشغيل الفيديو' : 'إيقاف الفيديو'}
+          accessibilityActions={[{name: 'activate'}]}
+          onAccessibilityAction={event => {
+            if (event.nativeEvent.actionName === 'activate') onTogglePaused();
+          }}
+          style={styles.tapLayer}>
+          {pausedByUser && (
+            <View pointerEvents="none" style={styles.playButton}>
+              <Text style={styles.playSymbol} maxFontSizeMultiplier={1.1}>
+                ▶
+              </Text>
+            </View>
+          )}
+        </View>
+      </GestureDetector>
 
       <LinearGradient
         pointerEvents="none"

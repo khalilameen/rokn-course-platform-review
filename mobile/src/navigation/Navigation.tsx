@@ -30,7 +30,12 @@ import Notifications from '../screens/Notifications';
 import EditAccount from '../screens/EditAccount';
 import Feedback from '../screens/Feedback';
 import DeviceSessions from '../screens/DeviceSessions';
-import {parseRoknDestination, roknDestinationKey} from './deepLinks';
+import {
+  parseRoknDestination,
+  resolveInitialUrlWithinDeadline,
+  roknDestinationKey,
+  type RoknDestination,
+} from './deepLinks';
 import type {RootStackParamList} from './types';
 import {
   flushPendingNotificationNavigation,
@@ -52,7 +57,31 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 let lastDeliveredDestination = '';
 let lastDeliveredAt = 0;
+let lateInitialDestination: RoknDestination | null = null;
+let restoredNavigationReady = false;
 const WARM_LINK_DEDUPE_MS = 1_500;
+
+const rememberDeliveredDestination = (destination: RoknDestination) => {
+  lastDeliveredDestination = roknDestinationKey(destination);
+  lastDeliveredAt = Date.now();
+};
+
+const deliverLateInitialUrl = (url: string | null) => {
+  const destination = parseRoknDestination(url);
+  if (!destination) return;
+  rememberDeliveredDestination(destination);
+  if (!restoredNavigationReady || !openRoknDestination(destination)) {
+    lateInitialDestination = destination;
+  }
+};
+
+const flushLateInitialDestination = () => {
+  if (!restoredNavigationReady || !lateInitialDestination) return false;
+  const destination = lateInitialDestination;
+  if (!openRoknDestination(destination)) return false;
+  lateInitialDestination = null;
+  return true;
+};
 
 const navigationDeadline = <T,>(
   promise: Promise<T>,
@@ -90,7 +119,13 @@ const linking: LinkingOptions<RootStackParamList> = {
     'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud',
   ],
   async getInitialURL() {
-    return navigationDeadline(Linking.getInitialURL(), null);
+    const url = await resolveInitialUrlWithinDeadline(
+      Linking.getInitialURL(),
+      deliverLateInitialUrl,
+    );
+    const destination = parseRoknDestination(url);
+    if (destination) rememberDeliveredDestination(destination);
+    return url;
   },
   subscribe(listener) {
     const subscription = Linking.addEventListener('url', ({url}) => {
@@ -204,8 +239,14 @@ const Navigation = () => {
     : 'guest';
   const restoreFlightRef = React.useRef<Promise<boolean> | null>(null);
   React.useEffect(() => {
+    restoredNavigationReady = false;
+    lateInitialDestination = null;
     setNotificationNavigationReady(false);
-    return () => setNotificationNavigationReady(false);
+    return () => {
+      restoredNavigationReady = false;
+      lateInitialDestination = null;
+      setNotificationNavigationReady(false);
+    };
   }, []);
   const restoreInterruptedLogin = React.useCallback(async () => {
     const initialUrl = await navigationDeadline(Linking.getInitialURL(), null);
@@ -227,7 +268,9 @@ const Navigation = () => {
           routes: [
             {name: 'Home'},
             isLogin
-              ? returnTo.name === 'CourseDetails' || returnTo.name === 'Reels'
+              ? returnTo.name === 'CourseDetails' ||
+                returnTo.name === 'Reels' ||
+                returnTo.name === 'Profile'
                 ? {name: returnTo.name, params: returnTo.params}
                 : {name: returnTo.name}
               : {name: 'Login', params: {returnTo}},
@@ -257,7 +300,9 @@ const Navigation = () => {
         index: 1,
         routes: [
           {name: 'Home'},
-          returnTo.name === 'CourseDetails' || returnTo.name === 'Reels'
+          returnTo.name === 'CourseDetails' ||
+          returnTo.name === 'Reels' ||
+          returnTo.name === 'Profile'
             ? {name: returnTo.name, params: returnTo.params}
             : {name: returnTo.name},
         ],
@@ -293,6 +338,8 @@ const Navigation = () => {
       linking={linking}
       onReady={() => {
         void runInterruptedJourneyRestore().finally(() => {
+          restoredNavigationReady = true;
+          flushLateInitialDestination();
           setNotificationNavigationReady(true);
           void flushPendingNotificationNavigation();
         });

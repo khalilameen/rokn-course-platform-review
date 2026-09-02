@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 final class CoursePdfSharedStorageTest extends TestCase
@@ -71,6 +72,7 @@ final class CoursePdfSharedStorageTest extends TestCase
             $table->timestamps();
             $table->softDeletes();
         });
+        (require database_path('migrations/2026_08_07_000022_create_account_file_deletions_table.php'))->up();
 
         DB::table('courses')->insert(['id' => 7, 'name_ar' => 'اختبار', 'is_coming_soon' => false, 'created_at' => now(), 'updated_at' => now()]);
         DB::table('users')->insert(['id' => 42, 'active' => true, 'created_at' => now(), 'updated_at' => now()]);
@@ -94,6 +96,7 @@ final class CoursePdfSharedStorageTest extends TestCase
 
     protected function tearDown(): void
     {
+        Schema::dropIfExists('account_file_deletions');
         Schema::dropIfExists('course_pdfs');
         Schema::dropIfExists('course_sections');
         Schema::dropIfExists('course_enrollments');
@@ -202,6 +205,7 @@ final class CoursePdfSharedStorageTest extends TestCase
                 'title' => $title,
                 'is_active' => true,
                 'authoring_version' => $course->authoring_version,
+                'authoring_request_id' => (string) Str::uuid(),
             ]);
             $request->files->set(
                 'pdf_file',
@@ -221,7 +225,7 @@ final class CoursePdfSharedStorageTest extends TestCase
         self::assertNotSame($rows[0]->file_path, $rows[1]->file_path);
         foreach ($rows as $row) {
             self::assertSame('course-pdfs-shared', $row->storage_disk);
-            self::assertMatchesRegularExpression('~^courses/7/[0-9a-f-]{36}\.pdf$~', $row->file_path);
+            self::assertMatchesRegularExpression('~^courses/7/[0-9a-f]{64}\.pdf$~', $row->file_path);
             self::assertStringNotContainsString('same-original-name', $row->file_path);
             Storage::disk('course-pdfs-shared')->assertExists($row->file_path);
         }

@@ -5,7 +5,11 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\AdminNotificationRequest;
 use App\Models\AdminNotification;
+use App\Services\AdminAuthoringCreateIntentService;
 use App\Support\BusinessClock;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class AdminNotificationsController extends Controller
 {
@@ -37,13 +41,72 @@ class AdminNotificationsController extends Controller
      * @param AdminNotificationRequest $request
      * @return \Illuminate\Http\RedirectResponse
      */
-    public function store(AdminNotificationRequest $request)
+    public function store(
+        AdminNotificationRequest $request,
+        AdminAuthoringCreateIntentService $createIntents
+    )
     {
-        $admin_notification = AdminNotification::create($this->payload($request));
+        $requestId = (string) $request->validated('authoring_request_id');
+        $payload = $this->payload($request);
+        $admin_notification = AdminNotification::query()
+            ->where('authoring_request_id', $requestId)->first();
+        if ($admin_notification) {
+            if (!$this->sameCreatePayload($admin_notification, $payload, $request)) {
+                throw ValidationException::withMessages([
+                    'authoring_request_id' => ['تغيّرت بيانات القالب\nأعد فتح النموذج ثم أرسل'],
+                ]);
+            }
+        } else {
+            $admin_notification = DB::transaction(function () use (
+                $request,
+                $payload,
+                $requestId,
+                $createIntents
+            ): AdminNotification {
+                $notification = AdminNotification::create(
+                    $payload + ['authoring_request_id' => $requestId]
+                );
+                $createIntents->checkpointResource(
+                    $request,
+                    AdminNotification::class,
+                    $notification->id
+                );
+                return $notification;
+            }, 3);
+        }
+        if (!$admin_notification->wasRecentlyCreated) {
+            DB::transaction(function () use ($request, $admin_notification, $createIntents): void {
+                AdminNotification::query()->whereKey($admin_notification->id)->lockForUpdate()->firstOrFail();
+                $createIntents->checkpointResource(
+                    $request,
+                    AdminNotification::class,
+                    $admin_notification->id
+                );
+            }, 3);
+        }
         if ($request->hasFile('image')) {
             $file = $request->file('image');
-            $admin_notification->storeImage($file, 'admin_notifications', 'featured');
+            $admin_notification->storeImage(
+                $file,
+                'admin_notifications',
+                'featured',
+                'admin-message-template|'.strtolower($requestId).'|'.hash_file('sha256', $file->getRealPath())
+            );
         }
+
+        DB::transaction(function () use ($request, $admin_notification, $createIntents): void {
+            $locked = AdminNotification::query()
+                ->whereKey($admin_notification->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $createIntents->completeRedirect(
+                $request,
+                route('admin.admin_notifications.index'),
+                302,
+                AdminNotification::class,
+                $locked->id
+            );
+        }, 3);
 
         return redirect()->route('admin.admin_notifications.index')->with('success', 'تمت الإضافة بنجاح ');
     }
@@ -104,7 +167,7 @@ class AdminNotificationsController extends Controller
 
     private function payload(AdminNotificationRequest $request): array
     {
-        $payload = $request->safe()->except(['image', 'remove_image']);
+        $payload = $request->safe()->except(['image', 'remove_image', 'authoring_request_id']);
         $payload['title_en'] = trim((string) ($payload['title_en'] ?? '')) ?: $payload['title_ar'];
         $payload['description_en'] = trim((string) ($payload['description_en'] ?? '')) ?: $payload['description_ar'];
         foreach (['starts_at', 'ends_at'] as $field) {
@@ -115,5 +178,55 @@ class AdminNotificationsController extends Controller
             'is_active' => $request->boolean('is_active'),
             'is_dismissible' => $request->boolean('is_dismissible'),
         ];
+    }
+
+    private function sameCreatePayload(
+        AdminNotification $notification,
+        array $payload,
+        AdminNotificationRequest $request
+    ): bool {
+        foreach ([
+            'system_key', 'surface', 'title_ar', 'title_en', 'description_ar', 'description_en',
+            'action_label_ar', 'action_label_en', 'secondary_action_label_ar',
+            'secondary_action_label_en', 'link',
+        ] as $field) {
+            if ((string) ($notification->{$field} ?? '') !== (string) ($payload[$field] ?? '')) {
+                return false;
+            }
+        }
+        foreach (['priority', 'cooldown_hours'] as $field) {
+            if ((int) $notification->{$field} !== (int) ($payload[$field] ?? 0)) return false;
+        }
+        foreach (['is_active', 'is_dismissible'] as $field) {
+            if ((bool) $notification->{$field} !== (bool) ($payload[$field] ?? false)) return false;
+        }
+        foreach (['starts_at', 'ends_at'] as $field) {
+            $stored = $notification->{$field}?->getTimestamp();
+            $submitted = ($payload[$field] ?? null)?->getTimestamp();
+            if ($stored !== $submitted) return false;
+        }
+
+        $photo = $notification->photo()->first();
+        if (!$request->hasFile('image')) return $photo === null;
+        // A prior worker can die after the template row commits but before
+        // its deterministic image is attached. Let the same intent finish it.
+        if (!$photo) return true;
+
+        return $this->trackedImageMatches(
+            (string) $photo->path,
+            $request->file('image'),
+            'admin-message-template|' . strtolower((string) $notification->authoring_request_id)
+        );
+    }
+
+    private function trackedImageMatches(string $path, UploadedFile $image, string $identityPrefix): bool
+    {
+        $storedIdentity = pathinfo($path, PATHINFO_FILENAME);
+        $contentHash = hash_file('sha256', $image->getRealPath());
+
+        return $storedIdentity !== '' && hash_equals(
+            $storedIdentity,
+            hash('sha256', $identityPrefix . '|' . $contentHash)
+        );
     }
 }

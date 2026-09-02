@@ -17,6 +17,7 @@ class Certificate extends Model
         'holder_name',
         'course_name',
         'image_path',
+        'generation_lease_id',
         'generated_at',
         'status',
         'verification_level',

@@ -12,7 +12,10 @@ use App\Models\UserNote;
 use App\Services\StudentNotificationService;
 use App\Services\AccountDeletionService;
 use App\Services\DeviceLoginService;
+use App\Services\StoredFileDeletionService;
+use App\Services\AdminAuthoringCreateIntentService;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -76,24 +79,59 @@ class UsersController extends Controller
      * @param UserRequest $request
      * @return \Illuminate\Http\RedirectResponse
      */
-    public function store(UserRequest $request)
+    public function store(UserRequest $request, AdminAuthoringCreateIntentService $createIntents)
     {
         $validated = $request->validated();
-        $user = new User();
-        $user->name = $validated['name'];
-        $user->email = strtolower(trim($validated['email']));
-        $user->phone = trim($validated['phone']);
-        $user->password = bcrypt($validated['password']);
-        $user->forceFill([
-            'role' => 'client',
-            'active' => true,
-            'is_online' => false,
-        ])->save();
+        $requestId = (string) $validated['authoring_request_id'];
+        $user = User::withTrashed()->where('authoring_request_id', $requestId)->first();
+        if (!$user) {
+            $user = DB::transaction(function () use (
+                $request,
+                $validated,
+                $requestId,
+                $createIntents
+            ): User {
+                $user = new User();
+                $user->name = $validated['name'];
+                $user->email = strtolower(trim($validated['email']));
+                $user->phone = trim($validated['phone']);
+                $user->password = bcrypt($validated['password']);
+                $user->authoring_request_id = $requestId;
+                $user->forceFill([
+                    'role' => 'client',
+                    'active' => true,
+                    'is_online' => false,
+                ])->save();
+                $createIntents->checkpointResource($request, User::class, $user->id);
+                return $user;
+            }, 3);
+        } else {
+            DB::transaction(function () use ($request, $user, $createIntents): void {
+                User::withTrashed()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+                $createIntents->checkpointResource($request, User::class, $user->id);
+            }, 3);
+        }
 
         if ($request->hasFile('image')) {
             $file = $request->file('image');
-            $user->storeImage($file, 'users', 'featured');
+            $user->storeImage(
+                $file,
+                'users',
+                'featured',
+                'admin-student|'.strtolower($requestId).'|'.hash_file('sha256', $file->getRealPath())
+            );
         }
+
+        DB::transaction(function () use ($request, $user, $createIntents): void {
+            $locked = User::withTrashed()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $createIntents->completeRedirect(
+                $request,
+                route('admin.users.index'),
+                302,
+                User::class,
+                $locked->id
+            );
+        }, 3);
 
         return redirect()->route('admin.users.index')->with('success', 'تمت الإضافة بنجاح ');
     }
@@ -249,24 +287,61 @@ class UsersController extends Controller
 
     public function sendNotification(Request $request, User $user)
     {
+        if (!(bool) $user->active || $user->trashed()) {
+            throw ValidationException::withMessages([
+                'message' => ['هذا الحساب غير نشط\nفعّله قبل إرسال إشعار'],
+            ]);
+        }
         $request->validate([
             'title'   => 'required|string|max:80',
             'message' => 'required|string|max:240',
             'image' => 'nullable|image|mimes:jpeg,png,webp|max:4096',
+            'authoring_request_id' => 'required|uuid',
         ]);
 
-        $title   = $request->input('title');
-        $message = $request->input('message');
+        $title = trim((string) $request->input('title'));
+        $message = trim((string) $request->input('message'));
+        $deliveryKey = 'admin-message:' . auth()->id() . ':' . $user->id . ':'
+            . strtolower((string) $request->input('authoring_request_id'));
+        if (strlen($deliveryKey) > 64) $deliveryKey = hash('sha256', $deliveryKey);
+        $existing = \App\Models\StudentNotification::query()
+            ->where('user_id', $user->id)
+            ->where('delivery_key', $deliveryKey)
+            ->first();
+        if ($existing) {
+            $existingHasImage = trim((string) $existing->image_url) !== '';
+            $replayHasImage = $request->hasFile('image');
+            if (!hash_equals((string) $existing->title_ar, $title)
+                || !hash_equals((string) $existing->message_ar, $message)
+                || $existingHasImage !== $replayHasImage
+                || ($replayHasImage && !$this->notificationImageMatches(
+                    (string) $existing->image_url,
+                    $request->file('image'),
+                    'notification-user|' . $deliveryKey
+                ))) {
+                throw ValidationException::withMessages([
+                    'authoring_request_id' => ['تغيّرت بيانات الإشعار\nأعد فتح النموذج ثم أرسل'],
+                ]);
+            }
+            return $this->directNotificationResponse($user);
+        }
         $imageUrl = null;
         if ($request->hasFile('image')) {
-            $imagePath = $request->file('image')->store('student-notifications', 'public');
+            $image = $request->file('image');
+            $imagePath = app(StoredFileDeletionService::class)->storeTrackedUpload(
+                $image,
+                'student-notifications',
+                'public',
+                60,
+                'notification-user|' . $deliveryKey . '|' . hash_file('sha256', $image->getRealPath())
+            );
             if (!is_string($imagePath) || trim($imagePath) === '') {
                 throw ValidationException::withMessages(['image' => ['تعذّر حفظ الصورة']]);
             }
             $imageUrl = Storage::disk('public')->url($imagePath);
         }
 
-        StudentNotificationService::notifyUser(
+        $notification = StudentNotificationService::notifyUser(
             $user,
             'admin_message',
             $title,
@@ -276,11 +351,33 @@ class UsersController extends Controller
             null,
             null,
             null,
-            null,
+            $deliveryKey,
             [],
             $imageUrl
         );
+        if (!$notification) {
+            throw ValidationException::withMessages([
+                'message' => ['لم يُحفظ الإشعار\nحدّث الصفحة ثم حاول مرة أخرى'],
+            ]);
+        }
 
+        return $this->directNotificationResponse($user);
+    }
+
+    private function notificationImageMatches(string $url, UploadedFile $image, string $identityPrefix): bool
+    {
+        $path = (string) (parse_url($url, PHP_URL_PATH) ?: '');
+        $storedIdentity = pathinfo($path, PATHINFO_FILENAME);
+        $contentHash = hash_file('sha256', $image->getRealPath());
+
+        return $storedIdentity !== '' && hash_equals(
+            $storedIdentity,
+            hash('sha256', $identityPrefix . '|' . $contentHash)
+        );
+    }
+
+    private function directNotificationResponse(User $user)
+    {
         $canReceivePush = (bool) $user->notifications_status
             && $user->deviceTokens()->exists();
 

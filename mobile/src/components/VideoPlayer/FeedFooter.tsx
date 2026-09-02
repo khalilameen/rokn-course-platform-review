@@ -1,13 +1,18 @@
-import React, {useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {
   Pressable,
   StyleSheet,
   Text,
+  type NativeSyntheticEvent,
+  type TextLayoutEventData,
   useWindowDimensions,
   View,
 } from 'react-native';
 import {textDirection} from '../../constants/designSystem';
-import {formatArabicDisplayText, formatArabicNumber} from '../../constants/arabicFormatting';
+import {
+  formatArabicDisplayText,
+  formatArabicNumber,
+} from '../../constants/arabicFormatting';
 import {Fonts} from '../../constants/styleConstants';
 import {CourseReel} from './types';
 
@@ -18,8 +23,18 @@ interface FeedFooterProps {
 
 const FeedFooter = ({data, bottomInset = 0}: FeedFooterProps) => {
   const [expanded, setExpanded] = useState(false);
+  const [canExpand, setCanExpand] = useState(false);
   const {height, fontScale} = useWindowDimensions();
   const compact = height < 620 || fontScale > 1.25;
+  useEffect(() => {
+    setExpanded(false);
+    setCanExpand(false);
+  }, [data.caption, data.id]);
+  const captureCaptionLayout = (
+    event: NativeSyntheticEvent<TextLayoutEventData>,
+  ) => {
+    if (!expanded) setCanExpand(event.nativeEvent.lines.length > 2);
+  };
   return (
     <View
       pointerEvents="box-none"
@@ -33,23 +48,23 @@ const FeedFooter = ({data, bottomInset = 0}: FeedFooterProps) => {
           المقطع {formatArabicNumber(data.reelNumber)}
         </Text>
       </View>
-      <Text
-        style={styles.title}
-        numberOfLines={2}>
+      <Text style={styles.title} numberOfLines={2}>
         {formatArabicDisplayText(data.title)}
       </Text>
       {!!data.caption && (
         <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="عرض الكابشن كاملًا"
+          accessibilityRole={canExpand ? 'button' : undefined}
+          accessibilityLabel={canExpand ? 'عرض الكابشن كاملًا' : undefined}
+          disabled={!canExpand}
           hitSlop={{top: 10, bottom: 10, left: 4, right: 4}}
           onPress={() => setExpanded(value => !value)}>
           <Text
+            onTextLayout={captureCaptionLayout}
             style={styles.caption}
             numberOfLines={expanded ? (compact ? 4 : 6) : 2}>
             {formatArabicDisplayText(data.caption)}
           </Text>
-          {!expanded && data.caption.length > 95 && (
+          {!expanded && canExpand && (
             <Text style={styles.more} maxFontSizeMultiplier={1.15}>
               المزيد
             </Text>

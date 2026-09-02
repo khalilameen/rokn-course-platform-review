@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Admin;
 
 use App\Models\PaymentMethod;
 use App\Http\Controllers\Controller;
+use App\Services\AdminAuthoringCreateIntentService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class PaymentMethodController extends Controller
 {
@@ -36,16 +38,18 @@ class PaymentMethodController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
      */
-    public function store(Request $request)
+    public function store(Request $request, AdminAuthoringCreateIntentService $createIntents)
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'account_details' => 'required|string',
             'description' => 'nullable|string',
             'is_active' => 'boolean',
+            'authoring_request_id' => 'required|uuid',
         ]);
 
         $data = $validated;
+        unset($data['authoring_request_id']);
         $data['is_active'] = $request->boolean('is_active');
         $data['is_default'] = false; // User-created payment methods are not default
 
@@ -58,7 +62,16 @@ class PaymentMethodController extends Controller
                 ->withErrors(['account_details' => 'أضف بيانات الدفع قبل التفعيل']);
         }
 
-        PaymentMethod::create($data);
+        DB::transaction(function () use ($request, $data, $createIntents): void {
+            $paymentMethod = PaymentMethod::create($data);
+            $createIntents->completeRedirect(
+                $request,
+                route('admin.payment-methods.index'),
+                302,
+                PaymentMethod::class,
+                $paymentMethod->id
+            );
+        }, 3);
 
         return redirect()->route('admin.payment-methods.index')->with('success', 'تمت الإضافة بنجاح');
     }

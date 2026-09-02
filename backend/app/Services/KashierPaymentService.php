@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Models\Order;
 use App\Models\Package;
+use App\Models\PaymentReconciliationFinding;
 use App\Models\User;
 use App\Models\WalletTransaction;
 use Illuminate\Http\Request;
@@ -46,7 +47,12 @@ final readonly class KashierPaymentService
             $expectedCoins
         ): array {
             User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
-            $package = Package::query()->lockForUpdate()->findOrFail($package->id);
+            // The package is catalogue input, not the learner's financial
+            // aggregate. Locking it serialized every buyer of the same popular
+            // package. Published store coin terms are immutable and direct
+            // price/coin facts are copied into the order below, so a consistent
+            // transaction read is sufficient here.
+            $package = Package::query()->findOrFail($package->id);
 
             $existing = null;
             if ($clientRequestKey !== '') {
@@ -387,15 +393,16 @@ final readonly class KashierPaymentService
      */
     public function isOrderCaptured(?array $apiResponse): bool
     {
-        if (!$apiResponse) {
-            return false;
-        }
+        return $this->isCaptureNotificationStatus(
+            $this->providerOrderStatus($apiResponse)
+        );
+    }
 
-        $status = $apiResponse['response']['status']
-            ?? $apiResponse['status']
-            ?? null;
-
-        return strtoupper((string) $status) === 'CAPTURED';
+    public function isCaptureNotificationStatus(?string $status): bool
+    {
+        return in_array(strtoupper(trim((string) $status)), [
+            'SUCCESS', 'CAPTURED', 'PAID',
+        ], true);
     }
 
     /**
@@ -414,6 +421,39 @@ final readonly class KashierPaymentService
             ?? null;
         $status = strtoupper(trim((string) $status));
 
+        if ($status === '') {
+            $transactions = $apiResponse['response']['transactions']
+                ?? $apiResponse['data']['transactions']
+                ?? $apiResponse['transactions']
+                ?? [];
+            if (is_array($transactions)) {
+                foreach (array_reverse($transactions) as $transaction) {
+                    if (!is_array($transaction)) continue;
+                    $transactionStatus = strtoupper(trim((string) (
+                        $transaction['status'] ?? $transaction['paymentStatus'] ?? ''
+                    )));
+                    $operation = strtoupper(trim((string) (
+                        $transaction['operation'] ?? $transaction['type'] ?? ''
+                    )));
+                    if (in_array($transactionStatus, ['SUCCESS', 'CAPTURED', 'PAID'], true)) {
+                        if (str_contains($operation, 'REFUND')) return 'REFUNDED';
+                        if (str_contains($operation, 'CHARGEBACK') || str_contains($operation, 'DISPUTE')) {
+                            return 'CHARGEBACK';
+                        }
+                        if (str_contains($operation, 'REVERS') || str_contains($operation, 'VOID')) {
+                            return 'REVERSED';
+                        }
+                        if (in_array($operation, ['PAY', 'CAPTURE', 'SALE', 'PURCHASE'], true)) {
+                            return 'CAPTURED';
+                        }
+                    }
+                    if (preg_match('/\A[A-Z0-9_-]{1,32}\z/D', $transactionStatus) === 1) {
+                        return $transactionStatus;
+                    }
+                }
+            }
+        }
+
         return $status !== '' && preg_match('/\A[A-Z0-9_-]{1,32}\z/D', $status) === 1
             ? $status
             : null;
@@ -422,6 +462,34 @@ final readonly class KashierPaymentService
     public function isProviderPendingStatus(?string $status): bool
     {
         return in_array($status, ['PENDING', 'INITIATED', 'AUTHORIZED', 'PROCESSING'], true);
+    }
+
+    /**
+     * An authorization/processing state may still turn into a charge without
+     * another learner action. A merely opened HPP order may be abandoned and
+     * replaced; a late authenticated capture is still recovered by
+     * fulfillOrder() exactly once.
+     */
+    public function providerStatusMayCaptureWithoutLearner(?string $status): bool
+    {
+        $normalized = strtoupper(trim((string) $status));
+        if ($normalized === '') {
+            // A successful HTTP response with an unknown body is not evidence
+            // that the payment can be safely replaced.
+            return true;
+        }
+
+        if (in_array($normalized, [
+            'NOT_FOUND', 'PENDING', 'INITIATED', 'FAILED', 'DECLINED',
+            'CANCELLED', 'CANCELED', 'VOIDED', 'EXPIRED',
+        ], true)) {
+            return false;
+        }
+
+        // AUTHORIZED/PROCESSING and new provider states stay recoverable until
+        // reconciliation can classify them. Unknown must fail closed here: a
+        // second payable checkout is more harmful than a short pending state.
+        return true;
     }
 
     public function isProviderFailureStatus(?string $status): bool
@@ -648,23 +716,8 @@ final readonly class KashierPaymentService
         ?string $transactionId,
         array $params
     ): void {
-        $reason = 'Kashier reported payment status ' . strtoupper($paymentStatus) . '.';
-
-        if ($order->status !== Order::STATUS_APPROVED) {
-            $closed = $this->orderLifecycle->cancelPending($order, null, $reason);
-            // A reversal can arrive before the delayed capture/success event.
-            // Preserve it on the order; otherwise the later capture would mint
-            // coins for money the provider has already returned.
-            $closed->forceFill([
-                'financial_status' => $type,
-                'reversed_at' => $closed->reversed_at ?: now(),
-                'reversal_reason' => $reason,
-                'payment_gateway_response' => $this->sanitizeGatewayResponse($params),
-            ])->save();
-
-            return;
-        }
-
+        $normalizedStatus = strtoupper(trim($paymentStatus));
+        $reason = 'Kashier reported payment status ' . $normalizedStatus . '.';
         $externalEventId = (string) (
             $params['eventId']
             ?? $params['event_id']
@@ -675,17 +728,58 @@ final readonly class KashierPaymentService
         $eventIdentity = $externalEventId !== ''
             ? $externalEventId
             : (string) $order->order_ref;
+        $eventKey = 'kashier:' . strtolower($normalizedStatus) . ':'
+            . hash('sha256', $eventIdentity);
 
-        $this->orderLifecycle->registerReversal(
+        if (in_array($normalizedStatus, ['PARTIAL_REFUND', 'PARTIALLY_REFUNDED'], true)) {
+            $this->orderLifecycle->flagExternalFinancialReview(
+                $order,
+                'partial_refund_reported',
+                $reason,
+                $eventKey,
+                'kashier',
+                $externalEventId !== '' ? $externalEventId : null,
+                $this->sanitizeGatewayResponse($params)
+            );
+
+            return;
+        }
+
+        DB::transaction(function () use (
             $order,
             $type,
             $reason,
-            'kashier:' . strtolower($paymentStatus) . ':' . hash('sha256', $eventIdentity),
-            null,
-            'kashier',
-            $externalEventId !== '' ? $externalEventId : null,
-            $this->sanitizeGatewayResponse($params)
-        );
+            $normalizedStatus,
+            $transactionId,
+            $params,
+            $externalEventId,
+            $eventKey
+        ): void {
+            $expectedUserId = (int) $order->user_id;
+            User::withTrashed()->lockForUpdate()->findOrFail($expectedUserId);
+            $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
+            if ((int) $locked->user_id !== $expectedUserId) {
+                throw new \RuntimeException('Kashier order ownership changed during reversal.');
+            }
+
+            // Keep the identity check and the reversal under the same locks.
+            // Otherwise a capture can settle between both operations and a
+            // stale reversal can reclaim a different transaction's value.
+            if ($this->flagApprovedTransactionConflict($locked, $transactionId, $params)) {
+                return;
+            }
+
+            $this->orderLifecycle->registerReversal(
+                $locked,
+                $type,
+                $reason,
+                $eventKey,
+                null,
+                'kashier',
+                $externalEventId !== '' ? $externalEventId : null,
+                $this->sanitizeGatewayResponse($params)
+            );
+        }, 3);
     }
 
     /**
@@ -840,6 +934,51 @@ final readonly class KashierPaymentService
             ]);
 
             DB::commit();
+
+            if ($lateCapture && Schema::hasTable('payment_reconciliation_findings')) {
+                try {
+                    $overlappingOrder = Order::query()
+                        ->whereKeyNot($order->id)
+                        ->where('user_id', $order->user_id)
+                        ->where('package_id', $order->package_id)
+                        ->where('payment_method', Order::PAYMENT_METHOD_KASHIER)
+                        ->financiallyEffective()
+                        ->where('created_at', '>=', $order->created_at)
+                        ->oldest('id')
+                        ->first(['id', 'order_ref']);
+                    if ($overlappingOrder) {
+                        $fingerprint = hash('sha256', implode('|', [
+                            'kashier',
+                            (string) $order->id,
+                            'late_capture_overlap',
+                            (string) $overlappingOrder->id,
+                        ]));
+                        PaymentReconciliationFinding::query()->firstOrCreate(
+                            ['fingerprint' => $fingerprint],
+                            [
+                                'provider' => 'kashier',
+                                'order_id' => $order->id,
+                                'order_ref' => (string) $order->order_ref,
+                                'kind' => 'late_capture_overlaps_newer_payment',
+                                'local_status' => (string) $order->status,
+                                'local_financial_status' => (string) $order->financial_status,
+                                'provider_status' => 'CAPTURED',
+                                'provider_transaction_id' => $transactionId,
+                                'state' => PaymentReconciliationFinding::STATE_OPEN,
+                                'attempts' => 1,
+                                'first_seen_at' => now(),
+                                'last_seen_at' => now(),
+                                'evidence' => [
+                                    'overlapping_order_id' => (int) $overlappingOrder->id,
+                                    'overlapping_order_ref' => (string) $overlappingOrder->order_ref,
+                                ],
+                            ]
+                        );
+                    }
+                } catch (\Throwable $findingException) {
+                    report($findingException);
+                }
+            }
 
             try {
                 if ($user->trashed()) {

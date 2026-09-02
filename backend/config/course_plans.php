@@ -18,4 +18,22 @@ return [
      * worker. Keep this above both provider and queue execution timeouts.
      */
     'ai_reservation_ttl_seconds' => (int) env('ROKN_AI_RESERVATION_TTL_SECONDS', 120),
+
+    /*
+     * A provider timeout can be billable even though no answer reached Rokn.
+     * Do not consume the learner's message allowance, but stop repeated
+     * unknown outcomes on this paid enrollment before they become unbounded.
+     */
+    'ai_unanswered_provider_request_limit' => (int) env(
+        'ROKN_AI_UNANSWERED_PROVIDER_REQUEST_LIMIT',
+        2
+    ),
+    'ai_unanswered_provider_window_seconds' => (int) env(
+        'ROKN_AI_UNANSWERED_PROVIDER_WINDOW_SECONDS',
+        900
+    ),
+    'ai_provider_exposure_cooldown_seconds' => (int) env(
+        'ROKN_AI_PROVIDER_EXPOSURE_COOLDOWN_SECONDS',
+        900
+    ),
 ];

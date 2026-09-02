@@ -1,4 +1,4 @@
-import React, {useCallback, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {ActivityIndicator, Image, StyleSheet, View} from 'react-native';
 import {CourseLearningData, CourseFeedItem, VideoQuality} from './types';
 import VideoComponent from './VideoComponent';
@@ -37,6 +37,7 @@ interface FeedRowProps {
   onToggleSave: (folder?: SavedFolderOption | null) => void;
   onBeforeOpenSave: () => boolean;
   onOpenChat: () => void;
+  onOverlayVisibilityChange?: (scopeKey: string, visible: boolean) => void;
   onSelectFeedItem: (key: string) => void;
   onProgress: (currentTime: number, duration: number) => void;
   onComplete: () => void;
@@ -44,7 +45,7 @@ interface FeedRowProps {
   onPlaybackEvent: (event: PlaybackPlayerEvent) => void;
   onPlaybackMetrics: (metrics: PlaybackRuntimeMetrics) => void;
   onSubmitProject: (
-    file: import('./types').SelectedProjectFile,
+    files: import('./types').SelectedProjectFile[],
     note?: string,
   ) => Promise<ProjectSubmissionOutcome>;
   onContinueAfterProject?: () => void;
@@ -73,6 +74,7 @@ const FeedRow = ({
   onToggleSave,
   onBeforeOpenSave,
   onOpenChat,
+  onOverlayVisibilityChange,
   onSelectFeedItem,
   onProgress,
   onComplete,
@@ -86,7 +88,14 @@ const FeedRow = ({
 }: FeedRowProps) => {
   const [currentTime, setCurrentTime] = useState(0);
   const attachmentClockRef = useRef(0);
-  const [localOverlayVisible, setLocalOverlayVisible] = useState(false);
+  const [headerOverlayVisible, setHeaderOverlayVisible] = useState(false);
+  const [sidebarOverlayVisible, setSidebarOverlayVisible] = useState(false);
+  const localOverlayVisible = headerOverlayVisible || sidebarOverlayVisible;
+
+  useEffect(() => {
+    onOverlayVisibilityChange?.(item.key, isVisible && localOverlayVisible);
+    return () => onOverlayVisibilityChange?.(item.key, false);
+  }, [isVisible, item.key, localOverlayVisible, onOverlayVisibilityChange]);
   const attachmentPromptAt = course.attachmentPrompt?.enabled
     ? Math.max(0, Number(course.attachmentPrompt.atSeconds || 0))
     : null;
@@ -204,7 +213,7 @@ const FeedRow = ({
               selectedQuality={effectiveQuality}
               qualityOptions={availableQualities}
               onQualityChange={onQualityChange}
-              onOpenChange={setLocalOverlayVisible}
+              onOpenChange={setHeaderOverlayVisible}
               topInset={topInset}
             />
             <FeedSideBar
@@ -217,7 +226,7 @@ const FeedRow = ({
               onToggleSave={onToggleSave}
               onBeforeOpenSave={onBeforeOpenSave}
               onOpenChat={onOpenChat}
-              onOverlayVisibilityChange={setLocalOverlayVisible}
+              onOverlayVisibilityChange={setSidebarOverlayVisible}
               onSelectFeedItem={onSelectFeedItem}
               currentTime={currentTime}
             />

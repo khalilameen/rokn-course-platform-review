@@ -117,7 +117,7 @@ final class PublicCertificateIntegrityTest extends TestCase
         $verification = $service->findCredential((string) $certificate->public_id);
         self::assertNotNull($verification);
         self::assertNull($verification['profile']['slug']);
-        self::assertSame('verification_link', $verification['profile']['share_mode']);
+        self::assertSame('verification_only', $verification['profile']['share_mode']);
         self::assertSame(
             RoknPublicUrl::certificate((string) $certificate->public_id),
             $verification['profile']['public_url']

@@ -11,6 +11,7 @@ use App\Models\Bill;
 use App\Models\StudentSectionProgress;
 use App\Models\PaymentMethod;
 use App\Services\CourseChatAccessService;
+use App\Services\CourseSectionSequenceService;
 use App\Services\LatestWatchResumeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,6 +20,7 @@ final class CourseAuthorizationController extends Controller
 {
     public function __construct(
         private readonly CourseChatAccessService $courseAccess,
+        private readonly CourseSectionSequenceService $sectionSequence,
         private readonly LatestWatchResumeService $latestResume
     ) {
     }
@@ -83,9 +85,17 @@ final class CourseAuthorizationController extends Controller
             )
             ->values();
 
-        $allSectionIds = $enrollments->flatMap(function ($enrollment) {
-            return $enrollment->course->sections->pluck('id');
-        })->unique()->values()->all();
+        $learningSectionsByCourse = $enrollments->mapWithKeys(fn (CourseEnrollment $enrollment): array => [
+            (int) $enrollment->course_id => $this->sectionSequence->learning(
+                $enrollment->course->sections
+            ),
+        ]);
+        $allSectionIds = $learningSectionsByCourse
+            ->flatten(1)
+            ->pluck('id')
+            ->unique()
+            ->values()
+            ->all();
 
         $progressRows = collect();
         if (!empty($allSectionIds)) {
@@ -122,9 +132,14 @@ final class CourseAuthorizationController extends Controller
                 $completedSectionIds,
                 $certificateCourseIds,
                 $progressRows,
-                $latestWatchByCourse
+                $latestWatchByCourse,
+                $learningSectionsByCourse
             ) {
-                $sectionIds = $enrollment->course->sections->pluck('id');
+                $learningSections = $learningSectionsByCourse->get(
+                    (int) $enrollment->course_id,
+                    collect()
+                );
+                $sectionIds = $learningSections->pluck('id');
                 $totalSections = $sectionIds->count();
                 $completedSections = $sectionIds->intersect($completedSectionIds)->count();
                 $progressPercentage = $totalSections > 0
@@ -142,12 +157,12 @@ final class CourseAuthorizationController extends Controller
                 $resumeSection = null;
                 if ($latestWatch?->course_section_id
                     && !$completedSectionIds->contains($latestWatch->course_section_id)) {
-                    $resumeSection = $enrollment->course->sections
+                    $resumeSection = $learningSections
                         ->firstWhere('id', $latestWatch->course_section_id);
                 }
 
                 if (!$resumeSection && !$isCompleted) {
-                    $resumeSection = $enrollment->course->sections->first(
+                    $resumeSection = $learningSections->first(
                         function ($section) use ($completedSectionIds) {
                             return !$completedSectionIds->contains($section->id);
                         }
@@ -158,7 +173,7 @@ final class CourseAuthorizationController extends Controller
                 if ($resumeSection) {
                     $sectionType = $resumeSection->getSectionType();
                     $reelNumber = $sectionType === 'lesson'
-                        ? $enrollment->course->sections
+                        ? $learningSections
                             ->takeUntil(fn ($section) => $section->id === $resumeSection->id)
                             ->filter(fn ($section) => $section->getSectionType() === 'lesson')
                             ->count() + 1

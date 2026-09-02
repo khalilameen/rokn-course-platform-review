@@ -55,7 +55,7 @@ final readonly class KashierNotificationFlowService
             'has_signature' => isset($params['signature']),
         ]);
 
-        if ($paymentStatus !== 'SUCCESS' && empty($params['signature'])) {
+        if (!$this->payments->isCaptureNotificationStatus($paymentStatus) && empty($params['signature'])) {
             return $this->handleUnsignedCallbackFailure(
                 $params,
                 $orderRef,
@@ -136,8 +136,17 @@ final readonly class KashierNotificationFlowService
             ]);
         }
 
-        if ($paymentStatus === 'SUCCESS') {
+        if ($this->payments->isCaptureNotificationStatus($paymentStatus)) {
             return $this->handleSuccessfulCallback($order, $orderRef, $transactionId, $params);
+        }
+
+        if (!$this->payments->isProviderFailureStatus($paymentStatus)) {
+            return view('payment.result', [
+                'success' => false,
+                'pending' => true,
+                'order_ref' => $orderRef,
+                'message' => "نعالج عملية الدفع الآن\nعد إلى التطبيق لمتابعة حالتها",
+            ]);
         }
 
         $order = $this->payments->cancelPendingOrder($order, $params);
@@ -204,7 +213,7 @@ final readonly class KashierNotificationFlowService
             'has_signature' => isset($params['signature']),
         ]);
 
-        if ($paymentStatus !== 'SUCCESS' && !isset($params['signature'])) {
+        if (!$this->payments->isCaptureNotificationStatus($paymentStatus) && !isset($params['signature'])) {
             Log::warning('Kashier webhook: unsigned failure notification', [
                 'order_ref' => $orderRef,
                 'payment_status' => $paymentStatus,
@@ -263,8 +272,12 @@ final readonly class KashierNotificationFlowService
             return $this->responses->make(true, 'Already processed');
         }
 
-        if ($paymentStatus === 'SUCCESS') {
+        if ($this->payments->isCaptureNotificationStatus($paymentStatus)) {
             return $this->handleSuccessfulWebhook($order, $orderRef, $transactionId, $params);
+        }
+
+        if (!$this->payments->isProviderFailureStatus($paymentStatus)) {
+            return $this->responses->make(true, 'Payment state accepted for reconciliation', [], 202);
         }
 
         $order = $this->payments->cancelPendingOrder($order, $params);

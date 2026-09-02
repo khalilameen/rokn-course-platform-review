@@ -14,6 +14,13 @@ use Kreait\Firebase\Contract\Messaging;
 use Kreait\Firebase\Messaging\CloudMessage;
 use Kreait\Firebase\Messaging\Notification;
 use Kreait\Firebase\Exception\Messaging\NotFound;
+use Kreait\Firebase\Exception\Messaging\ApiConnectionFailed;
+use Kreait\Firebase\Exception\Messaging\AuthenticationError;
+use Kreait\Firebase\Exception\Messaging\InvalidArgument;
+use Kreait\Firebase\Exception\Messaging\InvalidMessage;
+use Kreait\Firebase\Exception\Messaging\QuotaExceeded;
+use Kreait\Firebase\Exception\Messaging\ServerError;
+use Kreait\Firebase\Exception\Messaging\ServerUnavailable;
 use Kreait\Firebase\Exception\MessagingException;
 
 class FcmNotificationService
@@ -69,7 +76,8 @@ class FcmNotificationService
 
         // A user can still see their in-app inbox after opting out, but we must
         // never wake their device with a push notification once they turn it off.
-        if (!(bool) $user->notifications_status) {
+        $notificationType = (string) ($extraData['notification_type'] ?? '');
+        if (!NotificationDeliveryPolicy::allowsPush($user, $notificationType)) {
             return ['accepted' => false, 'retryable' => false];
         }
 
@@ -161,6 +169,130 @@ class FcmNotificationService
             'accepted' => $attempted,
             'retryable' => !$attempted && $retryableFailure,
         ];
+    }
+
+    /**
+     * One durable delivery row calls this method for one native token. Keeping
+     * the provider result per device prevents one healthy phone from hiding a
+     * failed second phone belonging to the same learner.
+     *
+     * @return array{accepted:bool,retryable:bool,failure_code:?string}
+     */
+    public static function sendToDeviceDetailed(
+        User $user,
+        UserDeviceToken $tokenRecord,
+        string $titleAr,
+        string $titleEn,
+        string $messageAr,
+        string $messageEn,
+        ?string $link = null,
+        array $extraData = []
+    ): array {
+        $type = (string) ($extraData['notification_type'] ?? '');
+        if (!NotificationDeliveryPolicy::allowsPush($user, $type)) {
+            return ['accepted' => false, 'retryable' => false, 'failure_code' => 'preference_disabled'];
+        }
+        $deviceToken = trim((string) $tokenRecord->device_token);
+        if ($deviceToken === '') {
+            return ['accepted' => false, 'retryable' => false, 'failure_code' => 'token_missing'];
+        }
+        if (self::circuitIsOpen()) {
+            return ['accepted' => false, 'retryable' => true, 'failure_code' => 'provider_circuit_open'];
+        }
+
+        try {
+            $messaging = app(Messaging::class);
+        } catch (\Throwable $exception) {
+            self::recordFailure('binding');
+            Log::warning('FCM messaging service unavailable', ['exception' => $exception::class]);
+            return ['accepted' => false, 'retryable' => true, 'failure_code' => 'provider_unavailable'];
+        }
+
+        $titleAr = self::firstText($titleAr, $titleEn, 'إشعار من ركن');
+        $titleEn = self::firstText($titleEn, $titleAr, 'Rokn notification');
+        $messageAr = self::firstText($messageAr, $messageEn);
+        $messageEn = self::firstText($messageEn, $messageAr);
+        $isEnglish = RoknLocale::normalize($user->preferred_locale) === RoknLocale::ENGLISH;
+        $title = $isEnglish ? $titleEn : ArabicDisplayText::format($titleAr);
+        $body = $isEnglish ? $messageEn : ArabicDisplayText::format($messageAr);
+        $data = [
+            'title_ar' => $titleAr,
+            'title_en' => $titleEn,
+            'message_ar' => $messageAr,
+            'message_en' => $messageEn,
+        ];
+        if ($link !== null) $data['link'] = $link;
+        foreach ($extraData as $key => $value) {
+            if (!is_string($key) || !preg_match('/^[a-z][a-z0-9_]{0,63}$/', $key)) continue;
+            if (is_scalar($value) && $value !== '') $data[$key] = (string) $value;
+        }
+
+        $image = trim((string) ($extraData['image_url'] ?? ''));
+        if (!filter_var($image, FILTER_VALIDATE_URL) || !str_starts_with(strtolower($image), 'https://')) {
+            $image = '';
+        }
+        $channel = trim((string) ($extraData['channel_id'] ?? 'rokn-updates'));
+        if (!in_array($channel, ['rokn-learning', 'rokn-offers', 'rokn-updates'], true)) {
+            $channel = 'rokn-updates';
+        }
+        $message = CloudMessage::withTarget('token', $deviceToken)
+            ->withNotification(Notification::create($title, $body))
+            ->withData($data)
+            ->withAndroidConfig([
+                'priority' => 'normal',
+                'notification' => array_filter([
+                    'channel_id' => $channel,
+                    'image' => $image ?: null,
+                ]),
+            ]);
+        if ($image !== '') {
+            $message = $message->withApnsConfig([
+                'payload' => ['aps' => ['mutable-content' => 1]],
+                'fcm_options' => ['image' => $image],
+            ]);
+        }
+        try {
+            $messaging->send($message);
+            self::recordSuccess();
+            return ['accepted' => true, 'retryable' => false, 'failure_code' => null];
+        } catch (NotFound $exception) {
+            return ['accepted' => false, 'retryable' => false, 'failure_code' => 'token_unregistered'];
+        } catch (InvalidArgument|InvalidMessage $exception) {
+            Log::error('FCM rejected a notification payload.', [
+                'user_id' => $user->id,
+                'token_id' => $tokenRecord->id,
+                'exception' => $exception::class,
+            ]);
+            return ['accepted' => false, 'retryable' => false, 'failure_code' => 'payload_invalid'];
+        } catch (AuthenticationError $exception) {
+            self::recordFailure('authentication');
+            Log::error('FCM credentials rejected.', ['exception' => $exception::class]);
+            return ['accepted' => false, 'retryable' => false, 'failure_code' => 'provider_authentication'];
+        } catch (ApiConnectionFailed|QuotaExceeded|ServerError|ServerUnavailable $exception) {
+            self::recordFailure('provider_temporary');
+            Log::warning('FCM temporarily unavailable for token.', [
+                'user_id' => $user->id,
+                'token_id' => $tokenRecord->id,
+                'exception' => $exception::class,
+            ]);
+            return ['accepted' => false, 'retryable' => true, 'failure_code' => 'provider_unavailable'];
+        } catch (MessagingException $exception) {
+            self::recordFailure('messaging');
+            Log::warning('FCM send failed for token', [
+                'user_id' => $user->id,
+                'token_id' => $tokenRecord->id,
+                'exception' => $exception::class,
+            ]);
+            return ['accepted' => false, 'retryable' => true, 'failure_code' => 'provider_rejected_temporarily'];
+        } catch (\Throwable $exception) {
+            self::recordFailure('unexpected');
+            Log::error('Unexpected FCM error', [
+                'user_id' => $user->id,
+                'token_id' => $tokenRecord->id,
+                'exception' => $exception::class,
+            ]);
+            return ['accepted' => false, 'retryable' => true, 'failure_code' => 'provider_error'];
+        }
     }
 
     private static function firstText(string ...$values): string

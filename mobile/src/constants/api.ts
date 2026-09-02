@@ -293,9 +293,21 @@ export const useAPIData = <DataType>(
 export const responseConfig = async (config: InternalAxiosRequestConfig) => {
   const language = await getItem<string>(AsyncKeys.LANGUAGE);
   const requestConfig = config as RoknRequestConfig;
-  requestConfig.roknSessionEpoch = peekSecureSession().epoch;
+  const isNetworkRetry = Number(requestConfig.roknNetworkRetryCount || 0) > 0;
+  if (isNetworkRetry) {
+    // Axios runs request interceptors again for the one read-only network
+    // retry. Keep that retry attached to the session which started the
+    // request: otherwise a Wi-Fi/mobile hand-off followed by logout/login can
+    // silently resend the old screen's request with the next account's bearer
+    // and accept its response as if it belonged to the original journey.
+    await assertResponseStillBelongsToSession(
+      requestConfig as Record<string, unknown>,
+    );
+  } else {
+    requestConfig.roknSessionEpoch = peekSecureSession().epoch;
+  }
   let userData: unknown = '';
-  if (requestConfig.skipAuthorization !== true) {
+  if (!isNetworkRetry && requestConfig.skipAuthorization !== true) {
     if (requestConfig.optionalAuthorization === true) {
       const snapshot = peekSecureSession();
       userData = snapshot.ready ? snapshot.session : '';

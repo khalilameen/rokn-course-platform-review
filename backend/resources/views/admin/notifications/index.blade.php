@@ -9,13 +9,13 @@
 @section('content')
 <div class="admin-page notifications-page" dir="rtl">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <div><h1 class="h3 mb-1">إشعارات الطلاب</h1><p class="text-muted mb-0">سجل الإرسال والوصول والقراءة لكل حملة</p></div>
+        <div><h1 class="h3 mb-1">إشعارات الطلاب</h1><p class="text-muted mb-0">سجل صندوق الوارد ومحاولات Push والقراءة لكل حملة</p></div>
         <div><a href="{{ route('admin.admin_notifications.index') }}" class="btn btn-light">قوالب ونبرة الإشعارات</a> <a href="{{ route('admin.notifications.create') }}" class="btn btn-primary"><i class="fa fa-plus ml-1"></i> إشعار جديد</a></div>
     </div>
 
     <div class="card border-0 shadow-sm notifications-page__card">
         <div class="table-responsive"><table class="table mb-0 text-right">
-            <thead class="thead-light"><tr><th>الإشعار</th><th>الحالة</th><th>وقت الإضافة</th><th>صندوق الوارد</th><th>محاولة Push</th><th>وصل Push</th><th>قُرئ</th><th>الوجهة</th></tr></thead>
+            <thead class="thead-light"><tr><th>الإشعار</th><th>الحالة</th><th>وقت الإضافة</th><th>صندوق الوارد</th><th>محاولة Push</th><th>قبله مزود Push</th><th>قُرئ</th><th>الوجهة</th><th>الإجراء</th></tr></thead>
             <tbody>
             @forelse($campaigns as $campaign)
                 <tr>
@@ -27,17 +27,37 @@
                     </td>
                     <td>
                         @php($status = $campaign->status ?? 'completed')
-                        {{ ['queued' => 'في القائمة', 'delivering' => 'جارٍ التوزيع', 'completed' => 'اكتمل', 'failed' => 'تعذّر الإرسال'][$status] ?? $status }}
+                        {{ ['scheduled' => 'في موعده', 'queued' => 'في القائمة', 'delivering' => 'جارٍ التوزيع', 'completed' => 'اكتمل', 'failed' => 'تعذّر الإرسال'][$status] ?? $status }}
+                        @if($status === 'failed' && $campaign->failure_code)
+                            <br><small class="text-muted">{{ $campaign->failure_code }}</small>
+                        @endif
                     </td>
-                    <td>{{ $campaign->queued_at ? \App\Support\BusinessClock::format($campaign->queued_at) : 'الآن' }}</td>
-                    <td>{{ number_format($campaign->inbox_count ?? $campaign->recipients_count) }}@if(isset($campaign->recipients_count) && $campaign->recipients_count > 0) / {{ number_format($campaign->recipients_count) }}@endif</td>
+                    <td>{{ data_get($campaign, 'scheduled_at') ? \App\Support\BusinessClock::format(data_get($campaign, 'scheduled_at')) : ($campaign->queued_at ? \App\Support\BusinessClock::format($campaign->queued_at) : 'الآن') }}</td>
+                    <td>
+                        {{ number_format($campaign->inbox_count ?? $campaign->recipients_count) }}@if(isset($campaign->recipients_count) && $campaign->recipients_count > 0) / {{ number_format($campaign->recipients_count) }}@endif
+                        @if(($campaign->skipped_count ?? 0) > 0)<br><small class="text-muted">استُبعد {{ number_format($campaign->skipped_count) }} بعد تغيّر الأهلية</small>@endif
+                    </td>
                     <td>{{ number_format($campaign->attempted_count) }}</td>
-                    <td>{{ number_format($campaign->sent_count) }}</td>
+                    <td>
+                        {{ number_format($campaign->provider_accepted_count) }}
+                        @if(($campaign->push_failed_count ?? 0) > 0)<br><small class="text-danger">تعذّر {{ number_format($campaign->push_failed_count) }}</small>@endif
+                        @if(($campaign->push_partial_count ?? 0) > 0)<br><small class="text-warning">جزئي {{ number_format($campaign->push_partial_count) }}</small>@endif
+                    </td>
                     <td>{{ number_format($campaign->read_count) }}</td>
                     <td><code>{{ $campaign->link ?: 'الرئيسية' }}</code></td>
+                    <td>
+                        @if($status === 'failed' && isset($campaign->id))
+                            <form method="POST" action="{{ route('admin.notifications.retry', $campaign) }}">
+                                @csrf
+                                <button type="submit" class="btn btn-sm btn-outline-primary">إعادة المحاولة</button>
+                            </form>
+                        @else
+                            <span class="text-muted">—</span>
+                        @endif
+                    </td>
                 </tr>
             @empty
-                <tr><td colspan="8" class="text-center text-muted py-5">لا توجد حملات بعد</td></tr>
+                <tr><td colspan="9" class="text-center text-muted py-5">لا توجد حملات بعد</td></tr>
             @endforelse
             </tbody>
         </table></div>

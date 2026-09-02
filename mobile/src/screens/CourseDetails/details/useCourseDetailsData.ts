@@ -21,6 +21,7 @@ import {
   networkFailureKind,
 } from '../../../services/networkExperience';
 import {CAN_START_NATIVE_CHECKOUT} from '../../../constants/distribution';
+import {subscribeCoinCheckoutCredits} from '../../../services/coinCheckout';
 
 type UseCourseDetailsDataParams = {
   courseId: string;
@@ -154,7 +155,7 @@ export const useCourseDetailsData = ({
           (walletResult.status === 'rejected' ||
             packagesResult.status === 'rejected')
         ) {
-          setNotice('تعذّر جلب بيانات المحفظة\nرصيدك لم يتغير');
+          setNotice('تعذّر تحديث بعض بيانات المحفظة\nحدّث الصفحة لعرض أحدثها');
         }
       }
       if (active) setRemoteLoading(false);
@@ -166,18 +167,21 @@ export const useCourseDetailsData = ({
   }, [courseId, isDemoCourse, remoteReload, setNotice]);
 
   useEffect(() => {
-    if (!CAN_START_NATIVE_CHECKOUT || isDemoCourse) return undefined;
+    if (isDemoCourse) return undefined;
     let active = true;
     let unsubscribe: () => void = () => undefined;
-    void import('../../../services/nativeStoreBilling').then(storeBilling => {
-      if (!active) return;
-      unsubscribe = storeBilling.subscribeNativeStoreCredits(() => {
-        setRemoteReload(value => value + 1);
+    const reloadAfterCredit = () => setRemoteReload(value => value + 1);
+    const unsubscribeExternal = subscribeCoinCheckoutCredits(reloadAfterCredit);
+    if (CAN_START_NATIVE_CHECKOUT) {
+      void import('../../../services/nativeStoreBilling').then(storeBilling => {
+        if (!active) return;
+        unsubscribe = storeBilling.subscribeNativeStoreCredits(reloadAfterCredit);
       });
-    });
+    }
     return () => {
       active = false;
       unsubscribe();
+      unsubscribeExternal();
     };
   }, [isDemoCourse]);
 

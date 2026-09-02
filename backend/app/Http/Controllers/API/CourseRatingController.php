@@ -50,6 +50,7 @@ final class CourseRatingController extends Controller
             $nextRating,
             $nextComment
         ): array {
+            User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
             $inserted = 0;
             if ($expectedVersion === 0) {
                 $inserted = DB::table('course_ratings')->insertOrIgnore([
@@ -132,6 +133,7 @@ final class CourseRatingController extends Controller
         $expectedVersion = $request->integer('version');
 
         $result = DB::transaction(function () use ($user, $course, $expectedVersion): array {
+            User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
             /** @var CourseRating|null $rating */
             $rating = CourseRating::withTrashed()
                 ->where('user_id', $user->id)

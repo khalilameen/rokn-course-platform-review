@@ -199,6 +199,7 @@ type CoursePurchaseDialogProps = {
   onBuyCoins: (coinPackage: DemoCoinPackage) => void | Promise<void>;
   onApplyCoupon?: () => void | Promise<void>;
   onCouponCodeChange?: (value: string) => void;
+  onChangePlan?: () => void;
   onClose: () => void;
   onConfirmPurchase: () => void | Promise<void>;
   onCourseCodeChange?: (value: string) => void;
@@ -236,6 +237,7 @@ export const CoursePurchaseDialog = ({
   onBuyCoins,
   onApplyCoupon = () => undefined,
   onCouponCodeChange = () => undefined,
+  onChangePlan = () => undefined,
   onClose,
   onConfirmPurchase,
   onCourseCodeChange = () => undefined,
@@ -355,7 +357,7 @@ export const CoursePurchaseDialog = ({
                 </Text>
                 <Text style={styles.sheetDescription}>
                   اختر باقة تغطي الرصيد الناقص
-                  {'\n'}وسنفتح الفئة بعد تأكيد الدفع
+                  {'\n'}ثم راجع الإجمالي وأكد الشراء
                 </Text>
                 <View style={styles.topupSummary}>
                   <View style={styles.topupMetric}>
@@ -565,6 +567,23 @@ export const CoursePurchaseDialog = ({
                 )}
               </Pressable>
             )}
+
+            {(dialogStep === 'confirm' || dialogStep === 'topup') &&
+              accessPlans.length > 1 && (
+                <Pressable
+                  accessibilityLabel="تغيير فئة الكورس"
+                  accessibilityRole="button"
+                  accessibilityState={{disabled: busy || couponBusy}}
+                  disabled={busy || couponBusy}
+                  onPress={onChangePlan}
+                  style={({pressed}) => [
+                    styles.retentionSecondary,
+                    pressed && styles.pressed,
+                    (busy || couponBusy) && styles.disabled,
+                  ]}>
+                  <Text style={styles.retentionSecondaryText}>تغيير الفئة</Text>
+                </Pressable>
+              )}
 
             {dialogStep === 'success' && (
               <>

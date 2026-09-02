@@ -22,9 +22,12 @@ final class SendFinancialAnomalyAlert implements ShouldQueue
     public bool $failOnTimeout = true;
     public array $backoff = [15, 60, 180];
 
-    public function __construct(public int $anomalyId)
-    {
-        $this->onQueue('default');
+    public function __construct(
+        public int $anomalyId,
+        public ?int $adminId = null,
+        public ?string $occurrence = null
+    ) {
+        $this->onQueue((string) config('queue.channels.operations', 'operations'));
     }
 
     public function handle(): void
@@ -40,10 +43,16 @@ final class SendFinancialAnomalyAlert implements ShouldQueue
             ->where('role', 'admin')
             ->where('active', true)
             ->whereNotNull('email')
+            ->when($this->adminId, fn ($query) => $query->whereKey($this->adminId))
             ->pluck('email')
             ->filter()
             ->unique();
         foreach ($recipients as $email) {
+            $messageId = hash(
+                'sha256',
+                'financial-anomaly|' . $anomaly->public_id . '|'
+                    . (string) $this->occurrence . '|' . (string) $email
+            ) . '@rokn.app';
             Mail::raw(
                 "تم إيقاف AI لهذه الفئة على حساب الطالب فقط لحين المراجعة\n"
                 . 'الطالب: ' . ($anomaly->user?->email ?: '#' . $anomaly->user_id) . "\n"
@@ -51,9 +60,13 @@ final class SendFinancialAnomalyAlert implements ShouldQueue
                 . 'المفروض مدفوع: ' . $anomaly->expected_paid_coins . " عملة\n"
                 . 'الفعلي المدفوع: ' . $anomaly->actual_paid_coins . " عملة\n"
                 . 'رقم التنبيه: ' . $anomaly->public_id,
-                static fn ($message) => $message
-                    ->to((string) $email)
-                    ->subject('تنبيه مالي من ركن: شراء أقل من الحد المدفوع')
+                static function ($message) use ($email, $messageId): void {
+                    $message->to((string) $email)
+                        ->subject('تنبيه مالي من ركن: شراء أقل من الحد المدفوع');
+                    $message->getSymfonyMessage()
+                        ->getHeaders()
+                        ->addIdHeader('Message-ID', $messageId);
+                }
             );
         }
     }

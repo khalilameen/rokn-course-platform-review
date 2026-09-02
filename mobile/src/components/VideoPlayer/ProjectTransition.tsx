@@ -4,6 +4,7 @@ import type {RootNavigation} from '../../navigation/types';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   NativeModules,
   Platform,
@@ -14,12 +15,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import {
-  ImagePickerResponse,
-  launchImageLibrary,
-  MediaType,
-  PhotoQuality,
-} from 'react-native-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import Svg, {Path} from 'react-native-svg';
 import {formatArabicDisplayText} from '../../constants/arabicFormatting';
 import {rtlRowStyle, textDirection} from '../../constants/designSystem';
@@ -29,11 +25,14 @@ import {
   CourseProject,
   ProjectFeedbackThread,
   SelectedProjectFile,
+  ChatAttachmentDraft,
 } from './types';
 import type {ProjectSubmissionOutcome} from './courseLearningApi';
 import {
-  loadProjectFeedbackThread,
+  loadProjectResolution,
   sendProjectFeedbackMessage,
+  uploadProjectFeedbackAttachment,
+  openProjectInputAttachment,
 } from './courseLearningApi';
 import {goBackOrHome} from '../../navigation/RootNavigationHelper';
 import {secureRandomUuid} from '../../utils/secureRandom';
@@ -46,8 +45,12 @@ import {learnerErrorMessage} from '../../utils/errorPayload';
 import {cleanUnicodeText, truncateGraphemes} from '../../utils/unicodeText';
 import {
   cacheProjectDraftFile,
+  cacheProjectFeedbackFile,
+  clearProjectFeedbackDraft,
   clearProjectSubmissionDraft,
+  loadProjectFeedbackDraft,
   loadProjectSubmissionDraft,
+  saveProjectFeedbackDraft,
   saveProjectSubmissionDraft,
 } from '../../services/projectSubmissionDraft';
 import {removeLearnerDraftFile} from '../../services/learnerDraftFiles';
@@ -63,7 +66,7 @@ interface ProjectTransitionProps {
   topInset?: number;
   bottomInset?: number;
   onSubmit: (
-    file: SelectedProjectFile,
+    files: SelectedProjectFile[],
     note?: string,
   ) => Promise<ProjectSubmissionOutcome>;
   onContinue?: () => void;
@@ -82,41 +85,29 @@ const UploadIcon = () => (
   </Svg>
 );
 
-const pickMedia = (): Promise<SelectedProjectFile | null> =>
-  new Promise(resolve => {
-    launchImageLibrary(
-      {
-        mediaType: 'mixed' as MediaType,
-        quality: 0.8 as PhotoQuality,
-        includeBase64: false,
-        selectionLimit: 1,
-      },
-      (response: ImagePickerResponse) => {
-        if (response.didCancel) {
-          resolve(null);
-          return;
-        }
-        if (response.errorCode || response.errorMessage) {
-          // Native picker diagnostics vary by vendor and are often technical
-          // English strings. Keep them in telemetry rather than product copy.
-          showMediaPickerFailure(response.errorCode);
-          resolve(null);
-          return;
-        }
-        const asset = response.assets?.[0];
-        if (!asset?.uri) {
-          resolve(null);
-          return;
-        }
-        resolve({
-          uri: asset.uri,
-          name: asset.fileName || `rokn-project-${Date.now()}`,
-          type: asset.type || 'application/octet-stream',
-          size: asset.fileSize,
-        });
-      },
-    );
-  });
+const pickMediaFiles = async (mimeTypes: string[]): Promise<SelectedProjectFile[]> => {
+  try {
+    const response = await DocumentPicker.getDocumentAsync({
+      type: mimeTypes.length ? mimeTypes : [
+        'image/jpeg', 'image/png', 'image/webp', 'application/pdf', 'text/plain',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      ],
+      multiple: true,
+      copyToCacheDirectory: true,
+    });
+    if (response.canceled) return [];
+    return response.assets.filter(asset => asset.uri).map(asset => ({
+      uri: asset.uri,
+      name: asset.name || `rokn-project-${Date.now()}`,
+      type: asset.mimeType || 'application/octet-stream',
+      size: asset.size,
+    }));
+  } catch {
+    showMediaPickerFailure('document_picker_failed');
+    return [];
+  }
+};
 
 const ProjectTransition = ({
   active,
@@ -132,9 +123,7 @@ const ProjectTransition = ({
   const navigation = useNavigation<RootNavigation>();
   const appIsActive = useAppActiveState();
   const pickerFlightRef = useRef(false);
-  const [selectedFile, setSelectedFile] = useState<SelectedProjectFile | null>(
-    null,
-  );
+  const [selectedFiles, setSelectedFiles] = useState<SelectedProjectFile[]>([]);
   const [status, setStatus] = useState(project.status);
   const [submissionNote, setSubmissionNote] = useState('');
   const [submissionDraftReady, setSubmissionDraftReady] = useState(false);
@@ -145,6 +134,8 @@ const ProjectTransition = ({
     ProjectFeedbackThread | undefined
   >(project.feedbackThread);
   const [feedbackDraft, setFeedbackDraft] = useState('');
+  const [feedbackAttachments, setFeedbackAttachments] = useState<ChatAttachmentDraft[]>([]);
+  const [feedbackDraftReady, setFeedbackDraftReady] = useState(false);
   const normalizedSubmissionNote = cleanUnicodeText(submissionNote);
   const normalizedFeedbackDraft = cleanUnicodeText(feedbackDraft);
   const [feedbackSending, setFeedbackSending] = useState(false);
@@ -156,18 +147,18 @@ const ProjectTransition = ({
     ),
   );
   const submissionInFlightRef = useRef(false);
-  const feedbackRequestRef = useRef<{text: string; id: string} | null>(null);
+  const feedbackRequestRef = useRef<{fingerprint: string; id: string} | null>(null);
   const feedbackSendFlightRef = useRef<symbol | null>(null);
   const feedbackGenerationRef = useRef(0);
   const draftGenerationRef = useRef(0);
   const projectGenerationRef = useRef(0);
   const activeProjectIdRef = useRef(project.id);
   const submissionDraftSnapshotRef = useRef({
-    file: selectedFile,
+    files: selectedFiles,
     note: submissionNote,
   });
   submissionDraftSnapshotRef.current = {
-    file: selectedFile,
+    files: selectedFiles,
     note: submissionNote,
   };
 
@@ -194,13 +185,13 @@ const ProjectTransition = ({
     const generation = ++draftGenerationRef.current;
     setSubmissionDraftReady(false);
     setSubmissionDraftSaveError(false);
-    setSelectedFile(null);
+    setSelectedFiles([]);
     setSubmissionNote('');
     setSubmissionSending(false);
     submissionInFlightRef.current = false;
     pickerFlightRef.current = false;
     if (project.status === 'passed') {
-      setSelectedFile(null);
+      setSelectedFiles([]);
       setSubmissionNote('');
       void clearProjectSubmissionDraft(project.id);
       setSubmissionDraftReady(true);
@@ -209,7 +200,7 @@ const ProjectTransition = ({
     void loadProjectSubmissionDraft(project.id)
       .then(draft => {
         if (generation !== draftGenerationRef.current || !draft) return;
-        setSelectedFile(draft.file || null);
+        setSelectedFiles(draft.files || []);
         setSubmissionNote(draft.note);
       })
       .catch(() => {
@@ -233,7 +224,7 @@ const ProjectTransition = ({
     const projectGeneration = projectGenerationRef.current;
     const timer = setTimeout(() => {
       void saveProjectSubmissionDraft(projectId, {
-        file: selectedFile,
+        files: selectedFiles,
         note: submissionNote,
         updatedAt: Date.now(),
       })
@@ -252,7 +243,7 @@ const ProjectTransition = ({
   }, [
     project.id,
     project.status,
-    selectedFile,
+    selectedFiles,
     submissionDraftReady,
     submissionNote,
     ownsProject,
@@ -291,6 +282,8 @@ const ProjectTransition = ({
     setFeedbackSending(false);
     setFeedbackError('');
     setFeedbackDraft('');
+    setFeedbackAttachments([]);
+    setFeedbackDraftReady(false);
   }, [project.id]);
 
   useEffect(() => {
@@ -298,18 +291,99 @@ const ProjectTransition = ({
   }, [project.feedbackThread, project.id]);
 
   useEffect(() => {
-    if (status !== 'passed' || !active || !appIsActive) return;
+    const threadId = feedbackThread?.id;
+    if (!threadId) return;
+    let cancelled = false;
+    setFeedbackDraftReady(false);
+    void loadProjectFeedbackDraft(threadId).then(draft => {
+      if (cancelled || !draft) return;
+      setFeedbackDraft(draft.text);
+      setFeedbackAttachments(draft.attachments);
+      if (draft.requestId && draft.fingerprint) {
+        feedbackRequestRef.current = {id: draft.requestId, fingerprint: draft.fingerprint};
+      }
+    }).finally(() => {
+      if (!cancelled) setFeedbackDraftReady(true);
+    });
+    return () => { cancelled = true; };
+  }, [feedbackThread?.id]);
+
+  useEffect(() => {
+    const threadId = feedbackThread?.id;
+    if (!threadId || !feedbackDraftReady) return;
+    const timer = setTimeout(() => void saveProjectFeedbackDraft(threadId, {
+      text: feedbackDraft,
+      attachments: feedbackAttachments,
+      requestId: feedbackRequestRef.current?.id,
+      fingerprint: feedbackRequestRef.current?.fingerprint,
+      updatedAt: Date.now(),
+    }), 250);
+    return () => clearTimeout(timer);
+  }, [feedbackAttachments, feedbackDraft, feedbackDraftReady, feedbackThread?.id]);
+
+  useEffect(() => {
+    const threadId = feedbackThread?.id;
+    const requestId = feedbackRequestRef.current?.id;
+    if (!threadId || !requestId || !feedbackDraftReady) return;
+    const serverOwnsRequest = feedbackThread.messages.some(message =>
+      message.role === 'user' &&
+      message.clientRequestId === requestId &&
+      !['failed', 'cancelled'].includes(message.status),
+    );
+    if (!serverOwnsRequest) return;
+    const localFiles = feedbackAttachments;
+    feedbackRequestRef.current = null;
+    setFeedbackDraft('');
+    setFeedbackAttachments([]);
+    void clearProjectFeedbackDraft(threadId, localFiles);
+  }, [
+    feedbackAttachments,
+    feedbackDraftReady,
+    feedbackThread?.id,
+    feedbackThread?.messages,
+  ]);
+
+  useEffect(() => {
+    const threadId = feedbackThread?.id;
+    if (appIsActive || !threadId || !feedbackDraftReady) return;
+    void saveProjectFeedbackDraft(threadId, {
+      text: feedbackDraft, attachments: feedbackAttachments,
+      requestId: feedbackRequestRef.current?.id,
+      fingerprint: feedbackRequestRef.current?.fingerprint,
+      updatedAt: Date.now(),
+    });
+  }, [appIsActive, feedbackAttachments, feedbackDraft, feedbackDraftReady, feedbackThread?.id]);
+
+  useEffect(() => {
+    if (!['passed', 'needs_retry'].includes(status) || !active || !appIsActive) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let missingAttempts = 0;
+    let pollingAttempts = 0;
+    const scheduleRefresh = (minimumMs: number) => {
+      pollingAttempts += 1;
+      const backoffMs = Math.min(
+        12000,
+        minimumMs * Math.pow(1.45, Math.min(8, pollingAttempts - 1)),
+      );
+      const jitterSeed = Array.from(project.id).reduce(
+        (sum, character) => sum + character.charCodeAt(0),
+        0,
+      );
+      const delay = Math.round(
+        backoffMs * (0.85 + (jitterSeed % 31) / 100),
+      );
+      timer = setTimeout(() => void refresh(), delay);
+    };
 
     const refresh = async () => {
       try {
-        const next = await loadProjectFeedbackThread(
-          project.id,
-          feedbackThread?.id,
-        );
+        const resolution = await loadProjectResolution(project.id);
+        const next = resolution.feedbackThread;
         if (cancelled) return;
+        if (['passed', 'needs_retry'].includes(resolution.status)) {
+          setStatus(resolution.status);
+        }
         if (next) {
           setFeedbackThread(next);
           setFeedbackError('');
@@ -320,11 +394,11 @@ const ProjectTransition = ({
           ['queued', 'sent', 'streaming'].includes(message.status),
         );
         if (waiting || (!next && missingAttempts < 30)) {
-          timer = setTimeout(() => void refresh(), 2200);
+          scheduleRefresh(2200);
         }
       } catch {
         if (!cancelled && feedbackThread?.id) {
-          timer = setTimeout(() => void refresh(), 3500);
+          scheduleRefresh(3500);
         }
       }
     };
@@ -346,11 +420,14 @@ const ProjectTransition = ({
     text = feedbackDraft,
     clientRequestId?: string,
     forceNewRequest = false,
+    files = feedbackAttachments,
   ) => {
     const value = cleanUnicodeText(text);
+    const fingerprint = [value, ...files.map(file =>
+      `${file.serverId || file.uploadId}:${file.name}:${file.size || 0}`)].join('|');
     if (
       !feedbackThread?.canReply ||
-      !value ||
+      (!value && files.length === 0) ||
       feedbackSending ||
       feedbackSendFlightRef.current
     )
@@ -362,19 +439,46 @@ const ProjectTransition = ({
     setFeedbackError('');
     const requestId =
       clientRequestId ||
-      (!forceNewRequest && feedbackRequestRef.current?.text === value
+      (!forceNewRequest && feedbackRequestRef.current?.fingerprint === fingerprint
         ? feedbackRequestRef.current.id
         : secureRandomUuid());
-    feedbackRequestRef.current = {text: value, id: requestId};
+    feedbackRequestRef.current = {fingerprint, id: requestId};
     try {
+      const uploaded = await Promise.all(files.map(async file => ({
+        ...file,
+        serverId: file.serverId || await uploadProjectFeedbackAttachment(feedbackThread.id, file),
+      })));
+      const durableFingerprint = [value, ...uploaded.map(file =>
+        `${file.serverId || file.uploadId}:${file.name}:${file.size || 0}`)].join('|');
+      // Persist the server-owned ids before removing local copies. A process
+      // death after upload can then resume the same logical message without
+      // losing the attachment or uploading a second blob.
+      await saveProjectFeedbackDraft(feedbackThread.id, {
+        text: value,
+        attachments: uploaded,
+        requestId,
+        fingerprint: durableFingerprint,
+        updatedAt: Date.now(),
+      });
+      setFeedbackAttachments(uploaded);
+      feedbackRequestRef.current = {
+        id: requestId,
+        fingerprint: durableFingerprint,
+      };
       const next = await sendProjectFeedbackMessage(
         feedbackThread.id,
         value,
         requestId,
+        uploaded.map(file => file.serverId!).filter(Boolean),
       );
+      void clearProjectFeedbackDraft(feedbackThread.id, uploaded).catch(() => undefined);
       if (generation !== feedbackGenerationRef.current) return;
+      // The server response is authoritative. Publish it before local cleanup:
+      // a registry/AsyncStorage failure must never turn an accepted message
+      // into a visible send failure or invite a second paid request.
       setFeedbackThread(next);
       setFeedbackDraft('');
+      setFeedbackAttachments([]);
       feedbackRequestRef.current = null;
     } catch (error: unknown) {
       if (generation !== feedbackGenerationRef.current) return;
@@ -392,25 +496,62 @@ const ProjectTransition = ({
     }
   };
 
-  const submitSelectedFile = async (file: SelectedProjectFile) => {
+  const pickFeedbackAttachments = async () => {
+    if (!feedbackThread?.attachmentsEnabled) return;
+    try {
+      const maximum = Math.max(0, feedbackThread.attachmentMaxFiles || 0);
+      const result = await DocumentPicker.getDocumentAsync({
+        type: [
+          'image/jpeg', 'image/png', 'image/webp', 'application/pdf', 'text/plain',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        ],
+        multiple: true,
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled) return;
+      const remaining = Math.max(0, maximum - feedbackAttachments.length);
+      const additions = await Promise.all(result.assets.slice(0, remaining).map(async asset =>
+        cacheProjectFeedbackFile({
+          uri: asset.uri,
+          name: asset.name,
+          type: asset.mimeType || 'application/octet-stream',
+          size: asset.size,
+          uploadId: secureRandomUuid(),
+        })));
+      setFeedbackAttachments(current => [...current, ...additions].slice(0, maximum));
+    } catch (error: unknown) {
+      showMediaPickerFailure(
+        error instanceof Error && error.message === 'LEARNER_DRAFT_STORAGE_FULL'
+          ? error.message
+          : 'document_picker_failed',
+      );
+    }
+  };
+
+  const submitSelectedFiles = async (files: SelectedProjectFile[]) => {
     const projectId = project.id;
     const projectGeneration = projectGenerationRef.current;
     try {
-      const size = await validateProjectFile(file);
+      const validated = await Promise.all(files.map(async file => ({
+        ...file, size: await validateProjectFile(file),
+      })));
       if (!ownsProject(projectId, projectGeneration)) return;
-      if (size !== file.size) {
-        setSelectedFile({...file, size});
-      }
+      setSelectedFiles(validated);
     } catch (error: unknown) {
       if (!ownsProject(projectId, projectGeneration)) return;
       const code = error instanceof Error ? error.message : '';
       Alert.alert(
-        code === 'PROJECT_FILE_TOO_LARGE'
+        code === 'LEARNER_DRAFT_STORAGE_FULL'
+          ? 'اكتملت مساحة الملفات المعلّقة'
+          : code === 'PROJECT_FILE_TOO_LARGE'
           ? 'حجم الملف كبير'
           : code === 'PROJECT_FILE_TYPE_UNSUPPORTED'
           ? 'صيغة الملف غير مدعومة'
           : 'تعذّر قراءة حجم الملف',
-        code === 'PROJECT_FILE_TOO_LARGE'
+        code === 'LEARNER_DRAFT_STORAGE_FULL'
+          ? 'اتصل بالإنترنت لإرسال الملفات المعلّقة\nثم حاول مرة أخرى'
+          : code === 'PROJECT_FILE_TOO_LARGE'
           ? `اختر ملفًا أصغر من ${PROJECT_SUBMISSION_MAX_LABEL}`
           : code === 'PROJECT_FILE_TYPE_UNSUPPORTED'
           ? `اختر ${PROJECT_SUBMISSION_FORMATS_LABEL}`
@@ -418,21 +559,14 @@ const ProjectTransition = ({
       );
       return;
     }
-    if (
-      Platform.OS === 'android' &&
-      file.type.startsWith('image/') &&
-      NativeModules.RoknMediaInspector?.inspect
-    ) {
+    if (Platform.OS === 'android' && NativeModules.RoknMediaInspector?.inspect) {
       try {
-        const inspection = await NativeModules.RoknMediaInspector.inspect(
-          file.uri,
-        );
-        if (inspection?.isBlank) {
-          Alert.alert(
-            'الصورة غير واضحة',
-            'اختر صورة واضحة لعملك\nالصور الفارغة لا تُقبل',
-          );
-          return;
+        for (const file of files.filter(candidate => candidate.type.startsWith('image/'))) {
+          const inspection = await NativeModules.RoknMediaInspector.inspect(file.uri);
+          if (inspection?.isBlank) {
+            Alert.alert('الصورة غير واضحة', 'اختر صورة واضحة لعملك');
+            return;
+          }
         }
       } catch {
         // Inspection is a guardrail, never a reason to block a sincere learner.
@@ -449,10 +583,9 @@ const ProjectTransition = ({
     };
     let result = provisionalFallback;
     try {
-      result = await onSubmit(file, normalizedSubmissionNote);
-      await clearProjectSubmissionDraft(projectId, file);
+      result = await onSubmit(files, normalizedSubmissionNote);
       if (!ownsProject(projectId, projectGeneration)) return;
-      setSelectedFile(null);
+      setSelectedFiles([]);
       setSubmissionNote('');
     } catch (error: unknown) {
       if (!ownsProject(projectId, projectGeneration)) return;
@@ -504,6 +637,10 @@ const ProjectTransition = ({
       return;
     }
     if (!ownsProject(projectId, projectGeneration)) return;
+    // A synced response or durable local outbox acceptance is the submission
+    // acknowledgement. Cleanup is independent and idempotent; its failure
+    // cannot overwrite the accepted project state below.
+    void clearProjectSubmissionDraft(projectId, files).catch(() => undefined);
     setStatus(
       result.passed
         ? 'passed'
@@ -521,16 +658,8 @@ const ProjectTransition = ({
   };
 
   const submit = async () => {
-    if (
-      !selectedFile ||
-      (project.reportEnabled && normalizedSubmissionNote.length < 10)
-    ) {
-      Alert.alert(
-        !selectedFile ? 'اختر ملف المشروع' : 'اشرح ما نفذته',
-        !selectedFile
-          ? 'صورة أو فيديو واضح لعملك'
-          : 'اكتب سطرًا واضحًا عن محاولتك',
-      );
+    if (selectedFiles.length === 0 && normalizedSubmissionNote.length < 10) {
+      Alert.alert('أضف محاولتك', 'اكتب ما نفذته أو أضف ملفًا يوضحه');
       return;
     }
     if (!submissionDraftReady || submissionInFlightRef.current) return;
@@ -539,7 +668,7 @@ const ProjectTransition = ({
     submissionInFlightRef.current = true;
     setSubmissionSending(true);
     try {
-      await submitSelectedFile(selectedFile);
+      await submitSelectedFiles(selectedFiles);
     } finally {
       if (ownsProject(projectId, projectGeneration)) {
         submissionInFlightRef.current = false;
@@ -554,17 +683,17 @@ const ProjectTransition = ({
     const projectGeneration = projectGenerationRef.current;
     pickerFlightRef.current = true;
     try {
-      const file = await pickMedia();
-      if (!file || !ownsProject(projectId, projectGeneration)) return;
-      const size = await validateProjectFile(file);
-      const cached = await cacheProjectDraftFile({...file, size});
+      const picked = await pickMediaFiles(project.submissionAllowedMimeTypes || []);
+      if (picked.length === 0 || !ownsProject(projectId, projectGeneration)) return;
+      const maximum = Math.max(1, Math.min(5, project.submissionMaxFiles || 3));
+      const available = picked.slice(0, Math.max(0, maximum - selectedFiles.length));
+      const cached = await Promise.all(available.map(async file =>
+        cacheProjectDraftFile({...file, size: await validateProjectFile(file)})));
       if (!ownsProject(projectId, projectGeneration)) {
-        await removeLearnerDraftFile(cached);
+        await Promise.all(cached.map(removeLearnerDraftFile));
         return;
       }
-      const previous = selectedFile;
-      setSelectedFile(cached);
-      await removeLearnerDraftFile(previous);
+      setSelectedFiles(current => [...current, ...cached].slice(0, maximum));
     } catch (error: unknown) {
       if (!ownsProject(projectId, projectGeneration)) return;
       const code = error instanceof Error ? error.message : '';
@@ -662,6 +791,47 @@ const ProjectTransition = ({
             </View>
           )}
 
+          {status === 'needs_retry' && !!feedbackThread?.messages.length && (
+            <View style={styles.feedbackThread}>
+              <View style={styles.feedbackHeader}>
+                <Text style={styles.feedbackTitle}>ملاحظات مشروعك</Text>
+                <Text style={styles.feedbackAvailability}>عدّل ثم أرسل من جديد</Text>
+              </View>
+              {feedbackThread.messages
+                .filter(message => message.status === 'completed')
+                .map(message => (
+                  <View
+                    key={message.id}
+                    style={[
+                      styles.feedbackBubble,
+                      message.role === 'user'
+                        ? styles.feedbackBubbleUser
+                        : styles.feedbackBubbleAssistant,
+                    ]}>
+                    {!!message.text && (
+                      <Text style={styles.feedbackMessage}>
+                        {formatArabicDisplayText(message.text)}
+                      </Text>
+                    )}
+                    {message.attachments?.map(file => (
+                      <Pressable
+                        key={file.serverId || file.uploadId}
+                        style={styles.feedbackMessageAttachment}
+                        onPress={() => void openProjectInputAttachment({
+                          projectId: project.id,
+                          threadId: feedbackThread.id,
+                          file,
+                        })}>
+                        <Text numberOfLines={1} style={styles.feedbackMessageAttachmentName}>
+                          {file.name}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ))}
+            </View>
+          )}
+
           {status === 'passed' ? (
             <View style={styles.successState}>
               <View style={styles.successIcon}>
@@ -674,6 +844,21 @@ const ProjectTransition = ({
                   : 'تم اعتماد النتيجة وحفظ تقدمك'}
               </Text>
               {!!syncNote && <Text style={styles.syncNote}>{syncNote}</Text>}
+              {!!project.submissionAttachments?.length && (
+                <View style={styles.feedbackMessageAttachments}>
+                  <Text style={styles.blockLabel}>ملفات التسليم</Text>
+                  {project.submissionAttachments.map(file => (
+                    <Pressable
+                      key={file.serverId || file.uploadId}
+                      style={styles.feedbackMessageAttachment}
+                      onPress={() => void openProjectInputAttachment({projectId: project.id, file})}>
+                      <Text numberOfLines={1} style={styles.feedbackMessageAttachmentName}>
+                        {file.name}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
               {!!onContinue && (
                 <Pressable
                   accessibilityRole="button"
@@ -704,6 +889,24 @@ const ProjectTransition = ({
                           {formatArabicDisplayText(message.text)}
                         </Text>
                       )}
+                      {!!message.attachments?.length && (
+                        <View style={styles.feedbackMessageAttachments}>
+                          {message.attachments.map(file => (
+                            <Pressable
+                              key={file.serverId || file.uploadId}
+                              style={styles.feedbackMessageAttachment}
+                              onPress={() => void openProjectInputAttachment({
+                                projectId: project.id,
+                                threadId: feedbackThread.id,
+                                file,
+                              })}>
+                              <Text numberOfLines={1} style={styles.feedbackMessageAttachmentName}>
+                                {file.name}
+                              </Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      )}
                       {message.role === 'assistant' &&
                         message.status === 'streaming' && (
                           <Text style={styles.feedbackState}>يكتب الآن</Text>
@@ -731,6 +934,7 @@ const ProjectTransition = ({
                                 message.text || '',
                                 undefined,
                                 true,
+                                message.attachments || [],
                               )
                             }>
                             <Text style={styles.feedbackRetry}>
@@ -740,6 +944,24 @@ const ProjectTransition = ({
                         )}
                     </View>
                   ))}
+                  {feedbackAttachments.length > 0 && (
+                    <View style={styles.feedbackAttachmentList}>
+                      {feedbackAttachments.map(file => (
+                        <View key={file.uploadId} style={styles.feedbackAttachmentChip}>
+                          {file.type.startsWith('image/') && !!file.uri && (
+                            <Image source={{uri: file.uri}} style={styles.feedbackAttachmentPreview} />
+                          )}
+                          <Text numberOfLines={1} style={styles.feedbackAttachmentName}>{file.name}</Text>
+                          <Pressable onPress={() => {
+                            setFeedbackAttachments(current => current.filter(item => item.uploadId !== file.uploadId));
+                            if (!file.serverId) void removeLearnerDraftFile(file);
+                          }}>
+                            <Text style={styles.feedbackAttachmentRemove}>×</Text>
+                          </Pressable>
+                        </View>
+                      ))}
+                    </View>
+                  )}
                   {feedbackThread.canReply &&
                     feedbackThread.remainingMessages > 0 &&
                     !feedbackPending && (
@@ -754,13 +976,23 @@ const ProjectTransition = ({
                           placeholderTextColor="rgba(255,255,255,.38)"
                           style={styles.feedbackInput}
                         />
+                        {feedbackThread.attachmentsEnabled && (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="إضافة مرفق"
+                            disabled={feedbackSending || feedbackAttachments.length >= (feedbackThread.attachmentMaxFiles || 0)}
+                            style={styles.feedbackAttach}
+                            onPress={() => void pickFeedbackAttachments()}>
+                            <Text style={styles.feedbackAttachText}>＋</Text>
+                          </Pressable>
+                        )}
                         <Pressable
                           accessibilityRole="button"
-                          disabled={!normalizedFeedbackDraft || feedbackSending}
+                          disabled={(!normalizedFeedbackDraft && feedbackAttachments.length === 0) || feedbackSending}
                           onPress={() => void sendFeedback()}
                           style={[
                             styles.feedbackSend,
-                            (!normalizedFeedbackDraft || feedbackSending) &&
+                            ((!normalizedFeedbackDraft && feedbackAttachments.length === 0) || feedbackSending) &&
                               styles.disabledButton,
                           ]}>
                           {feedbackSending ? (
@@ -802,27 +1034,45 @@ const ProjectTransition = ({
                 </View>
                 <View style={styles.uploadCopy}>
                   <Text style={styles.uploadTitle}>
-                    {selectedFile
-                      ? selectedFile.name
-                      : 'ارفع صورة أو فيديو يوضح عملك'}
+                    {selectedFiles.length
+                      ? `${selectedFiles.length} ملفات`
+                      : 'أضف ملفات مشروعك'}
                   </Text>
                   <Text style={styles.uploadHint}>
-                    {selectedFile ? 'اضغط لتغيير الملف' : 'أظهر ما نفذته بوضوح'}
+                    {selectedFiles.length
+                      ? `يمكنك إضافة ${Math.max(0, (project.submissionMaxFiles || 3) - selectedFiles.length)}`
+                      : 'صور أو PDF أو Word أو PowerPoint'}
                   </Text>
                 </View>
               </Pressable>
-              {project.reportEnabled && (
-                <TextInput
-                  multiline
-                  value={submissionNote}
-                  onChangeText={value =>
-                    setSubmissionNote(truncateGraphemes(value, 2000))
-                  }
-                  placeholder="اشرح ما نفذته باختصار"
-                  placeholderTextColor="rgba(255,255,255,.38)"
-                  style={styles.submissionNoteInput}
-                />
+              {selectedFiles.length > 0 && (
+                <View style={styles.feedbackAttachmentList}>
+                  {selectedFiles.map((file, index) => (
+                    <View key={`${file.uri}-${index}`} style={styles.feedbackAttachmentChip}>
+                      {file.type.startsWith('image/') && !!file.uri && (
+                        <Image source={{uri: file.uri}} style={styles.feedbackAttachmentPreview} />
+                      )}
+                      <Text numberOfLines={1} style={styles.feedbackAttachmentName}>{file.name}</Text>
+                      <Pressable onPress={() => {
+                        setSelectedFiles(current => current.filter(candidate => candidate.uri !== file.uri));
+                        void removeLearnerDraftFile(file);
+                      }}>
+                        <Text style={styles.feedbackAttachmentRemove}>×</Text>
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
               )}
+              <TextInput
+                multiline
+                value={submissionNote}
+                onChangeText={value =>
+                  setSubmissionNote(truncateGraphemes(value, 2000))
+                }
+                placeholder="اكتب ما نفذته أو أضف ملفًا"
+                placeholderTextColor="rgba(255,255,255,.38)"
+                style={styles.submissionNoteInput}
+              />
               {submissionDraftSaveError && (
                 <Text accessibilityRole="alert" style={styles.draftSaveError}>
                   تعذّر حفظ المسودة على الجهاز
@@ -834,16 +1084,13 @@ const ProjectTransition = ({
                 disabled={
                   !submissionDraftReady ||
                   submissionSending ||
-                  !selectedFile ||
-                  (project.reportEnabled && normalizedSubmissionNote.length < 10)
+                  (selectedFiles.length === 0 && normalizedSubmissionNote.length < 10)
                 }
                 style={[
                   styles.primaryButton,
-                  (!selectedFile ||
+                  ((selectedFiles.length === 0 && normalizedSubmissionNote.length < 10) ||
                     !submissionDraftReady ||
-                    submissionSending ||
-                    (project.reportEnabled &&
-                      normalizedSubmissionNote.length < 10)) &&
+                    submissionSending) &&
                     styles.disabledButton,
                 ]}
                 onPress={submit}>
@@ -862,7 +1109,9 @@ const ProjectTransition = ({
 };
 
 export default ProjectTransition;
-export {pickMedia};
+export const pickMedia = async (): Promise<SelectedProjectFile | null> =>
+  (await pickMediaFiles([]))[0] || null;
+export const pickProjectFiles = pickMediaFiles;
 
 const styles = StyleSheet.create({
   page: {
@@ -1226,6 +1475,39 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.semiBold,
     fontSize: 10,
     marginTop: 4,
+  },
+  feedbackAttachmentList: {gap: 6, marginTop: 3},
+  feedbackAttachmentChip: {
+    ...rtlRowStyle,
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 11,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    backgroundColor: 'rgba(255,255,255,.07)',
+  },
+  feedbackAttachmentName: {
+    ...textDirection,
+    flex: 1,
+    color: '#FFFFFF',
+    fontFamily: Fonts.regular,
+    fontSize: 11,
+  },
+  feedbackAttachmentRemove: {color: '#FFFFFF', fontSize: 20, lineHeight: 20},
+  feedbackAttachmentPreview: {width: 34, height: 34, borderRadius: 8},
+  feedbackAttach: {
+    width: 44, height: 44, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,.08)',
+  },
+  feedbackAttachText: {color: '#FFFFFF', fontSize: 22, lineHeight: 24},
+  feedbackMessageAttachments: {gap: 5, marginTop: 6},
+  feedbackMessageAttachment: {
+    borderRadius: 9, paddingHorizontal: 8, paddingVertical: 5,
+    backgroundColor: 'rgba(255,255,255,.1)',
+  },
+  feedbackMessageAttachmentName: {
+    ...textDirection, color: '#FFFFFF', fontFamily: Fonts.regular, fontSize: 10,
   },
   feedbackComposer: {
     ...rtlRowStyle,

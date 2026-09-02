@@ -160,8 +160,20 @@ class SavedFolderEndpointTest extends ApiTestCase
 
     public function test_can_remove_lesson_from_folder(): void
     {
-        $response = $this->actingAs($this->user, 'api')->deleteJson('/api/v1/saved-folders/1/lessons/10');
-        $this->assertNotEquals(404, $response->status());
+        $this->actingAs($this->user, 'api')
+            ->deleteJson('/api/v1/saved-folders/1/lessons/10')
+            ->assertOk()
+            ->assertJsonPath('data.already_removed', false);
+
+        $this->actingAs($this->user, 'api')
+            ->deleteJson('/api/v1/saved-folders/1/lessons/10')
+            ->assertOk()
+            ->assertJsonPath('data.already_removed', true);
+
+        $this->actingAs($this->user, 'api')
+            ->deleteJson('/api/v1/saved-folders/999/lessons/10')
+            ->assertOk()
+            ->assertJsonPath('data.already_removed', true);
     }
 
     public function test_can_delete_saved_folder(): void

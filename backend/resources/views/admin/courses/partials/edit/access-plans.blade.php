@@ -15,6 +15,18 @@
                 <div class="form-help course-editor__section-help">
                     السعر وما يفتحه كل اختيار هنا هو العقد الحقيقي للمشتريات الجديدة. الدولار والتوكنز حدود تكلفة داخلية ولا تظهر للطالب. المشتريات القديمة لا تتغير.
                 </div>
+                @if(strtolower((string) optional(auth()->user())->role) === 'admin')
+                    <input type="hidden" name="grant_chat_attachments_to_current_enrollments" value="0">
+                    <label class="course-editor__inline-check course-editor__inline-check--spaced">
+                        <input type="checkbox" name="grant_chat_attachments_to_current_enrollments" value="1">
+                        منح مرفقات Rokn AI للمشتركين الحاليين حسب فئتهم
+                    </label>
+                    <input type="hidden" name="grant_project_followup_attachments_to_current_enrollments" value="0">
+                    <label class="course-editor__inline-check course-editor__inline-check--spaced">
+                        <input type="checkbox" name="grant_project_followup_attachments_to_current_enrollments" value="1">
+                        منح مرفقات متابعة المشروع للمشتركين الحاليين في فئة المتابعة
+                    </label>
+                @endif
                 <div class="course-editor__plan-grid">
                     @foreach($planLabels as $code => [$label, $description])
                         @php
@@ -45,15 +57,19 @@
                                     <span>مدفوعة: <strong>{{ number_format($stats['paid_coins']) }}</strong></span>
                                     <span>مكافآت: <strong>{{ number_format($stats['reward_coins']) }}</strong></span>
                                     <span>أسئلة الشات: <strong>{{ number_format($stats['chat_requests']) }}</strong></span>
+                                    @if($stats['chat_unanswered_requests'])<span class="text-warning">بلا جواب مؤكد: <strong>{{ number_format($stats['chat_unanswered_requests']) }}</strong></span>@endif
                                     <span>توكنز الشات: <strong>{{ number_format($stats['chat_tokens']) }}</strong></span>
                                     <span>تكلفة الشات: <strong>${{ number_format($stats['chat_cost_usd'], 6) }}</strong></span>
                                     <span>مراجعات المشاريع: <strong>{{ number_format($stats['project_requests']) }}</strong></span>
+                                    @if($stats['project_unanswered_requests'])<span class="text-warning">مراجعات بلا نتيجة: <strong>{{ number_format($stats['project_unanswered_requests']) }}</strong></span>@endif
                                     <span>توكنز المراجعات: <strong>{{ number_format($stats['project_tokens']) }}</strong></span>
                                     <span>تكلفة المراجعات: <strong>${{ number_format($stats['project_cost_usd'], 6) }}</strong></span>
                                     <span>رسائل متابعة المشاريع: <strong>{{ number_format($stats['followup_requests']) }}</strong></span>
+                                    @if($stats['followup_unanswered_requests'])<span class="text-warning">متابعات بلا نتيجة: <strong>{{ number_format($stats['followup_unanswered_requests']) }}</strong></span>@endif
                                     <span>توكنز المتابعة: <strong>{{ number_format($stats['followup_tokens']) }}</strong></span>
                                     <span>تكلفة المتابعة: <strong>${{ number_format($stats['followup_cost_usd'], 6) }}</strong></span>
                                     <span class="course-editor__plan-stats-total">إجمالي تكلفة OpenRouter {{ $stats['estimated_cost_requests'] > 0 ? 'المسجلة' : 'المؤكدة' }}: <strong>${{ number_format($stats['chat_cost_usd'] + $stats['project_cost_usd'] + $stats['followup_cost_usd'], 6) }}</strong>@if($stats['estimated_cost_requests'] > 0) <small>تتضمن {{ number_format($stats['estimated_cost_requests']) }} تقديرًا</small>@endif</span>
+                                    @if($stats['total_unanswered_requests'])<span class="course-editor__plan-stats-total text-warning">إجمالي الطلبات بلا نتيجة مؤكدة: <strong>{{ number_format($stats['total_unanswered_requests']) }}</strong></span>@endif
                                 </div>
                             @endif
                             <label class="form-label-modern">اسم الفئة الظاهر للطالب</label>
@@ -117,6 +133,20 @@
                                         </select>
                                     </div>
                                 </div>
+                                <input type="hidden" name="access_plans[{{ $code }}][chat_attachments_enabled]" value="0">
+                                <label class="course-editor__inline-check course-editor__inline-check--top">
+                                    <input type="checkbox" name="access_plans[{{ $code }}][chat_attachments_enabled]" value="1" {{ old("access_plans.$code.chat_attachments_enabled", $plan?->chat_attachments_enabled) ? 'checked' : '' }}>
+                                    السماح بصور وملفات داخل Rokn AI
+                                </label>
+                                <label class="form-label-modern">أقصى مرفقات في الرسالة</label>
+                                <input class="form-control-modern" type="number" min="0" max="5" name="access_plans[{{ $code }}][chat_attachment_max_files]" value="{{ old("access_plans.$code.chat_attachment_max_files", $plan?->chat_attachment_max_files ?? 0) }}">
+                                <input type="hidden" name="access_plans[{{ $code }}][project_followup_attachments_enabled]" value="0">
+                                <label class="course-editor__inline-check course-editor__inline-check--top">
+                                    <input type="checkbox" name="access_plans[{{ $code }}][project_followup_attachments_enabled]" value="1" {{ old("access_plans.$code.project_followup_attachments_enabled", $plan?->project_followup_attachments_enabled) ? 'checked' : '' }}>
+                                    السماح بمرفقات داخل متابعة المشروع
+                                </label>
+                                <label class="form-label-modern">أقصى مرفقات في رسالة المشروع</label>
+                                <input class="form-control-modern" type="number" min="0" max="5" name="access_plans[{{ $code }}][project_followup_attachment_max_files]" value="{{ old("access_plans.$code.project_followup_attachment_max_files", $plan?->project_followup_attachment_max_files ?? 0) }}">
                                 <label class="form-label-modern">ما يحدث بعد تسليم المشروع</label>
                                 <select class="form-control-modern" name="access_plans[{{ $code }}][project_feedback_level]">
                                     @foreach(['pass_only' => 'عبور فقط بلا تقرير', 'report' => 'تقرير داخل شات ركن دون رد', 'enhanced' => 'تقرير ثم محادثة داخل شات ركن'] as $level => $levelLabel)

@@ -78,6 +78,15 @@ final class AdminPermissionMatrix
         'admin.lessons.show' => ['GET'],
         'admin.lessons.edit' => ['GET'],
 
+        // content.review — inspect learner work and record the human decision.
+        // Financial dashboards and provider operations remain administrator-only.
+        'admin.project-submissions.index' => ['GET'],
+        'admin.project-submissions.show' => ['GET'],
+        'admin.project-submissions.download' => ['GET'],
+        'admin.project-submissions.attachments.download' => ['GET'],
+        'admin.project-submissions.pass' => ['POST'],
+        'admin.project-submissions.reject' => ['POST'],
+
         // Teachers and curriculum reference data belong to course operations.
         'admin.teachers.index' => ['GET'],
         'admin.teachers.create' => ['GET'],

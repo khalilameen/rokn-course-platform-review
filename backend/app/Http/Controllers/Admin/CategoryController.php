@@ -6,6 +6,7 @@ use App\Models\Category;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\CategoryRequest;
 use App\Services\StoredFileDeletionService;
+use App\Services\AdminAuthoringCreateIntentService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -39,20 +40,41 @@ class CategoryController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
      */
-    public function store(CategoryRequest $request)
+    public function store(CategoryRequest $request, AdminAuthoringCreateIntentService $createIntents)
     {
+        $requestId = (string) $request->validated('authoring_request_id');
         $imagePath = $request->hasFile('image')
-            ? $request->file('image')->store('categories', 'public')
+            ? app(StoredFileDeletionService::class)
+                ->storeTrackedUpload(
+                    $request->file('image'),
+                    'categories',
+                    'public',
+                    60,
+                    'admin-category|'.strtolower($requestId).'|'.hash_file('sha256', $request->file('image')->getRealPath())
+                )
             : null;
         if ($request->hasFile('image') && (!is_string($imagePath) || $imagePath === '')) {
             throw new \RuntimeException('Category image storage failed');
         }
         try {
-            DB::transaction(function () use ($request, $imagePath): void {
-                $category = Category::create($request->safe()->except('image'));
-                if ($imagePath) {
-                    $category->allPhotos()->create(['path' => $imagePath, 'type' => 'featured']);
+            DB::transaction(function () use ($request, $imagePath, $requestId, $createIntents): void {
+                $category = Category::query()->where('authoring_request_id', $requestId)
+                    ->lockForUpdate()->first();
+                if (!$category) {
+                    $category = Category::create(
+                        $request->safe()->except('image') + ['authoring_request_id' => $requestId]
+                    );
                 }
+                if ($imagePath) {
+                    $category->allPhotos()->firstOrCreate(['path' => $imagePath, 'type' => 'featured']);
+                }
+                $createIntents->completeRedirect(
+                    $request,
+                    route('admin.categories.index'),
+                    302,
+                    Category::class,
+                    $category->id
+                );
             }, 3);
         } catch (\Throwable $exception) {
             if ($imagePath) app(StoredFileDeletionService::class)->deleteOrQueue('public', $imagePath);
@@ -85,7 +107,8 @@ class CategoryController extends Controller
     {
         $request->validate(['editor_version' => 'required|string|size:64']);
         $newImagePath = $request->hasFile('image')
-            ? $request->file('image')->store('categories', 'public')
+            ? app(StoredFileDeletionService::class)
+                ->storeTrackedUpload($request->file('image'), 'categories')
             : null;
         if ($request->hasFile('image') && (!is_string($newImagePath) || $newImagePath === '')) {
             throw new \RuntimeException('Category image storage failed');
@@ -98,7 +121,7 @@ class CategoryController extends Controller
                         'editor_version' => 'عدّل شخص آخر هذا القسم\nأعد تحميل الصفحة قبل الحفظ',
                     ]);
                 }
-                $locked->update($request->safe()->except('image'));
+                $locked->update($request->safe()->except(['image', 'authoring_request_id']));
                 if ($newImagePath) {
                     $oldPhotos = $locked->allPhotos()->where('type', 'featured')->lockForUpdate()->get();
                     $locked->allPhotos()->create(['path' => $newImagePath, 'type' => 'featured']);

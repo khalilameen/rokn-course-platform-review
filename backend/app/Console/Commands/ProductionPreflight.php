@@ -247,7 +247,13 @@ class ProductionPreflight extends Command
             ],
             'playback' => ['lesson_media_states', 'playback_sessions', 'lesson_watch_evidence'],
             'project delivery' => ['project_submissions', 'project_feedback_threads', 'project_feedback_messages'],
-            'notifications' => ['student_notifications', 'notification_campaigns', 'user_device_tokens'],
+            'notifications' => [
+                'student_notifications',
+                'notification_campaigns',
+                'notification_campaign_recipients',
+                'notification_push_deliveries',
+                'user_device_tokens',
+            ],
             'wallet and rewards' => ['wallet_transactions', 'user_coin_task_attempts', 'reward_rules'],
             'WhatsApp linking' => ['user_whatsapp_connections', 'whatsapp_link_tokens'],
             'store billing' => ['store_purchases', 'store_notification_events'],
@@ -330,6 +336,17 @@ class ProductionPreflight extends Command
                 'original_name',
             ],
             'users' => ['profile_revision'],
+            'notification_campaigns' => [
+                'scheduled_at', 'selection_cursor', 'selection_finished_at',
+                'resolved_count', 'skipped_count',
+            ],
+            'notification_campaign_recipients' => [
+                'status', 'attempts', 'claimed_at', 'resolved_at',
+            ],
+            'notification_push_deliveries' => [
+                'status', 'attempts', 'attempted_at', 'accepted_at',
+                'failed_at', 'failure_code',
+            ],
         ];
         foreach ($requiredColumns as $table => $columns) {
             if (!Schema::hasTable($table)) {
@@ -346,6 +363,11 @@ class ProductionPreflight extends Command
                     implode(', ', $missing)
                 );
             }
+        }
+        if (Schema::hasTable('user_device_tokens')
+            && Schema::hasColumn('user_device_tokens', 'device_id')
+            && !Schema::hasIndex('user_device_tokens', ['device_id'], 'unique')) {
+            $failures[] = 'Push installation ownership is not unique. Run the notification delivery migration before release.';
         }
 
         return $failures;
@@ -529,9 +551,11 @@ class ProductionPreflight extends Command
         $require(in_array(config('database.default'), ['mysql', 'pgsql'], true), 'Production DB_CONNECTION must be mysql or pgsql.');
         $require(config('cache.default') === 'redis', 'CACHE_DRIVER must be redis.');
         $require(config('queue.default') === 'redis', 'QUEUE_CONNECTION must be redis.');
+        $longestJobTimeout = max(1, (int) config('queue.longest_job_timeout_seconds', 300));
+        $retryHeadroom = max(1, (int) config('queue.retry_headroom_seconds', 30));
         $require(
-            (int) config('queue.connections.redis.retry_after') >= 330,
-            'REDIS_QUEUE_RETRY_AFTER must exceed the longest 300-second job timeout with recovery headroom.'
+            (int) config('queue.connections.redis.retry_after') >= $longestJobTimeout + $retryHeadroom,
+            'REDIS_QUEUE_RETRY_AFTER must exceed the configured longest job timeout with recovery headroom.'
         );
         $require(
             config('queue.failed.driver') === 'database',
@@ -540,12 +564,26 @@ class ProductionPreflight extends Command
         $queueChannels = [
             (string) config('queue.connections.redis.queue', 'default'),
             (string) config('queue.channels.notifications'),
+            (string) config('queue.channels.ai_chat'),
             (string) config('queue.channels.ai_feedback'),
+            (string) config('queue.channels.media'),
+            (string) config('queue.channels.operations'),
             (string) config('webhooks.queue'),
         ];
         $require(
-            count(array_unique(array_filter($queueChannels))) === 4,
-            'default, notifications, ai-feedback and webhooks must use isolated queue names.'
+            count(array_unique(array_filter($queueChannels))) === 7,
+            'default, notifications, ai-chat, ai-feedback, media, operations and webhooks must use isolated queue names.'
+        );
+        $monitoredQueueChannels = array_values(array_unique(array_filter(array_map(
+            static fn ($queue): string => trim((string) $queue),
+            (array) config('operations.queue_heartbeat_required_queues', [])
+        ))));
+        $expectedQueueChannels = array_values(array_unique(array_filter($queueChannels)));
+        sort($monitoredQueueChannels);
+        sort($expectedQueueChannels);
+        $require(
+            $monitoredQueueChannels === $expectedQueueChannels,
+            'QUEUE_HEARTBEAT_REQUIRED_QUEUES must match the isolated production queues.'
         );
         $require(config('session.driver') === 'redis', 'SESSION_DRIVER must be redis.');
         $require(config('session.secure') === true, 'SESSION_SECURE_COOKIE must be true.');

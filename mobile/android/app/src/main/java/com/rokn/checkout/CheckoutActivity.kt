@@ -3,6 +3,7 @@ package com.rokn.checkout
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -31,6 +32,9 @@ class CheckoutActivity : AppCompatActivity() {
   private lateinit var webView: WebView
   private lateinit var progress: ProgressBar
   private lateinit var errorMessage: TextView
+  private lateinit var retryButton: TextView
+  private var checkoutUrl: String = ""
+  private var mainFrameFailed = false
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -55,9 +59,9 @@ class CheckoutActivity : AppCompatActivity() {
       },
     )
 
-    val url = intent.getStringExtra(EXTRA_URL).orEmpty()
-    if (isTrustedCheckoutEntry(url)) {
-      webView.loadUrl(url)
+    checkoutUrl = intent.getStringExtra(EXTRA_URL).orEmpty()
+    if (isTrustedCheckoutEntry(checkoutUrl)) {
+      webView.loadUrl(checkoutUrl)
     } else {
       showError("تعذر فتح صفحة الدفع الآمنة")
     }
@@ -146,8 +150,11 @@ class CheckoutActivity : AppCompatActivity() {
           handleNavigation(url?.toUri())
 
         override fun onPageFinished(view: WebView?, url: String?) {
+          if (mainFrameFailed) return
           this@CheckoutActivity.progress.visibility = View.GONE
           errorMessage.visibility = View.GONE
+          retryButton.visibility = View.GONE
+          webView.visibility = View.VISIBLE
         }
 
         override fun onReceivedError(
@@ -176,6 +183,19 @@ class CheckoutActivity : AppCompatActivity() {
         ViewCompat.ACCESSIBILITY_LIVE_REGION_ASSERTIVE,
       )
     }
+    retryButton = TextView(this).apply {
+      visibility = View.GONE
+      gravity = Gravity.CENTER
+      text = "إعادة المحاولة"
+      textSize = 16f
+      setTextColor(Color.WHITE)
+      setTypeface(typeface, Typeface.BOLD)
+      setBackgroundColor(Color.rgb(36, 105, 255))
+      isClickable = true
+      isFocusable = true
+      contentDescription = "إعادة تحميل صفحة الدفع"
+      setOnClickListener { retryCheckout() }
+    }
     content.addView(
       webView,
       FrameLayout.LayoutParams(
@@ -193,6 +213,12 @@ class CheckoutActivity : AppCompatActivity() {
         FrameLayout.LayoutParams.MATCH_PARENT,
         FrameLayout.LayoutParams.MATCH_PARENT,
       ),
+    )
+    content.addView(
+      retryButton,
+      FrameLayout.LayoutParams(dp(176), dp(48), Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM).apply {
+        bottomMargin = dp(32)
+      },
     )
     root.addView(
       content,
@@ -241,11 +267,23 @@ class CheckoutActivity : AppCompatActivity() {
   }
 
   private fun showError(message: String) {
+    mainFrameFailed = true
     progress.visibility = View.GONE
     webView.visibility = View.GONE
     errorMessage.text = message
     errorMessage.visibility = View.VISIBLE
+    retryButton.visibility = View.VISIBLE
     errorMessage.announceForAccessibility(message)
+  }
+
+  private fun retryCheckout() {
+    if (!isTrustedCheckoutEntry(checkoutUrl)) return
+    mainFrameFailed = false
+    errorMessage.visibility = View.GONE
+    retryButton.visibility = View.GONE
+    webView.visibility = View.VISIBLE
+    progress.visibility = View.VISIBLE
+    webView.loadUrl(checkoutUrl)
   }
 
   override fun onDestroy() {

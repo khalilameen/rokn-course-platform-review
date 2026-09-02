@@ -95,6 +95,7 @@ final class DashboardProductParityTest extends TestCase
             'admin.product-operations.index',
             'admin.notifications.index',
             'admin.notifications.store',
+            'admin.notifications.retry',
             'admin.settings.bunny-cleanup.approve',
             'admin.settings.bunny-cleanup.approve-batch',
         ] as $name) {

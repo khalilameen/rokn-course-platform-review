@@ -65,7 +65,7 @@ class HomeController extends Controller
             ->where('status', Order::STATUS_PENDING);
 
         $paymentChannelReport = $paymentChannels->summary();
-        $totalRevenue = (float) $paymentChannelReport['egp']['gross_amount'];
+        $totalRevenue = (float) $paymentChannelReport['egp']['confirmed_gross_amount'];
         $pendingCash = (float) (clone $pendingCashOrders)->sum('final_amount');
 
         $businessNow = BusinessClock::now();
@@ -87,6 +87,7 @@ class HomeController extends Controller
         // Revenue Statistics Summary
         $revenueStats = [
             'total_revenue' => $totalRevenue,
+            'catalog_estimated_revenue' => (float) $paymentChannelReport['egp']['catalog_estimated_gross_amount'],
             'pending_payments' => $pendingCash,
             'pending_bills_count' => (clone $pendingCashOrders)->count(),
             'confirmed_net_revenue' => $paymentChannelReport['egp']['confirmed_net_amount'],

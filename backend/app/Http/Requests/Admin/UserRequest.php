@@ -5,6 +5,7 @@ namespace App\Http\Requests\Admin;
 use App\Support\UnicodeText;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use App\Models\User;
 
 class UserRequest extends FormRequest
 {
@@ -37,6 +38,11 @@ class UserRequest extends FormRequest
     {
         $routeUser = $this->route('user');
         $userId = is_object($routeUser) ? $routeUser->getKey() : $routeUser;
+        if (!$userId && $this->isMethod('post')) {
+            $userId = User::withTrashed()
+                ->where('authoring_request_id', (string) $this->input('authoring_request_id'))
+                ->value('id');
+        }
 
         return [
             'name' => ['required', 'string', 'min:2', 'max:255'],
@@ -44,6 +50,7 @@ class UserRequest extends FormRequest
             'email' => ['required', 'email:rfc', 'max:255', Rule::unique('users', 'email')->ignore($userId)],
             'password' => [$this->isMethod('post') ? 'required' : 'nullable', 'string', 'min:10', 'max:72'],
             'image' => ['nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:4096'],
+            'authoring_request_id' => [$this->isMethod('post') ? 'required' : 'nullable', 'uuid'],
         ];
     }
 

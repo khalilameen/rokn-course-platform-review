@@ -8,12 +8,18 @@ use App\Models\Course;
 use App\Models\CourseEnrollment;
 use App\Models\StudentSectionProgress;
 use App\Models\CourseSection;
+use App\Services\CourseSectionSequenceService;
 use App\Services\StudentProgressSummaryService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class StudentProgressController extends Controller
 {
+    public function __construct(
+        private readonly CourseSectionSequenceService $sectionSequence
+    ) {
+    }
+
     /**
      * Display a listing of students with their progress
      * Shows last enrolled course progress for each user
@@ -23,13 +29,17 @@ class StudentProgressController extends Controller
      */
     public function index(Request $request, StudentProgressSummaryService $summaries)
     {
+        $filters = $request->validate([
+            'search' => 'nullable|string|max:120',
+            'course_id' => 'nullable|integer|exists:courses,id',
+        ]);
         $query = User::query()->students()
             ->orderByDesc('active')
             ->orderByDesc('id');
 
         // Search functionality
-        if ($request->has('search') && !empty($request->search)) {
-            $search = $request->search;
+        if (!empty($filters['search'])) {
+            $search = $filters['search'];
             $query->where(function($q) use ($search) {
                 $q->where('name', 'LIKE', "%{$search}%")
                   ->orWhere('name_ar', 'LIKE', "%{$search}%")
@@ -40,15 +50,18 @@ class StudentProgressController extends Controller
         }
 
         // Filter by course enrollment
-        if ($request->has('course_id') && !empty($request->course_id)) {
-            $query->whereHas('enrollments', function($q) use ($request) {
-                $q->active()->where('course_id', $request->course_id);
+        if (!empty($filters['course_id'])) {
+            $query->whereHas('enrollments', function($q) use ($filters) {
+                $q->active()->where('course_id', $filters['course_id']);
             });
         }
 
         $users = $query->paginate(15)->appends($request->query());
 
-        $summaryByUser = $summaries->latestForUsers($users->getCollection());
+        $summaryByUser = $summaries->latestForUsers(
+            $users->getCollection(),
+            !empty($filters['course_id']) ? (int) $filters['course_id'] : null
+        );
         $usersWithProgress = $users->getCollection()
             ->map(fn (User $user) => $summaryByUser->get($user->id));
 
@@ -59,7 +72,7 @@ class StudentProgressController extends Controller
             'usersWithProgress' => $usersWithProgress,
             'users' => $users,
             'courses' => $courses,
-            'filters' => $request->all()
+            'filters' => $filters
         ]);
     }
 
@@ -87,8 +100,12 @@ class StudentProgressController extends Controller
             ->whereIn('course_id', $courseIds)
             ->orderBy('order')
             ->orderBy('id')
-            ->get(['id', 'course_id', 'title', 'title_ar', 'title_en', 'order', 'section_type', 'sectionable_type'])
-            ->groupBy('course_id');
+            ->get([
+                'id', 'course_id', 'module_id', 'title', 'title_ar', 'title_en',
+                'order', 'section_type', 'sectionable_type',
+            ])
+            ->groupBy('course_id')
+            ->map(fn ($sections) => $this->sectionSequence->learning($sections));
         $progressBySection = StudentSectionProgress::query()
             ->where('user_id', $userId)
             ->whereIn('course_section_id', $sectionsByCourse->flatten(1)->pluck('id'))
@@ -168,6 +185,7 @@ class StudentProgressController extends Controller
             ->with('sectionable')
             ->orderBy('order')
             ->get();
+        $sections = $this->sectionSequence->learning($sections);
 
         $totalSections = $sections->count();
 
@@ -233,6 +251,7 @@ class StudentProgressController extends Controller
             ->with('sectionable')
             ->orderBy('order')
             ->get();
+        $sections = $this->sectionSequence->learning($sections);
 
         $progress = StudentSectionProgress::where('user_id', $userId)
             ->whereIn('course_section_id', $sections->pluck('id'))
@@ -264,7 +283,9 @@ class StudentProgressController extends Controller
      */
     private function getLastActivity($userId, $courseId)
     {
-        $sectionIds = CourseSection::where('course_id', $courseId)->pluck('id');
+        $sectionIds = $this->sectionSequence
+            ->learning(CourseSection::where('course_id', $courseId)->get())
+            ->pluck('id');
 
         $lastProgress = StudentSectionProgress::where('user_id', $userId)
             ->whereIn('course_section_id', $sectionIds)
@@ -293,12 +314,11 @@ class StudentProgressController extends Controller
             ->values();
         $activeEnrollments = $activeEnrollmentRows->count();
 
-        $sectionCounts = CourseSection::query()
+        $learningSections = $this->sectionSequence->learning(CourseSection::query()
             ->whereIn('course_id', $activeEnrollmentRows->pluck('course_id')->unique())
-            ->select('course_id')
-            ->selectRaw('COUNT(*) as section_count')
-            ->groupBy('course_id')
-            ->pluck('section_count', 'course_id');
+            ->get(['id', 'course_id', 'module_id', 'order', 'section_type', 'sectionable_type']));
+        $learningSectionIds = $learningSections->pluck('id');
+        $sectionCounts = $learningSections->countBy('course_id');
         $completedCounts = DB::table('student_section_progress as progress')
             ->join('course_sections as sections', 'progress.course_section_id', '=', 'sections.id')
             ->join('course_enrollments as enrollments', function ($join): void {
@@ -312,6 +332,7 @@ class StudentProgressController extends Controller
                     ->orWhere('enrollments.expires_at', '>', now());
             })
             ->whereRaw('LOWER(users.role) = ?', ['client'])
+            ->whereIn('sections.id', $learningSectionIds)
             ->where('progress.is_completed', true)
             ->select('progress.user_id', 'sections.course_id')
             ->selectRaw('COUNT(DISTINCT progress.course_section_id) as completed_count')
@@ -345,6 +366,7 @@ class StudentProgressController extends Controller
                     ->on('course_sections.course_id', '=', 'course_enrollments.course_id');
             })
             ->whereRaw('LOWER(users.role) = ?', ['client'])
+            ->whereIn('course_sections.id', $learningSectionIds)
             ->where('course_enrollments.is_active', true)
             ->where(function ($active): void {
                 $active->whereNull('course_enrollments.expires_at')

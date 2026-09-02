@@ -811,7 +811,7 @@ class KashierPaymentTest extends TestCase
     {
         $this->createPendingOrder();
 
-        $params = $this->buildKashierParams($this->orderRef, 'FAILURE');
+        $params = $this->buildKashierParams($this->orderRef, 'FAILED');
 
         $response = $this->getJson('/payment/callback?' . http_build_query($params));
 
@@ -1374,7 +1374,7 @@ class KashierPaymentTest extends TestCase
     {
         $this->createPendingOrder();
 
-        $params = $this->buildKashierParams($this->orderRef, 'FAILURE');
+        $params = $this->buildKashierParams($this->orderRef, 'FAILED');
 
         $response = $this->postJson('/payment/webhook', $params);
 

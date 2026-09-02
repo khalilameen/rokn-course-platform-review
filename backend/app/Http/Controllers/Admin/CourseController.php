@@ -16,12 +16,15 @@ use App\Models\Photo;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\CourseAccessPlanService;
+use App\Services\AdminAuthoringCreateIntentService;
 use App\Services\ArabicSearchNormalizer;
 use App\Services\CourseAuthoringConcurrencyService;
 use App\Services\CourseCommercialReportService;
 use App\Services\CourseDurationService;
+use App\Services\CourseLearningHealthService;
 use App\Services\CoursePublishingService;
 use App\Services\StoredFileDeletionService;
+use App\Services\NotificationService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -184,11 +187,25 @@ class CourseController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
      */
-    public function store(CourseRequest $request, CourseAccessPlanService $accessPlanService)
+    public function store(
+        CourseRequest $request,
+        CourseAccessPlanService $accessPlanService,
+        AdminAuthoringCreateIntentService $createIntents
+    )
     {
         $requestId = (string) $request->validated('authoring_request_id');
         $existing = Course::query()->where('authoring_request_id', $requestId)->first();
         if ($existing) {
+            DB::transaction(function () use ($request, $existing, $createIntents): void {
+                Course::query()->whereKey($existing->id)->lockForUpdate()->firstOrFail();
+                $createIntents->completeRedirect(
+                    $request,
+                    route('admin.courses.show', $existing),
+                    302,
+                    Course::class,
+                    $existing->id
+                );
+            }, 3);
             return redirect()->route('admin.courses.show', $existing)
                 ->with('success', 'تم حفظ الكورس بالفعل');
         }
@@ -201,7 +218,8 @@ class CourseController extends Controller
         $storedImagePath = null;
         try {
             if ($request->hasFile('image')) {
-                $storedImagePath = $request->file('image')->store('courses', 'public');
+                $storedImagePath = app(StoredFileDeletionService::class)
+                    ->storeTrackedUpload($request->file('image'), 'courses');
                 if (!is_string($storedImagePath) || trim($storedImagePath) === '') {
                     throw new \RuntimeException('Course image storage failed');
                 }
@@ -211,7 +229,8 @@ class CourseController extends Controller
                 $courseData,
                 $request,
                 $accessPlanService,
-                $storedImagePath
+                $storedImagePath,
+                $createIntents
             ): Course {
                 $course = Course::create($courseData);
                 $accessPlanService->createDefaults($course);
@@ -223,6 +242,13 @@ class CourseController extends Controller
                         'type' => 'featured',
                     ]);
                 }
+                $createIntents->completeRedirect(
+                    $request,
+                    route('admin.courses.show', $course),
+                    302,
+                    Course::class,
+                    $course->id
+                );
 
                 return $course;
             }, 3);
@@ -260,7 +286,8 @@ class CourseController extends Controller
         CoursePublishingService $publishingService,
         CourseCommercialReportService $commercialReports,
         CourseDurationService $durations,
-        CourseAccessPlanService $accessPlanService
+        CourseAccessPlanService $accessPlanService,
+        CourseLearningHealthService $learningHealth
     )
     {
         $course->load([
@@ -292,6 +319,7 @@ class CourseController extends Controller
         // These two aggregates are the same real public social proof shown to
         // learners. Financial identities and cash remain administrator-only.
         $activeStudentsCount = (int) $course->active_enrollments_count;
+        $learningHealthSummary = $learningHealth->forCourse($course);
         $ratingSummary = $this->isAdministrator() ? [
             'count' => (int) $course->ratings_count,
             'average' => $course->ratings_count > 0
@@ -309,6 +337,7 @@ class CourseController extends Controller
             'designSettings',
             'commercialReport',
             'activeStudentsCount',
+            'learningHealthSummary',
             'ratingSummary',
             'previewPlans'
         ));
@@ -327,8 +356,9 @@ class CourseController extends Controller
             fwrite($output, "\xEF\xBB\xBF");
             fputcsv($output, [
                 'الطالب', 'البريد', 'الحالة', 'مصدر الإتاحة', 'الفئة', 'سعر العقد بالعملات',
-                'إجمالي العملات', 'خصم العملات', 'أكواد الخصم', 'عملات مشتراة', 'عملات مكافآت', 'إجمالي نقدي منسوب',
-                'صافي كاشير', 'حالة التسوية', 'طلبات AI', 'طلبات AI فاشلة',
+                'إجمالي العملات', 'خصم العملات', 'أكواد الخصم', 'عملات مشتراة', 'عملات مكافآت', 'إجمالي نقدي مؤكد منسوب',
+                'إجمالي تقديري بسعر الكتالوج', 'حالة الإجمالي',
+                'قنوات الشحن', 'صافي بوابات الدفع', 'حالة التسوية', 'طلبات AI', 'طلبات AI فاشلة',
                 'طلبات AI بتكلفة تقديرية', 'حالة تكلفة AI', 'توكنات AI',
                 'تكلفة AI بالدولار', 'دقائق المشاهدة', 'GB مشاهدة مقدرة',
                 'تكلفة الخدمات الفعلية بالجنيه', 'التكلفة شاملة التقديرات', 'هامش المساهمة الفعلي',
@@ -344,7 +374,13 @@ class CourseController extends Controller
                     $row['is_active'] ? 'نشط' : 'غير نشط', $row['source_label'], $row['plan_name'],
                     $row['contract_price_coins'], $row['total_coins'], $row['discount_coins'],
                     implode(' | ', $row['coupon_codes']), $row['paid_coins'],
-                    $row['reward_coins'], $row['cash_gross_egp'], $row['cash_net_known_egp'],
+                    $row['reward_coins'], $row['cash_gross_egp'],
+                    $row['cash_estimated_gross_egp'],
+                    $row['cash_gross_complete'] ? 'مؤكد' : 'جزئي أو تقديري',
+                    collect($row['cash_channels'])->map(
+                        fn (array $channel): string => $channel['label'].' ('.number_format($channel['paid_coins']).' عملة)'
+                    )->implode(' | '),
+                    $row['cash_net_known_egp'],
                     $row['cash_net_complete'] ? 'مكتملة' : 'غير مكتملة', $row['ai_requests'],
                     $row['ai_failed_requests'], $row['ai_estimated_requests'],
                     $row['ai_cost_complete'] ? 'مؤكدة من المزود' : 'تتضمن تقديرات',
@@ -439,7 +475,8 @@ class CourseController extends Controller
         $livePublishingIssues = [];
         try {
             if ($request->hasFile('image')) {
-                $storedImagePath = $request->file('image')->store('courses', 'public');
+                $storedImagePath = app(StoredFileDeletionService::class)
+                    ->storeTrackedUpload($request->file('image'), 'courses');
                 if (!is_string($storedImagePath) || trim($storedImagePath) === '') {
                     throw new \RuntimeException('Course image storage failed');
                 }
@@ -467,6 +504,16 @@ class CourseController extends Controller
                     $accessPlanService->syncAdminPlans(
                         $lockedCourse,
                         (array) $request->input('access_plans', [])
+                    );
+                }
+                  if ($this->isAdministrator() && (
+                      $request->boolean('grant_chat_attachments_to_current_enrollments')
+                      || $request->boolean('grant_project_followup_attachments_to_current_enrollments')
+                  )) {
+                    $accessPlanService->grantAttachmentsToCurrentEnrollments(
+                        $lockedCourse,
+                        $request->boolean('grant_chat_attachments_to_current_enrollments'),
+                        $request->boolean('grant_project_followup_attachments_to_current_enrollments')
                     );
                 }
 
@@ -526,21 +573,46 @@ class CourseController extends Controller
         if ($wasDraft && $publishingRequested) {
             $expectedVersion = (int) $course->authoring_version;
             $publishingAudit = null;
+            $publishedRevision = null;
             DB::transaction(function () use (
                 $course,
                 $expectedVersion,
+                $catalogAnnouncementRequested,
                 $publishingService,
                 $authoring,
-                &$publishingAudit
+                &$publishingAudit,
+                &$publishedRevision
             ): void {
                 $lockedCourse = $authoring->lockExpected($course, $expectedVersion);
                 $publishingAudit = $publishingService->audit($lockedCourse->fresh());
                 if ($publishingAudit['ready']) {
+                    $previousPublishedRevision = (int) ($lockedCourse->last_published_authoring_version ?? 0);
                     $lockedCourse->update([
                         'is_coming_soon' => false,
-                        'is_catalog_visible' => true,
+                        'is_catalog_visible' => $catalogAnnouncementRequested,
                     ]);
-                    $authoring->advance($lockedCourse);
+                    $publishedRevision = $authoring->advance($lockedCourse);
+                    $lockedCourse->forceFill([
+                        'last_published_authoring_version' => $publishedRevision,
+                        'published_at' => now(),
+                    ])->save();
+                    if ($previousPublishedRevision > 0
+                        && $publishedRevision > $previousPublishedRevision) {
+                        // Persist the campaign in the same transaction as the
+                        // published revision. The coordinator is dispatched
+                        // after commit, so a killed HTTP request cannot publish
+                        // content while silently losing its one notification.
+                        NotificationService::notifyCourseUpdate(
+                            $lockedCourse->fresh(),
+                            'published_changes',
+                            'course-published:' . $lockedCourse->id . ':v' . $publishedRevision
+                        );
+                    } elseif ($previousPublishedRevision === 0 && $catalogAnnouncementRequested) {
+                        NotificationService::notifyNewCourse(
+                            $lockedCourse->fresh(),
+                            'course-published:' . $lockedCourse->id . ':v' . $publishedRevision . ':new'
+                        );
+                    }
                 }
             }, 3);
             if (!$publishingAudit['ready']) {
@@ -548,7 +620,6 @@ class CourseController extends Controller
                     ->with('error', 'تم حفظ التعديلات، لكن الكورس ما زال مسودة حتى تكتمل عناصر النشر.')
                     ->with('publishing_issues', $publishingAudit['issues']);
             }
-
             $course->refresh();
         }
 
@@ -703,6 +774,8 @@ class CourseController extends Controller
             'access_plans',
             'authoring_version',
             'authoring_request_id',
+            'grant_chat_attachments_to_current_enrollments',
+            'grant_project_followup_attachments_to_current_enrollments',
         ])->all();
     }
 
@@ -732,11 +805,17 @@ class CourseController extends Controller
             'sqlite' => "json_extract(metadata, '$.cost_usage_source')",
             default => "''",
         };
+        $deliverySource = match (DB::connection()->getDriverName()) {
+            'mysql', 'mariadb' => "JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.entitlement_delivered'))",
+            'pgsql' => "metadata->>'entitlement_delivered'",
+            'sqlite' => "CAST(json_extract(metadata, '$.entitlement_delivered') AS TEXT)",
+            default => "'true'",
+        };
         $usage = DB::table('ai_usage_events')
             ->where('course_id', $course->id)
             ->where('status', 'completed')
             ->whereNotNull('access_plan_id')
-            ->selectRaw("access_plan_id, feature, COUNT(*) as ai_requests, SUM(CASE WHEN COALESCE({$costSource}, '') <> 'provider' THEN 1 ELSE 0 END) as estimated_requests, COALESCE(SUM(total_tokens),0) as total_tokens, COALESCE(SUM(cost_usd),0) as cost_usd")
+            ->selectRaw("access_plan_id, feature, SUM(CASE WHEN COALESCE({$deliverySource}, 'true') NOT IN ('false', '0') THEN 1 ELSE 0 END) as ai_requests, SUM(CASE WHEN COALESCE({$deliverySource}, 'true') IN ('false', '0') THEN 1 ELSE 0 END) as unanswered_requests, SUM(CASE WHEN COALESCE({$costSource}, '') <> 'provider' THEN 1 ELSE 0 END) as estimated_requests, COALESCE(SUM(total_tokens),0) as total_tokens, COALESCE(SUM(cost_usd),0) as cost_usd")
             ->groupBy('access_plan_id', 'feature')
             ->get()
             ->keyBy(fn ($row) => $row->access_plan_id . ':' . $row->feature);
@@ -748,16 +827,22 @@ class CourseController extends Controller
                 'paid_coins' => (int) ($sales->get($plan->id)?->paid_coins ?? 0),
                 'reward_coins' => (int) ($sales->get($plan->id)?->reward_coins ?? 0),
                 'chat_requests' => (int) ($usage->get($plan->id . ':course_chat')?->ai_requests ?? 0),
+                'chat_unanswered_requests' => (int) ($usage->get($plan->id . ':course_chat')?->unanswered_requests ?? 0),
                 'chat_tokens' => (int) ($usage->get($plan->id . ':course_chat')?->total_tokens ?? 0),
                 'chat_cost_usd' => (float) ($usage->get($plan->id . ':course_chat')?->cost_usd ?? 0),
                 'project_requests' => (int) ($usage->get($plan->id . ':project_feedback')?->ai_requests ?? 0),
+                'project_unanswered_requests' => (int) ($usage->get($plan->id . ':project_feedback')?->unanswered_requests ?? 0),
                 'project_tokens' => (int) ($usage->get($plan->id . ':project_feedback')?->total_tokens ?? 0),
                 'project_cost_usd' => (float) ($usage->get($plan->id . ':project_feedback')?->cost_usd ?? 0),
                 'followup_requests' => (int) ($usage->get($plan->id . ':project_followup')?->ai_requests ?? 0),
+                'followup_unanswered_requests' => (int) ($usage->get($plan->id . ':project_followup')?->unanswered_requests ?? 0),
                 'followup_tokens' => (int) ($usage->get($plan->id . ':project_followup')?->total_tokens ?? 0),
                 'followup_cost_usd' => (float) ($usage->get($plan->id . ':project_followup')?->cost_usd ?? 0),
                 'estimated_cost_requests' => (int) collect(['course_chat', 'project_feedback', 'project_followup'])->sum(
                     fn (string $feature): int => (int) ($usage->get($plan->id . ':' . $feature)?->estimated_requests ?? 0)
+                ),
+                'total_unanswered_requests' => (int) collect(['course_chat', 'project_feedback', 'project_followup'])->sum(
+                    fn (string $feature): int => (int) ($usage->get($plan->id . ':' . $feature)?->unanswered_requests ?? 0)
                 ),
             ],
         ]);

@@ -8,6 +8,7 @@ use App\Models\CourseModule;
 use App\Models\DesignSetting;
 use App\Services\CoursePublishingService;
 use App\Services\CourseAuthoringConcurrencyService;
+use App\Services\AdminAuthoringCreateIntentService;
 use App\Services\SafeExternalUrl;
 use App\Support\UnicodeText;
 use Illuminate\Http\Request;
@@ -55,7 +56,11 @@ class CourseModuleController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
      */
-    public function store(Request $request, Course $course)
+    public function store(
+        Request $request,
+        Course $course,
+        AdminAuthoringCreateIntentService $createIntents
+    )
     {
         $this->assertDraftForStructuralChange($course);
         $this->normalizeTitles($request);
@@ -66,13 +71,14 @@ class CourseModuleController extends Controller
             'attachment_platform' => 'required|in:computer,mobile,both',
             'order' => 'nullable|integer|min:0',
             'authoring_version' => 'required|integer|min:1',
+            'authoring_request_id' => 'required|uuid',
         ]);
 
-        DB::transaction(function () use ($request, $course): void {
+        DB::transaction(function () use ($request, $course, $createIntents): void {
             $lockedCourse = $this->authoring->lock($request, $course);
             $this->assertDraftForStructuralChange($lockedCourse);
             $maxOrder = $lockedCourse->modules()->max('order') ?? 0;
-            CourseModule::create([
+            $module = CourseModule::create([
                 'course_id' => $lockedCourse->id,
                 'title_ar' => $request->title_ar,
                 'title_en' => $request->title_en,
@@ -82,6 +88,13 @@ class CourseModuleController extends Controller
             ]);
             $this->normalizeOrder($lockedCourse);
             $this->authoring->advance($lockedCourse);
+            $createIntents->completeRedirect(
+                $request,
+                $this->authoringLocation($request, $course),
+                302,
+                CourseModule::class,
+                $module->id
+            );
         }, 3);
 
         return $this->authoringRedirect($request, $course)
@@ -267,7 +280,12 @@ class CourseModuleController extends Controller
 
     private function authoringRedirect(Request $request, Course $course)
     {
-        return redirect()->route(
+        return redirect()->to($this->authoringLocation($request, $course));
+    }
+
+    private function authoringLocation(Request $request, Course $course): string
+    {
+        return route(
             $request->input('return_to') === 'studio'
                 ? 'admin.courses.show'
                 : 'admin.courses.sections.index',

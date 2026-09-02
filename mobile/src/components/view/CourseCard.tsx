@@ -9,18 +9,12 @@ import {
   View,
 } from 'react-native';
 import {Fonts, PixelPerfect} from '../../constants/styleConstants';
-import {
-  formatArabicDisplayText,
-  formatArabicMinutes,
-  formatArabicNumber,
-  formatArabicStudents,
-} from '../../constants/arabicFormatting';
+import {formatArabicDisplayText} from '../../constants/arabicFormatting';
 import {
   Palette,
   Radius,
   Spacing,
   Type,
-  rtlRowStyle,
   textDirection,
   useResponsiveLayout,
 } from '../../constants/designSystem';
@@ -60,15 +54,6 @@ const CourseCard = memo<CourseCardProps>(
     const progress = Math.max(0, Math.min(100, Number(item.progress || 0)));
     const accessibilitySummary = [
       item.title,
-      item.durationMinutes
-        ? formatArabicMinutes(Math.round(item.durationMinutes))
-        : undefined,
-      item.ratingsCount && item.ratingAverage
-        ? `التقييم ${formatArabicNumber(item.ratingAverage)} من ٥`
-        : undefined,
-      item.studentsCount
-        ? formatArabicStudents(item.studentsCount)
-        : undefined,
       item.owned && progress > 0 ? `اكتمل ${Math.round(progress)}٪` : undefined,
     ]
       .filter(Boolean)
@@ -139,27 +124,6 @@ const CourseCard = memo<CourseCardProps>(
             {formatArabicDisplayText(item.instructor)}
           </Text>
         )}
-        {(Boolean(item.durationMinutes) ||
-          Boolean(item.ratingsCount && item.ratingAverage) ||
-          Boolean(item.studentsCount)) && (
-          <View style={styles.publicMetaRow}>
-            {!!item.durationMinutes && (
-              <Text style={styles.publicMetaText}>
-                {formatArabicMinutes(Math.round(item.durationMinutes))}
-              </Text>
-            )}
-            {!!item.ratingsCount && !!item.ratingAverage && (
-              <Text style={styles.publicMetaText}>
-                ★ {formatArabicNumber(item.ratingAverage)}
-              </Text>
-            )}
-            {!!item.studentsCount && (
-              <Text style={styles.publicMetaText}>
-                {formatArabicStudents(item.studentsCount)}
-              </Text>
-            )}
-          </View>
-        )}
         {(item.published === false || item.owned) && (
           <View style={styles.metaRow}>
             {item.published === false ? (
@@ -221,19 +185,6 @@ const styles = StyleSheet.create({
     color: Palette.textMuted,
     width: '100%',
     alignSelf: 'stretch',
-  },
-  publicMetaRow: {
-    ...rtlRowStyle,
-    width: '100%',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    marginTop: Spacing.xxs,
-    flexWrap: 'wrap',
-  },
-  publicMetaText: {
-    ...Type.caption,
-    color: Palette.textMuted,
-    fontFamily: Fonts.medium,
   },
   metaRow: {
     width: '100%',

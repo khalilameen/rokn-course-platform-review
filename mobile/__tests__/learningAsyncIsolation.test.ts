@@ -20,6 +20,7 @@ describe('learning async ownership contracts', () => {
     const player = source('src/components/VideoPlayer/VideoComponent.tsx');
     expect(player).toContain('playbackLifecycleGenerationRef.current += 1');
     expect(player).toContain('reelIdentityRef.current !== reelId');
+    expect(player).toContain('clearTimeout(longBufferTimerRef.current)');
     expect(player).toContain('clearTimeout(recoveryTimerRef.current)');
   });
 
@@ -35,6 +36,39 @@ describe('learning async ownership contracts', () => {
     expect(notifications).toContain('new Map<string, symbol>()');
     expect(notifications).toContain(
       'readFlightsRef.current.get(item.id) === flight',
+    );
+  });
+
+  it('keeps project and completion writes owned by their starting account', () => {
+    const projects = source(
+      'src/components/VideoPlayer/courseLearning/projects.ts',
+    );
+    const playback = source(
+      'src/components/VideoPlayer/courseLearning/playback.ts',
+    );
+
+    expect(projects).toContain(
+      'const boundary = await captureAccountSessionBoundary();',
+    );
+    expect(projects).toContain('assertProjectOwner(generation, boundary);');
+    expect(projects).toContain(
+      'const storageKey = await projectSubmissionKey(projectId, accountScope);',
+    );
+    expect(projects).toContain(
+      'await markProjectProvisional(projectId, accountScope, boundary);',
+    );
+    expect(projects).toContain(
+      'projectSubmissionFlights.get(flightKey) === flight',
+    );
+
+    expect(playback).toContain('updatePlayerStateForScope(');
+    expect(playback).toContain('assertCompletionOwner(generation, boundary);');
+    expect(playback).toContain(
+      'const flightKey = `${accountScope}:${boundary.epoch}:${courseId}:${sectionId}`;',
+    );
+    expect(playback).toContain('assertPlaybackRuntime(generation);');
+    expect(playback).toContain(
+      'sectionCompletionFlights.get(flightKey) === flight',
     );
   });
 });

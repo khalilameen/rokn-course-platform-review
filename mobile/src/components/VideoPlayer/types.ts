@@ -66,6 +66,7 @@ export interface ProjectFeedbackMessage {
   errorCode?: string;
   text?: string;
   createdAt?: string;
+  attachments?: ChatAttachmentDraft[];
 }
 
 export interface ProjectFeedbackThread {
@@ -75,6 +76,8 @@ export interface ProjectFeedbackThread {
   status: string;
   remainingMessages: number;
   messages: ProjectFeedbackMessage[];
+  attachmentsEnabled?: boolean;
+  attachmentMaxFiles?: number;
 }
 
 export interface CourseProject {
@@ -89,6 +92,9 @@ export interface CourseProject {
   feedbackLevel?: 'pass_only' | 'report' | 'enhanced';
   reportEnabled?: boolean;
   feedbackThread?: ProjectFeedbackThread;
+  submissionMaxFiles?: number;
+  submissionAllowedMimeTypes?: string[];
+  submissionAttachments?: ChatAttachmentDraft[];
 }
 
 export interface CourseQuiz {
@@ -136,6 +142,8 @@ export interface CourseLearningData {
   accessType?: string;
   /** Course-chat availability from the entitlement API. */
   chatAvailable?: boolean;
+  chatAttachmentsEnabled?: boolean;
+  chatAttachmentMaxFiles?: number;
   /** Explicit false keeps certificate generation server- and client-locked. */
   certificateAvailable?: boolean;
   /** The purchased/granted plan includes certificate issuance after completion. */
@@ -188,4 +196,16 @@ export interface ChatMessage {
   errorCode?: string;
   /** Failed/system UI copy is visible but never becomes model context. */
   contextEligible?: boolean;
+  attachments?: ChatAttachmentDraft[];
+}
+
+export interface ChatAttachmentDraft {
+  uri: string;
+  name: string;
+  type: string;
+  size?: number;
+  uploadId: string;
+  serverId?: string;
+  downloadUrl?: string;
+  downloadExpiresAt?: string;
 }

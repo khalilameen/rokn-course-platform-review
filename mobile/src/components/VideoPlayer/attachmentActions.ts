@@ -90,10 +90,14 @@ const isAllowedRemoteUrl = (value: string) => {
 };
 
 const openRemoteDownload = async (url: string) => {
-  const canOpen = await Linking.canOpenURL(url);
-  if (!canOpen) return false;
-  await Linking.openURL(url);
-  return true;
+  try {
+    const canOpen = await Linking.canOpenURL(url);
+    if (!canOpen) return false;
+    await Linking.openURL(url);
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 const attachmentUrlNeedsRefresh = (attachment: CourseAttachment) => {

@@ -17,7 +17,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use App\Support\UnicodeText;
 
@@ -60,15 +59,31 @@ final class AttachmentController extends Controller
         );
         $disk = (string) config('course_attachments.disk', 'module-attachments');
         $directory = 'attachments/' . $validated['attachable_type'] . '/' . $attachable->getKey();
+        $existingAttachment = $attachable->attachments()
+            ->where('content_sha256', $metadata['sha256'])
+            ->first();
+        if ($existingAttachment) {
+            return $this->storedResponse(
+                $existingAttachment,
+                true,
+                (int) $course->fresh()->authoring_version
+            );
+        }
         $savedPath = null;
         $duplicate = false;
         $version = (int) $course->authoring_version;
 
         try {
-            $savedPath = $file->storeAs($directory, (string) Str::uuid() . '.' . $metadata['extension'], $disk);
-            if (!is_string($savedPath) || $savedPath === '') {
-                throw new \RuntimeException('Attachment storage write failed.');
-            }
+            $savedPath = $this->fileDeletion->storeTrackedUpload(
+                $file,
+                $directory,
+                $disk,
+                60,
+                implode('|', [
+                    'course-attachment', $validated['attachable_type'],
+                    $attachable->getKey(), $metadata['sha256'],
+                ])
+            );
 
             $attachment = DB::transaction(function () use (
                 $validated,
@@ -133,6 +148,11 @@ final class AttachmentController extends Controller
             ], 500);
         }
 
+        return $this->storedResponse($attachment, $duplicate, $version);
+    }
+
+    private function storedResponse(Attachment $attachment, bool $duplicate, int $version): JsonResponse
+    {
         return response()->json([
             'success' => true,
             'message' => $duplicate ? 'هذا المرفق مضاف بالفعل' : 'تم رفع المرفق',
@@ -170,6 +190,10 @@ final class AttachmentController extends Controller
                 );
 
                 $lockedAttachment->delete();
+                $this->fileDeletion->deleteOrQueue(
+                    (string) $lockedAttachment->storage_disk,
+                    (string) $lockedAttachment->file_path
+                );
                 return $this->authoring->advance($lockedCourse);
             });
         } catch (ValidationException $exception) {
@@ -182,8 +206,6 @@ final class AttachmentController extends Controller
                 'message' => 'تعذر حذف المرفق الآن',
             ], 500);
         }
-
-        $this->fileDeletion->deleteOrQueue($disk, $path);
 
         return response()->json([
             'success' => true,

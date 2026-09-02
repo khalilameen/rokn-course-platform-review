@@ -315,7 +315,9 @@ export const getLearningDashboard = async (): Promise<LearningDashboard> => {
   const cachedDashboard = await getCachedLearningDashboard();
   const [profileResult, streakResult, learningResult, pathsResult] =
     await Promise.allSettled([
-      publicRequest.get('user/profile'),
+      publicRequest.get('user/profile', {
+        params: {include_learning: 0, include_badges: 1},
+      }),
       publicRequest.get('streaks'),
       getLearningCourses(),
       getLearningPaths(),

@@ -9,6 +9,7 @@ use App\Http\Resources\SavedFolderResource;
 use App\Http\Resources\SavedLessonResource;
 use App\Models\Lesson;
 use App\Models\SavedFolder;
+use App\Models\User;
 use App\Services\CourseChatAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -149,7 +150,7 @@ final class SavedSectionController extends Controller
                 function () use ($user, $name, $normalizedName, $requestId): array {
                     // A per-account lock closes double taps and simultaneous
                     // creates from two devices without locking other learners.
-                    DB::table('users')->where('id', $user->id)->lockForUpdate()->first();
+                    User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
 
                     $byRequest = SavedFolder::query()
                         ->where('user_id', $user->id)
@@ -573,20 +574,20 @@ final class SavedSectionController extends Controller
 
             if (!$folder) {
                 return response()->json([
-                    'status' => 404,
-                    'success' => false,
-                    'message' => 'المجلد غير متاح',
-                    'data' => null,
-                ], 404);
+                    'status' => 200,
+                    'success' => true,
+                    'message' => 'تمت إزالة المقطع',
+                    'data' => ['already_removed' => true],
+                ]);
             }
 
-            $folder->lessons()->detach($lessonId);
+            $removed = $folder->lessons()->detach($lessonId);
 
             return response()->json([
                 'status' => 200,
                 'success' => true,
                 'message' => 'تمت إزالة المقطع',
-                'data' => null,
+                'data' => ['already_removed' => $removed === 0],
             ]);
         } catch (\Exception $e) {
             $this->rethrowExpectedRequestException($e);

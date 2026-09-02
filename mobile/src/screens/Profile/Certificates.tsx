@@ -3,11 +3,13 @@ import type {RootNavigation} from '../../navigation/types';
 import React, {useCallback, useRef, useState} from 'react';
 import {
   Alert,
+  Image,
   Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import {useSelector} from 'react-redux';
@@ -52,6 +54,8 @@ import type {RootState} from '../../store/store';
 import {certificateUrlFor} from '../../services/publicLinks';
 import {isolateBidirectionalText} from '../../constants/arabicFormatting';
 import {useReducedMotion} from '../../hooks/useReducedMotion';
+import {learnerErrorMessage} from '../../utils/errorPayload';
+import {openCourseAttachment} from '../../components/VideoPlayer/attachmentActions';
 
 const demoCredential = 'RKN-FRL-24018';
 const demoCourseTitle = 'من أول مهارة إلى أول عميل';
@@ -63,6 +67,7 @@ const CertificateArtwork = ({
   credential,
   reviewedProject = false,
   compact = false,
+  officialAspect = false,
 }: {
   name: string;
   url: string;
@@ -70,8 +75,14 @@ const CertificateArtwork = ({
   credential: string;
   reviewedProject?: boolean;
   compact?: boolean;
+  officialAspect?: boolean;
 }) => (
-  <View style={[styles.artwork, compact && styles.artworkCompact]}>
+  <View
+    style={[
+      styles.artwork,
+      officialAspect && styles.artworkOfficial,
+      compact && styles.artworkCompact,
+    ]}>
     <View style={styles.artworkAccent} />
     <View style={styles.artworkHeader}>
       <Text allowFontScaling={false} style={styles.wordmark}>
@@ -112,6 +123,54 @@ const CertificateArtwork = ({
   </View>
 );
 
+/**
+ * The backend artifact is the certificate the learner will actually save.
+ * Keep the local artwork underneath as an immediate, offline-safe placeholder,
+ * then replace it with the authoritative artifact once it loads.
+ */
+const CertificateArtifactPreview = ({
+  certificateUrl,
+  name,
+  verificationUrl,
+  courseTitle,
+  credential,
+  reviewedProject,
+}: {
+  certificateUrl?: string;
+  name: string;
+  verificationUrl: string;
+  courseTitle: string;
+  credential: string;
+  reviewedProject: boolean;
+}) => {
+  const [artifactFailed, setArtifactFailed] = useState(false);
+
+  React.useEffect(() => setArtifactFailed(false), [certificateUrl]);
+
+  return (
+    <View style={styles.artifactPreview}>
+      <CertificateArtwork
+        name={name}
+        url={verificationUrl}
+        courseTitle={courseTitle}
+        credential={credential}
+        reviewedProject={reviewedProject}
+        officialAspect
+      />
+      {!!certificateUrl && !artifactFailed && (
+        <Image
+          accessibilityLabel={`شهادة ${courseTitle}`}
+          accessibilityRole="image"
+          onError={() => setArtifactFailed(true)}
+          resizeMode="contain"
+          source={{uri: certificateUrl}}
+          style={styles.artifactImage}
+        />
+      )}
+    </View>
+  );
+};
+
 export default function Certificates({
   displayName: resolvedDisplayName,
   username: resolvedUsername,
@@ -132,18 +191,25 @@ export default function Certificates({
   const certificateLink = certificateUrlFor(String(username), demoCredential);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [certificatePending, setCertificatePending] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [certificates, setCertificates] = useState<CertificateDto[]>([]);
+  const [readyCourses, setReadyCourses] = useState<CourseProgress[]>([]);
   const [grantCourses, setGrantCourses] = useState<CourseProgress[]>([]);
   const [selectedGrantId, setSelectedGrantId] = useState<string | null>(null);
   const [serverSession, setServerSession] = useState<boolean | null>(null);
+  const [issueCourseId, setIssueCourseId] = useState<string | null>(null);
+  const [issueName, setIssueName] = useState('');
+  const [issuing, setIssuing] = useState(false);
   const loadGeneration = useRef(0);
+  const issueFlight = useRef(false);
 
   const loadCertificates = useCallback(async () => {
     const generation = ++loadGeneration.current;
     const isCurrent = () => loadGeneration.current === generation;
     setLoading(true);
     setLoadError('');
+    setCertificatePending(false);
     setSelectedId(null);
     try {
       const sessionAvailable = await hasSession();
@@ -179,32 +245,35 @@ export default function Certificates({
         }
         if (certificatesResult.status === 'fulfilled') {
           const remoteCertificates = certificatesResult.value;
+          let hasPendingCertificate = remoteCertificates.some(
+            item => item.status === 'pending',
+          );
           const merged = new Map(
             remoteCertificates.map(item => [item.id, item]),
           );
           const pendingCourseIds = remoteCertificates
             .filter(item => item.status === 'pending' && item.courseId)
             .map(item => item.courseId as string);
-          let eligibleCourseIds: string[] = [];
           if (learningResult.status === 'fulfilled') {
             const certificateByCourse = new Map(
               remoteCertificates
                 .filter(item => item.courseId)
                 .map(item => [item.courseId as string, item]),
             );
-            // certificate_available is the server-side eligibility verdict;
-            // progress alone does not include every quiz/project/evidence gate.
-            eligibleCourseIds = learningResult.value
-              .filter(course => course.certificateAvailable)
-              .filter(course => {
-                const existing = certificateByCourse.get(course.id);
-                return !existing || existing.status === 'pending';
-              })
-              .map(course => course.id);
+            if (isCurrent()) {
+              // certificate_available is the server-side eligibility verdict;
+              // progress alone does not include every quiz/project/evidence gate.
+              setReadyCourses(
+                learningResult.value
+                  .filter(course => course.certificateAvailable)
+                  .filter(course => !certificateByCourse.has(course.id)),
+              );
+            }
           }
-          const recoverableCourseIds = [
-            ...new Set([...pendingCourseIds, ...eligibleCourseIds]),
-          ].slice(0, 5);
+          const recoverableCourseIds = [...new Set(pendingCourseIds)].slice(
+            0,
+            5,
+          );
           if (recoverableCourseIds.length) {
             const issued = await Promise.allSettled(
               recoverableCourseIds.map(courseId => issueCertificate(courseId)),
@@ -214,19 +283,31 @@ export default function Certificates({
                 merged.set(result.value.id, result.value);
               }
             });
+            hasPendingCertificate =
+              issued.some(
+                result =>
+                  result.status === 'rejected' ||
+                  !result.value ||
+                  result.value.status !== 'active',
+              ) || [...merged.values()].some(item => item.status === 'pending');
           }
           if (isCurrent()) {
+            setCertificatePending(hasPendingCertificate);
             setCertificates(
               [...merged.values()].filter(item => item.status === 'active'),
             );
           }
+        } else if (isCurrent()) {
+          setReadyCourses([]);
         }
         return;
       }
       if (!LOCAL_DEMO_ENABLED) {
         if (isCurrent()) {
           setCertificates([]);
+          setReadyCourses([]);
           setGrantCourses([]);
+          setCertificatePending(false);
         }
         return;
       }
@@ -237,6 +318,8 @@ export default function Certificates({
         .find(module => module.project)?.project;
       if (isCurrent()) {
         setGrantCourses([]);
+        setReadyCourses([]);
+        setCertificatePending(false);
         setCertificates(
           finalProject?.status === 'passed'
             ? [
@@ -276,6 +359,8 @@ export default function Certificates({
     certificates.find(certificate => certificate.id === selectedId) || null;
   const selectedGrantCourse =
     grantCourses.find(course => course.id === selectedGrantId) || null;
+  const issueCourse =
+    readyCourses.find(course => course.id === issueCourseId) || null;
   const activeCourseTitle = selectedCertificate?.courseName || '';
   const activeHolderName = selectedCertificate?.holderName || '';
   const activeCredential = selectedCertificate?.publicId || '';
@@ -308,13 +393,82 @@ export default function Certificates({
     }
   };
 
+  const saveCertificate = () => {
+    if (!selectedCertificate?.certificateUrl) return;
+    void openCourseAttachment({
+      id: `certificate-${selectedCertificate.publicId}`,
+      title: `شهادة ${selectedCertificate.courseName}`,
+      url: selectedCertificate.certificateUrl,
+      fileType: 'image/png',
+      mimeType: 'image/png',
+      downloadVersion: selectedCertificate.publicId,
+      external: false,
+      platform: 'mobile',
+      temporary: false,
+    });
+  };
+
+  const openIssueCertificate = (course: CourseProgress) => {
+    setIssueName(displayName);
+    setIssueCourseId(course.id);
+  };
+
+  const closeIssueCertificate = () => {
+    if (issuing) return;
+    setIssueCourseId(null);
+    setIssueName('');
+  };
+
+  const confirmIssueCertificate = async () => {
+    if (!issueCourse || issuing || issueFlight.current) return;
+    const holderName = issueName.trim().replace(/\s+/g, ' ');
+    if (Array.from(holderName).length < 2) {
+      Alert.alert('اكتب اسمك', 'هذا الاسم سيظهر على الشهادة');
+      return;
+    }
+    issueFlight.current = true;
+    setIssuing(true);
+    try {
+      const issued = await issueCertificate(issueCourse.id, holderName);
+      setReadyCourses(current =>
+        current.filter(course => course.id !== issueCourse.id),
+      );
+      setIssueCourseId(null);
+      setIssueName('');
+      if (issued?.status === 'active') {
+        setCertificates(current => [
+          issued,
+          ...current.filter(certificate => certificate.id !== issued.id),
+        ]);
+        setSelectedId(issued.id);
+      } else {
+        setCertificatePending(true);
+        void loadCertificates();
+      }
+    } catch (error: unknown) {
+      Alert.alert(
+        'تعذّر إصدار الشهادة',
+        learnerErrorMessage(error, 'حاول مرة أخرى'),
+      );
+    } finally {
+      issueFlight.current = false;
+      setIssuing(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <SectionHeading title="شهاداتي" />
 
-      {loading && !certificates.length && !grantCourses.length ? (
+      {loading &&
+      !certificates.length &&
+      !readyCourses.length &&
+      !grantCourses.length ? (
         <StatusView state="loading" title="جارٍ تحميل شهاداتك" />
-      ) : loadError && !certificates.length && !grantCourses.length ? (
+      ) : loadError &&
+        !certificates.length &&
+        !readyCourses.length &&
+        !grantCourses.length ? (
         <StatusView
           actionLabel="إعادة المحاولة"
           description={loadError}
@@ -322,7 +476,20 @@ export default function Certificates({
           state="error"
           title="تعذّر تحميل الشهادات"
         />
-      ) : !certificates.length && !grantCourses.length ? (
+      ) : certificatePending &&
+        !certificates.length &&
+        !readyCourses.length &&
+        !grantCourses.length ? (
+        <StatusView
+          actionLabel="إعادة المحاولة"
+          description="سنحاول إصدارها مرة أخرى"
+          onAction={loadCertificates}
+          state="loading"
+          title="شهادتك قيد التجهيز"
+        />
+      ) : !certificates.length &&
+        !readyCourses.length &&
+        !grantCourses.length ? (
         <StatusView
           actionLabel={
             serverSession === false && !LOCAL_DEMO_ENABLED
@@ -337,7 +504,7 @@ export default function Certificates({
           onAction={() => {
             if (serverSession === false && !LOCAL_DEMO_ENABLED) {
               navigation.navigate('Login', {
-                returnTo: {name: 'Profile'},
+                returnTo: {name: 'Profile', params: {tab: 'certificates'}},
               });
               return;
             }
@@ -356,6 +523,17 @@ export default function Certificates({
             <Text accessibilityRole="alert" style={styles.partialNotice}>
               {loadError}
             </Text>
+          )}
+          {certificatePending && (
+            <Pressable
+              accessibilityRole="button"
+              onPress={loadCertificates}
+              style={styles.pendingNotice}>
+              <Text accessibilityRole="alert" style={styles.partialNotice}>
+                هناك شهادة قيد التجهيز
+              </Text>
+              <Text style={styles.pendingAction}>إعادة المحاولة</Text>
+            </Pressable>
           )}
           <View style={styles.grid}>
             {certificates.map(certificate => (
@@ -395,6 +573,36 @@ export default function Certificates({
               </Pressable>
             ))}
           </View>
+          {!!readyCourses.length && (
+            <View style={styles.lockedSection}>
+              <Text style={styles.lockedHeading}>جاهزة للإصدار</Text>
+              {readyCourses.map(course => (
+                <Pressable
+                  accessibilityLabel={`إصدار شهادة ${course.title}`}
+                  accessibilityRole="button"
+                  key={`ready-${course.id}`}
+                  onPress={() => openIssueCertificate(course)}
+                  style={({pressed}) => [
+                    styles.lockedCard,
+                    styles.readyCard,
+                    pressed && styles.pressed,
+                  ]}>
+                  <View style={[styles.lockedIcon, styles.readyIcon]}>
+                    <Text style={styles.lockedIconText}>◇</Text>
+                  </View>
+                  <View style={styles.lockedCopy}>
+                    <Text numberOfLines={2} style={styles.lockedTitle}>
+                      {course.title}
+                    </Text>
+                    <Text style={styles.lockedMeta}>
+                      اختر الاسم ثم أصدر الشهادة
+                    </Text>
+                  </View>
+                  <Text style={styles.readyAction}>إصدار</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
           {!!grantCourses.length && (
             <View style={styles.lockedSection}>
               <Text style={styles.lockedHeading}>شهادات تنتظر التفعيل</Text>
@@ -441,6 +649,62 @@ export default function Certificates({
       />
 
       <Modal
+        animationType={reducedMotion ? 'none' : 'fade'}
+        onRequestClose={closeIssueCertificate}
+        statusBarTranslucent
+        transparent
+        visible={Boolean(issueCourse)}>
+        <View style={styles.overlay}>
+          <View
+            accessibilityLabel="إصدار الشهادة"
+            accessibilityViewIsModal
+            style={[styles.sheet, styles.issueSheet]}>
+            <View
+              style={[
+                styles.detailCopy,
+                {
+                  paddingBottom: Math.max(
+                    Spacing.xl,
+                    insets.bottom + Spacing.md,
+                  ),
+                  paddingLeft: Math.max(Spacing.xl, insets.left + Spacing.md),
+                  paddingRight: Math.max(Spacing.xl, insets.right + Spacing.md),
+                },
+              ]}>
+              <Text style={styles.detailTitle}>الاسم على الشهادة</Text>
+              <Text style={styles.issueHint}>
+                راجعه قبل الإصدار
+                {'\n'}لن يتغير بعد ذلك
+              </Text>
+              <TextInput
+                accessibilityLabel="الاسم على الشهادة"
+                autoCapitalize="words"
+                editable={!issuing}
+                maxLength={120}
+                onChangeText={setIssueName}
+                placeholder="اسمك الكامل"
+                placeholderTextColor={Palette.textFaint}
+                style={styles.issueInput}
+                value={issueName}
+              />
+              <Button
+                disable={Array.from(issueName.trim()).length < 2 || issuing}
+                loader={issuing}
+                onPress={() => void confirmIssueCertificate()}
+                title="إصدار الشهادة"
+              />
+              <Button
+                disable={issuing}
+                onPress={closeIssueCertificate}
+                title="إلغاء"
+                useGradient={false}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
         animationType={reducedMotion ? 'none' : 'slide'}
         onRequestClose={() => setSelectedId(null)}
         statusBarTranslucent
@@ -462,9 +726,10 @@ export default function Certificates({
                 },
               ]}
               showsVerticalScrollIndicator={false}>
-              <CertificateArtwork
+              <CertificateArtifactPreview
+                certificateUrl={selectedCertificate?.certificateUrl}
                 name={activeHolderName}
-                url={activeCertificateLink}
+                verificationUrl={activeCertificateLink}
                 courseTitle={activeCourseTitle}
                 credential={activeCredential}
                 reviewedProject={
@@ -517,6 +782,13 @@ export default function Certificates({
                   title="مشاركة رابط الشهادة"
                   useGradient={false}
                 />
+                {selectedCertificate?.certificateUrl && (
+                  <Button
+                    onPress={saveCertificate}
+                    title="حفظ الشهادة"
+                    useGradient={false}
+                  />
+                )}
                 <Button
                   onPress={() => setSelectedId(null)}
                   title="إغلاق"
@@ -559,6 +831,14 @@ const styles = StyleSheet.create({
     color: Palette.textMuted,
     marginBottom: Spacing.sm,
   },
+  pendingNotice: {
+    ...rtlRowStyle,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  pendingAction: {...Type.caption, color: Palette.primary},
   lockedHeading: {...Type.section, ...textDirection, color: Palette.text},
   lockedIntro: {
     ...Type.body,
@@ -578,6 +858,10 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(216,166,60,.22)',
     backgroundColor: Palette.coinSoft,
   },
+  readyCard: {
+    borderColor: 'rgba(72,185,138,.24)',
+    backgroundColor: 'rgba(72,185,138,.1)',
+  },
   lockedIcon: {
     width: 44,
     height: 44,
@@ -587,6 +871,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(216,166,60,.14)',
   },
   lockedIconText: {fontSize: 24, color: '#E5BD67'},
+  readyIcon: {backgroundColor: 'rgba(72,185,138,.14)'},
   lockedCopy: {flex: 1},
   lockedTitle: {...Type.bodyStrong, ...textDirection, color: Palette.text},
   lockedMeta: {
@@ -596,6 +881,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   lockedAction: {...Type.caption, color: '#E5BD67'},
+  readyAction: {...Type.caption, color: Palette.success},
   cardCopy: {padding: Spacing.md},
   title: {
     ...Type.bodyStrong,
@@ -625,6 +911,19 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   artworkCompact: {minHeight: 180, padding: 17},
+  artworkOfficial: {aspectRatio: 4 / 3},
+  artifactPreview: {
+    width: '100%',
+    aspectRatio: 4 / 3,
+    overflow: 'hidden',
+    backgroundColor: '#F7F4ED',
+  },
+  artifactImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#F7F4ED',
+  },
   artworkAccent: {
     position: 'absolute',
     start: 0,
@@ -700,6 +999,7 @@ const styles = StyleSheet.create({
     borderColor: Palette.lineSoft,
     overflow: 'hidden',
   },
+  issueSheet: {maxWidth: 560},
   sheetContent: {paddingBottom: Spacing.xl},
   detailCopy: {padding: Spacing.xl},
   detailTitle: {
@@ -713,6 +1013,25 @@ const styles = StyleSheet.create({
     ...textDirection,
     color: Palette.textMuted,
     marginTop: Spacing.xs,
+  },
+  issueHint: {
+    ...Type.body,
+    ...textDirection,
+    color: Palette.textMuted,
+    marginTop: Spacing.xs,
+  },
+  issueInput: {
+    ...Type.body,
+    ...textDirection,
+    minHeight: 52,
+    color: Palette.text,
+    backgroundColor: Palette.surface,
+    borderColor: Palette.line,
+    borderWidth: 1,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing.md,
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.sm,
   },
   badge: {marginTop: Spacing.md},
   qrDestination: {

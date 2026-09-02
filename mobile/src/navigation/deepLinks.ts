@@ -182,3 +182,41 @@ export const isExternalWebLink = (rawLink?: string | null) =>
   !/^https:\/\/(?:(?:www\.)?rokn\.app|rokn-course-platform-review-production-b7gpy1\.laravel\.cloud)(?:\/|$)/i.test(
     String(rawLink || '').trim(),
   );
+
+/**
+ * React Navigation cannot recover a cold-start URL which resolves after its
+ * initial URL deadline: unlike a warm intent, Android does not have to emit a
+ * second `url` event. Return promptly for startup, but deliver that same native
+ * result exactly once if the bridge finishes later.
+ */
+export const resolveInitialUrlWithinDeadline = (
+  request: Promise<string | null>,
+  onLateUrl: (url: string | null) => void,
+  timeoutMs = 1_500,
+): Promise<string | null> =>
+  new Promise(resolve => {
+    let initialWindowOpen = true;
+    const timer = setTimeout(() => {
+      if (!initialWindowOpen) return;
+      initialWindowOpen = false;
+      resolve(null);
+    }, Math.max(0, timeoutMs));
+
+    request.then(
+      url => {
+        if (initialWindowOpen) {
+          initialWindowOpen = false;
+          clearTimeout(timer);
+          resolve(url);
+          return;
+        }
+        onLateUrl(url);
+      },
+      () => {
+        if (!initialWindowOpen) return;
+        initialWindowOpen = false;
+        clearTimeout(timer);
+        resolve(null);
+      },
+    );
+  });

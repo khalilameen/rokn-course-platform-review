@@ -1,6 +1,7 @@
 import React, {useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -339,6 +340,15 @@ export default function QuizTransition({
               {formatArabicNumber(index + 1)} من{' '}
               {formatArabicNumber(data?.questions.length || 0)}
             </Text>
+            {!!question.imageUrl && (
+              <Image
+                accessibilityIgnoresInvertColors
+                accessibilityLabel="صورة توضيحية للسؤال"
+                resizeMode="contain"
+                source={{uri: question.imageUrl}}
+                style={styles.questionImage}
+              />
+            )}
             <Text style={styles.question}>
               {formatArabicDisplayText(question.text)}
             </Text>
@@ -518,6 +528,13 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textAlign: 'right',
     marginTop: 12,
+  },
+  questionImage: {
+    width: '100%',
+    height: 220,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,.04)',
+    marginTop: 14,
   },
   question: {
     color: '#fff',

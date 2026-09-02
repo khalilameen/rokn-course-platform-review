@@ -15,8 +15,8 @@ use LogicException;
  */
 final class CourseAccessPlanSnapshot
 {
-    public const CURRENT_VERSION = 3;
-    public const SUPPORTED_VERSIONS = [1, 2, self::CURRENT_VERSION];
+    public const CURRENT_VERSION = 5;
+    public const SUPPORTED_VERSIONS = [1, 2, 3, 4, self::CURRENT_VERSION];
 
     /** @var list<string> */
     private const REQUIRED_KEYS = [
@@ -129,6 +129,33 @@ final class CourseAccessPlanSnapshot
                 throw new LogicException('The access-plan snapshot contains an invalid project follow-up contract.');
             }
         }
+        if ($version >= 4) {
+            foreach (['chat_attachments_enabled', 'chat_attachment_max_files'] as $key) {
+                if (!array_key_exists($key, $snapshot)) {
+                    throw new LogicException("The access-plan snapshot is missing [{$key}].");
+                }
+            }
+            $enabled = (bool) $snapshot['chat_attachments_enabled'];
+            $maximum = (int) $snapshot['chat_attachment_max_files'];
+            if (($enabled && (!$snapshot['chat_enabled'] || $maximum < 1 || $maximum > 5))
+                || (!$enabled && $maximum !== 0)) {
+                throw new LogicException('The access-plan snapshot contains an invalid attachment contract.');
+            }
+        }
+        if ($version >= 5) {
+            foreach (['project_followup_attachments_enabled', 'project_followup_attachment_max_files'] as $key) {
+                if (!array_key_exists($key, $snapshot)) {
+                    throw new LogicException("The access-plan snapshot is missing [{$key}].");
+                }
+            }
+            $projectEnabled = (bool) $snapshot['project_followup_attachments_enabled'];
+            $projectMaximum = (int) $snapshot['project_followup_attachment_max_files'];
+            $enhanced = (string) $snapshot['project_feedback_level'] === CourseAccessPlan::FEEDBACK_ENHANCED;
+            if (($projectEnabled && (!$enhanced || $projectMaximum < 1 || $projectMaximum > 5))
+                || (!$projectEnabled && $projectMaximum !== 0)) {
+                throw new LogicException('The access-plan snapshot contains an invalid project attachment contract.');
+            }
+        }
         if ((int) $snapshot['plan_id'] !== $accessPlanId) {
             throw new LogicException('The access-plan snapshot does not match its plan.');
         }
@@ -167,6 +194,8 @@ final class CourseAccessPlanSnapshot
                 'project_followup_budget_usd',
                 'project_followup_reserve_usd',
             ] : []),
+            ...($version >= 4 ? ['chat_attachment_max_files'] : []),
+            ...($version >= 5 ? ['project_followup_attachment_max_files'] : []),
         ] as $numericKey) {
             if (!is_numeric($snapshot[$numericKey]) || (float) $snapshot[$numericKey] < 0) {
                 throw new LogicException(

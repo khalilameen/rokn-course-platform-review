@@ -9,6 +9,7 @@ import type {CourseLearningData} from '../../components/VideoPlayer/types';
 import {buildAccessibleFeed} from './presentation';
 import {useAppActiveState} from '../../hooks/useAppActiveState';
 import {isLocalDemoId} from '../../config/runtime';
+import {watchProjectResolution} from '../../components/VideoPlayer/courseLearning/projects';
 
 type ProjectReviewRefs = {
   loadedCourse: MutableRefObject<CourseLearningData | null>;
@@ -74,26 +75,24 @@ export const useProjectReview = ({
       if (refs.watchedProject.current === projectId) return;
       refs.watchedProject.current = projectId;
       const watcher = ++refs.reviewWatcher.current;
-      void (async () => {
-        for (let attempt = 0; attempt < 4; attempt += 1) {
-          await new Promise<void>(resolve =>
-            setTimeout(resolve, attempt === 0 ? 2500 : 5000),
-          );
-          if (!reviewActive || refs.reviewWatcher.current !== watcher) return;
-          await retryPendingProjectSubmissions().catch(() => []);
-          if (refs.reviewWatcher.current !== watcher) return;
-          const refreshed = await refreshProjectState(projectId);
-          if (refs.reviewWatcher.current !== watcher) return;
-          if (
-            refreshed?.status === 'passed' ||
-            refreshed?.status === 'needs_retry'
-          ) {
+      watchProjectResolution({
+        projectId,
+        resolve: refreshProjectState,
+        beforeResolve: () => retryPendingProjectSubmissions().catch(() => []),
+        isActive: () => reviewActive && refs.reviewWatcher.current === watcher,
+        maxAttempts: 4,
+        initialDelayMs: 2500,
+        onExhausted: () => {
+          if (refs.reviewWatcher.current === watcher) {
             refs.watchedProject.current = null;
-            return;
           }
-        }
-        refs.watchedProject.current = null;
-      })();
+        },
+        onResolution: refreshed => {
+          if (refreshed.status === 'passed' || refreshed.status === 'needs_retry') {
+            refs.watchedProject.current = null;
+          }
+        },
+      });
     },
     [refreshProjectState, refs, reviewActive],
   );

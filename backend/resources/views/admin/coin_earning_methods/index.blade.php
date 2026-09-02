@@ -103,6 +103,7 @@
         <div class="card-body p-4">
             <form action="{{ route('admin.reward-rules.store') }}" method="POST" class="border rounded p-3 mb-4">
                 @csrf
+                <input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">
                 <h6 class="font-weight-bold mb-3">إضافة قاعدة</h6>
                 <div class="row">
                     <div class="col-md-4 mb-3">

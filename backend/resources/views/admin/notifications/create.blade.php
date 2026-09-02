@@ -33,7 +33,8 @@
                             </ul>
                         </div>
                     @endif
-                    {!! Form::open(['method' => 'POST', 'route' => ['admin.notifications.store'], 'files' => true]) !!}
+                    {!! Form::open(['method' => 'POST', 'route' => ['admin.notifications.store'], 'files' => true, 'id' => 'notificationForm']) !!}
+                        <input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">
                         <div class="form-group">
                             <label for="notification-course">الكورس (اختياري)</label>
                             <select name="course_id" id="notification-course" class="form-control">
@@ -76,6 +77,11 @@
                             <small class="form-text text-muted">تظهر داخل التطبيق وفي إشعار الهاتف عندما يدعم الجهاز ذلك</small>
                         </div>
                         <div class="form-group">
+                            <label for="notification-send-at">موعد الإرسال <small class="text-muted">اختياري</small></label>
+                            <input class="form-control" id="notification-send-at" name="send_at" type="datetime-local" value="{{ old('send_at') }}">
+                            <small class="form-text text-muted">اتركه فارغًا للإرسال الآن</small>
+                        </div>
+                        <div class="form-group">
                             <label for="notification-title-en">English title <small class="text-muted">(optional)</small></label>
                             <input name="title_en" id="notification-title-en" maxlength="80" class="form-control" type="text" value="{{ old('title_en') }}" dir="ltr">
                         </div>
@@ -89,6 +95,7 @@
                             </button>
                         </div>
                     {!! Form::close() !!}
+                    @include('admin.partials.course-authoring-draft', ['formId' => 'notificationForm'])
                 </div>
             </div>
         </div>

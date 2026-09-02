@@ -1,7 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {AppState} from 'react-native';
 import {publicRequest} from '../constants/api';
-import {accountScopedStorageKey} from '../constants/helpers';
+import {
+  accountScopedStorageKey,
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+  type AccountSessionBoundary,
+} from '../constants/helpers';
 import {enqueueDurableOutbox, flushDurableOutbox} from './durableOutbox';
 
 export type ProductEventName =
@@ -63,7 +68,8 @@ const uuid = (): string => {
   });
 };
 
-const queueKey = () => accountScopedStorageKey(QUEUE_KEY);
+const queueKey = (boundary?: AccountSessionBoundary) =>
+  accountScopedStorageKey(QUEUE_KEY, boundary);
 const sessionKeys = new Map<string, string>();
 const sessionKeyForQueue = (storageKey: string) => {
   const current = sessionKeys.get(storageKey);
@@ -156,17 +162,22 @@ const scheduleQueueFlush = (storageKey: string) => {
 };
 
 export const flushProductEvents = async (): Promise<void> => {
-  const storageKey = await queueKey();
+  const boundary = await captureAccountSessionBoundary();
+  const storageKey = await queueKey(boundary);
   const scheduled = scheduledFlushes.get(storageKey);
   if (scheduled) clearTimeout(scheduled);
   scheduledFlushes.delete(storageKey);
   await migrateLegacyQueue(storageKey);
+  assertAccountSessionBoundary(boundary);
   await flushQueue(storageKey);
+  assertAccountSessionBoundary(boundary);
 };
 
 export const trackProductEvent = async (event: ProductEvent): Promise<void> => {
+  let storageKey = '';
   try {
-    const storageKey = await queueKey();
+    const boundary = await captureAccountSessionBoundary();
+    storageKey = await queueKey(boundary);
     const queued: QueuedEvent = {
       ...event,
       event_id: uuid(),
@@ -175,14 +186,25 @@ export const trackProductEvent = async (event: ProductEvent): Promise<void> => {
     };
 
     await migrateLegacyQueue(storageKey);
+    assertAccountSessionBoundary(boundary);
     await enqueueDurableOutbox({
       storageKey,
       id: queued.event_id,
       payload: queued,
       maxItems: MAX_QUEUE_SIZE,
     });
+    assertAccountSessionBoundary(boundary);
     scheduleQueueFlush(storageKey);
   } catch {
+    // Logout cleanup may win before a queued AsyncStorage write finishes. The
+    // old owner's analytics are disposable; remove a resurrected queue rather
+    // than retaining it on a shared device until that account returns.
+    if (storageKey) {
+      const current = await queueKey().catch(() => '');
+      if (current !== storageKey) {
+        await AsyncStorage.removeItem(storageKey).catch(() => undefined);
+      }
+    }
     // Analytics must never surface an unhandled rejection or block the
     // learner when storage is full or temporarily unavailable.
   }

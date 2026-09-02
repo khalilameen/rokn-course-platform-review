@@ -30,7 +30,8 @@ class Kernel extends ConsoleKernel
         $schedule->command('ops:checkpoint-recovery')
             ->everyFiveMinutes()
             ->withoutOverlapping(10)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
         if ((bool) config('operations.disaster_recovery_mode', false)) {
             return;
         }
@@ -45,59 +46,87 @@ class Kernel extends ConsoleKernel
         $schedule->command('ops:monitor-runtime')
             ->everyMinute()
             ->withoutOverlapping(5)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
         $schedule->command('orders:audit --limit=5000')
             ->hourly()
             ->withoutOverlapping(15)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
         $schedule->command('payments:reconcile-kashier --limit=100')
             ->everyFifteenMinutes()
             ->withoutOverlapping(20)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
         $schedule->command('projects:finalize-pending')
             ->everyMinute()
             ->withoutOverlapping(5)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
         $schedule->command('ai:release-expired-reservations --limit=500')
             ->everyMinute()
             ->withoutOverlapping(5)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
         $schedule->command('ai:recover-stalled-feedback --limit=200')
             ->everyFiveMinutes()
             ->withoutOverlapping(10)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
         $schedule->command('outbox:maintain --dispatch=500 --prune=0')
             ->everyMinute()
             ->withoutOverlapping(5)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
+        $schedule->command('internal-signals:maintain --limit=500')
+            ->everyMinute()
+            ->withoutOverlapping(5)
+            ->onOneServer()
+            ->runInBackground();
+        $schedule->command('internal-signals:maintain --limit=1 --prune=10000')
+            ->dailyAt('02:30')
+            ->withoutOverlapping(30)
+            ->onOneServer()
+            ->runInBackground();
         $schedule->command('outbox:maintain --dispatch=0 --prune=5000')
             ->dailyAt('02:20')
             ->withoutOverlapping(30)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
         $schedule->command('data:prune-operational --limit=5000')
             ->dailyAt('02:40')
             ->withoutOverlapping(30)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
         $schedule->command('playback:maintain --limit=5000')
             ->everyFiveMinutes()
             ->withoutOverlapping(10)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
         // Recheck active references immediately before retiring any remote
         // object. Abandoned direct uploads are approved automatically.
         $schedule->command('bunny:cleanup-videos --limit=100')
             ->everyFifteenMinutes()
             ->withoutOverlapping(30)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
         $schedule->command('bunny:cleanup-storage --limit=100')
             ->everyFifteenMinutes()
             ->withoutOverlapping(30)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
+        $schedule->command('bunny:recover-allocations --limit=100')
+            ->everyFifteenMinutes()
+            ->withoutOverlapping(30)
+            ->onOneServer()
+            ->runInBackground();
         // Read-only provider checks plus operational state updates. Findings
         // are quarantined for review; this command never deletes or unpublishes.
         $schedule->command('media:reconcile --limit=1000')
             ->everyThirtyMinutes()
             ->withoutOverlapping(180)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
         $schedule->job(new PurgeExpiredApiTokens())
             ->dailyAt('01:00')
             ->onOneServer();
@@ -105,31 +134,43 @@ class Kernel extends ConsoleKernel
             ->dailyAt('20:00')
             ->timezone('Africa/Cairo')
             ->withoutOverlapping(60)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
         $schedule->command('notifications:retry-stalled --limit=500')
             ->everyFiveMinutes()
             ->withoutOverlapping(10)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
+        $schedule->command('notifications:dispatch-scheduled --limit=100')
+            ->everyMinute()
+            ->withoutOverlapping(5)
+            ->onOneServer()
+            ->runInBackground();
         $schedule->command('notifications:retry-campaigns --limit=50')
             ->everyFiveMinutes()
             ->withoutOverlapping(10)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
         $schedule->command('certificates:recover-pending --limit=100')
             ->everyFiveMinutes()
             ->withoutOverlapping(10)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
         $schedule->command('operations:prune-rate-limits --days=30')
             ->dailyAt('03:40')
             ->withoutOverlapping(30)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
         $schedule->command('privacy:cleanup-portfolio-media')
             ->everyFifteenMinutes()
             ->withoutOverlapping(10)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
         $schedule->command('privacy:cleanup-account-files')
             ->everyFiveMinutes()
             ->withoutOverlapping(10)
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
     }
 
     /**

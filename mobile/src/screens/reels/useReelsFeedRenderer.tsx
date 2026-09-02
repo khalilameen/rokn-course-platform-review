@@ -53,6 +53,7 @@ export const useReelsFeedRenderer = ({
   selectedQuality,
   serverSession,
   setChatVisible,
+  onContentOverlayVisibilityChange,
   submitProject,
   passQuiz,
   toggleSaved,
@@ -99,9 +100,13 @@ export const useReelsFeedRenderer = ({
   selectedQuality: VideoQuality;
   serverSession: boolean | null;
   setChatVisible: Dispatch<SetStateAction<boolean>>;
+  onContentOverlayVisibilityChange: (
+    scopeKey: string,
+    visible: boolean,
+  ) => void;
   submitProject: (
     projectId: string,
-    file: SelectedProjectFile,
+    files: SelectedProjectFile[],
     note?: string,
   ) => Promise<ProjectSubmissionOutcome>;
   passQuiz: (quizId: string) => Promise<void> | void;
@@ -177,6 +182,7 @@ export const useReelsFeedRenderer = ({
               },
             });
           }}
+          onOverlayVisibilityChange={onContentOverlayVisibilityChange}
           onSelectFeedItem={scrollToKey}
           onProgress={(time, duration) =>
             reel && persistProgress(reel, time, duration)
@@ -251,6 +257,7 @@ export const useReelsFeedRenderer = ({
       selectedQuality,
       serverSession,
       setChatVisible,
+      onContentOverlayVisibilityChange,
       submitProject,
       passQuiz,
       toggleSaved,

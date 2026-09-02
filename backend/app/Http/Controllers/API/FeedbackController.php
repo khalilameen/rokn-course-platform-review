@@ -6,8 +6,10 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Models\FeedbackReport;
+use App\Models\FeedbackAttachment;
 use App\Models\Lesson;
 use App\Models\Order;
+use App\Models\User;
 use App\Services\ApiResponseService;
 use App\Services\SupportCaseService;
 use App\Support\PrivacyFingerprint;
@@ -15,8 +17,10 @@ use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Http\Response;
 
 final class FeedbackController extends Controller
 {
@@ -61,6 +65,9 @@ final class FeedbackController extends Controller
                 $report = DB::transaction(function () use (
                     $request, $validated, $requestFingerprint, $credential, $user, $cases, $clientRelease
                 ): FeedbackReport {
+                    if ($user) {
+                        User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+                    }
                     $report = FeedbackReport::query()->create([
                         'public_id' => (string) Str::ulid(),
                         'client_request_id' => $validated['client_request_id'],
@@ -116,6 +123,7 @@ final class FeedbackController extends Controller
 
         if ($user && !$report->user_id) {
             DB::transaction(function () use ($report, $user, $cases): void {
+                User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
                 $locked = FeedbackReport::query()->lockForUpdate()->findOrFail($report->id);
                 if (!$locked->user_id) {
                     $locked->update([
@@ -165,6 +173,34 @@ final class FeedbackController extends Controller
         return $responses->success($cases->customerPayload($report->fresh()), 'تم إرسال الرد');
     }
 
+    public function attachment(
+        string $publicId,
+        int $attachment
+    ): Response {
+        $report = FeedbackReport::query()->where('public_id', $publicId)->firstOrFail();
+        $file = FeedbackAttachment::query()
+            ->whereKey($attachment)
+            ->where('feedback_report_id', $report->id)
+            ->where('scan_status', 'sanitized')
+            ->firstOrFail();
+        $storage = Storage::disk((string) $file->disk);
+        abort_unless($storage->exists((string) $file->path), 410);
+        $bytes = $storage->get((string) $file->path);
+        if ($file->sha256 && !hash_equals((string) $file->sha256, hash('sha256', $bytes))) {
+            $file->update(['scan_status' => 'corrupt']);
+            abort(410);
+        }
+        $name = 'rokn-support-' . strtoupper(substr($publicId, -8))
+            . '-' . $file->id . '.jpg';
+        return response($bytes, 200, [
+            'Content-Type' => (string) ($file->mime_type ?: 'image/jpeg'),
+            'Content-Disposition' => 'inline; filename="' . $name . '"',
+            'Cache-Control' => 'private, no-store',
+            'X-Content-Type-Options' => 'nosniff',
+            'Referrer-Policy' => 'no-referrer',
+        ]);
+    }
+
     public function claim(
         Request $request,
         string $publicId,
@@ -176,6 +212,7 @@ final class FeedbackController extends Controller
         $report = FeedbackReport::query()->where('public_id', $publicId)->firstOrFail();
         $cases->authorizeViewer($report, $user, $cases->accessTokenFromRequest($request));
         DB::transaction(function () use ($report, $user, $cases): void {
+            User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
             $locked = FeedbackReport::query()->lockForUpdate()->findOrFail($report->id);
             abort_if($locked->user_id && (int) $locked->user_id !== (int) $user->id, 404);
             if (!$locked->user_id) {

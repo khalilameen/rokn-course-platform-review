@@ -140,15 +140,37 @@ export const useAccountSettingsActions = ({
           const accountScope = await getCurrentAccountStorageScope();
           cancelLearningReminders();
           await setSmartRemindersEnabled(false).catch(() => undefined);
+          let serverSessionRevoked = !extractApiToken(userData);
           if (extractApiToken(userData)) {
             try {
               const deviceToken = await getCurrentPushDeviceToken();
               await revokeCurrentDeviceSession(deviceToken);
+              serverSessionRevoked = true;
             } catch {
               // The local session still closes when the API is unavailable.
             }
           }
-          await clearCurrentPushDeviceRegistration().catch(() => undefined);
+          const pushInvalidationDurable = await clearCurrentPushDeviceRegistration()
+            .then(() => true)
+            .catch(() => false);
+          if (!serverSessionRevoked && !pushInvalidationDurable) {
+            Alert.alert(
+              'لم يكتمل تسجيل الخروج',
+              'تعذّر تأمين إشعارات هذا الجهاز الآن\nحاول مرة أخرى',
+            );
+            return;
+          }
+          // Secure credential deletion is the durable device-side logout
+          // boundary. Do not reset the UI while a bearer or completed OAuth
+          // receipt may still be recoverable on the next cold start.
+          const secureSessionDeleted = await removeItem(AsyncKeys.USER_DATA);
+          if (!secureSessionDeleted) {
+            Alert.alert(
+              'لم يكتمل تسجيل الخروج',
+              'تعذّر إغلاق الجلسة على هذا الجهاز\nحاول مرة أخرى',
+            );
+            return;
+          }
           await clearCurrentAccountLearningFiles(accountScope).catch(
             () => undefined,
           );
@@ -161,7 +183,6 @@ export const useAccountSettingsActions = ({
           }).catch(() => undefined);
           await clearPendingLoginReturnTo().catch(() => undefined);
           await removeItem(AsyncKeys.IS_LOGIN);
-          await removeItem(AsyncKeys.USER_DATA);
           await rotateGuestStorageScope().catch(() => undefined);
           dispatch(LogOut());
           navigation.reset({index: 0, routes: [{name: 'Home'}]});

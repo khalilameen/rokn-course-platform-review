@@ -278,6 +278,16 @@ const mapProject = (
                     | 'cancelled',
                   text: valueAsString(message.text) || undefined,
                   createdAt: valueAsString(message.created_at) || undefined,
+                  attachments: asArray<CoursePayloadDto>(message.attachments).map(file => ({
+                    uri: '',
+                    name: valueAsString(file.name, 'مرفق'),
+                    type: valueAsString(file.mime_type, 'application/octet-stream'),
+                    size: Number(file.size_bytes) || undefined,
+                    uploadId: valueAsString(file.id),
+                    serverId: valueAsString(file.id),
+                    downloadUrl: valueAsString(file.download_url) || undefined,
+                    downloadExpiresAt: valueAsString(file.download_url_expires_at) || undefined,
+                  })),
                 },
               ];
             },
@@ -310,6 +320,19 @@ const mapProject = (
       : 'pass_only',
     reportEnabled: valueAsBoolean(rawProjectFeedback.report_enabled),
     feedbackThread,
+    submissionMaxFiles: Math.min(5, Math.max(1, Number(content?.submission_max_files) || 3)),
+    submissionAllowedMimeTypes: asArray<string>(content?.submission_allowed_mime_types)
+      .map(value => String(value || '').toLowerCase()).filter(Boolean),
+    submissionAttachments: asArray<CoursePayloadDto>(evaluation?.attachments).map(file => ({
+      uri: '',
+      name: valueAsString(file.name, 'مرفق'),
+      type: valueAsString(file.mime_type, 'application/octet-stream'),
+      size: Number(file.size_bytes) || undefined,
+      uploadId: valueAsString(file.id),
+      serverId: valueAsString(file.id),
+      downloadUrl: valueAsString(file.download_url) || undefined,
+      downloadExpiresAt: valueAsString(file.download_url_expires_at) || undefined,
+    })),
   };
 };
 
@@ -376,6 +399,19 @@ export const mapCoursePayload = (
     rawCourse?.enrollment?.chatAvailable,
     rawCourse?.entitlement?.chat_available,
     rawCourse?.entitlement?.chatAvailable,
+  );
+  const chatAttachmentsEnabled = explicitBoolean(
+    rawCourse?.chat_attachments_enabled,
+    rawCourse?.chatAttachmentsEnabled,
+    envelope?.chat_attachments_enabled,
+    envelope?.chatAttachmentsEnabled,
+  );
+  const chatAttachmentMaxFiles = Math.min(
+    5,
+    Math.max(
+      0,
+      Number(rawCourse?.chat_attachment_max_files ?? rawCourse?.chatAttachmentMaxFiles ?? 0) || 0,
+    ),
   );
   const certificateAvailable = explicitBoolean(
     envelope?.certificate_available,
@@ -593,6 +629,8 @@ export const mapCoursePayload = (
     modules,
     accessType: accessType || undefined,
     chatAvailable,
+    chatAttachmentsEnabled,
+    chatAttachmentMaxFiles,
     certificateAvailable,
     certificateIncluded:
       certificateIncluded === undefined

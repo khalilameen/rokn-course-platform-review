@@ -1,6 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {getCurrentAccountStorageScope} from '../../../constants/helpers';
+import {
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+  type AccountSessionBoundary,
+} from '../../../constants/helpers';
 import type {ChatMessage} from '../types';
+import {
+  learnerDraftFileIsReadable,
+  retainLearnerDraftFiles,
+} from '../../../services/learnerDraftFiles';
 import {cleanUnicodeText, truncateGraphemes} from '../../../utils/unicodeText';
 
 const COURSE_CHAT_HISTORY_PREFIX = '@rokn/course-chat-history/v2';
@@ -17,10 +25,16 @@ const DELIVERY_STATUSES = new Set([
   'cancelled',
 ]);
 
-const historyKey = async (courseId: string, lessonId?: string) =>
-  `${COURSE_CHAT_HISTORY_PREFIX}:${await getCurrentAccountStorageScope()}:${encodeURIComponent(
+const historyKey = async (
+  courseId: string,
+  lessonId?: string,
+  boundary?: AccountSessionBoundary,
+) =>
+  `${COURSE_CHAT_HISTORY_PREFIX}:${boundary?.scope || (await captureAccountSessionBoundary()).scope}:${encodeURIComponent(
     courseId,
   )}:${encodeURIComponent(lessonId || 'course')}`;
+const referenceOwner = (courseId: string, lessonId?: string) =>
+  `course-chat:${encodeURIComponent(courseId)}:${encodeURIComponent(lessonId || 'course')}`;
 
 const normaliseStoredMessage = (value: unknown): ChatMessage | null => {
   if (!value || typeof value !== 'object') return null;
@@ -41,6 +55,29 @@ const normaliseStoredMessage = (value: unknown): ChatMessage | null => {
   }
 
   const interrupted = status !== undefined && ACTIVE_STATUSES.has(String(status));
+  const attachments = Array.isArray(record.attachments)
+    ? record.attachments.flatMap(attachmentValue => {
+        if (!attachmentValue || typeof attachmentValue !== 'object') return [];
+        const file = attachmentValue as Record<string, unknown>;
+        const uploadId = typeof file.uploadId === 'string'
+          ? file.uploadId.slice(0, 100) : '';
+        const serverId = typeof file.serverId === 'string'
+          ? file.serverId.slice(0, 100) : undefined;
+        const uri = typeof file.uri === 'string' ? file.uri.slice(0, 2048) : '';
+        if (!uploadId || (!serverId && !uri)) return [];
+        return [{
+          uploadId,
+          serverId,
+          uri,
+          name: typeof file.name === 'string' ? file.name.slice(0, 240) : 'مرفق',
+          type: typeof file.type === 'string'
+            ? file.type.slice(0, 120) : 'application/octet-stream',
+          size: Number.isFinite(Number(file.size)) ? Number(file.size) : undefined,
+          downloadUrl: typeof file.downloadUrl === 'string'
+            ? file.downloadUrl.slice(0, 2048) : undefined,
+        }];
+      })
+    : [];
   return {
     id,
     role,
@@ -69,6 +106,7 @@ const normaliseStoredMessage = (value: unknown): ChatMessage | null => {
       !interrupted &&
       status === 'completed' &&
       record.contextEligible !== false,
+    attachments,
   };
 };
 
@@ -76,15 +114,37 @@ export const loadCourseChatHistory = async (
   courseId: string,
   lessonId?: string,
 ): Promise<ChatMessage[]> => {
+  const boundary = await captureAccountSessionBoundary();
   try {
-    const raw = await AsyncStorage.getItem(await historyKey(courseId, lessonId));
+    const raw = await AsyncStorage.getItem(await historyKey(courseId, lessonId, boundary));
+    assertAccountSessionBoundary(boundary);
     const parsed = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(parsed)) return [];
-    return parsed
+    const messages = parsed
       .map(normaliseStoredMessage)
       .filter((message): message is ChatMessage => Boolean(message))
       .slice(-MAX_STORED_MESSAGES);
+    for (const message of messages) {
+      if (!message.attachments?.length) continue;
+      const readable = [];
+      for (const file of message.attachments) {
+        if (file.serverId || (file.uri && await learnerDraftFileIsReadable(file))) {
+          readable.push(file);
+        }
+      }
+      message.attachments = readable;
+    }
+    await retainLearnerDraftFiles(
+      referenceOwner(courseId, lessonId),
+      messages.flatMap(message => message.attachments || []).filter(file => !file.serverId),
+      boundary.scope,
+    );
+    assertAccountSessionBoundary(boundary);
+    return messages;
   } catch {
+    await retainLearnerDraftFiles(referenceOwner(courseId, lessonId), [], boundary.scope).catch(
+      () => undefined,
+    );
     return [];
   }
 };
@@ -94,6 +154,7 @@ export const saveCourseChatHistory = async (
   messages: ChatMessage[],
   lessonId?: string,
 ): Promise<void> => {
+  const boundary = await captureAccountSessionBoundary();
   const generation = persistenceGeneration;
   const durable = messages
     .filter(message => !message.id.startsWith('welcome-'))
@@ -108,16 +169,31 @@ export const saveCourseChatHistory = async (
       deliveryStatus: message.deliveryStatus,
       errorCode: message.errorCode,
       contextEligible: message.contextEligible === true,
+      attachments: message.attachments?.map(file => ({
+        uri: file.serverId ? '' : file.uri,
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        uploadId: file.uploadId,
+        serverId: file.serverId,
+        downloadUrl: file.downloadUrl,
+      })),
     }));
-  const key = await historyKey(courseId, lessonId);
+  const key = await historyKey(courseId, lessonId, boundary);
   const previous = writeFlights.get(key) || Promise.resolve();
   const write = previous
     .catch(() => undefined)
-    .then(() =>
-      generation === persistenceGeneration
-        ? AsyncStorage.setItem(key, JSON.stringify(durable))
-        : undefined,
-    );
+    .then(async () => {
+      if (generation !== persistenceGeneration) return;
+      assertAccountSessionBoundary(boundary);
+      await retainLearnerDraftFiles(
+        referenceOwner(courseId, lessonId),
+        messages.flatMap(message => message.attachments || []).filter(file => !file.serverId),
+        boundary.scope,
+      );
+      await AsyncStorage.setItem(key, JSON.stringify(durable));
+      assertAccountSessionBoundary(boundary);
+    });
   writeFlights.set(key, write);
   try {
     await write;

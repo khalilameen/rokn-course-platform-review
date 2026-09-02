@@ -19,7 +19,6 @@ import Module from '../../components/view/Module';
 import FullTrackUpgradeSheet from '../../components/FullTrackUpgradeSheet';
 import {rtlRowStyle, textDirection} from '../../constants/designSystem';
 import {Fonts} from '../../constants/styleConstants';
-import {issueCertificate} from '../../services/roknApi';
 
 export default function Lessons() {
   const route = useRoute<RootRoute<'CourseDetails'>>();
@@ -42,7 +41,7 @@ export default function Lessons() {
       setCourse(withLocalState);
     } catch {
       if (generation !== loadGenerationRef.current) return;
-      setLoadError("تعذّر تحميل خريطة الكورس الآن\nمكانك محفوظ");
+      setLoadError('تعذّر تحميل خريطة الكورس الآن\nمكانك محفوظ');
     } finally {
       if (generation === loadGenerationRef.current) setLoading(false);
     }
@@ -54,6 +53,14 @@ export default function Lessons() {
       loadGenerationRef.current += 1;
     };
   }, [load]);
+
+  useEffect(() => {
+    if (!course || route.params?.openFullTrackUpgrade !== true) return;
+    if (isGrantCourseAccess(course.accessType)) {
+      setFullTrackVisible(true);
+    }
+    navigation.setParams({openFullTrackUpgrade: false});
+  }, [course, navigation, route.params?.openFullTrackUpgrade]);
 
   const refreshAfterProjectPass = useCallback(
     async (projectId: string) => {
@@ -215,9 +222,6 @@ export default function Lessons() {
         onClose={() => setFullTrackVisible(false)}
         onUpgraded={async () => {
           await load();
-          if (courseCompleted) {
-            await issueCertificate(course.id).catch(() => null);
-          }
         }}
         visible={fullTrackVisible}
       />

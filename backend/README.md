@@ -25,11 +25,12 @@ php artisan serve
 ```
 
 Configure the database, Redis and only the integrations you need in `.env`.
-Never commit runtime credentials. Production deployments must use a durable queue
-worker and scheduler in addition to the web process.
+Never commit runtime credentials. Production deployments must use the scheduler
+and every isolated worker defined in `PRODUCTION_RUNBOOK.md` in addition to the
+web process. Starting a default-only worker leaves payment webhooks, media,
+notifications and AI work unserved.
 
 ```bash
-php artisan queue:work --tries=3
 php artisan schedule:work
 ```
 

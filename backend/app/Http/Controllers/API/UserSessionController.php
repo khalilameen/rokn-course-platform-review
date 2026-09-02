@@ -50,11 +50,27 @@ final class UserSessionController extends Controller
     {
         /** @var ApiToken|null $current */
         $current = $request->attributes->get('rokn_api_token');
-        /** @var ApiToken $session */
+        /** @var ApiToken|null $session */
         $session = $request->user()->apiTokens()
             ->where('session_id', $sessionId)
             ->whereHasNotExpired()
-            ->firstOrFail();
+            ->first();
+
+        // Revocation is a desired-state operation. If the first successful
+        // response was lost, retrying it must not turn that success into a
+        // permanent 404 in the devices screen.
+        if (!$session) {
+            return response()->json([
+                'status' => 200,
+                'success' => true,
+                'message' => 'تم إنهاء الجلسة',
+                'data' => [
+                    'signed_out' => false,
+                    'already_revoked' => true,
+                ],
+                'signed_out' => false,
+            ]);
+        }
 
         $isCurrent = $current !== null
             && hash_equals((string) $current->session_id, (string) $session->session_id);
@@ -70,7 +86,10 @@ final class UserSessionController extends Controller
             'status' => 200,
             'success' => true,
             'message' => $message,
-            'data' => ['signed_out' => $isCurrent],
+            'data' => [
+                'signed_out' => $isCurrent,
+                'already_revoked' => false,
+            ],
             'signed_out' => $isCurrent,
         ]);
     }

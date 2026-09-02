@@ -345,6 +345,7 @@ const FeedSideBar = ({
   const saveSheetRef = useRef<BottomSheetModal>(null);
   const attachmentSheetRef = useRef<BottomSheetModal>(null);
   const attachmentPromptCheckRef = useRef('');
+  const openSheetsRef = useRef(new Set<'index' | 'save' | 'attachment'>());
   const folderLoadGenerationRef = useRef(0);
   const folderLoadInFlightRef = useRef(false);
   const mountedRef = useRef(true);
@@ -357,14 +358,29 @@ const FeedSideBar = ({
   const [folderBusy, setFolderBusy] = useState(false);
   const [folderError, setFolderError] = useState('');
 
+  const reportSheetState = useCallback(
+    (sheet: 'index' | 'save' | 'attachment', visible: boolean) => {
+      if (visible) {
+        openSheetsRef.current.add(sheet);
+      } else {
+        openSheetsRef.current.delete(sheet);
+      }
+      onOverlayVisibilityChange?.(openSheetsRef.current.size > 0);
+    },
+    [onOverlayVisibilityChange],
+  );
+
   useEffect(() => {
+    const openSheets = openSheetsRef.current;
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       folderLoadGenerationRef.current += 1;
       folderLoadInFlightRef.current = false;
+      openSheets.clear();
+      onOverlayVisibilityChange?.(false);
     };
-  }, []);
+  }, [onOverlayVisibilityChange]);
   const completed = course.modules.reduce(
     (total, module) =>
       total + module.reels.filter(reel => reel.isCompleted).length,
@@ -562,8 +578,8 @@ const FeedSideBar = ({
         enablePanDownToClose
         topInset={insets.top}
         backdropComponent={renderBackdrop}
-        onChange={index => onOverlayVisibilityChange?.(index >= 0)}
-        onDismiss={() => onOverlayVisibilityChange?.(false)}
+        onChange={index => reportSheetState('index', index >= 0)}
+        onDismiss={() => reportSheetState('index', false)}
         backgroundStyle={styles.sheetBackground}
         handleIndicatorStyle={styles.sheetIndicator}>
         <BottomSheetScrollView
@@ -618,8 +634,8 @@ const FeedSideBar = ({
         enablePanDownToClose
         topInset={insets.top}
         backdropComponent={renderBackdrop}
-        onChange={index => onOverlayVisibilityChange?.(index >= 0)}
-        onDismiss={() => onOverlayVisibilityChange?.(false)}
+        onChange={index => reportSheetState('attachment', index >= 0)}
+        onDismiss={() => reportSheetState('attachment', false)}
         backgroundStyle={styles.sheetBackground}
         handleIndicatorStyle={styles.sheetIndicator}>
         <BottomSheetScrollView
@@ -680,8 +696,8 @@ const FeedSideBar = ({
         keyboardBlurBehavior="restore"
         topInset={insets.top}
         backdropComponent={renderBackdrop}
-        onChange={index => onOverlayVisibilityChange?.(index >= 0)}
-        onDismiss={() => onOverlayVisibilityChange?.(false)}
+        onChange={index => reportSheetState('save', index >= 0)}
+        onDismiss={() => reportSheetState('save', false)}
         backgroundStyle={styles.sheetBackground}
         handleIndicatorStyle={styles.sheetIndicator}>
         <BottomSheetScrollView

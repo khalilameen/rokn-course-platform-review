@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Path;
 use App\Models\Classification;
 use App\Models\Course;
+use App\Services\AdminAuthoringCreateIntentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -53,7 +54,7 @@ class PathController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
      */
-    public function store(Request $request)
+    public function store(Request $request, AdminAuthoringCreateIntentService $createIntents)
     {
         $validated = $request->validate([
             'title_ar' => 'required|string|max:255',
@@ -66,9 +67,11 @@ class PathController extends Controller
                 'distinct',
                 Rule::exists('courses', 'id')->where(fn ($courses) => $courses->whereNull('parent_id')),
             ],
+            'authoring_request_id' => 'required|uuid',
         ]);
 
-        DB::transaction(function () use ($validated): void {
+        unset($validated['authoring_request_id']);
+        DB::transaction(function () use ($request, $validated, $createIntents): void {
             $path = Path::create([
                 'title_ar' => $validated['title_ar'],
                 'title_en' => $validated['title_en'],
@@ -78,6 +81,13 @@ class PathController extends Controller
                 ->whereIn('id', $validated['course_ids'] ?? [])
                 ->get()
                 ->each(fn (Course $course) => $course->update(['path_id' => $path->id]));
+            $createIntents->completeRedirect(
+                $request,
+                route('admin.paths.index'),
+                302,
+                Path::class,
+                $path->id
+            );
         });
 
         return redirect()->route('admin.paths.index')->with('success', 'تم إضافة المسار بنجاح');

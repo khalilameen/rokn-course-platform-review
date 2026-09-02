@@ -7,6 +7,7 @@ namespace App\Jobs;
 use App\Models\PortfolioItem;
 use App\Models\PortfolioMedia;
 use App\Services\BunnyService;
+use App\Services\StoredFileReferenceService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -23,7 +24,10 @@ final class CleanupDeletedAccountPortfolioMedia implements ShouldQueue, ShouldBe
 
     public int $tries = 12;
     public int $timeout = 60;
-    public int $uniqueFor = 900;
+    // Covers the complete retry/backoff horizon. A short uniqueness TTL let
+    // the periodic recovery command enqueue a second remote-deletion chain
+    // while the first one was still backing off.
+    public int $uniqueFor = 21600;
     public bool $failOnTimeout = true;
 
     /** @var array<int> */
@@ -31,7 +35,7 @@ final class CleanupDeletedAccountPortfolioMedia implements ShouldQueue, ShouldBe
 
     public function __construct(private int $userId)
     {
-        $this->onQueue('default');
+        $this->onQueue((string) config('queue.channels.media', 'media'));
     }
 
     public function uniqueId(): string
@@ -39,7 +43,7 @@ final class CleanupDeletedAccountPortfolioMedia implements ShouldQueue, ShouldBe
         return 'deleted-account-portfolio:' . $this->userId;
     }
 
-    public function handle(BunnyService $bunny): void
+    public function handle(BunnyService $bunny, StoredFileReferenceService $references): void
     {
         $itemIds = PortfolioItem::query()
             ->where('user_id', $this->userId)
@@ -53,8 +57,8 @@ final class CleanupDeletedAccountPortfolioMedia implements ShouldQueue, ShouldBe
             ->whereIn('portfolio_item_id', $itemIds)
             ->orderBy('id')
             ->get()
-            ->each(function (PortfolioMedia $media) use ($bunny): void {
-                if (!$this->deleteRemoteMedia($bunny, $media)) {
+            ->each(function (PortfolioMedia $media) use ($bunny, $references): void {
+                if (!$this->deleteRemoteMedia($bunny, $references, $media)) {
                     throw new RuntimeException('Bunny portfolio media cleanup is temporarily unavailable.');
                 }
 
@@ -99,7 +103,11 @@ final class CleanupDeletedAccountPortfolioMedia implements ShouldQueue, ShouldBe
         ]);
     }
 
-    private function deleteRemoteMedia(BunnyService $bunny, PortfolioMedia $media): bool
+    private function deleteRemoteMedia(
+        BunnyService $bunny,
+        StoredFileReferenceService $references,
+        PortfolioMedia $media
+    ): bool
     {
         $path = trim((string) $media->file_path);
         if ($path === '') {
@@ -107,20 +115,25 @@ final class CleanupDeletedAccountPortfolioMedia implements ShouldQueue, ShouldBe
         }
 
         if ($media->file_type === 'video') {
-            return $bunny->deleteVideo($path);
+            return $references->isBunnyStreamVideoReferencedElsewhere($path, (int) $media->id)
+                || $bunny->deleteVideo($path);
         }
 
         if ($media->file_type !== 'image') {
             return false;
         }
 
-        if (!$bunny->deleteFileFromStorage($path)) {
+        if (
+            !$references->isBunnyStoragePathReferencedElsewhere($path, (int) $media->id)
+            && !$bunny->deleteFileFromStorage($path)
+        ) {
             return false;
         }
 
         $thumbnail = trim((string) $media->thumbnail_path);
         return $thumbnail === ''
             || $thumbnail === $path
+            || $references->isBunnyStoragePathReferencedElsewhere($thumbnail, (int) $media->id)
             || $bunny->deleteFileFromStorage($thumbnail);
     }
 }

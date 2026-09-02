@@ -27,4 +27,21 @@ class Question extends Model
         return $this->morphOne(CourseSection::class, 'sectionable');
     }
 
+    /** Keep legacy scalar images readable while new authoring uses Photo. */
+    public function getImageAttribute(): ?string
+    {
+        if ($this->photo) {
+            return asset('storage/' . ltrim((string) $this->photo->path, '/'));
+        }
+
+        $legacy = trim((string) ($this->attributes['question_image'] ?? ''));
+        if ($legacy === '') {
+            return null;
+        }
+
+        return filter_var($legacy, FILTER_VALIDATE_URL)
+            ? $legacy
+            : asset(ltrim($legacy, '/'));
+    }
+
 }

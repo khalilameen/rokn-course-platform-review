@@ -8,6 +8,7 @@ export type QuizQuestion = {
   id: string;
   title?: string;
   text: string;
+  imageUrl?: string;
   choices: Array<{id: number; text: string}>;
 };
 
@@ -71,7 +72,13 @@ export const loadCourseQuiz = async (
         );
       if (!id || !text || choices.length < 2) return [];
       return [
-        {id, title: valueAsString(raw.title) || undefined, text, choices},
+        {
+          id,
+          title: valueAsString(raw.title) || undefined,
+          text,
+          imageUrl: valueAsString(raw.question_image) || undefined,
+          choices,
+        },
       ];
     },
   );

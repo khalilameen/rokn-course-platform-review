@@ -14,10 +14,17 @@ import {Fonts} from '../../constants/styleConstants';
 import {rtlRowStyle, textDirection} from '../../constants/designSystem';
 import {openCourseAttachment} from '../VideoPlayer/attachmentActions';
 import {submitProjectAttempt} from '../VideoPlayer/courseLearningApi';
-import {pickMedia} from '../VideoPlayer/ProjectTransition';
+import {
+  loadProjectFeedbackThread,
+  loadProjectResolution,
+  watchProjectResolution,
+  openProjectInputAttachment,
+} from '../VideoPlayer/courseLearningApi';
+import {pickProjectFiles} from '../VideoPlayer/ProjectTransition';
 import {
   CourseLearningModule,
   CourseProject,
+  ProjectFeedbackThread,
   SelectedProjectFile,
 } from '../VideoPlayer/types';
 import {formatArabicDisplayText} from '../../constants/arabicFormatting';
@@ -65,23 +72,72 @@ const MapProjectCard = ({
   locked?: boolean;
 }) => {
   const appIsActive = useAppActiveState();
-  const [file, setFile] = useState<SelectedProjectFile | null>(null);
+  const [files, setFiles] = useState<SelectedProjectFile[]>([]);
   const [status, setStatus] = useState(project.status);
+  const [feedbackThread, setFeedbackThread] = useState<ProjectFeedbackThread | undefined>(
+    project.feedbackThread,
+  );
   const [note, setNote] = useState('');
   const [draftReady, setDraftReady] = useState(false);
   const [draftSaveError, setDraftSaveError] = useState(false);
   const submitFlightRef = useRef(false);
   const draftGenerationRef = useRef(0);
-  const draftSnapshotRef = useRef({file, note});
-  draftSnapshotRef.current = {file, note};
+  const draftSnapshotRef = useRef({files, note});
+  draftSnapshotRef.current = {files, note};
 
   useEffect(() => setStatus(project.status), [project.status]);
+  useEffect(() => setFeedbackThread(project.feedbackThread), [project.feedbackThread, project.id]);
+  useEffect(() => {
+    if (status !== 'reviewing' || !appIsActive) return;
+    return watchProjectResolution({
+      projectId: project.id,
+      resolve: loadProjectResolution,
+      isActive: () => appIsActive,
+      onResolution: resolution => {
+        if (resolution.feedbackThread) setFeedbackThread(resolution.feedbackThread);
+        if (resolution.status === 'passed' || resolution.status === 'needs_retry') {
+          setStatus(resolution.status);
+          if (resolution.status === 'passed') onPassed?.(project.id);
+        }
+      },
+    });
+  }, [appIsActive, onPassed, project.id, status]);
+  useEffect(() => {
+    if (!['passed', 'needs_retry'].includes(status) || !project.reportEnabled) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
+    const refresh = async () => {
+      try {
+        const next = await loadProjectFeedbackThread(project.id, feedbackThread?.id);
+        if (cancelled) return;
+        if (next) setFeedbackThread(next);
+        const pending = next?.messages.some(message =>
+          ['queued', 'sent', 'streaming'].includes(message.status),
+        );
+        if ((pending || !next) && attempts < 15) {
+          attempts += 1;
+          timer = setTimeout(() => void refresh(), Math.min(10000, 2200 + attempts * 450));
+        }
+      } catch {
+        if (!cancelled && attempts < 15) {
+          attempts += 1;
+          timer = setTimeout(() => void refresh(), Math.min(10000, 3000 + attempts * 500));
+        }
+      }
+    };
+    void refresh();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [feedbackThread?.id, project.id, project.reportEnabled, status]);
   useEffect(() => {
     const generation = ++draftGenerationRef.current;
     setDraftReady(false);
     setDraftSaveError(false);
     if (project.status === 'passed') {
-      setFile(null);
+      setFiles([]);
       setNote('');
       void clearProjectSubmissionDraft(project.id);
       setDraftReady(true);
@@ -90,7 +146,7 @@ const MapProjectCard = ({
     void loadProjectSubmissionDraft(project.id)
       .then(draft => {
         if (generation !== draftGenerationRef.current || !draft) return;
-        setFile(draft.file || null);
+        setFiles(draft.files || (draft.file ? [draft.file] : []));
         setNote(draft.note);
       })
       .catch(() => {
@@ -109,7 +165,7 @@ const MapProjectCard = ({
     if (project.status === 'passed' || !draftReady) return;
     const timer = setTimeout(() => {
       void saveProjectSubmissionDraft(project.id, {
-        file,
+        files,
         note,
         updatedAt: Date.now(),
       })
@@ -117,7 +173,7 @@ const MapProjectCard = ({
         .catch(() => setDraftSaveError(true));
     }, 250);
     return () => clearTimeout(timer);
-  }, [draftReady, file, note, project.id, project.status]);
+  }, [draftReady, files, note, project.id, project.status]);
   useEffect(() => {
     if (appIsActive || project.status === 'passed' || !draftReady) return;
     void saveProjectSubmissionDraft(project.id, {
@@ -128,19 +184,18 @@ const MapProjectCard = ({
 
   const submit = async () => {
     if (locked || submitFlightRef.current) return;
-    if (!file || (project.reportEnabled && note.trim().length < 10)) {
-      Alert.alert(
-        !file ? 'اختر ملف المشروع' : 'اشرح ما نفذته',
-        !file ? 'صورة أو فيديو واضح لعملك' : 'اكتب سطرًا واضحًا عن محاولتك',
-      );
+    if (files.length === 0 && note.trim().length < 10) {
+      Alert.alert('أضف محاولتك', 'اكتب ما نفذته أو أضف ملفًا يوضحه');
       return;
     }
     submitFlightRef.current = true;
     setStatus('reviewing');
     try {
-      const result = await submitProjectAttempt(project.id, file, note.trim());
-      await clearProjectSubmissionDraft(project.id, file);
-      setFile(null);
+      const result = await submitProjectAttempt(project.id, files, note.trim());
+      // Commit the authoritative outcome to the UI first. Draft cleanup is a
+      // local maintenance operation and must not make a successful/idempotent
+      // server submission appear failed.
+      setFiles([]);
       setNote('');
       if (result.passed && result.canContinue) {
         setStatus('passed');
@@ -150,6 +205,7 @@ const MapProjectCard = ({
       } else {
         setStatus('needs_retry');
       }
+      void clearProjectSubmissionDraft(project.id, files).catch(() => undefined);
     } catch (error: unknown) {
       const copyFailed =
         error instanceof Error && error.message === 'PROJECT_FILE_COPY_FAILED';
@@ -180,12 +236,93 @@ const MapProjectCard = ({
       <Text style={styles.projectTitle}>{project.title}</Text>
       <Text style={styles.projectRequirements}>{project.requirements}</Text>
 
+      {status === 'needs_retry' && !!feedbackThread?.messages.length && (
+        <View style={styles.projectArtifacts}>
+          <Text style={styles.projectArtifactLabel}>ملاحظات مشروعك</Text>
+          {feedbackThread.messages
+            .filter(message => message.status === 'completed')
+            .slice(-6)
+            .map(message => (
+              <View key={message.id} style={styles.projectReportMessage}>
+                {!!message.text && (
+                  <Text style={styles.projectReportText}>
+                    {formatArabicDisplayText(message.text)}
+                  </Text>
+                )}
+                {message.attachments?.map(selected => (
+                  <Pressable
+                    key={selected.serverId || selected.uploadId}
+                    style={styles.selectedProjectFile}
+                    onPress={() => void openProjectInputAttachment({
+                      projectId: project.id,
+                      threadId: feedbackThread.id,
+                      file: selected,
+                    })}>
+                    <Text numberOfLines={1} style={styles.selectedProjectFileName}>
+                      {selected.name}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            ))}
+        </View>
+      )}
+
       {status === 'passed' ? (
         <View style={styles.projectPassedState}>
           <Text style={styles.projectPassedTitle}>تم اعتماد مشروعك</Text>
           <Text style={styles.projectPassedCopy}>
             فتحنا المقطع التالي
           </Text>
+          {!!project.submissionAttachments?.length && (
+            <View style={styles.projectArtifacts}>
+              <Text style={styles.projectArtifactLabel}>ملفات التسليم</Text>
+              {project.submissionAttachments.map(selected => (
+                <Pressable
+                  key={selected.serverId || selected.uploadId}
+                  style={styles.selectedProjectFile}
+                  onPress={() => void openProjectInputAttachment({
+                    projectId: project.id,
+                    file: selected,
+                  })}>
+                  <Text numberOfLines={1} style={styles.selectedProjectFileName}>
+                    {selected.name}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+          {!!feedbackThread?.messages.length && (
+            <View style={styles.projectArtifacts}>
+              <Text style={styles.projectArtifactLabel}>تقرير مشروعك</Text>
+              {feedbackThread.messages
+                .filter(message => message.status === 'completed')
+                .slice(-6)
+                .map(message => (
+                  <View key={message.id} style={styles.projectReportMessage}>
+                    {!!message.text && (
+                      <Text style={styles.projectReportText}>
+                        {formatArabicDisplayText(message.text)}
+                      </Text>
+                    )}
+                    {message.attachments?.map(selected => (
+                      <Pressable
+                        key={selected.serverId || selected.uploadId}
+                        style={styles.selectedProjectFile}
+                        onPress={() => void openProjectInputAttachment({
+                          projectId: project.id,
+                          threadId: feedbackThread.id,
+                          file: selected,
+                        })}>
+                        <Text numberOfLines={1} style={styles.selectedProjectFileName}>
+                          {selected.name}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ))}
+            </View>
+          )}
         </View>
       ) : status === 'reviewing' ? (
         <View style={styles.projectReviewingState}>
@@ -210,23 +347,29 @@ const MapProjectCard = ({
             accessibilityRole="button"
             style={styles.filePicker}
             onPress={async () => {
-              const picked = await pickMedia();
-              if (picked) {
+              const picked = await pickProjectFiles(project.submissionAllowedMimeTypes || []);
+              if (picked.length) {
                 try {
-                  const size = await validateProjectFile(picked);
-                  const cached = await cacheProjectDraftFile({...picked, size});
-                  const previous = file;
-                  setFile(cached);
-                  await removeLearnerDraftFile(previous);
+                  const maximum = Math.max(1, Math.min(5, project.submissionMaxFiles || 3));
+                  const available = picked.slice(0, Math.max(0, maximum - files.length));
+                  const cached = await Promise.all(available.map(async selected => {
+                    const size = await validateProjectFile(selected);
+                    return cacheProjectDraftFile({...selected, size});
+                  }));
+                  setFiles(current => [...current, ...cached].slice(0, maximum));
                 } catch (error: unknown) {
                   const code = error instanceof Error ? error.message : '';
                   Alert.alert(
-                    code === 'PROJECT_FILE_TYPE_UNSUPPORTED'
+                    code === 'LEARNER_DRAFT_STORAGE_FULL'
+                      ? 'اكتملت مساحة الملفات المعلّقة'
+                      : code === 'PROJECT_FILE_TYPE_UNSUPPORTED'
                       ? 'صيغة الملف غير مدعومة'
                       : code === 'PROJECT_FILE_TOO_LARGE'
                       ? 'حجم الملف كبير'
                       : 'تعذّر قراءة الملف',
-                    code === 'PROJECT_FILE_TYPE_UNSUPPORTED'
+                    code === 'LEARNER_DRAFT_STORAGE_FULL'
+                      ? 'اتصل بالإنترنت لإرسال الملفات المعلّقة\nثم حاول مرة أخرى'
+                      : code === 'PROJECT_FILE_TYPE_UNSUPPORTED'
                       ? `اختر ${PROJECT_SUBMISSION_FORMATS_LABEL}`
                       : 'اختر نسخة أصغر أو حاول مرة أخرى',
                   );
@@ -238,26 +381,35 @@ const MapProjectCard = ({
             </View>
             <View style={styles.filePickerCopy}>
               <Text style={styles.filePickerTitle} numberOfLines={2}>
-                {file?.name || 'ارفع صورة أو فيديو يوضح عملك'}
+                {files.length ? `${files.length} ملفات` : 'أضف ملفات مشروعك'}
               </Text>
               <Text style={styles.filePickerHint}>
-                {file
-                  ? 'يمكنك تغيير الملف قبل التسليم'
-                  : 'أظهر ما نفذته بوضوح'}
+                {files.length
+                  ? `يمكنك إضافة ${Math.max(0, (project.submissionMaxFiles || 3) - files.length)}`
+                  : 'صور أو PDF أو Word أو PowerPoint'}
               </Text>
             </View>
           </Pressable>
-          {project.reportEnabled && (
-            <TextInput
-              multiline
-              maxLength={2000}
-              value={note}
-              onChangeText={setNote}
-              placeholder="اشرح ما نفذته باختصار"
-              placeholderTextColor="rgba(255,255,255,.38)"
-              style={styles.projectNoteInput}
-            />
-          )}
+          {files.map((selected, index) => (
+            <View key={`${selected.uri}-${index}`} style={styles.selectedProjectFile}>
+              <Text numberOfLines={1} style={styles.selectedProjectFileName}>{selected.name}</Text>
+              <Pressable onPress={() => {
+                setFiles(current => current.filter(candidate => candidate.uri !== selected.uri));
+                void removeLearnerDraftFile(selected);
+              }}>
+                <Text style={styles.selectedProjectFileRemove}>×</Text>
+              </Pressable>
+            </View>
+          ))}
+          <TextInput
+            multiline
+            maxLength={2000}
+            value={note}
+            onChangeText={setNote}
+            placeholder="اكتب ما نفذته أو أضف ملفًا"
+            placeholderTextColor="rgba(255,255,255,.38)"
+            style={styles.projectNoteInput}
+          />
           {draftSaveError && (
             <Text accessibilityRole="alert" style={styles.draftSaveError}>
               تعذّر حفظ المسودة على الجهاز
@@ -266,10 +418,10 @@ const MapProjectCard = ({
           )}
           <Pressable
             accessibilityRole="button"
-            disabled={!file || (project.reportEnabled && note.trim().length < 10)}
+            disabled={files.length === 0 && note.trim().length < 10}
             style={[
               styles.submitProject,
-              (!file || (project.reportEnabled && note.trim().length < 10)) &&
+              (files.length === 0 && note.trim().length < 10) &&
                 styles.disabledButton,
             ]}
             onPress={submit}>
@@ -837,6 +989,29 @@ const styles = StyleSheet.create({
     marginTop: 2,
     ...textDirection,
   },
+  selectedProjectFile: {
+    minHeight: 38,
+    marginTop: 7,
+    paddingHorizontal: 11,
+    borderRadius: 12,
+    ...rtlRowStyle,
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255,255,255,.045)',
+  },
+  selectedProjectFileName: {
+    flex: 1,
+    minWidth: 0,
+    color: 'rgba(255,255,255,.78)',
+    fontFamily: Fonts.medium,
+    fontSize: 10,
+    ...textDirection,
+  },
+  selectedProjectFileRemove: {
+    color: 'rgba(255,255,255,.68)',
+    fontFamily: Fonts.regular,
+    fontSize: 18,
+  },
   projectNoteInput: {
     minHeight: 58,
     maxHeight: 110,
@@ -957,5 +1132,26 @@ const styles = StyleSheet.create({
     fontSize: 9,
     marginTop: 2,
     ...textDirection,
+  },
+  projectArtifacts: {
+    width: '100%',
+    marginTop: 10,
+    gap: 6,
+  },
+  projectArtifactLabel: {
+    color: 'rgba(255,255,255,.56)',
+    fontFamily: Fonts.medium,
+    fontSize: 10,
+    ...textDirection,
+  },
+  projectReportText: {
+    color: 'rgba(255,255,255,.82)',
+    fontFamily: Fonts.regular,
+    fontSize: 11,
+    lineHeight: 18,
+    ...textDirection,
+  },
+  projectReportMessage: {
+    gap: 5,
   },
 });

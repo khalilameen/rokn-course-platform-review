@@ -17,6 +17,7 @@ class Level extends Model
         'description_ar',
         'description_en',
         'order',
+        'authoring_request_id',
     ];
 
     /**

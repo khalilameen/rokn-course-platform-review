@@ -123,4 +123,68 @@ describe('public request session boundary', () => {
       } as never),
     ).rejects.toThrow('ACCOUNT_CHANGED_DURING_REQUEST');
   });
+
+  it('does not resend a read-only network retry after the account epoch changes', async () => {
+    mockPeekSession.mockReturnValue({
+      ready: true,
+      session: {api_token: 'user-one'},
+      epoch: 30,
+    });
+    mockGetItem.mockImplementation(async (key: string) =>
+      key === 'LANGUAGE' ? 'ar' : {api_token: 'user-one'},
+    );
+    const config = {
+      method: 'get',
+      url: 'profile',
+      headers: new AxiosHeaders(),
+    } as Parameters<typeof responseConfig>[0];
+    await responseConfig(config);
+    expect(config.headers.get('Authorization')).toBe('Bearer user-one');
+
+    (config as typeof config & {roknNetworkRetryCount: number})
+      .roknNetworkRetryCount = 1;
+    mockPeekSession.mockReturnValue({
+      ready: true,
+      session: {api_token: 'user-two'},
+      epoch: 31,
+    });
+    mockGetItem.mockImplementation(async (key: string) =>
+      key === 'LANGUAGE' ? 'ar' : {api_token: 'user-two'},
+    );
+
+    await expect(responseConfig(config)).rejects.toThrow(
+      'ACCOUNT_CHANGED_DURING_REQUEST',
+    );
+    expect(config.headers.get('Authorization')).toBe('Bearer user-one');
+  });
+
+  it('keeps a same-owner retry on its captured bearer without rereading auth', async () => {
+    mockPeekSession.mockReturnValue({
+      ready: true,
+      session: {api_token: 'user-one'},
+      epoch: 40,
+    });
+    mockGetItem.mockImplementation(async (key: string) =>
+      key === 'LANGUAGE' ? 'ar' : {api_token: 'user-one'},
+    );
+    const config = {
+      method: 'get',
+      url: 'profile',
+      headers: new AxiosHeaders(),
+    } as Parameters<typeof responseConfig>[0];
+    await responseConfig(config);
+    mockGetItem.mockClear();
+
+    (config as typeof config & {roknNetworkRetryCount: number})
+      .roknNetworkRetryCount = 1;
+    await responseConfig(config);
+
+    expect(config.headers.get('Authorization')).toBe('Bearer user-one');
+    expect(mockGetItem).toHaveBeenCalledWith('LANGUAGE');
+    // The ownership assertion reads the captured owner's durable token. The
+    // retry must not perform a second auth lookup that could replace it.
+    expect(
+      mockGetItem.mock.calls.filter(([key]) => key === 'USER_DATA'),
+    ).toHaveLength(1);
+  });
 });

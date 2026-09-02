@@ -48,9 +48,12 @@ import {
 } from '../services/roknApi';
 import {
   accountScopedStorageKey,
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
   getItem,
   normalizeText,
   saveItem,
+  type AccountSessionBoundary,
 } from '../constants/helpers';
 import SearchAssist from '../components/search/SearchAssist';
 import {LOCAL_DEMO_ENABLED} from '../config/runtime';
@@ -89,9 +92,16 @@ const QUICK_SEARCHES = [
   'اللغات',
 ];
 
-const homeReceiptKey = (path: string) =>
-  accountScopedStorageKey(`@rokn/home-receipt/${path}`);
-const homeScrollKey = () => accountScopedStorageKey('@rokn/home-scroll/v1');
+const homeReceiptKey = (path: string, boundary?: AccountSessionBoundary) =>
+  accountScopedStorageKey(`@rokn/home-receipt/${path}`, boundary);
+const homeScrollKey = (boundary?: AccountSessionBoundary) =>
+  accountScopedStorageKey('@rokn/home-scroll/v1', boundary);
+
+const saveHomeReceipt = async (path: string, value: unknown) => {
+  const boundary = await captureAccountSessionBoundary();
+  await saveItem(await homeReceiptKey(path, boundary), value);
+  assertAccountSessionBoundary(boundary);
+};
 
 const isWithinCooldown = (receipt: unknown, cooldownHours: number) => {
   if (receipt === true) return true;
@@ -168,11 +178,16 @@ const Home = () => {
   useEffect(() => {
     let active = true;
     const historyGeneration = ++searchHistoryGenerationRef.current;
-    void getSearchHistory().then(history => {
-      if (active && historyGeneration === searchHistoryGenerationRef.current) {
-        setSearchHistory(history);
-      }
-    });
+    void getSearchHistory()
+      .then(history => {
+        if (
+          active &&
+          historyGeneration === searchHistoryGenerationRef.current
+        ) {
+          setSearchHistory(history);
+        }
+      })
+      .catch(() => undefined);
     void trackProductEvent({event_name: 'home_viewed', screen_key: 'home'});
     const unsubscribe = LOCAL_DEMO_ENABLED
       ? subscribeDemoExperience(state => {
@@ -194,12 +209,14 @@ const Home = () => {
 
   useEffect(() => {
     let active = true;
-    void homeScrollKey()
-      .then(key => getItem<number>(key))
-      .then(offset => {
+    void captureAccountSessionBoundary()
+      .then(async boundary => {
+        const offset = await getItem<number>(await homeScrollKey(boundary));
+        assertAccountSessionBoundary(boundary);
         if (!active || !Number.isFinite(Number(offset))) return;
         setScrollRestoreOffset(Math.max(0, Number(offset)));
-      });
+      })
+      .catch(() => undefined);
     return () => {
       active = false;
     };
@@ -240,12 +257,14 @@ const Home = () => {
 
   useEffect(() => {
     let active = true;
-    void getPendingWelcomeBonus().then(value => {
-      if (!active) return;
-      const amount = Number(value || 0);
-      if (amount > 0) setWelcomeBonus(amount);
-      setBonusChecked(true);
-    });
+    void getPendingWelcomeBonus()
+      .then(value => {
+        if (!active) return;
+        const amount = Number(value || 0);
+        if (amount > 0) setWelcomeBonus(amount);
+        setBonusChecked(true);
+      })
+      .catch(() => undefined);
     return () => {
       active = false;
     };
@@ -253,7 +272,7 @@ const Home = () => {
 
   const dismissWelcomeBonus = () => {
     setWelcomeBonus(null);
-    void clearPendingWelcomeBonus();
+    void clearPendingWelcomeBonus().catch(() => undefined);
   };
 
   const openEngagementDestination = (
@@ -284,8 +303,10 @@ const Home = () => {
     let active = true;
 
     const loadExperienceMessage = async () => {
+      const boundary = await captureAccountSessionBoundary();
       if (welcomeBonus !== null) {
         const message = await getEngagementMessage('welcome_bonus_received');
+        assertAccountSessionBoundary(boundary);
         if (active && message) {
           setWelcomeMessage(message);
         } else if (active) {
@@ -297,25 +318,33 @@ const Home = () => {
       if (serverSession) {
         if (active) setGuestPrompt(null);
         const message = await getNextEngagementMessage();
+        assertAccountSessionBoundary(boundary);
         if (!message || !active) return;
         const identity =
           message.campaignKey ||
           `${message.key}/${message.taskId || message.id}`;
-        const seenKey = await homeReceiptKey(`engagement/${identity}`);
+        const seenKey = await homeReceiptKey(
+          `engagement/${identity}`,
+          boundary,
+        );
         if (
           isWithinCooldown(await getItem(seenKey), message.cooldownHours || 72)
         )
           return;
+        assertAccountSessionBoundary(boundary);
         if (active) setRewardPrompt(message);
         return;
       }
 
       const message = await getEngagementMessage('guest_registration_prompt');
+      assertAccountSessionBoundary(boundary);
       if (!message || !active) return;
       const seenKey = await homeReceiptKey(
         `engagement/${message.key}/${message.version}`,
+        boundary,
       );
       if (await getItem(seenKey)) return;
+      assertAccountSessionBoundary(boundary);
       if (active) setGuestPrompt(message);
     };
 
@@ -329,9 +358,10 @@ const Home = () => {
     const message = guestPrompt;
     setGuestPrompt(null);
     if (message) {
-      void homeReceiptKey(`engagement/${message.key}/${message.version}`).then(
-        key => saveItem(key, true),
-      );
+      void saveHomeReceipt(
+        `engagement/${message.key}/${message.version}`,
+        true,
+      ).catch(() => undefined);
     }
   };
 
@@ -346,8 +376,8 @@ const Home = () => {
     if (message) {
       const identity =
         message.campaignKey || `${message.key}/${message.taskId || message.id}`;
-      void homeReceiptKey(`engagement/${identity}`).then(key =>
-        saveItem(key, serverNowMs()),
+      void saveHomeReceipt(`engagement/${identity}`, serverNowMs()).catch(
+        () => undefined,
       );
     }
   };
@@ -370,6 +400,7 @@ const Home = () => {
     }
     let active = true;
     const loadCampaign = async () => {
+      const boundary = await captureAccountSessionBoundary();
       // Welcome rewards and course promotions are separate events.
       if (!serverSession) return;
       const candidate = (await getNotifications()).find(
@@ -378,9 +409,14 @@ const Home = () => {
             item.kind === 'new_course') &&
           !item.read,
       );
+      assertAccountSessionBoundary(boundary);
       if (!candidate || !active) return;
-      const seenKey = await homeReceiptKey(`campaign/${candidate.id}`);
+      const seenKey = await homeReceiptKey(
+        `campaign/${candidate.id}`,
+        boundary,
+      );
       if (await getItem(seenKey)) return;
+      assertAccountSessionBoundary(boundary);
       const destination = parseRoknDestination(candidate.link);
       const courseId =
         candidate.courseId ||
@@ -428,18 +464,28 @@ const Home = () => {
   ]);
 
   const dismissCampaign = async (open = false) => {
+    const boundary = await captureAccountSessionBoundary();
     const current = campaign;
     setCampaign(null);
     setCampaignImageFailed(false);
     if (!current) return;
-    const receiptKey = await homeReceiptKey(`campaign/${current.id}`);
+    const receiptKey = await homeReceiptKey(`campaign/${current.id}`, boundary);
     if (serverSession === true) {
       // Keep the popup receipt behind the same server acknowledgement as the inbox.
-      void markNotificationRead(current.id)
-        .then(() => saveItem(receiptKey, true))
-        .catch(() => undefined);
+      try {
+        await markNotificationRead(current.id);
+        assertAccountSessionBoundary(boundary);
+        await saveItem(receiptKey, true);
+        assertAccountSessionBoundary(boundary);
+      } catch {
+        // A read-receipt outage must not block the learner from opening the
+        // course. An account switch is different: do not route stale UI into
+        // the next learner's session.
+        assertAccountSessionBoundary(boundary);
+      }
     } else {
       await saveItem(receiptKey, true);
+      assertAccountSessionBoundary(boundary);
     }
     if (open && current.courseId) {
       const target = catalogue.find(item => item.id === current.courseId);
@@ -542,9 +588,15 @@ const Home = () => {
       handleCatalogueScroll(event);
       if (searchQuery.trim()) return;
       const offset = Math.max(0, event.nativeEvent.contentOffset.y);
+      const boundary = captureAccountSessionBoundary();
       if (scrollSaveTimerRef.current) clearTimeout(scrollSaveTimerRef.current);
       scrollSaveTimerRef.current = setTimeout(() => {
-        void homeScrollKey().then(key => saveItem(key, offset));
+        void boundary
+          .then(async owner => {
+            await saveItem(await homeScrollKey(owner), offset);
+            assertAccountSessionBoundary(owner);
+          })
+          .catch(() => undefined);
       }, 600);
     },
     [handleCatalogueScroll, searchQuery],

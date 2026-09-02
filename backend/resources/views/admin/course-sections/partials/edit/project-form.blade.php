@@ -17,6 +17,26 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="form-group">
+                                <label class="form-label">أقصى عدد لملفات التسليم</label>
+                                <input type="number" name="submission_max_files" class="form-control" value="{{ old('submission_max_files', $project->submission_max_files ?? 3) }}" min="1" max="5">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label class="form-label">الصيغ المتاحة</label>
+                                @php($selectedProjectMimes = old('submission_allowed_mime_types', $project->submission_allowed_mime_types ?? app(\App\Services\AiInputAttachmentService::class)->allowedMimeTypes()))
+                                <select name="submission_allowed_mime_types[]" class="form-control" multiple>
+                                    @foreach(app(\App\Services\AiInputAttachmentService::class)->allowedMimeTypes() as $mime)
+                                        <option value="{{ $mime }}" {{ in_array($mime, (array) $selectedProjectMimes, true) ? 'selected' : '' }}>{{ $mime }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
                                 <label class="form-label">متطلبات المشروع (بالعربية) *</label>
                                 <textarea name="project_requirements_ar" class="form-control" rows="5" placeholder="اكتب وصفاً تفصيلياً للمطلوب بالعربية..." data-required="true">{{ old('project_requirements_ar', $project->requirements_text_ar ?? $project->requirements_text ?? '') }}</textarea>
                             </div>

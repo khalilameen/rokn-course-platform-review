@@ -30,7 +30,7 @@
         </div>
         @if(in_array($order->payment_method, ['kashier', 'google_play', 'app_store'], true))
             <div class="amount-row">
-                <span class="amount-label">إجمالي المزود:</span>
+                <span class="amount-label">{{ $order->gateway_gross_amount === null || $order->gateway_settlement_status === 'catalog_estimate' ? 'تقدير الكتالوج:' : 'إجمالي المزود المؤكد:' }}</span>
                 <span class="amount-value">{{ number_format($order->gateway_gross_amount ?? $order->final_amount, 2) }} {{ $order->gateway_currency ?: 'EGP' }}</span>
             </div>
             <div class="amount-row">

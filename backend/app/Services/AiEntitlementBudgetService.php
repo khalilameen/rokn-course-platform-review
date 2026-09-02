@@ -5,20 +5,35 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Exceptions\AiPlanLimitReachedException;
+use App\Exceptions\AiProviderExposureLimitReachedException;
 use App\Models\AiEntitlementUsage;
 use App\Models\AiUsageEvent;
 use App\Models\CourseEnrollment;
 use App\Models\Setting;
+use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 final readonly class AiEntitlementBudgetService
 {
+    public const SETTLEMENT_ACCEPTED = 'accepted';
+    public const SETTLEMENT_ALREADY_ACCEPTED = 'already_accepted';
+    public const SETTLEMENT_TERMINAL_CONFLICT = 'terminal_conflict';
+    public const SETTLEMENT_INACTIVE = 'inactive';
+
+    public static function settlementAllowsDelivery(string $outcome): bool
+    {
+        return in_array($outcome, [
+            self::SETTLEMENT_ACCEPTED,
+            self::SETTLEMENT_ALREADY_ACCEPTED,
+        ], true);
+    }
+
     public function __construct(
         private CourseAccessPlanService $accessPlans,
         private FinancialAnomalyService $financialRisk,
-        private AiPlatformUsageMonitor $platformUsage
+        private InternalSignalService $internalSignals
     ) {
     }
 
@@ -97,6 +112,8 @@ final readonly class AiEntitlementBudgetService
                 ->firstOrFail();
             $this->reclaimExpiredReservations($usage);
             $usage->refresh();
+            $this->refreshProviderExposureCircuit($usage);
+            $usage->refresh();
 
             $estimatedTokens = max(1, $estimatedTokens);
             $isChat = $feature === AiEntitlementUsage::FEATURE_COURSE_CHAT;
@@ -166,13 +183,23 @@ final readonly class AiEntitlementBudgetService
         }, 3);
     }
 
-    public function settle(?AiUsageEvent $event, array $providerResult): void
+    public function settle(?AiUsageEvent $event, array $providerResult): bool
     {
         if (!$event) {
-            return;
+            return false;
         }
         $didSettle = false;
-        DB::transaction(function () use ($event, $providerResult, &$didSettle): void {
+        $openedExposureCircuit = false;
+        $exposureCount = 0;
+        $exposureEnrollmentId = 0;
+        DB::transaction(function () use (
+            $event,
+            $providerResult,
+            &$didSettle,
+            &$openedExposureCircuit,
+            &$exposureCount,
+            &$exposureEnrollmentId
+        ): void {
             $lockedEvent = AiUsageEvent::query()->lockForUpdate()->find($event->id);
             if (!$lockedEvent) {
                 return;
@@ -180,12 +207,17 @@ final readonly class AiEntitlementBudgetService
             if ($lockedEvent->status !== 'reserved') {
                 return;
             }
-            $usage = AiEntitlementUsage::query()
-                ->lockForUpdate()
-                ->where('enrollment_id', $lockedEvent->enrollment_id)
-                ->where('feature', $lockedEvent->feature)
-                ->first();
-            if (!$usage) {
+            $eventMetadata = is_array($lockedEvent->metadata)
+                ? $lockedEvent->metadata : [];
+            $detachedReservation = (bool) ($eventMetadata['reservation_detached'] ?? false);
+            $usage = $detachedReservation
+                ? null
+                : AiEntitlementUsage::query()
+                    ->lockForUpdate()
+                    ->where('enrollment_id', $lockedEvent->enrollment_id)
+                    ->where('feature', $lockedEvent->feature)
+                    ->first();
+            if (!$usage && !$detachedReservation) {
                 $lockedEvent->forceFill([
                     'status' => 'failed',
                     'metadata' => ['reason' => 'missing_entitlement_aggregate'],
@@ -210,8 +242,14 @@ final readonly class AiEntitlementBudgetService
             $costMicros = $providerCostWasReported
                 ? $providerCostMicros
                 : $this->toUsdMicros($lockedEvent->reserved_cost_usd);
+            $entitlementDelivered = data_get(
+                $providerResult,
+                'entitlement_delivered',
+                true
+            ) !== false;
+            $acceptedResponse = trim((string) data_get($providerResult, 'message', ''));
 
-            $usage->forceFill([
+            $usageUpdate = $usage ? [
                 'reserved_requests' => max(0, $usage->reserved_requests - 1),
                 'reserved_tokens' => max(0, $usage->reserved_tokens - $lockedEvent->reserved_tokens),
                 'reserved_cost_usd' => $this->formatUsdMicros(max(
@@ -219,13 +257,46 @@ final readonly class AiEntitlementBudgetService
                     $this->toUsdMicros($usage->reserved_cost_usd)
                         - $this->toUsdMicros($lockedEvent->reserved_cost_usd)
                 )),
-                'used_requests' => $usage->used_requests + 1,
-                'used_tokens' => $usage->used_tokens + $total,
-                'used_cost_usd' => $this->formatUsdMicros(
-                    $this->toUsdMicros($usage->used_cost_usd) + $costMicros
-                ),
-            ])->save();
-            $metadata = is_array($lockedEvent->metadata) ? $lockedEvent->metadata : [];
+            ] : [];
+            if ($usage && $entitlementDelivered) {
+                $usageUpdate += [
+                    'used_requests' => $usage->used_requests + 1,
+                    'used_tokens' => $usage->used_tokens + $total,
+                    'used_cost_usd' => $this->formatUsdMicros(
+                        $this->toUsdMicros($usage->used_cost_usd) + $costMicros
+                    ),
+                ];
+                if (
+                    $acceptedResponse !== ''
+                    && Schema::hasColumn(
+                        'ai_entitlement_usages',
+                        'unanswered_provider_requests'
+                    )
+                ) {
+                    $usageUpdate += [
+                        'unanswered_provider_requests' => 0,
+                        'unanswered_provider_last_at' => null,
+                        'provider_exposure_paused_until' => null,
+                    ];
+                }
+            } elseif ($usage && Schema::hasColumn(
+                'ai_entitlement_usages',
+                'unanswered_provider_requests'
+            )) {
+                $exposure = $this->nextProviderExposureState($usage, 1);
+                $usageUpdate += $exposure['attributes'];
+                $openedExposureCircuit = $exposure['opened'];
+                $exposureCount = $exposure['count'];
+                $exposureEnrollmentId = (int) $usage->enrollment_id;
+            }
+            if ($usage) $usage->forceFill($usageUpdate)->save();
+            $metadata = $eventMetadata;
+            // The pre-settlement landing is only a crash-recovery envelope.
+            // Keep the bounded replay fields below until presentation, never
+            // two parallel copies of the learner answer.
+            unset($metadata['provider_success_landing']);
+            $metadata['provider_call_state'] = 'settled';
+            $metadata['entitlement_delivered'] = $entitlementDelivered;
             $metadata['token_usage_source'] = $providerTotal > 0
                 ? 'provider'
                 : 'reservation_fallback';
@@ -235,11 +306,33 @@ final readonly class AiEntitlementBudgetService
             $metadata['usage_source'] = $providerTotal > 0 && $providerCostWasReported
                 ? 'provider'
                 : 'reservation_fallback';
-            $acceptedResponse = trim((string) data_get($providerResult, 'message', ''));
             if ($acceptedResponse !== '') {
                 // The accepted text enables a safe idempotent replay. The
                 // provider envelope and failed output are never persisted.
                 $metadata['accepted_response'] = mb_substr($acceptedResponse, 0, 12000);
+            }
+            $fileAnnotations = $this->boundedFileAnnotations(
+                data_get($providerResult, 'file_annotations', [])
+            );
+            if ($fileAnnotations !== []) {
+                $metadata['provider_file_annotations'] = $fileAnnotations;
+            }
+            $transport = data_get($providerResult, 'provider_transport');
+            if (is_array($transport)) {
+                $generationId = substr(
+                    trim((string) ($transport['generation_id'] ?? '')),
+                    0,
+                    255
+                );
+                $cacheStatus = strtoupper(trim((string) (
+                    $transport['response_cache_status'] ?? ''
+                )));
+                if ($generationId !== '') {
+                    $metadata['provider_generation_id'] = $generationId;
+                }
+                if (in_array($cacheStatus, ['HIT', 'MISS'], true)) {
+                    $metadata['provider_response_cache_status'] = $cacheStatus;
+                }
             }
             $requestContext = data_get($providerResult, 'request_context');
             if (is_array($requestContext)) {
@@ -256,6 +349,14 @@ final readonly class AiEntitlementBudgetService
                     'prompt_version' => isset($requestContext['prompt_version'])
                         ? substr((string) $requestContext['prompt_version'], 0, 64)
                         : null,
+                    'project_id' => isset($requestContext['project_id'])
+                        ? max(0, (int) $requestContext['project_id']) : null,
+                    'submission_id' => isset($requestContext['submission_id'])
+                        ? substr((string) $requestContext['submission_id'], 0, 64) : null,
+                    'thread_id' => isset($requestContext['thread_id'])
+                        ? substr((string) $requestContext['thread_id'], 0, 64) : null,
+                    'feedback_level' => isset($requestContext['feedback_level'])
+                        ? substr((string) $requestContext['feedback_level'], 0, 24) : null,
                 ], static fn ($value): bool => $value !== null && $value !== '');
             }
             $egpFacts = [];
@@ -278,15 +379,108 @@ final readonly class AiEntitlementBudgetService
                 'metadata' => $metadata,
                 'completed_at' => now(),
             ] + $egpFacts)->save();
+            $this->recordSettledUsageSignal($lockedEvent);
+            if ($openedExposureCircuit) {
+                $this->recordProviderExposureAlert(
+                    $exposureEnrollmentId,
+                    $exposureCount,
+                    $lockedEvent->id
+                );
+            }
             $didSettle = true;
         }, 3);
 
-        if ($didSettle) {
-            // Monitoring is intentionally outside the entitlement transaction.
-            // A reporting outage must never turn a successful paid AI request
-            // into an application failure or hold its reservation open.
-            $this->platformUsage->record($event->id);
+        return $didSettle;
+    }
+
+    /**
+     * Serialize the durable provider result with account deletion. A worker
+     * may have started while the account existed and return after deletion;
+     * in that case only provider usage is retained, never the answer, file
+     * annotations, or request context that deletion has already erased.
+     */
+    public function settleForActiveUser(
+        ?AiUsageEvent $event,
+        array $providerResult,
+        int $userId
+    ): string {
+        $outcome = self::SETTLEMENT_TERMINAL_CONFLICT;
+        DB::transaction(function () use (
+            $event, $providerResult, $userId, &$outcome
+        ): void {
+            $active = User::query()
+                ->whereKey($userId)
+                ->where('active', true)
+                ->lockForUpdate()
+                ->exists();
+            $lockedEvent = $event
+                ? AiUsageEvent::query()->lockForUpdate()->find($event->id)
+                : null;
+            if (!$lockedEvent) {
+                $outcome = self::SETTLEMENT_TERMINAL_CONFLICT;
+                return;
+            }
+            if ($lockedEvent->status === 'completed') {
+                $stored = trim((string) data_get($lockedEvent->metadata, 'accepted_response', ''));
+                $received = trim((string) data_get($providerResult, 'message', ''));
+                $sameProviderRequest = !$lockedEvent->provider_request_id
+                    || !data_get($providerResult, 'provider_request_id')
+                    || hash_equals(
+                        (string) $lockedEvent->provider_request_id,
+                        (string) data_get($providerResult, 'provider_request_id')
+                    );
+                $outcome = $active && $stored !== '' && $received !== ''
+                    && hash_equals($stored, mb_substr($received, 0, 12000))
+                    && $sameProviderRequest
+                    ? self::SETTLEMENT_ALREADY_ACCEPTED
+                    : self::SETTLEMENT_TERMINAL_CONFLICT;
+                return;
+            }
+            if ($lockedEvent->status !== 'reserved') {
+                $outcome = self::SETTLEMENT_TERMINAL_CONFLICT;
+                return;
+            }
+            $transitioned = data_get(
+                $lockedEvent->metadata,
+                'entitlement_transitioned_at'
+            ) !== null;
+            if (!$active || $transitioned) {
+                $providerResult = [
+                    'usage' => is_array($providerResult['usage'] ?? null)
+                        ? $providerResult['usage'] : [],
+                    'provider_request_id' => $providerResult['provider_request_id'] ?? null,
+                    'message' => '',
+                    'entitlement_delivered' => false,
+                ];
+            }
+            $settled = $this->settle($lockedEvent, $providerResult);
+            $outcome = !$active
+                ? self::SETTLEMENT_INACTIVE
+                : ($transitioned
+                    ? self::SETTLEMENT_TERMINAL_CONFLICT
+                    : ($settled
+                        ? self::SETTLEMENT_ACCEPTED
+                        : self::SETTLEMENT_TERMINAL_CONFLICT));
+        }, 3);
+
+        return $outcome;
+    }
+
+    private function boundedFileAnnotations(mixed $value): array
+    {
+        if (!is_array($value)) return [];
+        $kept = [];
+        $bytes = 0;
+        foreach (array_slice($value, 0, 12) as $annotation) {
+            if (!is_array($annotation)) continue;
+            $encoded = json_encode($annotation, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if (!is_string($encoded) || strlen($encoded) > 16384 || $bytes + strlen($encoded) > 65536) {
+                continue;
+            }
+            $kept[] = $annotation;
+            $bytes += strlen($encoded);
         }
+        return $kept;
     }
 
     public function release(?AiUsageEvent $event, ?string $reason = null): void
@@ -302,11 +496,18 @@ final readonly class AiEntitlementBudgetService
             if ($lockedEvent->status !== 'reserved') {
                 return;
             }
-            $usage = AiEntitlementUsage::query()
-                ->lockForUpdate()
-                ->where('enrollment_id', $lockedEvent->enrollment_id)
-                ->where('feature', $lockedEvent->feature)
-                ->first();
+            $detachedReservation = (bool) data_get(
+                $lockedEvent->metadata,
+                'reservation_detached',
+                false
+            );
+            $usage = $detachedReservation
+                ? null
+                : AiEntitlementUsage::query()
+                    ->lockForUpdate()
+                    ->where('enrollment_id', $lockedEvent->enrollment_id)
+                    ->where('feature', $lockedEvent->feature)
+                    ->first();
             if ($usage) {
                 $usage->forceFill([
                     'reserved_requests' => max(0, $usage->reserved_requests - 1),
@@ -376,6 +577,18 @@ final readonly class AiEntitlementBudgetService
                 ->lockForUpdate()
                 ->get();
 
+            $safeToCancel = $reserved->filter(function (AiUsageEvent $event): bool {
+                $state = (string) data_get($event->metadata, 'provider_call_state', '');
+                return !in_array($state, ['started', 'outcome_unknown'], true);
+            });
+            $providerStarted = $reserved->filter(function (AiUsageEvent $event): bool {
+                $state = (string) data_get($event->metadata, 'provider_call_state', '');
+                return in_array($state, ['started', 'outcome_unknown'], true);
+            });
+
+            // Every old reservation leaves the mutable entitlement aggregate.
+            // Safe calls become cancelled; provider-started calls remain an
+            // immutable detached event that can record platform cost later.
             foreach ($reserved->groupBy('feature') as $feature => $events) {
                 $usage = $usages->get($feature);
                 if (!$usage) {
@@ -394,7 +607,7 @@ final readonly class AiEntitlementBudgetService
                 ])->save();
             }
 
-            foreach ($reserved as $event) {
+            foreach ($safeToCancel as $event) {
                 $metadata = is_array($event->metadata) ? $event->metadata : [];
                 $metadata['reason'] = substr($reason, 0, 180);
                 $event->forceFill([
@@ -402,6 +615,14 @@ final readonly class AiEntitlementBudgetService
                     'metadata' => $metadata,
                     'completed_at' => now(),
                 ])->save();
+            }
+
+            foreach ($providerStarted as $event) {
+                $metadata = is_array($event->metadata) ? $event->metadata : [];
+                $metadata['entitlement_transition_reason'] = substr($reason, 0, 180);
+                $metadata['entitlement_transitioned_at'] = now()->toIso8601String();
+                $metadata['reservation_detached'] = true;
+                $event->forceFill(['metadata' => $metadata])->save();
             }
 
             return $reserved->count();
@@ -439,17 +660,38 @@ final readonly class AiEntitlementBudgetService
                     ->lockForUpdate()
                     ->first();
                 if (!$usage) {
-                    return AiUsageEvent::query()
+                    $orphaned = AiUsageEvent::query()
                         ->where('enrollment_id', $pair->enrollment_id)
                         ->where('feature', $pair->feature)
                         ->where('status', 'reserved')
                         ->where('reservation_expires_at', '<=', now())
-                        ->update([
+                        ->lockForUpdate()
+                        ->get();
+                    foreach ($orphaned as $event) {
+                        $metadata = is_array($event->metadata) ? $event->metadata : [];
+                        if (data_get($metadata, 'provider_call_state') === PaidAiCallExecutionService::LANDED) {
+                            continue;
+                        }
+                        $started = in_array(
+                            data_get($metadata, 'provider_call_state'),
+                            ['started', 'outcome_unknown'], true
+                        );
+                        $metadata['reason'] = 'missing_entitlement_aggregate';
+                        if ($started) {
+                            $event->forceFill(['metadata' => $metadata])->save();
+                            $this->finalizeUnknownProviderOutcome(
+                                $event,
+                                'reservation_expired_after_provider_start'
+                            );
+                            continue;
+                        }
+                        $event->forceFill([
                             'status' => 'expired',
-                            'metadata' => json_encode(['reason' => 'missing_entitlement_aggregate']),
+                            'metadata' => $metadata,
                             'completed_at' => now(),
-                            'updated_at' => now(),
-                        ]);
+                        ])->save();
+                    }
+                    return $orphaned->count();
                 }
 
                 return $this->reclaimExpiredReservations($usage);
@@ -474,22 +716,70 @@ final readonly class AiEntitlementBudgetService
         if ($expired->isEmpty()) {
             return 0;
         }
+        $expired = $expired->reject(
+            static fn (AiUsageEvent $event): bool =>
+                data_get($event->metadata, 'provider_call_state') === PaidAiCallExecutionService::LANDED
+        );
+        if ($expired->isEmpty()) return 0;
 
-        $reservedTokens = (int) $expired->sum('reserved_tokens');
-        $reservedCostMicros = $expired->sum(fn (AiUsageEvent $event): int =>
+        $unknownProviderOutcomes = $expired->filter(
+            static fn (AiUsageEvent $event): bool =>
+                in_array($event->feature, [
+                    AiEntitlementUsage::FEATURE_COURSE_CHAT,
+                    AiEntitlementUsage::FEATURE_PROJECT_FEEDBACK,
+                    AiEntitlementUsage::FEATURE_PROJECT_FOLLOWUP,
+                ], true) && in_array(
+                    data_get($event->metadata, 'provider_call_state'),
+                    ['started', 'outcome_unknown'],
+                    true
+                )
+        );
+        $aggregateEvents = $expired->reject(
+            static fn (AiUsageEvent $event): bool =>
+                (bool) data_get($event->metadata, 'reservation_detached', false)
+        );
+        $aggregateUnknownOutcomes = $unknownProviderOutcomes->filter(
+            fn (AiUsageEvent $event): bool => $aggregateEvents->contains('id', $event->id)
+        );
+        $reservedTokens = (int) $aggregateEvents->sum('reserved_tokens');
+        $reservedCostMicros = $aggregateEvents->sum(fn (AiUsageEvent $event): int =>
             $this->toUsdMicros($event->reserved_cost_usd)
         );
-        $usage->forceFill([
-            'reserved_requests' => max(0, $usage->reserved_requests - $expired->count()),
+        $usageUpdate = [
+            'reserved_requests' => max(0, $usage->reserved_requests - $aggregateEvents->count()),
             'reserved_tokens' => max(0, $usage->reserved_tokens - $reservedTokens),
             'reserved_cost_usd' => $this->formatUsdMicros(max(
                 0,
                 $this->toUsdMicros($usage->reserved_cost_usd) - $reservedCostMicros
             )),
-        ])->save();
+        ];
+        if (Schema::hasColumn(
+            'ai_entitlement_usages',
+            'unanswered_provider_requests'
+        )) {
+            $exposure = $this->nextProviderExposureState(
+                $usage,
+                $aggregateUnknownOutcomes->count()
+            );
+            $usageUpdate += $exposure['attributes'];
+            if ($exposure['opened']) {
+                $enrollmentId = (int) $usage->enrollment_id;
+                $count = $exposure['count'];
+                $firstEventId = (int) ($aggregateUnknownOutcomes->first()?->id ?? 0);
+                $this->recordProviderExposureAlert($enrollmentId, $count, $firstEventId);
+            }
+        }
+        $usage->forceFill($usageUpdate)->save();
 
         foreach ($expired as $event) {
             $metadata = is_array($event->metadata) ? $event->metadata : [];
+            if ($unknownProviderOutcomes->contains('id', $event->id)) {
+                $this->finalizeUnknownProviderOutcome(
+                    $event,
+                    'reservation_expired_after_provider_start'
+                );
+                continue;
+            }
             $metadata['reason'] = 'reservation_expired';
             $event->forceFill([
                 'status' => 'expired',
@@ -499,6 +789,163 @@ final readonly class AiEntitlementBudgetService
         }
 
         return $expired->count();
+    }
+
+    /**
+     * Close a provider-started request whose answer is unknowable. The event
+     * remains the immutable platform-cost record, while learner entitlement
+     * is never debited or fulfilled. Caller owns the surrounding row locks.
+     */
+    private function finalizeUnknownProviderOutcome(
+        AiUsageEvent $event,
+        string $reason
+    ): void {
+        if ($event->status !== 'reserved') return;
+        $metadata = is_array($event->metadata) ? $event->metadata : [];
+        $metadata['provider_call_state'] = 'outcome_unknown';
+        $metadata['provider_outcome_reason'] = substr($reason, 0, 120);
+        $metadata['provider_outcome_recorded_at'] = now()->toIso8601String();
+        $metadata['token_usage_source'] = 'reservation_fallback';
+        $metadata['cost_usage_source'] = 'reservation_fallback';
+        $metadata['usage_source'] = 'reservation_fallback';
+        $metadata['entitlement_delivered'] = false;
+        $costMicros = $this->toUsdMicros($event->reserved_cost_usd);
+        $egpFacts = [];
+        if (Schema::hasColumn('ai_usage_events', 'cost_egp')) {
+            $fxRate = max(
+                0,
+                (float) (Setting::query()->value('openrouter_usd_to_egp_rate') ?? 0)
+            );
+            if ($fxRate > 0) {
+                $egpFacts = [
+                    'fx_rate_to_egp' => number_format($fxRate, 4, '.', ''),
+                    'cost_egp' => number_format(
+                        ($costMicros / 1_000_000) * $fxRate,
+                        6,
+                        '.',
+                        ''
+                    ),
+                ];
+            }
+        }
+        $event->forceFill([
+            'status' => 'completed',
+            'prompt_tokens' => 0,
+            'completion_tokens' => 0,
+            'total_tokens' => (int) $event->reserved_tokens,
+            'cost_usd' => $this->formatUsdMicros($costMicros),
+            'metadata' => $metadata,
+            'completed_at' => now(),
+        ] + $egpFacts)->save();
+        $this->recordSettledUsageSignal($event);
+    }
+
+    /** Reset an elapsed circuit/window, or reject only this enrollment briefly. */
+    private function refreshProviderExposureCircuit(AiEntitlementUsage $usage): void
+    {
+        if (!Schema::hasColumn(
+            'ai_entitlement_usages',
+            'provider_exposure_paused_until'
+        )) {
+            return;
+        }
+
+        $now = now();
+        if ($usage->provider_exposure_paused_until?->isFuture()) {
+            throw new AiProviderExposureLimitReachedException(
+                'This enrollment is temporarily paused after unknown provider outcomes.'
+            );
+        }
+        $windowElapsed = $usage->unanswered_provider_last_at
+            && $usage->unanswered_provider_last_at->lte(
+                $now->copy()->subSeconds($this->providerExposureWindowSeconds())
+            );
+        if ($usage->provider_exposure_paused_until || $windowElapsed) {
+            $usage->forceFill([
+                'unanswered_provider_requests' => 0,
+                'unanswered_provider_last_at' => null,
+                'provider_exposure_paused_until' => null,
+            ])->save();
+        }
+    }
+
+    /** @return array{attributes:array<string,mixed>,count:int,opened:bool} */
+    private function nextProviderExposureState(
+        AiEntitlementUsage $usage,
+        int $additional
+    ): array {
+        $now = now();
+        $insideWindow = $usage->unanswered_provider_last_at
+            && $usage->unanswered_provider_last_at->gt(
+                $now->copy()->subSeconds($this->providerExposureWindowSeconds())
+            );
+        $count = ($insideWindow ? (int) $usage->unanswered_provider_requests : 0)
+            + max(0, $additional);
+        $limit = max(
+            1,
+            (int) config('course_plans.ai_unanswered_provider_request_limit', 2)
+        );
+        $wasPaused = $usage->provider_exposure_paused_until?->isFuture() ?? false;
+        $pausedUntil = $count >= $limit
+            ? $now->copy()->addSeconds($this->providerExposureCooldownSeconds())
+            : null;
+
+        return [
+            'attributes' => [
+                'unanswered_provider_requests' => $count,
+                'unanswered_provider_last_at' => $now,
+                'provider_exposure_paused_until' => $pausedUntil,
+            ],
+            'count' => $count,
+            'opened' => !$wasPaused && $pausedUntil !== null,
+        ];
+    }
+
+    private function recordSettledUsageSignal(AiUsageEvent $event): void
+    {
+        $this->internalSignals->record(
+            'ai_usage.settled',
+            'event:' . $event->id,
+            ['event_id' => (int) $event->id],
+            AiUsageEvent::class,
+            (int) $event->id
+        );
+    }
+
+    private function recordProviderExposureAlert(
+        int $enrollmentId,
+        int $actual,
+        int $eventId
+    ): void {
+        $metric = 'unanswered_provider_requests';
+        $period = 'enrollment-' . $enrollmentId;
+        $threshold = max(
+            1,
+            (int) config('course_plans.ai_unanswered_provider_request_limit', 2)
+        );
+        $this->internalSignals->record(
+            'ai_usage.threshold',
+            "provider-exposure:{$enrollmentId}:event:{$eventId}",
+            compact('metric', 'period', 'actual', 'threshold'),
+            'course_enrollment',
+            $enrollmentId
+        );
+    }
+
+    private function providerExposureWindowSeconds(): int
+    {
+        return max(
+            60,
+            (int) config('course_plans.ai_unanswered_provider_window_seconds', 900)
+        );
+    }
+
+    private function providerExposureCooldownSeconds(): int
+    {
+        return max(
+            60,
+            (int) config('course_plans.ai_provider_exposure_cooldown_seconds', 900)
+        );
     }
 
     /** @param int|float|string|null $value */

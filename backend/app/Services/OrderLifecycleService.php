@@ -75,8 +75,13 @@ final readonly class OrderLifecycleService
                     'approved_by' => $actorId,
                     'notes' => $notes ?? $locked->notes,
                 ])->save();
-            } else {
-                $locked->forceFill(['financial_status' => Order::FINANCIAL_SETTLED])->save();
+            } elseif ($locked->financial_status !== Order::FINANCIAL_SETTLED) {
+                // Operational approval is not a finance-review resolution.
+                // Replaying approve must never erase a provider conflict or
+                // another non-settled financial state.
+                throw new \DomainException(
+                    'An approved order with a non-settled financial state cannot be approved again.'
+                );
             }
 
             if ($locked->package_id) {
@@ -197,14 +202,26 @@ final readonly class OrderLifecycleService
             }
 
             $locked->loadMissing('package');
+            $wasFulfilled = $locked->status === Order::STATUS_APPROVED;
             $atRisk = $locked->package_id
                 ? max(0, (int) ($locked->package_coins ?? $locked->package?->coins ?? 0))
                 : max(0, (int) $locked->total_coins);
-            $result = $locked->package_id
-                ? $this->provenance->applyPackageReversal($locked, $reason)
-                : ['recovered' => 0, 'unrecovered' => $atRisk, 'holds' => 0];
+            $result = !$wasFulfilled
+                ? ['recovered' => 0, 'unrecovered' => 0, 'holds' => 0]
+                : ($locked->package_id
+                    ? $this->provenance->applyPackageReversal($locked, $reason)
+                    : ['recovered' => 0, 'unrecovered' => $atRisk, 'holds' => 0]);
             $locked->forceFill([
-                'financial_status' => Order::FINANCIAL_REVIEW_REQUIRED,
+                // A provider reversal may win the race against capture. Close
+                // an unfulfilled order under this same lock so a delayed
+                // capture cannot mint coins between cancellation and marking
+                // the reversal. Fulfilled orders still enter finance review
+                // because their paid lots and derived entitlements are being
+                // recovered atomically above.
+                'status' => $wasFulfilled ? $locked->status : Order::STATUS_CANCELLED,
+                'financial_status' => $wasFulfilled
+                    ? Order::FINANCIAL_REVIEW_REQUIRED
+                    : $type,
                 'reversed_at' => $locked->reversed_at ?: now(),
                 'reversal_reason' => $reason,
                 'recovered_coins' => (int) $result['recovered'],
@@ -222,6 +239,70 @@ final readonly class OrderLifecycleService
                 $payload,
                 (int) $result['recovered'],
                 (int) $result['unrecovered']
+            );
+
+            return $locked->fresh(['bill']);
+        }, 3);
+    }
+
+    /**
+     * Persist provider evidence which changes the financial truth but cannot
+     * be applied safely without an exact amount. In particular, a partial
+     * refund must never reclaim the whole coin lot merely because the provider
+     * sent a coarse status before its settlement breakdown.
+     */
+    public function flagExternalFinancialReview(
+        Order $order,
+        string $eventType,
+        string $reason,
+        string $eventKey,
+        ?string $provider = null,
+        ?string $externalEventId = null,
+        array $payload = []
+    ): Order {
+        if (trim($eventType) === '' || trim($eventKey) === '') {
+            throw new \InvalidArgumentException('Invalid financial review event.');
+        }
+
+        return DB::transaction(function () use (
+            $order,
+            $eventType,
+            $reason,
+            $eventKey,
+            $provider,
+            $externalEventId,
+            $payload
+        ): Order {
+            User::withTrashed()->lockForUpdate()->findOrFail($order->user_id);
+            $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
+            $existing = OrderFinancialEvent::query()
+                ->where('order_id', $locked->id)
+                ->where('event_key', $eventKey)
+                ->first();
+            if ($existing) {
+                return $locked->fresh(['bill']);
+            }
+
+            if (!in_array($locked->financial_status, [
+                Order::FINANCIAL_REFUNDED,
+                Order::FINANCIAL_CHARGEBACK,
+                Order::FINANCIAL_REVERSED,
+                Order::FINANCIAL_PARTIALLY_RECOVERED,
+            ], true)) {
+                $locked->forceFill([
+                    'financial_status' => Order::FINANCIAL_REVIEW_REQUIRED,
+                    'reversal_reason' => $reason,
+                ])->save();
+            }
+            $this->recordEvent(
+                $locked,
+                $eventType,
+                $eventKey,
+                null,
+                $reason,
+                $provider,
+                $externalEventId,
+                $payload
             );
 
             return $locked->fresh(['bill']);
@@ -409,7 +490,18 @@ final readonly class OrderLifecycleService
 
     public function expectedBillStatus(Order $order): string
     {
-        if ($order->isFinanciallyEffective()) {
+        // A transaction-identity conflict quarantines future finance actions,
+        // but it does not erase the already captured receipt. Bills follow the
+        // cash receipt; entitlement checks remain stricter through
+        // isFinanciallyEffective(). A real reversal always stamps reversed_at.
+        if (
+            $order->status === Order::STATUS_APPROVED
+            && $order->reversed_at === null
+            && in_array($order->financial_status, [
+                Order::FINANCIAL_SETTLED,
+                Order::FINANCIAL_REVIEW_REQUIRED,
+            ], true)
+        ) {
             return Bill::PAYMENT_STATUS_PAID;
         }
 
@@ -421,9 +513,15 @@ final readonly class OrderLifecycleService
     public function reconcileBill(Bill $bill): Bill
     {
         return DB::transaction(function () use ($bill): Bill {
-            /** @var Bill $locked */
-            $locked = Bill::query()->lockForUpdate()->findOrFail($bill->id);
-            $order = Order::query()->lockForUpdate()->findOrFail($locked->order_id);
+            // Every other lifecycle transition locks order before bill. Keep
+            // the same order here so dashboard reconciliation cannot deadlock
+            // a provider callback that is settling or reversing this order.
+            $order = Order::query()->lockForUpdate()->findOrFail($bill->order_id);
+            Bill::query()
+                ->whereKey($bill->id)
+                ->where('order_id', $order->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
             return $this->syncBill($order, $this->expectedBillStatus($order));
         }, 3);
@@ -525,7 +623,7 @@ final readonly class OrderLifecycleService
         $bill->forceFill([
             'user_id' => $order->user_id,
             'course_id' => $order->course_id,
-            'bill_number' => $bill->bill_number ?: 'BILL-ORDER-' . $order->id,
+            'bill_number' => $bill->bill_number ?: Bill::numberForOrder((int) $order->id),
             'amount' => $order->amount,
             'tax_amount' => 0,
             'total_amount' => $order->final_amount,

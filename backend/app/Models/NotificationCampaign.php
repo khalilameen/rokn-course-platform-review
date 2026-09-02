@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 final class NotificationCampaign extends Model
 {
     public const STATUS_QUEUED = 'queued';
+    public const STATUS_SCHEDULED = 'scheduled';
     public const STATUS_DELIVERING = 'delivering';
     public const STATUS_COMPLETED = 'completed';
     public const STATUS_FAILED = 'failed';
@@ -35,6 +36,11 @@ final class NotificationCampaign extends Model
         'recipients_count',
         'inbox_count',
         'retry_count',
+        'scheduled_at',
+        'selection_cursor',
+        'selection_finished_at',
+        'resolved_count',
+        'skipped_count',
         'queued_at',
         'coordinator_finished_at',
         'completed_at',
@@ -51,6 +57,11 @@ final class NotificationCampaign extends Model
         'recipients_count' => 'integer',
         'inbox_count' => 'integer',
         'retry_count' => 'integer',
+        'scheduled_at' => 'datetime',
+        'selection_cursor' => 'integer',
+        'selection_finished_at' => 'datetime',
+        'resolved_count' => 'integer',
+        'skipped_count' => 'integer',
         'queued_at' => 'datetime',
         'coordinator_finished_at' => 'datetime',
         'completed_at' => 'datetime',
@@ -60,5 +71,10 @@ final class NotificationCampaign extends Model
     public function notifications()
     {
         return $this->hasMany(StudentNotification::class, 'delivery_key', 'delivery_key');
+    }
+
+    public function recipients()
+    {
+        return $this->hasMany(NotificationCampaignRecipient::class);
     }
 }

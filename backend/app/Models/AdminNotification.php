@@ -34,7 +34,9 @@ class AdminNotification extends Model
         'new_quiz',
         'course_update',
         'course_promotion',
+        'new_course',
         'continue_course',
+        'support_case_update',
     ];
 
     public function isSystemTemplate(): bool
@@ -76,6 +78,7 @@ class AdminNotification extends Model
         'cooldown_hours',
         'starts_at',
         'ends_at',
+        'authoring_request_id',
     ];
 
     protected $casts = [

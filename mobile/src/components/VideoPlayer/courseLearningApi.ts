@@ -4,6 +4,7 @@ export {
   getLocalLearningState,
   isWatchHistoryEnabled,
   migrateGuestLearningState,
+  readPlayerStateForScope,
   WATCH_HISTORY_ENABLED_KEY,
 } from './courseLearning/persistence';
 export {
@@ -42,7 +43,11 @@ export {
   quiesceLearningRuntime,
   retryPendingProjectSubmissions,
   loadProjectFeedbackThread,
+  loadProjectResolution,
+  watchProjectResolution,
+  openProjectInputAttachment,
   sendProjectFeedbackMessage,
+  uploadProjectFeedbackAttachment,
   submitProjectAttempt,
   unlockAfterProject,
 } from './courseLearning/projects';
@@ -65,4 +70,8 @@ export {
   askCourseAssistant,
   courseIncludesAssistant,
   loadCourseAssistantHistory,
+  pollCourseAssistantTurn,
+  uploadCourseAssistantAttachment,
+  cancelCourseAssistantTurn,
+  openCourseAssistantAttachment,
 } from './courseLearning/assistant';

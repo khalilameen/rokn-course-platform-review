@@ -6,14 +6,16 @@ use App\Support\BusinessClock;
 use App\Support\UnicodeText;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Traits\HasPhoto;
 
 class Coupon extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes, HasPhoto;
 
     protected $fillable = [
         'name_ar', 'name_en', 'code', 'course_id', 'starts_at', 'balance',
         'max_redemptions', 'expiry_date', 'active',
+        'authoring_request_id',
     ];
 
     protected $casts = [

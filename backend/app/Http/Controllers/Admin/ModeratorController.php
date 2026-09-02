@@ -6,9 +6,11 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\AdminAuthoringCreateIntentService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -29,20 +31,32 @@ final class ModeratorController extends Controller
         return view('admin.moderators.create');
     }
 
-    public function store(Request $request): RedirectResponse
+    public function store(
+        Request $request,
+        AdminAuthoringCreateIntentService $createIntents
+    ): RedirectResponse
     {
         $data = $this->validated($request);
-        $moderator = new User();
-        $moderator->forceFill([
-            'name_ar' => trim((string) $data['name_ar']),
-            'name_en' => filled($data['name_en'] ?? null) ? trim((string) $data['name_en']) : null,
-            'email' => strtolower(trim((string) $data['email'])),
-            'phone' => filled($data['phone'] ?? null) ? trim((string) $data['phone']) : null,
-            'password' => Hash::make((string) $data['password']),
-            'role' => 'moderator',
-            'active' => $request->boolean('active'),
-            'email_verified_at' => now(),
-        ])->save();
+        DB::transaction(function () use ($request, $data, $createIntents): void {
+            $moderator = new User();
+            $moderator->forceFill([
+                'name_ar' => trim((string) $data['name_ar']),
+                'name_en' => filled($data['name_en'] ?? null) ? trim((string) $data['name_en']) : null,
+                'email' => strtolower(trim((string) $data['email'])),
+                'phone' => filled($data['phone'] ?? null) ? trim((string) $data['phone']) : null,
+                'password' => Hash::make((string) $data['password']),
+                'role' => 'moderator',
+                'active' => $request->boolean('active'),
+                'email_verified_at' => now(),
+            ])->save();
+            $createIntents->completeRedirect(
+                $request,
+                route('admin.moderators.index'),
+                302,
+                User::class,
+                $moderator->id
+            );
+        }, 3);
 
         return redirect()->route('admin.moderators.index')
             ->with('success', 'تم إنشاء حساب مسؤول المحتوى. سيُطلب منه إعداد التحقق بخطوتين عند الدخول.');
@@ -91,6 +105,7 @@ final class ModeratorController extends Controller
             ],
             'password' => [$moderator ? 'nullable' : 'required', 'string', 'min:10', 'confirmed'],
             'active' => ['nullable', 'boolean'],
+            'authoring_request_id' => [$moderator ? 'nullable' : 'required', 'uuid'],
         ]);
     }
 

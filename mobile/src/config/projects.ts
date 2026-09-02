@@ -1,9 +1,9 @@
 import RNFS from 'react-native-fs';
 
 // Must match rokn-backend/config/projects.php (25,600 KiB).
-export const PROJECT_SUBMISSION_MAX_BYTES = 25 * 1024 * 1024;
-export const PROJECT_SUBMISSION_MAX_LABEL = '٢٥ ميجابايت';
-export const PROJECT_SUBMISSION_FORMATS_LABEL = 'JPG أو PNG أو WebP أو MP4';
+export const PROJECT_SUBMISSION_MAX_BYTES = 8 * 1024 * 1024;
+export const PROJECT_SUBMISSION_MAX_LABEL = '٨ ميجابايت';
+export const PROJECT_SUBMISSION_FORMATS_LABEL = 'صورة أو PDF أو TXT أو DOCX أو PPTX';
 export const PENDING_PROJECT_FILES_MAX_BYTES = 75 * 1024 * 1024;
 
 export const assertPendingProjectCacheCapacity = (
@@ -22,7 +22,10 @@ const allowedMimeTypes = new Set([
   'image/jpg',
   'image/png',
   'image/webp',
-  'video/mp4',
+  'application/pdf',
+  'text/plain',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
 ]);
 
 export const validateProjectFileType = (file: {
@@ -34,7 +37,7 @@ export const validateProjectFileType = (file: {
     .trim()
     .toLowerCase()
     .match(/\.([a-z0-9]+)$/)?.[1];
-  const extensionAllowed = ['jpg', 'jpeg', 'png', 'webp', 'mp4'].includes(
+  const extensionAllowed = ['jpg', 'jpeg', 'png', 'webp', 'pdf', 'txt', 'docx', 'pptx'].includes(
     extension || '',
   );
   if (!allowedMimeTypes.has(mime) && !extensionAllowed) {

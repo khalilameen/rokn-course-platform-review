@@ -21,6 +21,7 @@
                 <div class="card-body">
                     <form action="{{ route('admin.paths.store') }}" method="POST" id="pathForm">
                         @csrf
+                        <input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">
                         @include('admin.paths._form')
                         <div class="form-actions mt-4">
                             <button type="submit" class="btn btn-success text-white"> <i class="fa fa-check"></i> حفظ</button>

@@ -2,6 +2,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 jest.mock('../src/constants/helpers', () => ({
   accountScopedStorageKey: jest.fn(async (key: string) => `${key}:user-a`),
+  assertAccountSessionBoundary: jest.fn(),
+  captureAccountSessionBoundary: jest.fn(async () => ({
+    epoch: 0,
+    scope: 'user-a',
+  })),
 }));
 
 import {
@@ -27,6 +32,7 @@ describe('checkout return recovery', () => {
       params: {
         courseId: '52',
         openCodeRedemption: false,
+        openFullTrackUpgrade: false,
         openPurchase: true,
         resumeAfterPreview: false,
         resumeReelId: undefined,

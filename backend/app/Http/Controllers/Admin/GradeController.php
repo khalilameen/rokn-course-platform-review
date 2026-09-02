@@ -7,6 +7,7 @@ use App\Http\Requests\GradeRequest;
 use App\Models\Grade;
 use App\Models\Setting;
 use App\Models\DesignSetting;
+use App\Services\AdminAuthoringCreateIntentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -52,9 +53,19 @@ class GradeController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
      */
-    public function store(GradeRequest $request)
+    public function store(GradeRequest $request, AdminAuthoringCreateIntentService $createIntents)
     {
-        $grade = Grade::create($request->validated());
+        $request->validate(['authoring_request_id' => 'required|uuid']);
+        DB::transaction(function () use ($request, $createIntents): void {
+            $grade = Grade::create($request->validated());
+            $createIntents->completeRedirect(
+                $request,
+                route('admin.grades.index'),
+                302,
+                Grade::class,
+                $grade->id
+            );
+        }, 3);
 
         return redirect()->route('admin.grades.index')
             ->with('success', 'تم إضافة المرحلة الدراسية بنجاح');

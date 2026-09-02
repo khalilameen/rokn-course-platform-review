@@ -58,10 +58,17 @@ final class QuarantineProfileSvg extends Command
                             }
                         }
 
-                        User::query()
+                        $currentUser = User::query()
                             ->whereKey($user->id)
                             ->where('profile_image', $user->getRawOriginal('profile_image'))
-                            ->update(['profile_image' => null]);
+                            ->first();
+                        if ($currentUser) {
+                            // Instructor identity is projected into cached
+                            // catalogue cards. Keep the compare-before-write
+                            // guard while allowing the model's after-commit
+                            // invalidation to run.
+                            $currentUser->forceFill(['profile_image' => null])->save();
+                        }
                     } catch (Throwable $exception) {
                         $failed++;
                         $this->error("User #{$user->id}: {$exception->getMessage()}");

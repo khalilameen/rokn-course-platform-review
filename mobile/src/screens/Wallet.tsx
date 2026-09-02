@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {useFocusEffect, useNavigation} from '@react-navigation/native';
-import type {RootNavigation} from '../navigation/types';
+import {CommonActions, useFocusEffect, useNavigation, useRoute} from '@react-navigation/native';
+import type {RootNavigation, RootRoute} from '../navigation/types';
 import {learnerErrorMessage} from '../utils/errorPayload';
 import {formatRoknRelativeDate} from '../utils/dateTime';
 import {
@@ -74,6 +74,8 @@ import {useReducedMotion} from '../hooks/useReducedMotion';
 
 export default function Wallet() {
   const navigation = useNavigation<RootNavigation>();
+  const route = useRoute<RootRoute<'Wallet'>>();
+  const interruptedReturnTo = route.params?.returnTo;
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
   const {fontScale, gutter, railCardWidth, width} = useResponsiveLayout();
@@ -92,6 +94,7 @@ export default function Wallet() {
   const [remoteError, setRemoteError] = useState('');
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [taskLoadingIds, setTaskLoadingIds] = useState<string[]>([]);
+  const [taskOpenRetryIds, setTaskOpenRetryIds] = useState<string[]>([]);
   const [walletModal, setWalletModal] = useState<'breakdown' | 'rules' | null>(
     null,
   );
@@ -133,7 +136,7 @@ export default function Wallet() {
     const failed = [walletResult, packagesResult, tasksResult].some(
       result => result.status === 'rejected',
     );
-    setRemoteError(failed ? 'تعذّر تحديث بعض البيانات\nرصيدك لم يتغير' : '');
+    setRemoteError(failed ? 'تعذّر تحديث بعض البيانات\nاسحب لعرض أحدثها' : '');
     setRemoteLoading(false);
   }, []);
 
@@ -250,7 +253,7 @@ export default function Wallet() {
     task.id === 'coin-guide' ||
     (isRemoteTask(task) && task.actionKey.toLowerCase().includes('coin_guide'));
 
-  const isWhatsAppTask = (task: DemoCoinTask | CoinTask): task is CoinTask =>
+  const isWhatsAppTask = (task: DemoCoinTask | CoinTask) =>
     isRemoteTask(task) && task.actionKey === 'link_whatsapp';
 
   const isSocialTask = (task: DemoCoinTask | CoinTask) => {
@@ -264,6 +267,8 @@ export default function Wallet() {
 
   const taskActionLabel = (task: DemoCoinTask | CoinTask) => {
     if (task.status === 'claimed') return 'تم الاستلام';
+    if (taskOpenRetryIds.includes(task.id)) return 'فتح';
+    if (task.status === 'started' && isWhatsAppTask(task)) return 'فتح';
     if (task.status === 'started') return 'استلام';
     if (isCoinGuideTask(task)) return 'اعرف أكثر';
     if (isWhatsAppTask(task)) return 'اربط';
@@ -272,7 +277,33 @@ export default function Wallet() {
   };
 
   const runTaskAction = async (task: DemoCoinTask | CoinTask) => {
-    if (isWhatsAppTask(task)) {
+    if (
+      isRemoteTask(task) &&
+      task.status === 'started' &&
+      (isWhatsAppTask(task) || taskOpenRetryIds.includes(task.id))
+    ) {
+      try {
+        const resumed = task.url ? {status: 'started', url: task.url} : await startCoinTask(task);
+        const safeActionUrl = trustedExternalTaskUrl(resumed.url);
+        if (!safeActionUrl) {
+          Alert.alert('تعذّر فتح المهمة', 'رابط المهمة غير متاح');
+          return;
+        }
+        await openExternalUrlOnce(safeActionUrl);
+        setTaskOpenRetryIds(current => current.filter(id => id !== task.id));
+      } catch (error: unknown) {
+        setTaskOpenRetryIds(current =>
+          current.includes(task.id) ? current : [...current, task.id],
+        );
+        Alert.alert(
+          isWhatsAppTask(task) ? 'تعذّر فتح واتساب' : 'تعذّر فتح المهمة',
+          learnerErrorMessage(error, 'تحقق من الاتصال\nثم حاول مرة أخرى'),
+        );
+      }
+      return;
+    }
+    if (isRemoteTask(task) && isWhatsAppTask(task)) {
+      let remoteStartRecorded = false;
       try {
         const started = await startCoinTask(task);
         if (started.status === 'claimed') {
@@ -284,18 +315,26 @@ export default function Wallet() {
           await refreshWallet();
           return;
         }
+        remoteStartRecorded = true;
+        setRemoteTasks(current =>
+          current.map(item =>
+            item.id === task.id
+              ? {...item, status: 'started', url: started.url || item.url}
+              : item,
+          ),
+        );
         const safeActionUrl = trustedExternalTaskUrl(started.url);
         if (!safeActionUrl) {
           Alert.alert('ربط واتساب غير متاح', 'حاول مرة أخرى لاحقًا');
           return;
         }
         await openExternalUrlOnce(safeActionUrl);
-        setRemoteTasks(current =>
-          current.map(item =>
-            item.id === task.id ? {...item, status: 'started'} : item,
-          ),
-        );
       } catch (error: unknown) {
+        if (remoteStartRecorded) {
+          setTaskOpenRetryIds(current =>
+            current.includes(task.id) ? current : [...current, task.id],
+          );
+        }
         Alert.alert(
           'تعذّر فتح واتساب',
           learnerErrorMessage(error, 'تحقق من الاتصال\nثم حاول مرة أخرى'),
@@ -304,6 +343,7 @@ export default function Wallet() {
       return;
     }
     if (task.status === 'available') {
+      let remoteStartRecorded = false;
       try {
         let actionUrl = task.url;
         if (isRemoteTask(task)) {
@@ -318,6 +358,14 @@ export default function Wallet() {
             await refreshWallet();
             return;
           }
+          remoteStartRecorded = true;
+          setRemoteTasks(current =>
+            current.map(item =>
+              item.id === task.id
+                ? {...item, status: 'started', url: actionUrl || item.url}
+                : item,
+            ),
+          );
         } else {
           // Persist the immutable attempt before opening either the in-app guide
           // or an external task destination.
@@ -325,31 +373,27 @@ export default function Wallet() {
         }
         if (isCoinGuideTask(task)) {
           setWalletModal('rules');
-          if (isRemoteTask(task)) {
-            setRemoteTasks(current =>
-              current.map(item =>
-                item.id === task.id ? {...item, status: 'started'} : item,
-              ),
-            );
-          }
         } else if (actionUrl) {
           const safeActionUrl = trustedExternalTaskUrl(actionUrl);
           if (!safeActionUrl) {
+            if (remoteStartRecorded) {
+              setTaskOpenRetryIds(current =>
+                current.includes(task.id) ? current : [...current, task.id],
+              );
+            }
             Alert.alert('تعذّر فتح المهمة', 'رابط المهمة غير متاح');
             return;
           }
           await openExternalUrlOnce(safeActionUrl);
-          if (isRemoteTask(task)) {
-            setRemoteTasks(current =>
-              current.map(item =>
-                item.id === task.id ? {...item, status: 'started'} : item,
-              ),
-            );
-          }
         }
       } catch (error: unknown) {
+        if (remoteStartRecorded) {
+          setTaskOpenRetryIds(current =>
+            current.includes(task.id) ? current : [...current, task.id],
+          );
+        }
         Alert.alert(
-          'تعذّر بدء المهمة',
+          remoteStartRecorded ? 'تعذّر فتح المهمة' : 'تعذّر بدء المهمة',
           learnerErrorMessage(error, 'تحقق من الاتصال\nثم حاول مرة أخرى'),
         );
       }
@@ -368,9 +412,10 @@ export default function Wallet() {
         await claimDemoTask(task.id);
       }
     } catch (error: unknown) {
+      if (isRemoteTask(task)) void refreshWallet();
       Alert.alert(
-        'المكافأة ليست جاهزة بعد',
-        learnerErrorMessage(error, 'أكمل المهمة\nثم اطلب العملات'),
+        'تعذّر تأكيد المكافأة',
+        learnerErrorMessage(error, 'حدّث المحفظة قبل المحاولة مرة أخرى'),
       );
     }
   };
@@ -394,7 +439,7 @@ export default function Wallet() {
     setCheckoutLoading(item.id);
     try {
       const result = await openCoinCheckout(item, {
-        returnTo: {name: 'Wallet'},
+        returnTo: interruptedReturnTo || {name: 'Wallet'},
       });
       if (result.success) {
         if (!result.demo) await refreshWallet();
@@ -402,16 +447,28 @@ export default function Wallet() {
           'تم شحن الرصيد',
           `أضفنا ${formatArabicNumber(result.coinsAdded)} عملة ركن إلى رصيدك`,
         );
+        if (interruptedReturnTo) {
+          navigation.dispatch(CommonActions.navigate(
+            interruptedReturnTo.name,
+            interruptedReturnTo.params,
+          ));
+        }
       } else if (result.cancelled) {
-        Alert.alert(
-          'أُغلقت صفحة الدفع',
-          'إن أكملت الدفع فسيظهر الرصيد تلقائيًا',
-        );
+        if (result.pending) {
+          Alert.alert(
+            'أُغلقت صفحة الدفع',
+            'إن أكملت الدفع فسيظهر الرصيد تلقائيًا',
+          );
+        }
       } else if (result.pending) {
         Alert.alert('العملية قيد التأكيد', 'سنحدّث رصيدك فور تأكيد الدفع');
       }
     } catch {
-      Alert.alert('تعذّر فتح الدفع', 'رصيدك لم يتغير\nحاول مرة أخرى');
+      void refreshWallet();
+      Alert.alert(
+        'تعذّر تأكيد حالة الدفع',
+        'حدّث الرصيد قبل المحاولة مرة أخرى',
+      );
     } finally {
       checkoutFlightRef.current = false;
       setCheckoutLoading(null);

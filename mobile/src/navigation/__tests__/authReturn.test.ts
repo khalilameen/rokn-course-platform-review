@@ -29,6 +29,7 @@ describe('safeLoginReturnToFromRoute', () => {
         reelId: '9',
         lessonId: undefined,
         preview: false,
+        openCourseChatUpgrade: false,
         previewCount: undefined,
       },
     });
@@ -45,6 +46,7 @@ describe('safeLoginReturnToFromRoute', () => {
       params: {
         courseId: '7',
         openCodeRedemption: false,
+        openFullTrackUpgrade: false,
         openPurchase: false,
         resumeAfterPreview: false,
         resumeReelId: '21',
@@ -67,6 +69,7 @@ describe('safeLoginReturnToFromRoute', () => {
       params: {
         courseId: '7',
         openCodeRedemption: true,
+        openFullTrackUpgrade: false,
         openPurchase: false,
         resumeAfterPreview: false,
         resumeReelId: undefined,

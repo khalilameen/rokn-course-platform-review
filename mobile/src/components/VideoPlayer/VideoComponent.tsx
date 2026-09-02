@@ -166,6 +166,10 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
       setIsBuffering(true);
       setPausedByUser(false);
       setPausedForInterruption(false);
+      if (longBufferTimerRef.current) {
+        clearTimeout(longBufferTimerRef.current);
+        longBufferTimerRef.current = null;
+      }
       if (recoveryTimerRef.current) {
         clearTimeout(recoveryTimerRef.current);
         recoveryTimerRef.current = null;
@@ -193,12 +197,34 @@ const VideoComponent = forwardRef<VideoComponentHandle, VideoComponentProps>(
       }`;
       const previousIdentity = previousManifestIdentityRef.current;
       if (previousIdentity && previousIdentity !== manifestIdentity) {
+        // A fresh server manifest is a new authoritative source generation.
+        // Do not carry a previous generation's emergency fallback, lowered
+        // quality or delayed retry into it; doing so can leave a recovered
+        // lesson permanently degraded even though the primary source is
+        // healthy again. Preserve only the learner's playback position.
+        playbackLifecycleGenerationRef.current += 1;
         retryPositionRef.current = lastPositionRef.current;
         hasRestoredRef.current = false;
         isPlayingRef.current = false;
+        recoveryAttemptsRef.current = 0;
+        sameSourceRetryUsedRef.current = false;
+        deferredPreloadFailureRef.current = false;
+        diagnosticRequestRef.current += 1;
+        if (longBufferTimerRef.current) {
+          clearTimeout(longBufferTimerRef.current);
+          longBufferTimerRef.current = null;
+        }
+        if (recoveryTimerRef.current) {
+          clearTimeout(recoveryTimerRef.current);
+          recoveryTimerRef.current = null;
+        }
+        setUsingFallback(false);
+        setEffectiveQuality(preferredQualityRef.current);
         setIsLoaded(false);
         setIsBuffering(true);
         setError(false);
+        setFailureKind('source');
+        setRecoveryMessage('');
       }
       previousManifestIdentityRef.current = manifestIdentity;
     }, [data.playbackManifestRevision, data.playbackSessionId]);

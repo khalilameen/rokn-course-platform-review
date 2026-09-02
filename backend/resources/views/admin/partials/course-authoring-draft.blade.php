@@ -1,9 +1,27 @@
-@php($draftFormId = $formId ?? null)
+@php
+    $draftFormId = $formId ?? null;
+    $consumedDraftReceipts = array_keys((array) session('admin_authoring_draft_receipts', []));
+    try {
+        if (auth()->id() && \Illuminate\Support\Facades\Schema::hasTable('admin_authoring_draft_receipts')) {
+            $persistedDraftReceipts = \Illuminate\Support\Facades\DB::table('admin_authoring_draft_receipts')
+                ->where('actor_id', auth()->id())
+                ->where('consumed_at', '>=', now()->subDays(7))
+                ->pluck('receipt')
+                ->all();
+            $consumedDraftReceipts = array_values(array_unique(array_merge(
+                $consumedDraftReceipts,
+                $persistedDraftReceipts
+            )));
+        }
+    } catch (\Throwable $exception) {
+        report($exception);
+    }
+@endphp
 @if($draftFormId)
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const form = document.getElementById(@json($draftFormId));
-    if (!form || !window.localStorage) return;
+    if (!form || !window.localStorage || !window.sessionStorage) return;
     const conflictMessage = @json($errors->first('authoring_version') ?: $errors->first('editor_version'));
     if (conflictMessage) {
         const conflict = document.createElement('div');
@@ -16,12 +34,100 @@ document.addEventListener('DOMContentLoaded', function () {
     // must not invalidate the user's saved text; only an existing resource's
     // editor revision decides whether a draft is safe to restore.
     const versionInput = form.querySelector('[name="authoring_version"], [name="editor_version"]');
-    const key = 'rokn:course-authoring-draft:{{ auth()->id() }}:' + location.pathname + ':' + form.id;
-    const ignored = new Set(['_token', '_method', 'authoring_version', 'editor_version', 'authoring_request_id', 'password', 'password_confirmation']);
+    const tabIdentityKey = 'rokn:authoring-tab:' + location.pathname + ':' + form.id;
+    let tabId = sessionStorage.getItem(tabIdentityKey);
+    if (!/^[0-9a-f-]{36}$/i.test(String(tabId || ''))) {
+        tabId = window.crypto?.randomUUID?.() || @json((string) \Illuminate\Support\Str::uuid());
+        sessionStorage.setItem(tabIdentityKey, tabId);
+    }
+    // Duplicate-tab/window.open clones sessionStorage in major browsers. A
+    // short document lease distinguishes that clone from a hard reload: reload
+    // keeps the same draft, while a concurrently live owner gets a new lane.
+    const documentId = window.crypto?.randomUUID?.() || @json((string) \Illuminate\Support\Str::uuid());
+    const navigationType = performance.getEntriesByType?.('navigation')?.[0]?.type || '';
+    const leasePrefix = 'rokn:authoring-document-lease:';
+    const currentLeaseKey = () => leasePrefix + tabId;
+    try {
+        const lease = JSON.parse(localStorage.getItem(currentLeaseKey()) || 'null');
+        if (
+            navigationType !== 'reload'
+            && lease
+            && lease.documentId !== documentId
+            && Date.now() - Number(lease.seenAt || 0) < 10000
+        ) {
+            tabId = window.crypto?.randomUUID?.() || @json((string) \Illuminate\Support\Str::uuid());
+            sessionStorage.setItem(tabIdentityKey, tabId);
+        }
+    } catch (_) {}
+    const renewDocumentLease = () => {
+        try {
+            localStorage.setItem(currentLeaseKey(), JSON.stringify({documentId, seenAt: Date.now()}));
+        } catch (_) {}
+    };
+    renewDocumentLease();
+    const documentLeaseTimer = setInterval(renewDocumentLease, 3000);
+    window.addEventListener('pagehide', () => {
+        clearInterval(documentLeaseTimer);
+        try {
+            const lease = JSON.parse(localStorage.getItem(currentLeaseKey()) || 'null');
+            if (lease?.documentId === documentId) localStorage.removeItem(currentLeaseKey());
+        } catch (_) {}
+    });
+    const draftPrefix = 'rokn:course-authoring-draft:{{ auth()->id() }}:' + location.pathname + ':' + form.id;
+    const key = draftPrefix + ':' + tabId;
+    const registryKey = 'rokn:course-authoring-draft-index:{{ auth()->id() }}';
+    const consumedReceipts = new Set(@json($consumedDraftReceipts));
+    const ignored = new Set(['_token', '_method', 'authoring_version', 'editor_version', 'authoring_request_id', 'authoring_draft_receipt', 'password', 'password_confirmation']);
     const enqueueDraftMicrotask = window.queueMicrotask || (callback => Promise.resolve().then(callback));
+    const receiptInput = form.querySelector('[name="authoring_draft_receipt"]') || (() => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'authoring_draft_receipt';
+        input.value = @json((string) \Illuminate\Support\Str::uuid());
+        form.appendChild(input);
+        return input;
+    })();
+    const createIntentInput = form.querySelector('[name="authoring_request_id"]') || (() => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'authoring_request_id';
+        input.value = receiptInput.value;
+        form.appendChild(input);
+        return input;
+    })();
     let dirty = false;
     let submitting = false;
     let submitQueued = false;
+
+    const readRegistry = () => {
+        try {
+            const parsed = JSON.parse(localStorage.getItem(registryKey) || '[]');
+            return Array.isArray(parsed)
+                ? parsed.filter(entry => entry && typeof entry.key === 'string' && Date.now() - Number(entry.savedAt || 0) < 7 * 86400000)
+                : [];
+        } catch (_) {
+            return [];
+        }
+    };
+    const writeRegistry = entries => {
+        try { localStorage.setItem(registryKey, JSON.stringify(entries.slice(-120))); } catch (_) {}
+    };
+    const forgetDraft = draftKey => {
+        localStorage.removeItem(draftKey);
+        writeRegistry(readRegistry().filter(entry => entry.key !== draftKey));
+    };
+    const indexDraft = saved => {
+        const entries = readRegistry().filter(entry => entry.key !== key);
+        entries.push({
+            key,
+            tabId,
+            path: location.pathname,
+            formId: form.id,
+            receipt: saved.receipt,
+            savedAt: saved.savedAt,
+        });
+        writeRegistry(entries);
+    };
 
     const snapshot = () => {
         const values = {};
@@ -56,19 +162,28 @@ document.addEventListener('DOMContentLoaded', function () {
             values[field.name] = field.value;
         });
         try {
-            localStorage.setItem(key, JSON.stringify({
+            const saved = {
                 version: String(versionInput?.value || ''),
                 savedAt: Date.now(),
                 hadFiles,
+                receipt: receiptInput.value,
                 values,
-            }));
+            };
+            localStorage.setItem(key, JSON.stringify(saved));
+            indexDraft(saved);
         } catch (_) {}
     };
 
     try {
         const saved = JSON.parse(localStorage.getItem(key) || 'null');
         const currentVersion = String(versionInput?.value || '');
-        if (saved && saved.version === currentVersion && Date.now() - saved.savedAt < 7 * 86400000) {
+        if (saved && consumedReceipts.has(String(saved.receipt || ''))) {
+            forgetDraft(key);
+        } else if (saved && saved.version === currentVersion && Date.now() - saved.savedAt < 7 * 86400000) {
+            if (typeof saved.receipt === 'string' && saved.receipt) {
+                receiptInput.value = saved.receipt;
+                createIntentInput.value = saved.receipt;
+            }
             document.dispatchEvent(new CustomEvent('rokn:authoring-draft-prepare', {
                 detail: {formId: form.id, values: saved.values || {}},
             }));
@@ -98,7 +213,40 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
     } catch (_) {
-        localStorage.removeItem(key);
+        forgetDraft(key);
+    }
+
+    const recoverableDrafts = readRegistry()
+        .filter(entry => entry.key !== key && entry.path === location.pathname && entry.formId === form.id)
+        .map(entry => ({entry, saved: (() => {
+            try { return JSON.parse(localStorage.getItem(entry.key) || 'null'); } catch (_) { return null; }
+        })()}))
+        .filter(candidate => candidate.saved && !consumedReceipts.has(String(candidate.saved.receipt || '')))
+        .sort((left, right) => Number(right.saved.savedAt || 0) - Number(left.saved.savedAt || 0));
+    if (recoverableDrafts.length) {
+        const recovery = document.createElement('div');
+        recovery.className = 'alert alert-info mb-3';
+        const title = document.createElement('div');
+        title.textContent = 'توجد مسودة أخرى لهذا النموذج';
+        recovery.appendChild(title);
+        recoverableDrafts.slice(0, 3).forEach((candidate, index) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'btn btn-sm btn-outline-primary mt-2 ml-2';
+            button.textContent = index === 0 ? 'استعادة أحدث مسودة' : 'استعادة المسودة ' + (index + 1);
+            button.addEventListener('click', () => {
+                const restored = {
+                    ...candidate.saved,
+                    receipt: window.crypto?.randomUUID?.() || @json((string) \Illuminate\Support\Str::uuid()),
+                    savedAt: Date.now(),
+                };
+                localStorage.setItem(key, JSON.stringify(restored));
+                indexDraft(restored);
+                location.reload();
+            });
+            recovery.appendChild(button);
+        });
+        form.prepend(recovery);
     }
 
     let timer;
@@ -114,7 +262,7 @@ document.addEventListener('DOMContentLoaded', function () {
     form.addEventListener('reset', () => enqueueDraftMicrotask(() => {
         clearTimeout(timer);
         dirty = false;
-        localStorage.removeItem(key);
+        forgetDraft(key);
     }));
     form.addEventListener('submit', event => {
         if (submitting || submitQueued) {

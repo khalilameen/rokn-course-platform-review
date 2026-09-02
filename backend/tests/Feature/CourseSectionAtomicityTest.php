@@ -15,6 +15,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Mockery;
 use Tests\TestCase;
 
@@ -61,7 +62,17 @@ final class CourseSectionAtomicityTest extends TestCase
             $table->string('provider_media_id');
             $table->string('status');
             $table->string('protocol')->nullable();
+            $table->unsignedInteger('duration_seconds')->nullable();
             $table->json('available_qualities')->nullable();
+            $table->json('manifest')->nullable();
+            $table->timestamp('last_probe_at')->nullable();
+            $table->string('last_error_code')->nullable();
+            $table->text('last_error_message')->nullable();
+            $table->unsignedSmallInteger('retry_count')->default(0);
+            $table->string('integrity_status')->default('unknown');
+            $table->json('integrity_issues')->nullable();
+            $table->timestamp('last_reconciled_at')->nullable();
+            $table->timestamp('quarantined_at')->nullable();
             $table->timestamps();
         });
         Schema::create('course_sections', function (Blueprint $table): void {
@@ -97,6 +108,7 @@ final class CourseSectionAtomicityTest extends TestCase
         $module = CourseModule::create(['course_id' => $course->id]);
         $bunny = Mockery::mock(BunnyService::class);
         $bunny->shouldReceive('uploadVerifiedVideo')->once()->andReturn('staged-guid');
+        $bunny->shouldReceive('consumeVideoCleanupCandidate')->once()->with('staged-guid');
         $bunny->shouldReceive('queueVideoCleanup')
             ->once()
             ->with('staged-guid', null, 'section_create_rollback', 24, true)
@@ -119,6 +131,7 @@ final class CourseSectionAtomicityTest extends TestCase
         $module = CourseModule::create(['course_id' => $course->id]);
         $bunny = Mockery::mock(BunnyService::class);
         $bunny->shouldReceive('uploadVerifiedVideo')->once()->andReturn('published-guid');
+        $bunny->shouldReceive('consumeVideoCleanupCandidate')->once()->with('published-guid');
         $bunny->shouldNotReceive('queueVideoCleanup');
         app()->instance(BunnyService::class, $bunny);
 
@@ -182,6 +195,7 @@ final class CourseSectionAtomicityTest extends TestCase
             'section_type' => 'lesson',
             'module_id' => $moduleId,
             'authoring_version' => 1,
+            'authoring_request_id' => (string) Str::uuid(),
             'lesson_title_ar' => 'خطوة تجريبية',
             'lesson_title_en' => 'Test step',
             'lesson_duration_minutes' => 2,

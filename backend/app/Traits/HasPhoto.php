@@ -5,6 +5,7 @@ namespace App\Traits;
 use App\Models\Photo;
 use App\Services\StoredFileDeletionService;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 use Intervention\Image\Facades\Image;
 
 trait HasPhoto
@@ -131,7 +132,7 @@ trait HasPhoto
      * @param string $type
      * @return static
      */
-    public function storeImage($file, $path, $type = 'featured')
+    public function storeImage($file, $path, $type = 'featured', ?string $operationIdentity = null)
     {
         /*$image = Image::make($file);
         $image->fit(1900, 750, function ($constraint) {
@@ -139,13 +140,16 @@ trait HasPhoto
         });
         Storage::disk('public')->put($path, (string) $image->encode());*/
         //Storage::disk('public')->put($path, Image::make($file)->encode('jpg', 50));
-        $name = $file->store($path, 'public');
+        $name = $this->storeTrackedImageBytes($file, $path, $operationIdentity);
         if (!is_string($name) || trim($name) === '') {
             throw new \RuntimeException('Image storage failed');
         }
 
         try {
-            return $this->allPhotos()->create(['path' => $name, 'type' => $type]);
+            return DB::transaction(function () use ($name, $type) {
+                $owner = $this->newQuery()->whereKey($this->getKey())->lockForUpdate()->firstOrFail();
+                return $owner->allPhotos()->firstOrCreate(['path' => $name, 'type' => $type]);
+            }, 3);
         } catch (\Throwable $exception) {
             app(StoredFileDeletionService::class)->deleteOrQueue('public', $name);
             throw $exception;
@@ -158,18 +162,32 @@ trait HasPhoto
      * @param $path
      * @param string $type
      */
-    public function replaceImage($file, $path, $type = 'featured')
+    public function replaceImage($file, $path, $type = 'featured', ?string $operationIdentity = null)
     {
-        $oldPhotos = $this->allPhotos()->where('type', $type)->get();
-        $newPhoto = $this->storeImage($file, $path, $type);
+        $name = $this->storeTrackedImageBytes($file, $path, $operationIdentity);
+        try {
+            return DB::transaction(function () use ($name, $type) {
+                $owner = $this->newQuery()->whereKey($this->getKey())->lockForUpdate()->firstOrFail();
+                $newPhoto = $owner->allPhotos()->firstOrCreate(['path' => $name, 'type' => $type]);
+                $owner->allPhotos()->where('type', $type)
+                    ->where('photos.id', '!=', $newPhoto->getKey())->get()->each->delete();
+                return $newPhoto;
+            }, 3);
+        } catch (\Throwable $exception) {
+            app(StoredFileDeletionService::class)->deleteOrQueue('public', $name);
+            throw $exception;
+        }
+    }
 
-        $oldPhotos->each(function ($photo) use ($newPhoto): void {
-            if ((int) $photo->getKey() !== (int) $newPhoto->getKey()) {
-                $photo->delete();
-            }
-        });
-
-        return $newPhoto;
+    private function storeTrackedImageBytes($file, string $directory, ?string $operationIdentity): string
+    {
+        return app(StoredFileDeletionService::class)->storeTrackedUpload(
+            $file,
+            $directory,
+            'public',
+            60,
+            $operationIdentity
+        );
     }
 
 

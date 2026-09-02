@@ -7,6 +7,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 final class RewardRule extends Model
@@ -48,7 +49,8 @@ final class RewardRule extends Model
         $load = fn () => static::query()->active()->where('event_key', $event)->first();
         try {
             return Cache::remember('reward-rule:active:v2:' . $event, 30, $load);
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
+            report($exception);
             return $load();
         }
     }
@@ -65,9 +67,28 @@ final class RewardRule extends Model
     protected static function booted(): void
     {
         $forget = static function (RewardRule $rule): void {
+            $events = array_values(array_unique(array_filter([
+                trim((string) $rule->event_key),
+                trim((string) $rule->getRawOriginal('event_key')),
+            ])));
+            $invalidate = static function () use ($events): void {
+                foreach ($events as $event) {
+                    Cache::forget('reward-rule:active:v2:' . $event);
+                }
+                if (in_array('welcome_bonus', $events, true)) {
+                    Cache::forget('auth-methods:dynamic:v2');
+                }
+            };
+
             try {
-                Cache::forget('reward-rule:active:v2:' . $rule->event_key);
-            } catch (Throwable) {
+                if (DB::transactionLevel() > 0) {
+                    DB::afterCommit($invalidate);
+                    return;
+                }
+
+                $invalidate();
+            } catch (Throwable $exception) {
+                report($exception);
             }
         };
         static::saved($forget);

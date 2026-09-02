@@ -17,4 +17,5 @@ return [
     'student_notifications_days' => (int) env('RETENTION_STUDENT_NOTIFICATIONS_DAYS', 180),
     'support_cases_days' => (int) env('RETENTION_SUPPORT_CASES_DAYS', 365),
     'visitors_days' => (int) env('RETENTION_VISITORS_DAYS', 90),
+    'portfolio_drafts_days' => (int) env('RETENTION_PORTFOLIO_DRAFTS_DAYS', 30),
 ];

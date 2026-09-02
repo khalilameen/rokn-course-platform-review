@@ -78,6 +78,7 @@ final readonly class CourseAssessmentService
             ->with([
                 'questions' => function (Relation $questions): void {
                     $questions->select(self::QUESTION_COLUMNS)
+                        ->with('photo')
                         ->orderBy('priority');
                 },
             ])
@@ -96,6 +97,7 @@ final readonly class CourseAssessmentService
                     $quizzes->with([
                         'questions' => function (Relation $questions): void {
                             $questions->select(self::QUESTION_COLUMNS)
+                                ->with('photo')
                                 ->orderBy('priority');
                         },
                     ]);
@@ -222,7 +224,10 @@ final readonly class CourseAssessmentService
                 'id' => $question->id,
                 'title' => $question->title,
                 'question' => $question->question,
-                'question_image' => $question->question_image,
+                // Question images have always been stored through HasPhoto.
+                // Reading only the legacy scalar column made the authoring UI,
+                // API and player disagree about whether an image existed.
+                'question_image' => $question->image,
                 'description' => $question->description,
                 'choices' => $choices,
                 'priority' => $question->priority,

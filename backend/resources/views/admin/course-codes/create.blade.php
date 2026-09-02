@@ -26,6 +26,7 @@
 
                         <form method="POST" action="{{ route('admin.course-codes.store') }}" id="create-code-form">
                             @csrf
+                            <input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">
 
                             <div class="row">
                                 <div class="col-md-6">

@@ -15,6 +15,11 @@ class PortfolioItemResource extends JsonResource
      */
     public function toArray($request)
     {
+        $uploadedMediaCount = isset($this->media_files_count)
+            ? (int) $this->media_files_count
+            : ($this->relationLoaded('mediaFiles') ? $this->mediaFiles->count() : 0);
+        $expectedMediaCount = max(0, (int) $this->expected_media_count);
+
         return [
             'id' => $this->id,
             'title' => $this->title,
@@ -24,9 +29,14 @@ class PortfolioItemResource extends JsonResource
             'tools' => $this->tools ?? [],
             'external_url' => SafeExternalUrl::sanitize($this->external_url),
             'completed_at' => $this->completed_at?->format('Y-m-d'),
-            // Compatibility field for older clients. Portfolio entries live on
-            // an unlisted share page and no longer have per-item publication.
-            'is_public' => true,
+            'is_public' => (bool) $this->is_public,
+            'upload_state' => $this->deletion_started_at
+                ? 'deleting'
+                : ((bool) $this->is_public
+                    ? 'ready'
+                    : ($uploadedMediaCount > 0 ? 'uploading' : 'draft')),
+            'uploaded_media_count' => $uploadedMediaCount,
+            'expected_media_count' => $expectedMediaCount,
             'is_featured' => (bool) $this->is_featured,
             'sort_order' => (int) $this->sort_order,
             'course' => $this->whenLoaded('course', fn () => $this->course ? [

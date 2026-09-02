@@ -295,18 +295,7 @@ final readonly class KashierReconciliationService
 
     private function providerStatus(array $response): ?string
     {
-        $status = $this->firstScalar($response, [
-            'response.status',
-            'response.paymentStatus',
-            'response.transactions.0.status',
-            'data.status',
-            'status',
-        ]);
-        $status = strtoupper(trim((string) $status));
-
-        return $status !== '' && preg_match('/\A[A-Z0-9_-]{1,32}\z/D', $status) === 1
-            ? $status
-            : null;
+        return $this->payments->providerOrderStatus($response);
     }
 
     private function isProviderFailure(string $status): bool

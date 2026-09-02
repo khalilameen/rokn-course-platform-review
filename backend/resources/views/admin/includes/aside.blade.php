@@ -138,12 +138,6 @@
                 </li>
                 @endif
 
-                <li class="nav-item{{ isRouteActive('admin.project-submissions.*') ? ' active' : '' }}">
-                    <a href="{{ route('admin.project-submissions.index') }}" class="nav-link">
-                        <i class="menu-icon fa fa-tasks"></i>
-                        <span class="menu-text">مراجعة المشاريع</span>
-                    </a>
-                </li>
 <!--
                 <li class="nav-item{{ isRouteActive('admin.exam-results.*') ? ' active' : '' }}">
                     <a href="{{ route('admin.exam-results.index') }}" class="nav-link">
@@ -152,6 +146,13 @@
                     </a>
                 </li>-->
                 @endif
+
+                <li class="nav-item{{ isRouteActive('admin.project-submissions.*') ? ' active' : '' }}">
+                    <a href="{{ route('admin.project-submissions.index') }}" class="nav-link">
+                        <i class="menu-icon fa fa-tasks"></i>
+                        <span class="menu-text">مراجعة المشاريع</span>
+                    </a>
+                </li>
 
                 @if($isAdministrator)
                 <!-- Financial Section -->

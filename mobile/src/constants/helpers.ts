@@ -198,6 +198,11 @@ export const getCurrentAccountStorageScope = async (): Promise<string> => {
   );
 };
 
+/** Stable anonymous journey identity, including while that journey is being
+ * attached to a newly authenticated account. */
+export const getCurrentGuestJourneyScope = async (): Promise<string> =>
+  `guest-${await storageIdentityHash(await getGuestStorageIdentity())}`;
+
 export type AccountSessionBoundary = Readonly<{
   epoch: number;
   scope: string;
@@ -208,16 +213,17 @@ export type AccountSessionBoundary = Readonly<{
  * covers guest-to-user bootstrap where comparing storage keys alone is too
  * late: a response already in flight must not render into the new session.
  */
-export const captureAccountSessionBoundary = async (): Promise<AccountSessionBoundary> => {
-  const snapshot = peekSecureSession();
-  const scope = await accountStorageScopeForSession(
-    snapshot.ready ? snapshot.session : null,
-  );
-  if (peekSecureSession().epoch !== snapshot.epoch) {
-    throw new Error('ACCOUNT_CHANGED_DURING_REQUEST');
-  }
-  return {epoch: snapshot.epoch, scope};
-};
+export const captureAccountSessionBoundary =
+  async (): Promise<AccountSessionBoundary> => {
+    const snapshot = peekSecureSession();
+    const scope = await accountStorageScopeForSession(
+      snapshot.ready ? snapshot.session : null,
+    );
+    if (peekSecureSession().epoch !== snapshot.epoch) {
+      throw new Error('ACCOUNT_CHANGED_DURING_REQUEST');
+    }
+    return {epoch: snapshot.epoch, scope};
+  };
 
 export const assertAccountSessionBoundary = (
   boundary: AccountSessionBoundary,
@@ -467,7 +473,8 @@ export const checkImageStatus = (
       const parsed = new URL(String(imgUrl || '').trim());
       if (
         !parsed.hostname ||
-        (parsed.protocol !== 'https:' && !(__DEV__ && parsed.protocol === 'http:'))
+        (parsed.protocol !== 'https:' &&
+          !(__DEV__ && parsed.protocol === 'http:'))
       ) {
         finish('error');
         return;
@@ -495,7 +502,8 @@ export const checkImageStatus = (
       finish(isImage(get) ? 'success' : 'error');
     } catch (error) {
       finish('error');
-      if (__DEV__) console.warn('image status check failed', errorMessage(error));
+      if (__DEV__)
+        console.warn('image status check failed', errorMessage(error));
     } finally {
       clearTimeout(timeout);
     }

@@ -1,4 +1,11 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {publicRequest} from '../../constants/api';
+import {
+  accountScopedStorageKey,
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+  type AccountSessionBoundary,
+} from '../../constants/helpers';
 import {learnerFacingText} from '../../utils/errorPayload';
 import type {DemoCoinPackage} from '../demoExperience';
 import {
@@ -11,6 +18,74 @@ import {
 } from './common';
 import {IS_STORE_DISTRIBUTION} from '../../constants/distribution';
 import {mapCoinPackages} from './coinPackageMapper';
+
+const COIN_TASK_ACTIONS_KEY = '@rokn/coin-task-actions/v1';
+let coinTaskActionStorageTail: Promise<void> = Promise.resolve();
+
+const withCoinTaskActionStorageLock = <T>(operation: () => Promise<T>) => {
+  const result = coinTaskActionStorageTail.then(operation, operation);
+  coinTaskActionStorageTail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+};
+
+const readCoinTaskActionUrls = async (
+  boundary?: AccountSessionBoundary,
+): Promise<Record<string, string>> => {
+  if (boundary) assertAccountSessionBoundary(boundary);
+  const key = await accountScopedStorageKey(COIN_TASK_ACTIONS_KEY, boundary);
+  const raw = await AsyncStorage.getItem(key);
+  if (boundary) assertAccountSessionBoundary(boundary);
+  if (!raw) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isApiRecord(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed).flatMap(([taskId, value]) =>
+        /^\d+$/.test(taskId) &&
+        typeof value === 'string' &&
+        value.length <= 4096
+          ? [[taskId, value]]
+          : [],
+      ),
+    );
+  } catch {
+    return {};
+  }
+};
+
+const rememberCoinTaskActionUrl = async (
+  taskId: string,
+  url?: string,
+  boundary?: AccountSessionBoundary,
+) =>
+  withCoinTaskActionStorageLock(async () => {
+    if (!/^\d+$/.test(taskId) || !url) return;
+    if (boundary) assertAccountSessionBoundary(boundary);
+    const key = await accountScopedStorageKey(COIN_TASK_ACTIONS_KEY, boundary);
+    const urls = await readCoinTaskActionUrls(boundary);
+    urls[taskId] = url;
+    if (boundary) assertAccountSessionBoundary(boundary);
+    await AsyncStorage.setItem(key, JSON.stringify(urls));
+    if (boundary) assertAccountSessionBoundary(boundary);
+  });
+
+const forgetCoinTaskActionUrl = async (
+  taskId: string,
+  boundary?: AccountSessionBoundary,
+) =>
+  withCoinTaskActionStorageLock(async () => {
+    if (boundary) assertAccountSessionBoundary(boundary);
+    const key = await accountScopedStorageKey(COIN_TASK_ACTIONS_KEY, boundary);
+    const urls = await readCoinTaskActionUrls(boundary);
+    if (!(taskId in urls)) return;
+    delete urls[taskId];
+    if (boundary) assertAccountSessionBoundary(boundary);
+    await AsyncStorage.setItem(key, JSON.stringify(urls));
+    if (boundary) assertAccountSessionBoundary(boundary);
+  });
 
 type WalletBreakdownDto = {
   total_balance?: unknown;
@@ -194,9 +269,7 @@ export const getWallet = async (): Promise<WalletSnapshot> => {
 };
 
 export const getCoinPackages = async (): Promise<DemoCoinPackage[]> => {
-  const data = payload<unknown>(
-    await publicRequest.get('packages'),
-  );
+  const data = payload<unknown>(await publicRequest.get('packages'));
   const items = Array.isArray(data)
     ? data
     : isApiRecord(data)
@@ -245,42 +318,46 @@ const truthfulTaskTitle = (title: string, actionKey: string) => {
 };
 
 export const getCoinTasks = async (): Promise<CoinTask[]> => {
+  const boundary = await captureAccountSessionBoundary();
   const response = await publicRequest.get('coin-earning-methods');
+  assertAccountSessionBoundary(boundary);
   const data = payload<CoinTaskDto[] | {data?: CoinTaskDto[]}>(response);
   const items = resourceList<CoinTaskDto>(data);
-  return items
-    .flatMap(item => {
-      const serverId = String(item.id ?? '').trim();
-      const reward = nonNegativeNumber(item.coins_amount);
-      if (!/^\d+$/.test(serverId) || reward === null || reward <= 0) return [];
-      const state = String(item.task_state || 'available');
-      const rawActionKey = String(item.action_key || '');
-      const replacesNotificationReward = rawActionKey
-        .toLowerCase()
-        .includes('notification');
-      // Older servers may still expose the retired permission reward. Treat the
-      // same immutable server task as the in-app coin guide until the seeder has
-      // renamed it, preserving claim history without requesting a permission.
-      const actionKey = replacesNotificationReward
-        ? 'demo_coin_guide'
-        : rawActionKey;
-      const requiresExternalVisit = replacesNotificationReward
-        ? false
-        : firstBoolean(item.requires_external_visit) ?? false;
-      const rawTitle = learnerFacingText(
-        item.title_ar || item.title_en,
-        'مهمة مكافأة',
-      );
-      return [{
+  const rememberedUrls = await readCoinTaskActionUrls(boundary);
+  const tasks = items.flatMap<CoinTask>(item => {
+    const serverId = String(item.id ?? '').trim();
+    const reward = nonNegativeNumber(item.coins_amount);
+    if (!/^\d+$/.test(serverId) || reward === null || reward <= 0) return [];
+    const state = String(item.task_state || 'available');
+    const rawActionKey = String(item.action_key || '');
+    const replacesNotificationReward = rawActionKey
+      .toLowerCase()
+      .includes('notification');
+    // Older servers may still expose the retired permission reward. Treat the
+    // same immutable server task as the in-app coin guide until the seeder has
+    // renamed it, preserving claim history without requesting a permission.
+    const actionKey = replacesNotificationReward
+      ? 'demo_coin_guide'
+      : rawActionKey;
+    const requiresExternalVisit = replacesNotificationReward
+      ? false
+      : firstBoolean(item.requires_external_visit) ?? false;
+    const rawTitle = learnerFacingText(
+      item.title_ar || item.title_en,
+      'مهمة مكافأة',
+    );
+    return [
+      {
         id: `production-${serverId}`,
         serverId,
         title: truthfulTaskTitle(rawTitle, actionKey),
         description: taskDescription(actionKey),
         reward,
-        url:
-          !replacesNotificationReward && item.action_url
+        url: !replacesNotificationReward
+          ? item.action_url
             ? String(item.action_url)
-            : undefined,
+            : rememberedUrls[serverId]
+          : undefined,
         status:
           state === 'claimed'
             ? 'claimed'
@@ -289,27 +366,51 @@ export const getCoinTasks = async (): Promise<CoinTask[]> => {
             : 'available',
         actionKey,
         requiresExternalVisit,
-      }];
-    });
+      },
+    ];
+  });
+  const activeIds = new Set(
+    tasks.filter(task => task.status !== 'claimed').map(task => task.serverId),
+  );
+  for (const taskId of Object.keys(rememberedUrls)) {
+    if (!activeIds.has(taskId)) {
+      void forgetCoinTaskActionUrl(taskId, boundary).catch(() => undefined);
+    }
+  }
+
+  return tasks;
 };
 
 export const startCoinTask = async (task: CoinTask) => {
   if (!/^\d+$/.test(task.serverId)) throw new Error('INVALID_COIN_TASK_ID');
+  const boundary = await captureAccountSessionBoundary();
   const data = payload(
     await publicRequest.post(`coin-earning-methods/${task.serverId}/start`),
   );
-  return {
-    status: String(data.task_state || 'started'),
-    url: data.action_url ? String(data.action_url) : task.url,
-  };
+  assertAccountSessionBoundary(boundary);
+  const status = String(data.task_state || 'started');
+  const url = data.action_url ? String(data.action_url) : task.url;
+  if (status === 'claimed') {
+    await forgetCoinTaskActionUrl(task.serverId, boundary).catch(
+      () => undefined,
+    );
+  } else {
+    await rememberCoinTaskActionUrl(task.serverId, url, boundary).catch(
+      () => undefined,
+    );
+  }
+
+  return {status, url};
 };
 
 export const claimCoinTask = async (task: CoinTask) => {
   if (!/^\d+$/.test(task.serverId)) throw new Error('INVALID_COIN_TASK_ID');
+  const boundary = await captureAccountSessionBoundary();
   const data = payload(
     await publicRequest.post('claim-coins', {method_id: Number(task.serverId)}),
   );
-  return {
+  assertAccountSessionBoundary(boundary);
+  const result = {
     balance: requireNonNegativeNumber(
       data.new_balance,
       'COIN_TASK_NEW_BALANCE',
@@ -319,6 +420,8 @@ export const claimCoinTask = async (task: CoinTask) => {
       'COIN_TASK_EARNED_AMOUNT',
     ),
   };
+  await forgetCoinTaskActionUrl(task.serverId, boundary).catch(() => undefined);
+  return result;
 };
 
 export type ProductionRewardResult = RewardResult;

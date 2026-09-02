@@ -2,18 +2,12 @@ import React, {memo} from 'react';
 import {ImageBackground, StyleSheet, Text, View} from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import {DemoCourse} from '../../data/demoContent';
-import {
-  formatArabicDisplayText,
-  formatArabicMinutes,
-  formatArabicNumber,
-  formatArabicStudents,
-} from '../../constants/arabicFormatting';
+import {formatArabicDisplayText} from '../../constants/arabicFormatting';
 import {
   Palette,
   Radius,
   Spacing,
   Type,
-  rtlRowStyle,
   textDirection,
   useResponsiveLayout,
 } from '../../constants/designSystem';
@@ -57,27 +51,6 @@ const CarouselItem = ({
               <Text numberOfLines={2} style={styles.description}>
                 {formatArabicDisplayText(course.description)}
               </Text>
-            )}
-            {(Boolean(course.durationMinutes) ||
-              Boolean(course.ratingsCount && course.ratingAverage) ||
-              Boolean(course.studentsCount)) && (
-              <View style={styles.metaRow}>
-                {!!course.durationMinutes && (
-                  <Text style={styles.metaText}>
-                    {formatArabicMinutes(Math.round(course.durationMinutes))}
-                  </Text>
-                )}
-                {!!course.ratingsCount && !!course.ratingAverage && (
-                  <Text style={styles.metaText}>
-                    ★ {formatArabicNumber(course.ratingAverage)}
-                  </Text>
-                )}
-                {!!course.studentsCount && (
-                  <Text style={styles.metaText}>
-                    {formatArabicStudents(course.studentsCount)}
-                  </Text>
-                )}
-              </View>
             )}
             <View style={styles.ctaRow}>
               <Button
@@ -132,13 +105,6 @@ const styles = StyleSheet.create({
     marginLeft: 'auto',
     marginTop: Spacing.xs,
   },
-  metaRow: {
-    ...rtlRowStyle,
-    alignItems: 'center',
-    gap: Spacing.md,
-    marginTop: Spacing.sm,
-  },
-  metaText: {...Type.caption, color: Palette.textMuted},
   weekPill: {alignSelf: 'flex-start'},
   ctaRow: {width: '100%', alignItems: 'center', marginTop: Spacing.xs},
   button: {minWidth: 184, marginTop: 0},

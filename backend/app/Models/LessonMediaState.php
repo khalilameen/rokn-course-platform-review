@@ -17,6 +17,7 @@ final class LessonMediaState extends Model
         'last_error_code', 'last_error_message', 'retry_count',
         'integrity_status', 'integrity_issues', 'last_reconciled_at',
         'quarantined_at',
+        'probe_generation',
     ];
 
     protected $casts = [
@@ -28,7 +29,30 @@ final class LessonMediaState extends Model
         'last_reconciled_at' => 'datetime',
         'quarantined_at' => 'datetime',
         'retry_count' => 'integer',
+        'probe_generation' => 'integer',
     ];
+
+    /** Every provider-media generation owns all of its derived health fields. */
+    public static function resetForGeneration(string $providerMediaId, string $status = 'processing'): array
+    {
+        return [
+            'provider' => 'bunny',
+            'provider_media_id' => $providerMediaId,
+            'status' => $status,
+            'protocol' => 'hls',
+            'duration_seconds' => null,
+            'available_qualities' => ['auto'],
+            'manifest' => null,
+            'last_probe_at' => null,
+            'last_error_code' => null,
+            'last_error_message' => null,
+            'retry_count' => 0,
+            'integrity_status' => 'unknown',
+            'integrity_issues' => null,
+            'last_reconciled_at' => null,
+            'quarantined_at' => null,
+        ];
+    }
 
     public function shouldInvalidateCourseCatalogue(): bool
     {

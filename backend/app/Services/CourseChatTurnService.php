@@ -6,10 +6,15 @@ namespace App\Services;
 
 use App\Models\AiUsageEvent;
 use App\Models\CourseChatTurn;
+use App\Models\AiInputAttachment;
+use App\Models\User;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\CursorPaginator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use App\Support\BusinessClock;
 use UnexpectedValueException;
 
 final class CourseChatTurnService
@@ -29,7 +34,8 @@ final class CourseChatTurnService
         string $clientRequestId,
         string $question,
         string $language,
-        string $promptVersion
+        string $promptVersion,
+        array $attachmentIds = []
     ): ?CourseChatTurn {
         if (!$this->available()) {
             return null;
@@ -41,6 +47,7 @@ final class CourseChatTurnService
             'question' => $question,
             'language' => $language,
             'prompt_version' => $promptVersion,
+            'attachment_ids' => array_values($attachmentIds),
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
         return DB::transaction(function () use (
@@ -52,8 +59,12 @@ final class CourseChatTurnService
             $question,
             $language,
             $promptVersion,
-            $fingerprint
+            $fingerprint,
+            $attachmentIds
         ): CourseChatTurn {
+            if (!User::query()->whereKey($userId)->where('active', true)->lockForUpdate()->exists()) {
+                throw new AuthorizationException('The learner account is no longer active.');
+            }
             $existing = CourseChatTurn::query()
                 ->where('user_id', $userId)
                 ->where('client_request_id', $clientRequestId)
@@ -81,6 +92,7 @@ final class CourseChatTurnService
                     'prompt_version' => $promptVersion,
                     'language' => substr($language, 0, 12),
                     'status' => CourseChatTurn::QUEUED,
+                    'attachment_count' => count($attachmentIds),
                     'question' => $question,
                     'expires_at' => now()->addDays(max(7, (int) config('openrouter.chat_history_days', 90))),
                 ]
@@ -93,20 +105,34 @@ final class CourseChatTurnService
         }, 3);
     }
 
-    /** @return list<array{role:string,content:string}> */
+    /** @return list<array<string,mixed>> */
     public function context(
         int $userId,
         int $courseId,
         ?int $lessonId,
         string $language,
         string $promptVersion,
-        int $excludeTurnId
+        int $excludeTurnId,
+        int $characterBudget = 16000
     ): array {
         if (!$this->available()) {
             return [];
         }
 
-        return CourseChatTurn::query()
+        // The rows are the durable source of truth. Build a bounded rolling
+        // view from the whole course, not only the current lesson: older
+        // exchanges become an extractive factual summary while recent pairs
+        // retain their exact text and attachment annotations.
+        $currentTurnCreatedAt = CourseChatTurn::query()
+            ->whereKey($excludeTurnId)
+            ->value('created_at');
+        $sessionStartedAt = $currentTurnCreatedAt
+            ? \Illuminate\Support\Carbon::parse($currentTurnCreatedAt)->subMinutes(max(
+                15,
+                (int) config('openrouter.chat_context_session_minutes', 120)
+            ))
+            : now();
+        $history = CourseChatTurn::query()
             ->where('user_id', $userId)
             ->where('course_id', $courseId)
             ->where('language', $language)
@@ -114,19 +140,70 @@ final class CourseChatTurnService
             ->where('status', CourseChatTurn::COMPLETED)
             ->where('id', '<>', $excludeTurnId)
             ->where('expires_at', '>', now())
-            ->when(
-                $lessonId === null,
-                fn ($query) => $query->whereNull('lesson_id'),
-                fn ($query) => $query->where('lesson_id', $lessonId)
-            )
+            ->where('created_at', '>=', $sessionStartedAt)
             ->orderByDesc('id')
-            ->limit(4)
-            ->get(['question', 'answer'])
-            ->reverse()
-            ->flatMap(fn (CourseChatTurn $turn): array => [
-                ['role' => 'user', 'content' => (string) $turn->question],
-                ['role' => 'assistant', 'content' => (string) $turn->answer],
-            ])
+            ->limit(40)
+            ->get(['id', 'lesson_id', 'question', 'answer'])
+            ->reverse();
+        $characterBudget = max(4000, min(24000, $characterBudget));
+        $recentBudget = (int) floor($characterBudget * .72);
+        $recent = collect();
+        $recentCharacters = 0;
+        foreach ($history->reverse() as $turn) {
+            $characters = mb_strlen((string) $turn->question)
+                + mb_strlen((string) $turn->answer);
+            if ($recent->count() >= 6 && $recentCharacters + $characters > $recentBudget) {
+                break;
+            }
+            $recent->prepend($turn);
+            $recentCharacters += $characters;
+        }
+        $recentIds = $recent->pluck('id')->all();
+        $firstRecent = $recent->first();
+        $checkpointSummary = app(AiConversationContextService::class)->courseChat(
+            $userId,
+            $courseId,
+            $firstRecent instanceof CourseChatTurn ? (int) $firstRecent->id : $excludeTurnId,
+            max(800, $characterBudget - $recentCharacters),
+            (string) (CourseChatTurn::query()->whereKey($excludeTurnId)
+                ->value('question') ?? ''),
+            $sessionStartedAt
+        );
+        $annotations = AiInputAttachment::query()
+            ->where('owner_type', AiInputAttachment::OWNER_COURSE_CHAT_TURN)
+            ->whereIn('owner_id', $recentIds)
+            ->whereNotNull('provider_annotations')
+            ->get(['owner_id', 'provider_annotations'])
+            ->groupBy('owner_id');
+        $messages = collect();
+        if ($checkpointSummary !== '') {
+            $messages->push([
+                'role' => 'system',
+                'content' => "حقائق من المحادثة السابقة في هذا الكورس\n"
+                    . $checkpointSummary,
+            ]);
+        }
+        $messages = $messages->concat($recent->flatMap(function (CourseChatTurn $turn) use (
+            $annotations,
+            $lessonId
+        ): array {
+            $assistantAnnotations = $annotations->get($turn->id, collect())
+                ->flatMap(fn (AiInputAttachment $attachment): array =>
+                    is_array($attachment->provider_annotations) ? $attachment->provider_annotations : []
+                )->values()->all();
+            return [
+                [
+                    'role' => 'user',
+                    'content' => ($lessonId !== null && (int) $turn->lesson_id !== $lessonId
+                        ? "من مقطع سابق في الكورس\n" : '') . (string) $turn->question,
+                ],
+                array_filter([
+                    'role' => 'assistant', 'content' => (string) $turn->answer,
+                    'annotations' => $assistantAnnotations === [] ? null : $assistantAnnotations,
+                ], static fn ($value): bool => $value !== null),
+            ];
+        }));
+        return $messages
             ->filter(fn (array $message): bool => trim($message['content']) !== '')
             ->values()
             ->all();
@@ -152,6 +229,84 @@ final class CourseChatTurnService
             ]);
     }
 
+    public function markAdmissionQuotaConsumed(
+        CourseChatTurn $turn,
+        string $minuteKey,
+        string $dailyKey
+    ): bool
+    {
+        return CourseChatTurn::query()
+            ->whereKey($turn->id)
+            ->where(function ($query): void {
+                $query->whereNull('admission_quota_consumed_at')
+                    ->orWhereNotNull('admission_quota_released_at');
+            })
+            ->update([
+                'admission_minute_key' => substr($minuteKey, 0, 190),
+                'admission_daily_key' => substr($dailyKey, 0, 190),
+                'admission_quota_consumed_at' => now(),
+                'admission_quota_released_at' => null,
+                'updated_at' => now(),
+            ]) === 1;
+    }
+
+    /** Release the ephemeral rate-limit debit at most once for this turn. */
+    public function releaseAdmissionQuota(?CourseChatTurn $turn): void
+    {
+        if (!$turn || !$this->available()) {
+            return;
+        }
+
+        $release = DB::transaction(function () use ($turn): ?array {
+            $locked = CourseChatTurn::query()->lockForUpdate()->find($turn->id);
+            if (
+                !$locked
+                || !$locked->admission_quota_consumed_at
+                || $locked->admission_quota_released_at
+            ) {
+                return null;
+            }
+
+            $locked->forceFill(['admission_quota_released_at' => now()])->save();
+            $day = ($locked->created_at ?: now())
+                ->copy()
+                ->utc()
+                ->setTimezone(BusinessClock::timezoneName())
+                ->format('Y-m-d');
+
+            return [
+                'consumed_at' => $locked->admission_quota_consumed_at,
+                'day' => $day,
+                'minute' => (string) ($locked->admission_minute_key ?: sprintf(
+                    'course-chat:minute:%d:%d',
+                    $locked->user_id,
+                    $locked->course_id
+                )),
+                'daily' => (string) ($locked->admission_daily_key ?: sprintf(
+                    'course-chat:daily:%s:%s',
+                    $day,
+                    $locked->enrollment_id
+                        ? 'enrollment-' . $locked->enrollment_id
+                        : 'user-' . $locked->user_id . '-course-' . $locked->course_id
+                )),
+            ];
+        }, 3);
+        if (!$release) {
+            return;
+        }
+
+        try {
+            if ($release['consumed_at']->isAfter(now()->subSeconds(60))) {
+                RateLimiter::decrement($release['minute'], 60);
+            }
+            if ($release['day'] === BusinessClock::now()->format('Y-m-d')) {
+                RateLimiter::decrement($release['daily'], $this->secondsUntilEndOfDay());
+            }
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
+    }
+
     public function complete(?CourseChatTurn $turn, string $answer, ?AiUsageEvent $usage = null): void
     {
         if (!$turn || !$this->available()) {
@@ -159,8 +314,13 @@ final class CourseChatTurnService
         }
 
         DB::transaction(function () use ($turn, $answer, $usage): void {
+            if (!User::query()->whereKey($turn->user_id)->where('active', true)
+                ->lockForUpdate()->exists()) return;
             $locked = CourseChatTurn::query()->lockForUpdate()->find($turn->id);
-            if (!$locked || $locked->status === CourseChatTurn::COMPLETED) {
+            if (!$locked || !in_array($locked->status, [
+                CourseChatTurn::QUEUED,
+                CourseChatTurn::STREAMING,
+            ], true)) {
                 return;
             }
             if (!$usage && Schema::hasTable('ai_usage_events')) {
@@ -229,10 +389,21 @@ final class CourseChatTurnService
             (int) config('course_plans.ai_reservation_ttl_seconds', 120) + 60,
             ((int) config('openrouter.timeout_seconds', 45) * 2) + 60
         );
-        $cutoff = now()->subSeconds($staleAfterSeconds);
+        $streamingCutoff = now()->subSeconds($staleAfterSeconds);
+        $queuedCutoff = now()->subSeconds(max(
+            $staleAfterSeconds,
+            (int) config('openrouter.queue_stale_seconds', 900)
+        ));
         $ids = CourseChatTurn::query()
-            ->whereIn('status', [CourseChatTurn::QUEUED, CourseChatTurn::STREAMING])
-            ->where('updated_at', '<=', $cutoff)
+            ->where(function ($query) use ($queuedCutoff, $streamingCutoff): void {
+                $query->where(function ($queued) use ($queuedCutoff): void {
+                    $queued->where('status', CourseChatTurn::QUEUED)
+                        ->where('updated_at', '<=', $queuedCutoff);
+                })->orWhere(function ($streaming) use ($streamingCutoff): void {
+                    $streaming->where('status', CourseChatTurn::STREAMING)
+                        ->where('updated_at', '<=', $streamingCutoff);
+                });
+            })
             ->orderBy('id')
             ->limit(max(1, min(5000, $limit)))
             ->pluck('id');
@@ -242,8 +413,17 @@ final class CourseChatTurnService
 
         $closed = 0;
         foreach ($ids as $id) {
-            $closed += DB::transaction(function () use ($id, $cutoff): int {
+            $releaseQuota = false;
+            $closed += DB::transaction(function () use (
+                $id,
+                $queuedCutoff,
+                $streamingCutoff,
+                &$releaseQuota
+            ): int {
                 $turn = CourseChatTurn::query()->lockForUpdate()->find($id);
+                $cutoff = $turn?->status === CourseChatTurn::QUEUED
+                    ? $queuedCutoff
+                    : $streamingCutoff;
                 if (
                     !$turn
                     || !in_array($turn->status, [
@@ -275,6 +455,17 @@ final class CourseChatTurnService
                 // interrupted, so recover that answer instead of inviting a
                 // second paid request under a fresh client id.
                 if ($usage?->status === 'completed' && $accepted !== '') {
+                    $annotations = data_get($usage->metadata, 'provider_file_annotations', []);
+                    if (is_array($annotations) && $annotations !== []) {
+                        $attachmentService = app(AiInputAttachmentService::class);
+                        $owned = $attachmentService->forOwner(
+                            AiInputAttachment::OWNER_COURSE_CHAT_TURN,
+                            (int) $turn->id
+                        );
+                        if ($owned->isNotEmpty()) {
+                            $attachmentService->markProcessed($owned, $annotations);
+                        }
+                    }
                     $turn->forceFill([
                         'status' => CourseChatTurn::COMPLETED,
                         'answer' => mb_substr($accepted, 0, 12000),
@@ -282,8 +473,16 @@ final class CourseChatTurnService
                         'usage_event_id' => $usage->id,
                         'completed_at' => $usage->completed_at ?? now(),
                     ])->save();
+                    app(PaidAiCallExecutionService::class)->markPresented($usage);
 
                     return 1;
+                }
+
+                if (
+                    $usage?->status === 'reserved'
+                    && data_get($usage->metadata, 'provider_call_state') === PaidAiCallExecutionService::LANDED
+                ) {
+                    return 0;
                 }
 
                 // The entitlement lease is newer and more precise than the
@@ -302,9 +501,15 @@ final class CourseChatTurnService
                     'error_code' => 'chat_request_abandoned',
                     'completed_at' => now(),
                 ])->save();
+                $releaseQuota = true;
 
                 return 1;
             }, 3);
+            if ($releaseQuota) {
+                $this->releaseAdmissionQuota(
+                    CourseChatTurn::query()->find((int) $id)
+                );
+            }
         }
 
         return $closed;
@@ -328,5 +533,13 @@ final class CourseChatTurnService
                 'completed_at' => $completedAt,
                 'updated_at' => now(),
             ]);
+    }
+
+    private function secondsUntilEndOfDay(): int
+    {
+        $now = BusinessClock::utcNow();
+        $nextDay = BusinessClock::now()->addDay()->startOfDay()->utc();
+
+        return max(1, (int) ceil($now->diffInSeconds($nextDay, true)));
     }
 }

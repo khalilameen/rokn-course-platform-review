@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
   extractApiToken,
-  getCurrentAccountStorageScope,
   getItem,
   AsyncKeys,
 } from '../constants/helpers';
@@ -9,6 +10,7 @@ import {
   migrateGuestLearningState,
   migrateGuestSavedCollections,
 } from '../components/VideoPlayer/courseLearningApi';
+import {migrateGuestProductFeedback} from './productFeedback';
 
 const PENDING_GUEST_MIGRATION_KEY = '@rokn/pending-guest-migration/v1';
 const SEARCH_HISTORY_KEY = '@rokn/search-history/v1';
@@ -212,8 +214,10 @@ const resumeGuestAccountMigration = async (
   syncRemoteCollections = true,
 ): Promise<boolean> => {
   if (!extractApiToken(await getItem(AsyncKeys.USER_DATA))) return false;
-  const accountScope = await getCurrentAccountStorageScope();
+  const accountBoundary = await captureAccountSessionBoundary();
+  const accountScope = accountBoundary.scope;
   const record = await readPendingMigration(accountScope);
+  assertAccountSessionBoundary(accountBoundary);
   if (!record) return false;
   const pending = record.value;
   const {guestScope} = pending;
@@ -232,17 +236,33 @@ const resumeGuestAccountMigration = async (
     pending.accountScope = accountScope;
   }
 
-  if (!(await migrateGuestLearningState(guestScope))) return false;
+  if (!(await migrateGuestLearningState(guestScope, accountBoundary))) return false;
   await Promise.all([
     mergeStringList(SEARCH_HISTORY_KEY, guestScope, accountScope, 7),
     mergeOutbox(guestScope, accountScope),
     copyPreferences(guestScope, accountScope),
     moveAttachmentPromptReceipts(guestScope, accountScope),
+    migrateGuestProductFeedback(
+      guestScope,
+      accountScope,
+      false,
+      accountBoundary,
+    ),
   ]);
+  assertAccountSessionBoundary(accountBoundary);
 
   if (!syncRemoteCollections) return true;
-  const collectionsMigrated = await migrateGuestSavedCollections(guestScope);
-  if (!collectionsMigrated) return false;
+  const [collectionsMigrated, feedbackMigrated] = await Promise.all([
+    migrateGuestSavedCollections(guestScope, accountBoundary),
+    migrateGuestProductFeedback(
+      guestScope,
+      accountScope,
+      true,
+      accountBoundary,
+    ),
+  ]);
+  assertAccountSessionBoundary(accountBoundary);
+  if (!collectionsMigrated || !feedbackMigrated) return false;
   await AsyncStorage.multiRemove([
     record.key,
     `@rokn/course-player/v3:${guestScope}`,

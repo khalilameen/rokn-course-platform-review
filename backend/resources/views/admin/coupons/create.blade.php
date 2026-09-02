@@ -10,6 +10,7 @@
                 </div>
                 <div class="card-body card-block">
                     {!! Form::open(['method' => 'POST','files' => true, 'route' => ['admin.coupons.store']]) !!}
+                        <input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">
                         @include('admin.coupons._form')
                     {!! Form::close() !!}
                 </div>

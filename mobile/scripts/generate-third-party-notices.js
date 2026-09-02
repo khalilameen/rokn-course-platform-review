@@ -155,6 +155,7 @@ const LEGAL_FILE_ABSENCE_ALLOWLIST = new Set([
   'expo-asset@55.0.18',
   'expo-constants@55.0.17',
   'expo-crypto@55.0.17',
+  'expo-document-picker@55.0.17',
   'expo-file-system@55.0.24',
   'expo-font@55.0.8',
   'expo-keep-awake@55.0.8',

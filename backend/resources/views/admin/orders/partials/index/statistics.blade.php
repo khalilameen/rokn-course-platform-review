@@ -64,10 +64,13 @@
                     <div class="stat-icon-wrapper stat-icon--revenue mx-auto">
                         <i class="ti-money text-white"></i>
                     </div>
-                    <div class="stat-title">إجمالي التحصيل الفعلي</div>
+                    <div class="stat-title">إجمالي التحصيل المؤكد</div>
                     <h3 class="stat-value stat-value--amount">{{ number_format($stats['total_amount'], 2) }}</h3>
                     <small class="text-muted">جنيه</small>
                     <br><small class="text-muted">دون الاختبارات أو العمليات المرتجعة</small>
+                    @if($stats['catalog_estimated_amount'] > 0)
+                        <br><small class="text-warning">{{ number_format($stats['catalog_estimated_amount'], 2) }} تقدير كتالوج خارج الإجمالي</small>
+                    @endif
                 </div>
             </div>
         </div>

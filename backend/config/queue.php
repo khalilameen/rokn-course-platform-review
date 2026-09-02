@@ -17,8 +17,17 @@ return [
 
     'channels' => [
         'notifications' => env('NOTIFICATIONS_QUEUE', 'notifications'),
+        'ai_chat' => env('AI_CHAT_QUEUE', 'ai-chat'),
         'ai_feedback' => env('AI_FEEDBACK_QUEUE', 'ai-feedback'),
+        // Remote media/storage work must never consume the latency-sensitive
+        // default queue. Operations has its own lane so alerts and recovery
+        // work are not trapped behind learner-facing or media jobs.
+        'media' => env('MEDIA_QUEUE', 'media'),
+        'operations' => env('OPERATIONS_QUEUE', 'operations'),
     ],
+
+    'longest_job_timeout_seconds' => (int) env('QUEUE_LONGEST_JOB_TIMEOUT_SECONDS', 300),
+    'retry_headroom_seconds' => (int) env('QUEUE_RETRY_HEADROOM_SECONDS', 30),
 
     /*
     |--------------------------------------------------------------------------
@@ -67,8 +76,8 @@ return [
             'driver' => 'redis',
             'connection' => 'default',
             'queue' => env('REDIS_QUEUE', 'default'),
-            // Must remain above the longest job timeout (notification chunks
-            // currently use 120 seconds) or a live job can be delivered twice.
+            // Must remain above the longest job timeout (token pruning uses
+            // 300 seconds) or a live job can be delivered twice.
             'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 360),
             'block_for' => null,
         ],

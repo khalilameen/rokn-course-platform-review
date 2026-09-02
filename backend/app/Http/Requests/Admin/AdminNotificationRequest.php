@@ -27,6 +27,11 @@ class AdminNotificationRequest extends FormRequest
     public function rules()
     {
         $notification = $this->route('admin_notification');
+        if (!$notification && $this->isMethod('post')) {
+            $notification = AdminNotification::query()
+                ->where('authoring_request_id', (string) $this->input('authoring_request_id'))
+                ->first();
+        }
 
         return [
             'system_key' => [
@@ -67,6 +72,7 @@ class AdminNotificationRequest extends FormRequest
             'ends_at' => 'nullable|date|after:starts_at',
             'image' => 'nullable|image|max:4096',
             'remove_image' => 'nullable|boolean',
+            'authoring_request_id' => [$this->isMethod('post') ? 'required' : 'nullable', 'uuid'],
         ];
     }
 
@@ -95,6 +101,7 @@ class AdminNotificationRequest extends FormRequest
                 'task',
                 'lesson',
                 'quiz',
+                'case',
             ]);
             if ($unknown !== []) {
                 $fail('يوجد متغير غير معروف في النص');

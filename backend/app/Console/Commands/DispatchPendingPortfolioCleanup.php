@@ -31,7 +31,7 @@ final class DispatchPendingPortfolioCleanup extends Command
 
                     try {
                         CleanupDeletedAccountPortfolioMedia::dispatch((int) $user->id)
-                            ->onQueue('default');
+                            ->onQueue((string) config('queue.channels.media', 'media'));
                         $dispatched++;
                     } catch (\Throwable $exception) {
                         // A sync queue or unavailable broker must not lose the

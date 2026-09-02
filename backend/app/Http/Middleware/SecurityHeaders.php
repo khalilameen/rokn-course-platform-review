@@ -17,7 +17,11 @@ final class SecurityHeaders
         $response->headers->set('X-Content-Type-Options', 'nosniff');
         $response->headers->set('X-Frame-Options', 'SAMEORIGIN');
         $response->headers->set('X-Permitted-Cross-Domain-Policies', 'none');
-        $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
+        // Controllers serving unlisted capability pages may deliberately set
+        // no-referrer. Never weaken an explicit, stricter response policy.
+        if (!$response->headers->has('Referrer-Policy')) {
+            $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
+        }
         $response->headers->set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
 
         // Account-scoped JSON often contains progress, wallet state or a

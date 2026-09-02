@@ -22,8 +22,24 @@
                     <span class="stat-label">الروابط</span>
                 </div>
                 <div class="stat-card">
-                    <span class="stat-counter">{{ $activeStudentsCount }}</span>
+                    <span class="stat-counter">{{ number_format($learningHealthSummary['enrolled_students']) }}</span>
                     <span class="stat-label">الطلاب النشطون فعليًا</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-counter">{{ number_format($learningHealthSummary['started_students']) }}</span>
+                    <span class="stat-label">بدأوا التعلّم</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-counter">{{ number_format($learningHealthSummary['completed_students']) }}</span>
+                    <span class="stat-label">أتموا الكورس</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-counter">{{ number_format($learningHealthSummary['not_started_students']) }}</span>
+                    <span class="stat-label">لم يبدأوا بعد</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-counter">{{ number_format($learningHealthSummary['average_progress_percentage']) }}٪</span>
+                    <span class="stat-label">متوسط التقدم الفعلي</span>
                 </div>
                 @if($ratingSummary)
                     <div class="stat-card">
@@ -36,4 +52,12 @@
                     </div>
                 @endif
             </div>
+            @if($commercialReport)
+                <div class="mt-4">
+                    <a class="btn btn-primary-center btn-modern" href="{{ route('admin.student-progress.index', ['course_id' => $course->id]) }}">
+                        <i class="fa fa-users" aria-hidden="true"></i>
+                        تفاصيل تقدم الطلاب
+                    </a>
+                </div>
+            @endif
         </div>

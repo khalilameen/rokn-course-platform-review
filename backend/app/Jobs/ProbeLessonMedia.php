@@ -21,12 +21,12 @@ final class ProbeLessonMedia implements ShouldQueue, ShouldBeUnique
 
     public int $tries = 12;
     public int $timeout = 45;
-    public int $uniqueFor = 1800;
+    public int $uniqueFor = 3600;
     public bool $failOnTimeout = true;
 
     public function __construct(public int $lessonId)
     {
-        $this->onQueue('default');
+        $this->onQueue((string) config('queue.channels.media', 'media'));
     }
 
     public function uniqueId(): string

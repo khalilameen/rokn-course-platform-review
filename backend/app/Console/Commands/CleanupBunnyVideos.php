@@ -108,6 +108,16 @@ final class CleanupBunnyVideos extends Command
                 ->whereIn('status', ['attached', 'failed'])
                 ->delete();
         }
+        if (\Illuminate\Support\Facades\Schema::hasTable('portfolio_video_uploads')) {
+            DB::table('portfolio_video_uploads')
+                ->where('expires_at', '<', now())
+                ->whereIn('status', ['pending', 'allocating'])
+                ->update(['status' => 'failed', 'updated_at' => now()]);
+            DB::table('portfolio_video_uploads')
+                ->where('expires_at', '<', now()->subDays(7))
+                ->whereIn('status', ['attached', 'failed'])
+                ->delete();
+        }
 
         return $failed > 0 ? self::FAILURE : self::SUCCESS;
     }

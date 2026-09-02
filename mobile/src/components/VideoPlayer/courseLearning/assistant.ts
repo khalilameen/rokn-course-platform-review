@@ -1,6 +1,11 @@
 import {publicRequest} from '../../../constants/api';
 import {isLocalDemoId} from '../../../config/runtime';
 import {isProductFeatureEnabled} from '../../../services/productFeatures';
+import {
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+} from '../../../constants/helpers';
+import {openExternalUrlOnce} from '../../../services/systemActions';
 import {includesCourseAssistant} from '../courseEntitlements';
 import type {ChatMessage, CourseLearningData, CourseReel} from '../types';
 import {asArray, asRecord, valueAsBoolean, valueAsString} from './shared';
@@ -69,6 +74,16 @@ export const loadCourseAssistantHistory = async (
       (role === 'assistant' && status === 'failed'
         ? 'لم تكتمل الإجابة\nاستعد الرد'
         : '');
+    const attachments = asArray<Record<string, unknown>>(message.attachments).map(file => ({
+      uri: '',
+      name: valueAsString(file.name, 'مرفق'),
+      type: valueAsString(file.mime_type, 'application/octet-stream'),
+      size: Number(file.size_bytes) || undefined,
+      uploadId: valueAsString(file.id),
+      serverId: valueAsString(file.id),
+      downloadUrl: valueAsString(file.download_url) || undefined,
+      downloadExpiresAt: valueAsString(file.download_url_expires_at) || undefined,
+    }));
     return [{
       id,
       role: role as ChatMessage['role'],
@@ -79,8 +94,122 @@ export const loadCourseAssistantHistory = async (
       deliveryStatus: status as ChatMessage['deliveryStatus'],
       errorCode: valueAsString(message.error_code) || undefined,
       contextEligible: valueAsBoolean(message.context_eligible),
+      attachments,
     }];
   });
+};
+
+export const openCourseAssistantAttachment = async (
+  file: import('../types').ChatAttachmentDraft,
+) => {
+  let candidate = file;
+  const expiresAt = Date.parse(String(candidate.downloadExpiresAt || ''));
+  if (
+    !candidate.downloadUrl ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt <= Date.now() + 15000
+  ) {
+    if (!candidate.serverId) throw new Error('CHAT_ATTACHMENT_UNAVAILABLE');
+    const boundary = await captureAccountSessionBoundary();
+    const response = await publicRequest.get(
+      `ai-input-attachments/${encodeURIComponent(candidate.serverId)}`,
+    );
+    assertAccountSessionBoundary(boundary);
+    const refreshed = asRecord(asRecord(response?.data).data);
+    candidate = {
+      ...candidate,
+      downloadUrl: valueAsString(refreshed.download_url) || undefined,
+      downloadExpiresAt:
+        valueAsString(refreshed.download_url_expires_at) || undefined,
+    };
+  }
+  if (!candidate.downloadUrl) throw new Error('CHAT_ATTACHMENT_UNAVAILABLE');
+  await openExternalUrlOnce(candidate.downloadUrl);
+};
+
+export const pollCourseAssistantTurn = async (
+  clientRequestId: string,
+): Promise<{
+  text: string;
+  offline: boolean;
+  blocked?: boolean;
+  unavailable?: boolean;
+  clientRequestId?: string;
+  turnStatus?: ChatMessage['deliveryStatus'];
+  code?: string;
+  retryAfterSeconds?: number;
+  partial?: boolean;
+}> => {
+  let response: Awaited<ReturnType<typeof publicRequest.get>>;
+  try {
+    response = await publicRequest.get(
+      `course-chat/turns/${encodeURIComponent(clientRequestId)}`,
+      {timeout: 12000},
+    );
+  } catch {
+    // A status read cannot invalidate a turn already accepted by the server.
+    // Keep the same logical id and let the bounded polling loop recover after
+    // a mobile-network hand-off instead of showing a false failed answer.
+    return {
+      text: 'الرد قيد التجهيز\nسيظهر عند عودة الاتصال',
+      offline: true,
+      unavailable: true,
+      clientRequestId,
+      turnStatus: 'queued',
+      code: 'chat_answer_in_progress',
+      retryAfterSeconds: 5,
+    };
+  }
+  const responsePayload = asRecord(asRecord(response).data);
+  const data = asRecord(responsePayload.data);
+  const status = valueAsString(data.turn_status);
+  const turnStatus = [
+    'queued',
+    'sent',
+    'streaming',
+    'completed',
+    'failed',
+    'cancelled',
+  ].includes(status)
+    ? (status as ChatMessage['deliveryStatus'])
+    : 'failed';
+
+  const code = valueAsString(responsePayload.code).toLowerCase();
+  const blocked = [
+    'chat_upgrade_required',
+    'chat_plan_limit_reached',
+  ].includes(code);
+
+  return {
+    text:
+      (blocked && code === 'chat_plan_limit_reached'
+        ? 'استخدمت مساحة الأسئلة في فئتك الحالية\nيمكنك زيادتها بدفع فرق الفئة فقط'
+        : valueAsString(data.message)) ||
+      (turnStatus === 'completed'
+        ? ''
+        : 'الرد قيد التجهيز\nسيظهر خلال لحظات'),
+    offline: false,
+    blocked,
+    unavailable: !blocked && data.unavailable === true,
+    clientRequestId:
+      valueAsString(data.client_request_id) || clientRequestId,
+    turnStatus,
+    code: code || undefined,
+    retryAfterSeconds: Math.max(0, Number(data.retry_after_seconds) || 0),
+    partial: valueAsBoolean(data.partial),
+  };
+};
+
+export const cancelCourseAssistantTurn = async (clientRequestId: string): Promise<boolean> => {
+  try {
+    await publicRequest.delete(
+      `course-chat/turns/${encodeURIComponent(clientRequestId)}`,
+      {timeout: 12000},
+    );
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 export const askCourseAssistant = async ({
@@ -89,12 +218,14 @@ export const askCourseAssistant = async ({
   message,
   clientRequestId,
   onRequestStart,
+  attachmentIds = [],
 }: {
   course: CourseLearningData;
   reel?: CourseReel;
   message: string;
   clientRequestId?: string;
   onRequestStart?: () => void;
+  attachmentIds?: string[];
 }): Promise<{
   text: string;
   offline: boolean;
@@ -104,6 +235,7 @@ export const askCourseAssistant = async ({
   turnStatus?: ChatMessage['deliveryStatus'];
   code?: string;
   retryAfterSeconds?: number;
+  partial?: boolean;
 }> => {
   if (!courseIncludesAssistant(course)) {
     return {
@@ -135,6 +267,7 @@ export const askCourseAssistant = async ({
           client_request_id: clientRequestId,
           lesson_id: reel?.lessonId,
           reel_title: reel?.title,
+          attachment_ids: attachmentIds,
         },
         {timeout: COURSE_CHAT_REQUEST_TIMEOUT_MS},
       );
@@ -168,6 +301,7 @@ export const askCourseAssistant = async ({
           turnStatus,
           code: code || undefined,
           retryAfterSeconds: Math.max(0, Number(data.retry_after_seconds) || 0),
+          partial: valueAsBoolean(data.partial),
         };
       }
     } catch (error: unknown) {
@@ -237,4 +371,28 @@ export const askCourseAssistant = async ({
     code: 'ai_temporarily_unavailable',
     turnStatus: 'failed',
   };
+};
+
+export const uploadCourseAssistantAttachment = async ({
+  courseId,
+  file,
+}: {
+  courseId: string;
+  file: import('../types').ChatAttachmentDraft;
+}): Promise<string> => {
+  const body = new FormData();
+  body.append('client_upload_id', file.uploadId);
+  body.append('attachment', {
+    uri: file.uri,
+    name: file.name,
+    type: file.type || 'application/octet-stream',
+  } as unknown as Blob);
+  const response = await publicRequest.post(
+    `courses/${courseId}/chat/attachments`,
+    body,
+    {headers: {'Content-Type': 'multipart/form-data'}, timeout: 45000},
+  );
+  const id = valueAsString(response?.data?.data?.id);
+  if (!id) throw new Error('attachment_upload_failed');
+  return id;
 };

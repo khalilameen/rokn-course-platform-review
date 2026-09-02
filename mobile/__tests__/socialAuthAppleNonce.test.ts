@@ -37,6 +37,9 @@ jest.mock('../src/services/pendingWelcomeBonus', () => ({
   savePendingWelcomeBonus: jest.fn(async () => undefined),
 }));
 jest.mock('../src/services/secureSession', () => ({
+  extractApiToken: (value: {api_token?: string} | null) =>
+    value?.api_token || null,
+  loadSecureSession: jest.fn(async () => ({api_token: 'rokn-session-token'})),
   saveSecureSession: jest.fn(async () => undefined),
   savePendingSocialAuthAttempt: jest.fn(async () => undefined),
   loadPendingSocialAuthAttempt: jest.fn(async () => null),

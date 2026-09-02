@@ -83,6 +83,10 @@ class CourseRequest extends FormRequest
             'tokens_number' => 'nullable|integer|min:1|max:' . max(1, (int) config('openrouter.max_tokens', 420)),
             'chat_ai_prompt' => 'nullable|string|max:1200',
             'ai_chat_enabled' => 'nullable|boolean',
+            'chat_attachments_enabled' => 'nullable|boolean',
+            'chat_attachment_max_files' => 'nullable|integer|min:1|max:5',
+            'grant_chat_attachments_to_current_enrollments' => 'nullable|boolean',
+            'grant_project_followup_attachments_to_current_enrollments' => 'nullable|boolean',
             'attachment_prompt_enabled' => 'nullable|boolean',
             'attachment_prompt_at_seconds' => 'required_if:attachment_prompt_enabled,1|nullable|integer|min:0|max:3600',
             'attachment_prompt_title' => 'nullable|string|max:120',
@@ -126,6 +130,10 @@ class CourseRequest extends FormRequest
             'access_plans.*.chat_enabled' => 'nullable|boolean',
             'access_plans.*.chat_message_limit' => 'nullable|integer|min:0|max:100000',
             'access_plans.*.chat_token_budget' => 'nullable|integer|min:0|max:1000000000',
+            'access_plans.*.chat_attachments_enabled' => 'nullable|boolean',
+            'access_plans.*.chat_attachment_max_files' => 'nullable|integer|min:0|max:5',
+            'access_plans.*.project_followup_attachments_enabled' => 'nullable|boolean',
+            'access_plans.*.project_followup_attachment_max_files' => 'nullable|integer|min:0|max:5',
             'access_plans.*.ai_budget_usd' => 'nullable|numeric|min:0|max:10000',
             'access_plans.*.request_reserve_usd' => 'nullable|numeric|min:0|max:1000',
             'access_plans.*.project_feedback_token_budget' => 'nullable|integer|min:0|max:1000000000',
@@ -210,6 +218,24 @@ class CourseRequest extends FormRequest
                             'ميزانية تقرير المشروع وحجزه يجب أن يكونا موجبين ومتوافقين مع حد الرد.'
                         );
                     }
+                }
+                if (!empty($row['chat_attachments_enabled']) && (
+                    empty($row['chat_enabled'])
+                    || (int) ($row['chat_attachment_max_files'] ?? 0) < 1
+                )) {
+                    $validator->errors()->add(
+                        "access_plans.{$code}.chat_attachments_enabled",
+                        'المرفقات تحتاج تفعيل Rokn AI وتحديد عدد ملفات من 1 إلى 5.'
+                    );
+                }
+                if (!empty($row['project_followup_attachments_enabled']) && (
+                    $feedback !== 'enhanced'
+                    || (int) ($row['project_followup_attachment_max_files'] ?? 0) < 1
+                )) {
+                    $validator->errors()->add(
+                        "access_plans.{$code}.project_followup_attachments_enabled",
+                        'مرفقات متابعة المشروع تحتاج فئة enhanced وعدد ملفات من 1 إلى 5'
+                    );
                 }
 
                 if ($feedback === 'enhanced') {

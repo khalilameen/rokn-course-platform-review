@@ -1,9 +1,14 @@
 import {NativeModules, Platform} from 'react-native';
 import * as Notifications from 'expo-notifications';
 import {
+  AsyncKeys,
   accountScopedStorageKey,
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+  extractApiToken,
   getItem,
   saveItem,
+  type AccountSessionBoundary,
 } from '../constants/helpers';
 import {
   formatArabicDisplayText,
@@ -18,21 +23,57 @@ import {
 export const REMINDER_ENABLED_KEY = 'PREF_NOTIFICATIONS';
 export const REMINDER_HOUR_KEY = 'PREF_REMINDER_HOUR';
 
-const reminderEnabledStorageKey = () =>
-  accountScopedStorageKey(REMINDER_ENABLED_KEY);
-const reminderHourStorageKey = () => accountScopedStorageKey(REMINDER_HOUR_KEY);
+const reminderEnabledStorageKey = (boundary: AccountSessionBoundary) =>
+  accountScopedStorageKey(REMINDER_ENABLED_KEY, boundary);
+const reminderHourStorageKey = (boundary: AccountSessionBoundary) =>
+  accountScopedStorageKey(REMINDER_HOUR_KEY, boundary);
 
-export const getSmartRemindersEnabled = async () =>
-  (await getItem(await reminderEnabledStorageKey())) === true;
+const getSmartRemindersEnabledFor = async (
+  boundary: AccountSessionBoundary,
+) => {
+  const enabled =
+    (await getItem(await reminderEnabledStorageKey(boundary))) === true;
+  assertAccountSessionBoundary(boundary);
+  return enabled;
+};
 
-export const setSmartRemindersEnabled = async (enabled: boolean) =>
-  saveItem(await reminderEnabledStorageKey(), enabled);
+export const getSmartRemindersEnabled = async () => {
+  const boundary = await captureAccountSessionBoundary();
+  return getSmartRemindersEnabledFor(boundary);
+};
 
-export const getSmartReminderHour = async () =>
-  safeReminderHour(await getItem(await reminderHourStorageKey()));
+export const setSmartRemindersEnabled = async (enabled: boolean) => {
+  const boundary = await captureAccountSessionBoundary();
+  const saved = await saveItem(
+    await reminderEnabledStorageKey(boundary),
+    enabled,
+  );
+  assertAccountSessionBoundary(boundary);
+  return saved;
+};
 
-export const setSmartReminderHour = async (hour: number) =>
-  saveItem(await reminderHourStorageKey(), safeReminderHour(hour));
+const getSmartReminderHourFor = async (boundary: AccountSessionBoundary) => {
+  const hour = safeReminderHour(
+    await getItem(await reminderHourStorageKey(boundary)),
+  );
+  assertAccountSessionBoundary(boundary);
+  return hour;
+};
+
+export const getSmartReminderHour = async () => {
+  const boundary = await captureAccountSessionBoundary();
+  return getSmartReminderHourFor(boundary);
+};
+
+export const setSmartReminderHour = async (hour: number) => {
+  const boundary = await captureAccountSessionBoundary();
+  const saved = await saveItem(
+    await reminderHourStorageKey(boundary),
+    safeReminderHour(hour),
+  );
+  assertAccountSessionBoundary(boundary);
+  return saved;
+};
 
 type ReminderModule = {
   requestPermission: () => Promise<boolean>;
@@ -117,6 +158,44 @@ const scheduleExpoReminder = async ({
   return true;
 };
 
+const cancelReminderId = async (id: number) => {
+  if (nativeReminders) {
+    nativeReminders.cancel(id);
+    return;
+  }
+  const identifier = expoReminderId(id);
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  await Promise.all(
+    scheduled
+      .filter(item => item.content.data?.rokn_reminder_id === identifier)
+      .map(item =>
+        Notifications.cancelScheduledNotificationAsync(item.identifier),
+      ),
+  );
+};
+
+/**
+ * Local notification scheduling is an external side effect. If logout or an
+ * account replacement wins while the OS call is in flight, remove the timer
+ * which just landed instead of letting the previous learner's course or coin
+ * text appear in the next learner's device session.
+ */
+const scheduleForAccount = async (
+  id: number,
+  boundary: AccountSessionBoundary,
+  operation: () => Promise<boolean>,
+) => {
+  assertAccountSessionBoundary(boundary);
+  const scheduled = await operation();
+  try {
+    assertAccountSessionBoundary(boundary);
+    return scheduled;
+  } catch (error) {
+    await cancelReminderId(id).catch(() => undefined);
+    throw error;
+  }
+};
+
 /**
  * A read-only capability check for permission primers. It never asks for an
  * OS permission and keeps unsupported platforms from showing a dead action.
@@ -156,14 +235,15 @@ export const enableSmartReminders = async () => {
 };
 
 export const previewSmartReminder = async () => {
-  if (nativeReminders) return nativeReminders.preview(
-    'أكمل من مكانك',
-    'افتح ركن\nمقطعك التالي جاهز',
-    'rokn://home',
-    'learning_reminder',
-    undefined,
-    notificationDefaultAction.learning_reminder,
-  );
+  if (nativeReminders)
+    return nativeReminders.preview(
+      'أكمل من مكانك',
+      'افتح ركن\nمقطعك التالي جاهز',
+      'rokn://home',
+      'learning_reminder',
+      undefined,
+      notificationDefaultAction.learning_reminder,
+    );
   return scheduleExpoReminder({
     id: 8191,
     title: 'أكمل من مكانك',
@@ -183,14 +263,15 @@ export const previewCoinNotification = async ({
   const body = offer
     ? `المكافأة ${formatRoknCoins(amount)}\nافتح المحفظة`
     : `${formatRoknCoins(amount)} في محفظتك`;
-  if (nativeReminders) return nativeReminders.preview(
-    title,
-    body,
-    'rokn://wallet',
-    kind,
-    undefined,
-    notificationDefaultAction[kind],
-  );
+  if (nativeReminders)
+    return nativeReminders.preview(
+      title,
+      body,
+      'rokn://wallet',
+      kind,
+      undefined,
+      notificationDefaultAction[kind],
+    );
   return scheduleExpoReminder({
     id: 8192,
     title,
@@ -214,83 +295,99 @@ export const scheduleNextLearningReminder = async ({
   courseId?: string;
   preferredHour?: number;
 }) => {
-  if (!(await getSmartRemindersEnabled())) return false;
+  const boundary = await captureAccountSessionBoundary();
+  if (!(await getSmartRemindersEnabledFor(boundary))) return false;
+  // Authenticated learners are scheduled centrally by the backend, which owns
+  // cooldowns and course completion. A second local timer would produce the
+  // exact duplicate reminder users complain about. Guests keep the local path.
+  const session = await getItem(AsyncKeys.USER_DATA);
+  assertAccountSessionBoundary(boundary);
+  if (extractApiToken(session)) return false;
   const destinationCourseId = String(courseId || '').trim();
   // A preference change has no learning destination yet. Wait for a real
   // course progress event rather than scheduling a notification that opens a
   // synthetic or stale course identifier in a distributed build.
   if (!destinationCourseId) return false;
-  const storedHour = await getSmartReminderHour();
+  const storedHour = await getSmartReminderHourFor(boundary);
   const reminderHour = safeReminderHour(preferredHour ?? storedHour);
   const kind: NotificationKind =
     streakDays > 1 ? 'streak_reminder' : 'learning_reminder';
   const body = formatArabicDisplayText(
     nextReelTitle
-      ? `${courseTitle ? `${courseTitle}\n` : ''}توقفت عند ${nextReelTitle}\nأكمل عندما يناسبك`
+      ? `${
+          courseTitle ? `${courseTitle}\n` : ''
+        }توقفت عند ${nextReelTitle}\nأكمل عندما يناسبك`
       : streakDays > 1
-        ? `مقطع واحد يحافظ على استمرارية ${streakDays} أيام`
-        : 'مقطعك التالي جاهز',
+      ? `مقطع واحد يحافظ على استمرارية ${streakDays} أيام`
+      : 'مقطعك التالي جاهز',
   );
   const title = formatArabicDisplayText(
     streakDays > 1 ? 'حافظ على استمراريتك اليوم' : 'أكمل من مكانك',
   );
   const triggerAt = nextPreferredTime(reminderHour);
   const link = `rokn://course/${encodeURIComponent(destinationCourseId)}/watch`;
-  if (nativeReminders) return nativeReminders.schedule(
-    8101,
-    title,
-    body,
-    triggerAt,
-    destinationCourseId,
-    link,
-    kind,
-    undefined,
-    notificationDefaultAction[kind],
+  return scheduleForAccount(8101, boundary, () =>
+    nativeReminders
+      ? nativeReminders.schedule(
+          8101,
+          title,
+          body,
+          triggerAt,
+          destinationCourseId,
+          link,
+          kind,
+          undefined,
+          notificationDefaultAction[kind],
+        )
+      : scheduleExpoReminder({
+          id: 8101,
+          title,
+          body,
+          triggerAt,
+          courseId: destinationCourseId,
+          link,
+          kind,
+          actionLabel: notificationDefaultAction[kind],
+        }),
   );
-  return scheduleExpoReminder({
-    id: 8101,
-    title,
-    body,
-    triggerAt,
-    courseId: destinationCourseId,
-    link,
-    kind,
-    actionLabel: notificationDefaultAction[kind],
-  });
 };
 
 export const scheduleProjectReviewResult = async (
   projectTitle: string,
   courseId?: string,
 ) => {
-  if (!(await getSmartRemindersEnabled())) return false;
+  const boundary = await captureAccountSessionBoundary();
+  if (!(await getSmartRemindersEnabledFor(boundary))) return false;
   const destinationCourseId = String(courseId || '').trim();
   if (!destinationCourseId) return false;
   const title = 'تم اعتماد مشروعك';
   const body = `اعتمدنا ${projectTitle}\nالوحدة التالية مفتوحة`;
   const triggerAt = Date.now() + 12_000;
   const link = `rokn://course/${encodeURIComponent(destinationCourseId)}`;
-  if (nativeReminders) return nativeReminders.schedule(
-    8102,
-    title,
-    body,
-    triggerAt,
-    destinationCourseId,
-    link,
-    'project_update',
-    undefined,
-    notificationDefaultAction.project_update,
+  return scheduleForAccount(8102, boundary, () =>
+    nativeReminders
+      ? nativeReminders.schedule(
+          8102,
+          title,
+          body,
+          triggerAt,
+          destinationCourseId,
+          link,
+          'project_update',
+          undefined,
+          notificationDefaultAction.project_update,
+        )
+      : scheduleExpoReminder({
+          id: 8102,
+          title,
+          body,
+          triggerAt,
+          courseId: destinationCourseId,
+          link,
+          kind: 'project_update',
+          actionLabel: notificationDefaultAction.project_update,
+        }),
   );
-  return scheduleExpoReminder({
-    id: 8102,
-    title,
-    body,
-    triggerAt,
-    courseId: destinationCourseId,
-    link,
-    kind: 'project_update',
-    actionLabel: notificationDefaultAction.project_update,
-  });
 };
 
 export const scheduleCoinRewardNotification = async ({
@@ -302,32 +399,38 @@ export const scheduleCoinRewardNotification = async ({
   reason?: string;
   delayMs?: number;
 }) => {
-  if (!(await getSmartRemindersEnabled())) return false;
+  const boundary = await captureAccountSessionBoundary();
+  if (!(await getSmartRemindersEnabledFor(boundary))) return false;
   const safeAmount = Math.max(0, Math.floor(Number(amount) || 0));
   if (!safeAmount) return false;
   const title = 'وصلت مكافأتك';
-  const body = `${reason ? `${formatArabicDisplayText(reason)}\n` : ''}${formatRoknCoins(safeAmount)} في محفظتك`;
+  const body = `${
+    reason ? `${formatArabicDisplayText(reason)}\n` : ''
+  }${formatRoknCoins(safeAmount)} في محفظتك`;
   const triggerAt = Date.now() + Math.max(1_000, delayMs);
-  if (nativeReminders) return nativeReminders.schedule(
-    8103,
-    title,
-    body,
-    triggerAt,
-    undefined,
-    'rokn://wallet',
-    'coin_reward',
-    undefined,
-    notificationDefaultAction.coin_reward,
+  return scheduleForAccount(8103, boundary, () =>
+    nativeReminders
+      ? nativeReminders.schedule(
+          8103,
+          title,
+          body,
+          triggerAt,
+          undefined,
+          'rokn://wallet',
+          'coin_reward',
+          undefined,
+          notificationDefaultAction.coin_reward,
+        )
+      : scheduleExpoReminder({
+          id: 8103,
+          title,
+          body,
+          triggerAt,
+          link: 'rokn://wallet',
+          kind: 'coin_reward',
+          actionLabel: notificationDefaultAction.coin_reward,
+        }),
   );
-  return scheduleExpoReminder({
-    id: 8103,
-    title,
-    body,
-    triggerAt,
-    link: 'rokn://wallet',
-    kind: 'coin_reward',
-    actionLabel: notificationDefaultAction.coin_reward,
-  });
 };
 
 export const previewCourseNotification = async ({
@@ -344,16 +447,19 @@ export const previewCourseNotification = async ({
   const kind: NotificationKind = isNew ? 'new_course' : 'continue_course';
   const notificationTitle = isNew ? 'كورس جديد' : 'أكمل من مكانك';
   const body = isNew ? title : `${title}\nأكمل من آخر مقطع`;
-  const link = `rokn://course/${encodeURIComponent(courseId)}${isNew ? '' : '/watch'}`;
+  const link = `rokn://course/${encodeURIComponent(courseId)}${
+    isNew ? '' : '/watch'
+  }`;
   const safeImage = safeNotificationImageUrl(imageUrl);
-  if (nativeReminders) return nativeReminders.preview(
-    notificationTitle,
-    body,
-    link,
-    kind,
-    safeImage,
-    notificationDefaultAction[kind],
-  );
+  if (nativeReminders)
+    return nativeReminders.preview(
+      notificationTitle,
+      body,
+      link,
+      kind,
+      safeImage,
+      notificationDefaultAction[kind],
+    );
   return scheduleExpoReminder({
     id: 8193,
     title: notificationTitle,

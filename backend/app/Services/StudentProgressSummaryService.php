@@ -12,11 +12,16 @@ use Illuminate\Support\Collection;
 
 final class StudentProgressSummaryService
 {
+    public function __construct(
+        private readonly CourseSectionSequenceService $sectionSequence
+    ) {
+    }
+
     /**
      * @param Collection<int, User> $users
      * @return Collection<int, array<string, mixed>> keyed by user id
      */
-    public function latestForUsers(Collection $users): Collection
+    public function latestForUsers(Collection $users, ?int $courseId = null): Collection
     {
         $userIds = $users->pluck('id')->map(fn ($id): int => (int) $id)->all();
         if ($userIds === []) {
@@ -30,6 +35,7 @@ final class StudentProgressSummaryService
                 $active->whereNull('expires_at')
                     ->orWhere('expires_at', '>', now());
             })
+            ->when($courseId !== null, fn ($query) => $query->where('course_id', $courseId))
             ->with('course')
             ->orderByDesc('enrolled_at')
             ->orderByDesc('id')
@@ -46,8 +52,9 @@ final class StudentProgressSummaryService
             ->whereIn('course_id', $courseIds)
             ->orderBy('order')
             ->orderBy('id')
-            ->get(['id', 'course_id', 'section_type', 'sectionable_type'])
-            ->groupBy('course_id');
+            ->get(['id', 'course_id', 'module_id', 'order', 'section_type', 'sectionable_type'])
+            ->groupBy('course_id')
+            ->map(fn ($sections) => $this->sectionSequence->learning($sections));
         $sectionIds = $sectionsByCourse->flatten(1)->pluck('id');
         $progressByUser = StudentSectionProgress::query()
             ->whereIn('user_id', $userIds)

@@ -19,7 +19,7 @@ use Tests\TestCase;
 
 final class ProductionCapabilityTest extends TestCase
 {
-    private const REQUIRED_QUEUES = ['default', 'notifications', 'ai-feedback', 'webhooks'];
+    private const REQUIRED_QUEUES = ['default', 'notifications', 'ai-chat', 'ai-feedback', 'webhooks'];
 
     private string $backupEvidencePath;
 
@@ -313,6 +313,7 @@ final class ProductionCapabilityTest extends TestCase
         self::assertFalse($report['ready']);
         self::assertTrue($report['capabilities']['queue']['queues']['default']['ready']);
         self::assertFalse($report['capabilities']['queue']['queues']['notifications']['ready']);
+        self::assertFalse($report['capabilities']['queue']['queues']['ai-chat']['ready']);
         self::assertFalse($report['capabilities']['queue']['queues']['ai-feedback']['ready']);
         self::assertFalse($report['capabilities']['queue']['queues']['webhooks']['ready']);
         self::assertNotNull(Cache::get('test:queue-heartbeat'));

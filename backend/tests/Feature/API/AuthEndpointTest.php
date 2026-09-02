@@ -356,6 +356,36 @@ class AuthEndpointTest extends ApiTestCase
             ->assertJsonStructure(['data' => ['signed_out'], 'signed_out']);
     }
 
+    public function test_revoking_an_already_revoked_device_session_is_idempotent(): void
+    {
+        Schema::table('api_tokens', function (Blueprint $table): void {
+            $table->uuid('session_id')->nullable();
+            $table->string('platform', 16)->nullable();
+            $table->string('app_version', 32)->nullable();
+            $table->string('app_build', 16)->nullable();
+            $table->timestamp('last_used_at')->nullable();
+            $table->timestamp('revoked_at')->nullable();
+        });
+
+        $currentToken = $this->user->generateApiToken();
+        $otherToken = $this->user->generateApiToken();
+        $otherSessionId = (string) \App\Models\ApiToken::query()
+            ->where('token', hash('sha256', $otherToken))
+            ->value('session_id');
+
+        $this->withToken($currentToken)
+            ->deleteJson('/api/v1/user/sessions/' . $otherSessionId)
+            ->assertOk()
+            ->assertJsonPath('data.already_revoked', false);
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($currentToken)
+            ->deleteJson('/api/v1/user/sessions/' . $otherSessionId)
+            ->assertOk()
+            ->assertJsonPath('data.already_revoked', true)
+            ->assertJsonPath('data.signed_out', false);
+    }
+
     public function test_query_body_and_basic_token_transports_are_rejected_by_default(): void
     {
         $plainToken = $this->user->generateApiToken();

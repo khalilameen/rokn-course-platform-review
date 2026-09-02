@@ -66,7 +66,8 @@ final class RecoverPendingCertificates extends Command
         $queued = 0;
         foreach ($candidates as $candidate) {
             try {
-                RecoverPendingCertificate::dispatch((int) $candidate->id)->onQueue('default');
+                RecoverPendingCertificate::dispatch((int) $candidate->id)
+                    ->onQueue((string) config('queue.channels.media', 'media'));
                 $queued++;
             } catch (Throwable $exception) {
                 Log::warning('Pending certificate recovery could not be dispatched.', [

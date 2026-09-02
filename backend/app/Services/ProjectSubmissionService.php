@@ -9,6 +9,8 @@ use App\Models\Project;
 use App\Models\ProjectSubmission;
 use App\Models\Certificate;
 use App\Models\CourseSection;
+use App\Models\Course;
+use App\Models\AiInputAttachment;
 use App\Models\StudentSectionProgress;
 use App\Models\User;
 use App\Models\UserProjectEvaluation;
@@ -16,7 +18,6 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -26,8 +27,10 @@ use App\Support\UnicodeText;
 final class ProjectSubmissionService
 {
     public function __construct(
-        private readonly LearningRewardService $learningRewards,
-        private readonly CourseSectionSequenceService $sectionSequence
+        private readonly CourseSectionSequenceService $sectionSequence,
+        private readonly AiInputAttachmentService $attachments,
+        private readonly StoredFileDeletionService $storedFiles,
+        private readonly InternalSignalService $internalSignals
     ) {
     }
 
@@ -35,7 +38,7 @@ final class ProjectSubmissionService
         User $user,
         Project $project,
         ?string $text,
-        ?UploadedFile $file,
+        array|UploadedFile|null $files,
         string $idempotencyKey,
         array $metadata = []
     ): ProjectSubmission {
@@ -51,7 +54,11 @@ final class ProjectSubmissionService
             throw new \RuntimeException('The configured project submission disk is not available.');
         }
 
-        $requestFingerprint = $this->requestFingerprint($text, $file);
+        // Keep the service boundary compatible with older callers that submit
+        // one attachment while the API now supports a batch.
+        $files = $files instanceof UploadedFile ? [$files] : ($files ?? []);
+        $files = array_values(array_filter($files, static fn ($file): bool => $file instanceof UploadedFile));
+        $requestFingerprint = $this->requestFingerprint($text, $files);
         $existing = ProjectSubmission::query()
             ->where('user_id', $user->id)
             ->where('project_id', $project->id)
@@ -59,7 +66,7 @@ final class ProjectSubmissionService
             ->first();
 
         if ($existing) {
-            $this->assertIdempotentReplay($existing, $requestFingerprint, $text, $file);
+            $this->assertIdempotentReplay($existing, $requestFingerprint, $text, $files);
             return $this->finalizeIfDue($existing);
         }
 
@@ -78,25 +85,60 @@ final class ProjectSubmissionService
             return $this->finalizeIfDue($activeSubmission);
         }
 
-        $effortStatus = $this->detectEffort($text, $file);
-        $storedPath = null;
+        $effortStatus = $this->detectEffort($text, $files);
+        $storedPaths = [];
+        $fileDescriptors = [];
+
+        // Stage immutable, request-scoped object keys before taking any user
+        // or database lock. The cleanup ledger commits before the first byte;
+        // a process death or a losing concurrent request is therefore harmless.
+        foreach ($files as $index => $file) {
+            $sha = hash_file('sha256', $file->getRealPath());
+            if (!is_string($sha) || $sha === '') {
+                throw new \RuntimeException('The project attachment could not be fingerprinted.');
+            }
+            $storedPath = $this->storedFiles->storeTrackedUpload(
+                $file,
+                "project_submissions/{$user->id}/{$project->id}",
+                $submissionDisk,
+                60,
+                implode('|', [
+                    'project-submission', $user->id, $project->id,
+                    strtolower($idempotencyKey), $index, $sha,
+                ])
+            );
+            $storedPaths[] = $storedPath;
+            $fileDescriptors[] = [
+                'path' => $storedPath,
+                'name' => DownloadFilename::safe(
+                    $file->getClientOriginalName(),
+                    'project-submission',
+                    $file->guessExtension()
+                ),
+                'mime_type' => strtolower((string) $file->getMimeType()),
+                'size_bytes' => (int) $file->getSize(),
+                'sha256' => $sha,
+                'storage_disk' => $submissionDisk,
+            ];
+        }
 
         try {
             $submission = DB::transaction(function () use (
                 $user,
                 $project,
                 $text,
-                $file,
-                &$storedPath,
+                $files,
+                $storedPaths,
                 $idempotencyKey,
                 $metadata,
                 $effortStatus,
                 $requestFingerprint,
-                $submissionDisk
+                $submissionDisk,
+                $fileDescriptors
             ): ProjectSubmission {
                 // Different client retry keys are still serialized per learner,
                 // preventing two simultaneous uploads for the same project.
-                User::query()->lockForUpdate()->findOrFail($user->id);
+                User::query()->where('active', true)->lockForUpdate()->findOrFail($user->id);
 
                 $existing = ProjectSubmission::query()
                     ->where('user_id', $user->id)
@@ -104,7 +146,7 @@ final class ProjectSubmissionService
                     ->where('idempotency_key', $idempotencyKey)
                     ->first();
                 if ($existing) {
-                    $this->assertIdempotentReplay($existing, $requestFingerprint, $text, $file);
+                    $this->assertIdempotentReplay($existing, $requestFingerprint, $text, $files);
                     return $existing;
                 }
 
@@ -121,17 +163,8 @@ final class ProjectSubmissionService
                     return $activeSubmission;
                 }
 
-                if ($file) {
-                    $storedPath = $file->store(
-                        "project_submissions/{$user->id}/{$project->id}",
-                        $submissionDisk
-                    );
-                    if (!$storedPath
-                        || !Storage::disk($submissionDisk)->exists($storedPath)
-                        || (int) Storage::disk($submissionDisk)->size($storedPath) !== (int) $file->getSize()) {
-                        throw new \RuntimeException('The project attachment was not stored completely.');
-                    }
-                }
+                $primaryPath = $storedPaths[0] ?? null;
+                $primaryDescriptor = $fileDescriptors[0] ?? null;
 
                 $isInvalid = $effortStatus === ProjectSubmission::EFFORT_INVALID;
                 $reviewStatus = $isInvalid
@@ -146,23 +179,18 @@ final class ProjectSubmissionService
                     'project_id' => $project->id,
                     'idempotency_key' => $idempotencyKey,
                     'submission_text' => $text,
-                    'submission_file' => $storedPath,
-                    'original_file_name' => $file
-                        ? DownloadFilename::safe(
-                            $file->getClientOriginalName(),
-                            'project-submission',
-                            $file->guessExtension()
-                        )
-                        : null,
-                    'mime_type' => $file?->getMimeType(),
-                    'file_size' => $file?->getSize(),
+                    'submission_file' => $primaryPath,
+                    'original_file_name' => $primaryDescriptor['name'] ?? null,
+                    'mime_type' => $primaryDescriptor['mime_type'] ?? null,
+                    'file_size' => $primaryDescriptor['size_bytes'] ?? null,
                     'submission_metadata' => array_merge($metadata, [
                         'request_fingerprint' => $requestFingerprint,
                         'upload_session_id' => $idempotencyKey,
-                        'object_key' => $storedPath,
-                        'checksum_sha256' => $file
-                            ? hash_file('sha256', $file->getRealPath())
+                        'object_key' => $primaryPath,
+                        'checksum_sha256' => $primaryDescriptor
+                            ? $primaryDescriptor['sha256']
                             : hash('sha256', trim((string) $text)),
+                        'files' => $fileDescriptors,
                         'upload_finalized_at' => now()->toIso8601String(),
                         // Persist the exact private disk with the row. Changing
                         // PROJECT_SUBMISSION_DISK later must not orphan uploads
@@ -186,6 +214,30 @@ final class ProjectSubmissionService
                     'reviewed_at' => $isInvalid ? now() : null,
                 ]);
 
+                if ($files !== []) {
+                    $courseId = CourseSection::query()
+                        ->where('sectionable_type', Project::class)
+                        ->where('sectionable_id', $project->id)
+                        ->value('course_id');
+                    $course = $courseId ? Course::query()->find($courseId) : null;
+                    if ($course) {
+                        foreach ((array) data_get($submission->submission_metadata, 'files', []) as $index => $stored) {
+                            $this->attachments->registerStored(
+                                $user, $course, (string) $stored['path'], $submissionDisk,
+                                (string) $stored['name'], (string) $stored['mime_type'],
+                                (int) $stored['size_bytes'], (string) $stored['sha256'],
+                                $this->deterministicUploadId(
+                                    implode('|', [
+                                        'project-ai-input', $user->id, $project->id,
+                                        strtolower($idempotencyKey), $index, (string) $stored['sha256'],
+                                    ])
+                                ),
+                                (int) $submission->id
+                            );
+                        }
+                    }
+                }
+
                 // Legacy summary remains available to existing mobile/API consumers,
                 // but no score or pass decision is accepted from the client.
                 UserProjectEvaluation::updateOrCreate(
@@ -199,7 +251,7 @@ final class ProjectSubmissionService
                             'source' => $isInvalid ? 'effort_guard' : 'server_review_policy',
                         ],
                         'submission_text' => $text,
-                        'submission_file' => $storedPath,
+                        'submission_file' => $primaryPath,
                     ]
                 );
 
@@ -208,10 +260,6 @@ final class ProjectSubmissionService
 
             return $this->finalizeIfDue($submission);
         } catch (QueryException $exception) {
-            if ($storedPath) {
-                Storage::disk($submissionDisk)->delete($storedPath);
-            }
-
             $existing = ProjectSubmission::query()
                 ->where('user_id', $user->id)
                 ->where('project_id', $project->id)
@@ -219,14 +267,8 @@ final class ProjectSubmissionService
                 ->first();
 
             if ($existing) {
-                $this->assertIdempotentReplay($existing, $requestFingerprint, $text, $file);
+                $this->assertIdempotentReplay($existing, $requestFingerprint, $text, $files);
                 return $this->finalizeIfDue($existing);
-            }
-
-            throw $exception;
-        } catch (\Throwable $exception) {
-            if ($storedPath) {
-                Storage::disk($submissionDisk)->delete($storedPath);
             }
 
             throw $exception;
@@ -283,8 +325,9 @@ final class ProjectSubmissionService
         bool $passed,
         ?string $feedback = null
     ): ProjectSubmission {
-        if (!in_array(Str::lower((string) $reviewer->role), ['admin', 'moderator'], true)) {
-            throw new AuthorizationException('Only an administrator can review project submissions.');
+        if (!(bool) $reviewer->active
+            || !in_array(Str::lower((string) $reviewer->role), ['admin', 'moderator'], true)) {
+            throw new AuthorizationException('Only an active content reviewer can review project submissions.');
         }
 
         $reviewed = DB::transaction(function () use ($submission, $reviewer, $passed, $feedback): ProjectSubmission {
@@ -418,15 +461,16 @@ final class ProjectSubmissionService
             return $locked->fresh();
         }
 
-        try {
-            $this->learningRewards->awardFirstProject(
-                $locked->user,
-                $locked->project
-            );
-        } catch (\Throwable $exception) {
-            // A reward outage must never roll back a passed project.
-            report($exception);
-        }
+        $this->internalSignals->record(
+            'project.passed.first_reward',
+            "user:{$locked->user_id}:project:{$locked->project_id}",
+            [
+                'user_id' => (int) $locked->user_id,
+                'project_id' => (int) $locked->project_id,
+            ],
+            ProjectSubmission::class,
+            (int) $locked->id
+        );
 
         $projectSection = CourseSection::query()
             ->where('sectionable_type', Project::class)
@@ -487,12 +531,13 @@ final class ProjectSubmissionService
             return $locked->fresh();
         }
 
-        try {
-            event(new \App\Events\CourseCompleted((int) $locked->user_id, (int) $course->id));
-        } catch (\Throwable $exception) {
-            // Certificate/notification side effects must not roll back a passed project.
-            report($exception);
-        }
+        $this->internalSignals->record(
+            'course.completed',
+            "user:{$locked->user_id}:course:{$course->id}",
+            ['user_id' => (int) $locked->user_id, 'course_id' => (int) $course->id],
+            'course_enrollment',
+            "{$locked->user_id}:{$course->id}"
+        );
 
         return $locked->fresh();
     }
@@ -515,21 +560,21 @@ final class ProjectSubmissionService
         return $count;
     }
 
-    private function detectEffort(?string $text, ?UploadedFile $file): string
+    private function detectEffort(?string $text, array $files): string
     {
         $plainText = trim((string) $text);
-        if ($file) {
-            if ((int) $file->getSize() < (int) config('projects.minimum_file_bytes', 512)) {
+        if ($files !== []) {
+            foreach ($files as $file) {
+                if ((int) $file->getSize() < (int) config('projects.minimum_file_bytes', 512)) {
+                    continue;
+                }
+                if (!str_starts_with((string) $file->getMimeType(), 'image/') || !$this->isBlankImage($file)) {
+                    return ProjectSubmission::EFFORT_VALID;
+                }
+            }
+            if ($plainText === '') {
                 return ProjectSubmission::EFFORT_INVALID;
             }
-
-            if (!str_starts_with((string) $file->getMimeType(), 'image/')) {
-                return ProjectSubmission::EFFORT_VALID;
-            }
-
-            return $this->isBlankImage($file)
-                ? ProjectSubmission::EFFORT_INVALID
-                : ProjectSubmission::EFFORT_VALID;
         }
 
         return mb_strlen($plainText) >= (int) config('projects.minimum_text_length', 10)
@@ -537,21 +582,24 @@ final class ProjectSubmissionService
             : ProjectSubmission::EFFORT_INVALID;
     }
 
-    private function requestFingerprint(?string $text, ?UploadedFile $file): string
+    private function requestFingerprint(?string $text, array $files): string
     {
-        $fileHash = null;
-        if ($file) {
+        $fileFacts = [];
+        foreach ($files as $file) {
             $fileHash = hash_file('sha256', $file->getRealPath());
-            if ($fileHash === false) {
+            if (!is_string($fileHash)) {
                 throw new \RuntimeException('Unable to fingerprint the project attachment.');
             }
+            $fileFacts[] = [
+                'sha256' => $fileHash,
+                'size' => (int) $file->getSize(),
+                'mime_type' => strtolower((string) $file->getMimeType()),
+            ];
         }
 
         return hash('sha256', json_encode([
             'text' => trim((string) $text),
-            'file_sha256' => $fileHash,
-            'file_size' => $file?->getSize(),
-            'mime_type' => $file?->getMimeType(),
+            'files' => $fileFacts,
         ], JSON_THROW_ON_ERROR));
     }
 
@@ -559,7 +607,7 @@ final class ProjectSubmissionService
         ProjectSubmission $submission,
         string $fingerprint,
         ?string $text,
-        ?UploadedFile $file
+        array $files
     ): void {
         $storedFingerprint = (string) data_get(
             $submission->submission_metadata,
@@ -567,7 +615,7 @@ final class ProjectSubmissionService
             ''
         );
         $legacyMatches = trim((string) $submission->submission_text) === trim((string) $text)
-            && ($submission->submission_file !== null) === ($file !== null);
+            && count((array) data_get($submission->submission_metadata, 'files', [])) === count($files);
 
         if (
             ($storedFingerprint !== '' && !hash_equals($storedFingerprint, $fingerprint))
@@ -577,6 +625,17 @@ final class ProjectSubmissionService
                 'Project submission idempotency key was reused for different content.'
             );
         }
+    }
+
+    private function deterministicUploadId(string $identity): string
+    {
+        $hex = substr(hash('sha256', $identity), 0, 32);
+        $hex[12] = '5';
+        $hex[16] = dechex((hexdec($hex[16]) & 0x3) | 0x8);
+
+        return substr($hex, 0, 8) . '-' . substr($hex, 8, 4) . '-'
+            . substr($hex, 12, 4) . '-' . substr($hex, 16, 4) . '-'
+            . substr($hex, 20, 12);
     }
 
     private function isBlankImage(UploadedFile $file): bool

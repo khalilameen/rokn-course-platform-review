@@ -10,14 +10,19 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\PortfolioItemResource;
 use App\Http\Resources\PortfolioMediaResource;
 use App\Models\PortfolioItem;
+use App\Models\PortfolioVideoUpload;
 use App\Models\Project;
+use App\Models\User;
 use App\Models\UserProjectEvaluation;
 use App\Services\BunnyService;
 use App\Services\CourseChatAccessService;
 use App\Services\PortfolioShareIdentityService;
+use App\Services\PortfolioVideoUploadService;
 use App\Services\SafeExternalUrl;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -30,21 +35,37 @@ use App\Support\UnicodeText;
 
 final class PortfolioController extends Controller
 {
+    private const MAX_MEDIA_PER_ITEM = 12;
+
     public function __construct(
         private BunnyService $bunnyService,
         private CourseChatAccessService $courseAccess,
-        private PortfolioShareIdentityService $portfolioShares
+        private PortfolioShareIdentityService $portfolioShares,
+        private PortfolioVideoUploadService $videoUploads
     ) {
     }
 
     /**
      * List user's portfolio items.
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
         $user = auth('api')->user();
+        $summary = $request->boolean('summary');
         $items = $user->portfolioItems()
-            ->with(['mediaFiles', 'course'])
+            ->whereNull('deletion_started_at')
+            ->withCount('mediaFiles')
+            ->with([
+                'mediaFiles' => function ($media) use ($summary): void {
+                    if ($summary) {
+                        // The mobile gallery needs a cover only. Excluding video
+                        // rows here also prevents PortfolioMediaResource from
+                        // performing one Bunny inspection for every saved video.
+                        $media->where('file_type', 'image')->limit(1);
+                    }
+                },
+                'course',
+            ])
             ->orderByDesc('is_featured')
             ->orderBy('sort_order')
             ->latest('id')
@@ -154,7 +175,11 @@ final class PortfolioController extends Controller
             'completed_at' => 'nullable|date',
             'is_featured' => 'nullable|boolean',
             'sort_order' => 'nullable|integer|min:0|max:10000',
-            'files' => 'nullable|array|max:12',
+            'expected_media_count' => 'nullable|integer|min:0|max:12',
+            // Creation is intentionally metadata-first. One legacy cover is
+            // accepted for rolling clients; the current app uploads every
+            // file through the per-media idempotent endpoint.
+            'files' => 'nullable|array|max:1',
             'files.*' => [
                 'file',
                 'min:1',
@@ -198,8 +223,27 @@ final class PortfolioController extends Controller
             'completed_at' => $request->input('completed_at'),
             'is_featured' => $request->boolean('is_featured'),
             'sort_order' => $request->integer('sort_order', 0),
+            'expected_media_count' => $request->integer(
+                'expected_media_count',
+                count($fileFingerprints)
+            ),
             'files' => $fileFingerprints,
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        $clientRequestId = $request->string('client_request_id')->toString();
+        try {
+            return Cache::lock(
+                'portfolio-item-create:' . $user->id . ':' . strtolower($clientRequestId),
+                3900
+            )->block(10, function () use (
+                $user,
+                $request,
+                $requestFingerprint,
+                $courseId,
+                $sourceProject,
+                $files,
+                $fileTypes,
+                $fileFingerprints
+            ): JsonResponse {
         $existingRequest = $user->portfolioItems()
             ->with(['mediaFiles', 'course'])
             ->where('client_request_id', $request->string('client_request_id')->toString())
@@ -266,8 +310,18 @@ final class PortfolioController extends Controller
         try {
             foreach ($files as $index => $file) {
                 $fileType = $fileTypes[$index] ?? 'image';
+                $mediaRequestId = $this->portfolioMediaRequestId(
+                    $request->string('client_request_id')->toString(),
+                    (int) $index,
+                    (string) $fileFingerprints[$index]['sha256']
+                );
                 if ($fileType === 'video') {
-                    $filePath = $this->bunnyService->uploadVerifiedVideo($itemTitle, $file);
+                    $filePath = $this->bunnyService->uploadVerifiedVideo(
+                        $itemTitle,
+                        $file,
+                        null,
+                        $mediaRequestId
+                    );
                     if (!$filePath) throw new UnexpectedValueException('Bunny video upload failed.');
                     $uploadedMedia[] = [
                         'file_path' => $filePath,
@@ -279,7 +333,12 @@ final class PortfolioController extends Controller
                         'original_name' => $this->safeOriginalName($file->getClientOriginalName()),
                     ];
                 } else {
-                    $filePath = $this->bunnyService->uploadFileToStorage($file, 'portfolio');
+                    $filePath = $this->bunnyService->uploadFileToStorage(
+                        $file,
+                        'portfolio',
+                        $mediaRequestId,
+                        'portfolio_upload_unpublished'
+                    );
                     if (!$filePath) {
                         throw new UnexpectedValueException('Bunny image upload failed.');
                     }
@@ -305,9 +364,13 @@ final class PortfolioController extends Controller
                 $requestFingerprint,
                 &$replayedAfterUpload
             ) {
-                DB::table('users')->where('id', $user->id)->lockForUpdate()->first();
+                $lockedUser = User::query()
+                    ->whereKey($user->id)
+                    ->lockForUpdate()
+                    ->first();
+                abort_if(!$lockedUser, 404);
 
-                $existing = $user->portfolioItems()
+                $existing = $lockedUser->portfolioItems()
                     ->with(['mediaFiles', 'course'])
                     ->where('client_request_id', $request->string('client_request_id')->toString())
                     ->first();
@@ -320,7 +383,7 @@ final class PortfolioController extends Controller
                     return $existing;
                 }
 
-                if ($request->filled('source_project_id') && $user->portfolioItems()
+                if ($request->filled('source_project_id') && $lockedUser->portfolioItems()
                     ->where('source_project_id', $request->integer('source_project_id'))
                     ->exists()) {
                     throw ValidationException::withMessages([
@@ -328,7 +391,7 @@ final class PortfolioController extends Controller
                     ]);
                 }
 
-                $item = $user->portfolioItems()->create([
+                $item = $lockedUser->portfolioItems()->create([
                     'client_request_id' => $request->string('client_request_id')->toString(),
                     'request_fingerprint' => $requestFingerprint,
                     'title' => $itemTitle,
@@ -340,12 +403,23 @@ final class PortfolioController extends Controller
                     'tools' => $request->input('tools'),
                     'external_url' => $request->input('external_url'),
                     'completed_at' => $request->input('completed_at'),
-                    'is_public' => true,
                     'is_featured' => $request->boolean('is_featured'),
                     'sort_order' => $request->integer('sort_order', 0),
+                    'expected_media_count' => $request->integer(
+                        'expected_media_count',
+                        count($uploadedMedia)
+                    ),
+                    'is_public' => $request->integer(
+                        'expected_media_count',
+                        count($uploadedMedia)
+                    ) === 0 || count($uploadedMedia) >= max(
+                        1,
+                        $request->integer('expected_media_count', count($uploadedMedia))
+                    ),
                 ]);
 
                 foreach ($uploadedMedia as $media) {
+                    $this->consumeUploadedMediaCandidate($media);
                     $item->mediaFiles()->create($media);
                 }
 
@@ -367,12 +441,16 @@ final class PortfolioController extends Controller
             throw $exception;
         }
 
-        if ($replayedAfterUpload) {
-            $this->cleanupUploadedMedia($uploadedMedia);
-        }
+        // A replay uses deterministic per-file provider identities. Its paths
+        // can be the exact objects already referenced by the winning rows, so
+        // they must never be retired as generic losing uploads.
         $item->load(['mediaFiles', 'course']);
 
-        return $this->createdItemResponse($item, $replayedAfterUpload);
+                return $this->createdItemResponse($item, $replayedAfterUpload);
+            });
+        } catch (LockTimeoutException) {
+            return $this->error('جارٍ حفظ هذا المشروع\nحاول بعد قليل', 409);
+        }
     }
 
     private function createdItemResponse(PortfolioItem $item, bool $replayed): JsonResponse
@@ -392,7 +470,11 @@ final class PortfolioController extends Controller
     public function show($id): JsonResponse
     {
         $user = auth('api')->user();
-        $item = $user->portfolioItems()->with(['mediaFiles', 'course'])->find($id);
+        $item = $user->portfolioItems()
+            ->whereNull('deletion_started_at')
+            ->withCount('mediaFiles')
+            ->with(['mediaFiles', 'course'])
+            ->find($id);
 
         if (!$item) {
             return $this->error('المشروع غير متاح', 404);
@@ -412,13 +494,6 @@ final class PortfolioController extends Controller
     public function update(Request $request, $id): JsonResponse
     {
         $this->normalizePortfolioInput($request);
-        $user = auth('api')->user();
-        $item = $user->portfolioItems()->find($id);
-
-        if (!$item) {
-            return $this->error('المشروع غير متاح', 404);
-        }
-
         $request->validate([
             'title' => 'nullable|string|max:255',
             'description' => 'nullable|string',
@@ -431,14 +506,29 @@ final class PortfolioController extends Controller
             'sort_order' => 'nullable|integer|min:0|max:10000',
         ]);
 
-        $item->update($request->only([
-            'title', 'description', 'role', 'tools', 'external_url', 'completed_at',
-            'is_featured', 'sort_order',
-        ]) + ($request->filled('title')
-            ? ['slug' => $this->portfolioItemSlug($request->input('title'), (string) $item->slug)]
-            : []));
+        $user = auth('api')->user();
+        $item = DB::transaction(function () use ($user, $id, $request): PortfolioItem {
+            $lockedUser = User::query()
+                ->whereKey($user->id)
+                ->lockForUpdate()
+                ->first();
+            abort_if(!$lockedUser, 404);
+            $item = $lockedUser->portfolioItems()->lockForUpdate()->find($id);
+            abort_if(!$item, 404);
+            abort_if($item->deletion_started_at !== null, 409);
 
-        $item->load(['mediaFiles', 'course']);
+            $item->update($request->only([
+                'title', 'description', 'role', 'tools', 'external_url', 'completed_at',
+                'is_featured', 'sort_order',
+            ]) + ($request->filled('title')
+                ? ['slug' => $this->portfolioItemSlug(
+                    $request->input('title'),
+                    (string) $item->slug
+                )]
+                : []));
+
+            return $item->fresh(['mediaFiles', 'course']);
+        }, 3);
 
         return response()->json([
             'status' => 200,
@@ -454,32 +544,26 @@ final class PortfolioController extends Controller
     public function destroy($id): JsonResponse
     {
         $user = auth('api')->user();
-        $item = $user->portfolioItems()->with('mediaFiles')->find($id);
+        DB::transaction(function () use ($user, $id): void {
+            $lockedUser = User::query()->whereKey($user->id)->lockForUpdate()->first();
+            abort_if(!$lockedUser, 404);
+            $item = $lockedUser->portfolioItems()->lockForUpdate()->find($id);
+            abort_if(!$item, 404);
+            $item->forceFill([
+                'is_public' => false,
+                'deletion_started_at' => now(),
+            ])->save();
 
-        if (!$item) {
-            return $this->error('المشروع غير متاح', 404);
-        }
-
-        foreach ($item->mediaFiles as $media) {
-            if ($media->file_type === 'video' && $media->file_path) {
-                $deleted = $this->bunnyService->deleteVideo($media->file_path);
-            } elseif ($media->file_type === 'image' && $media->file_path) {
-                $deleted = $this->bunnyService->deleteFileFromStorage($media->file_path);
-            } else {
-                $deleted = true;
+            foreach ($item->mediaFiles()->lockForUpdate()->get() as $media) {
+                $media->forceFill([
+                    'deletion_lease_id' => (string) Str::uuid(),
+                    'deletion_started_at' => now(),
+                ])->save();
+                $this->queuePortfolioMediaCleanup($media, 'portfolio_item_deleted');
+                $media->delete();
             }
-
-            if (!$deleted) {
-                return $this->error('تعذّر حذف ملفات المشروع الآن', 503);
-            }
-
-            // Commit each completed remote deletion immediately. If a later
-            // artifact is unavailable, the retryable item never advertises a
-            // Bunny object that has already gone.
-            $media->delete();
-        }
-
-        $item->delete();
+            $item->delete();
+        }, 3);
 
         return response()->json([
             'status' => 200,
@@ -537,6 +621,18 @@ final class PortfolioController extends Controller
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
         $clientRequestId = $request->string('client_request_id')->toString();
 
+        try {
+            return Cache::lock(
+                'portfolio-media-upload:' . $item->id . ':' . strtolower($clientRequestId),
+                3900
+            )->block(10, function () use (
+                $item,
+                $clientRequestId,
+                $fileFingerprint,
+                $fileType,
+                $file,
+                $request
+            ): JsonResponse {
         $existing = $item->mediaFiles()
             ->where('client_request_id', $clientRequestId)
             ->first();
@@ -564,17 +660,44 @@ final class PortfolioController extends Controller
                 'file' => ['This media file is already attached to the project.'],
             ]);
         }
+        if (PortfolioVideoUpload::query()
+            ->where('portfolio_item_id', $item->id)
+            ->where('content_sha256', $fileFingerprint['sha256'])
+            ->where('expires_at', '>', now())
+            ->whereIn('status', ['allocating', 'pending'])
+            ->exists()) {
+            throw ValidationException::withMessages([
+                'file' => ['This media file is already being uploaded.'],
+            ]);
+        }
+        $reservedVideoSlots = PortfolioVideoUpload::query()
+            ->where('portfolio_item_id', $item->id)
+            ->where('expires_at', '>', now())
+            ->whereIn('status', ['allocating', 'pending'])
+            ->count();
+        if ($item->mediaFiles()->count() + $reservedVideoSlots >= $this->mediaCapacity($item)) {
+            throw ValidationException::withMessages([
+                'file' => ['A portfolio project can contain up to 12 media files.'],
+            ]);
+        }
         $filePath = null;
 
         if ($fileType === 'video') {
             $filePath = $this->bunnyService->uploadVerifiedVideo(
                 $item->title ?? 'Portfolio Video',
-                $file
+                $file,
+                null,
+                $clientRequestId
             );
             if (!$filePath) return $this->error('تعذّر رفع الفيديو', 503);
         } elseif ($fileType === 'image') {
             // Upload image to Bunny Storage
-            $filePath = $this->bunnyService->uploadFileToStorage($file, 'portfolio');
+            $filePath = $this->bunnyService->uploadFileToStorage(
+                $file,
+                'portfolio',
+                $clientRequestId,
+                'portfolio_upload_unpublished'
+            );
             if (!$filePath) {
                 return $this->error('تعذّر رفع الصورة', 500);
             }
@@ -592,7 +715,14 @@ final class PortfolioController extends Controller
                 $file,
                 &$replayed
             ) {
+                $lockedUser = User::query()
+                    ->whereKey($item->user_id)
+                    ->lockForUpdate()
+                    ->first();
+                abort_if(!$lockedUser, 404);
                 $lockedItem = PortfolioItem::query()->lockForUpdate()->findOrFail($item->id);
+                abort_unless((int) $lockedItem->user_id === (int) $lockedUser->id, 404);
+                abort_if($lockedItem->deletion_started_at !== null, 409);
                 $existing = $lockedItem->mediaFiles()
                     ->where('client_request_id', $clientRequestId)
                     ->first();
@@ -615,8 +745,29 @@ final class PortfolioController extends Controller
                         'file' => ['This media file is already attached to the project.'],
                     ]);
                 }
+                if (PortfolioVideoUpload::query()
+                    ->where('portfolio_item_id', $lockedItem->id)
+                    ->where('content_sha256', $fileFingerprint['sha256'])
+                    ->where('expires_at', '>', now())
+                    ->whereIn('status', ['allocating', 'pending'])
+                    ->exists()) {
+                    throw ValidationException::withMessages([
+                        'file' => ['This media file is already being uploaded.'],
+                    ]);
+                }
+                $mediaCount = $lockedItem->mediaFiles()->count();
+                $reservedVideoSlots = PortfolioVideoUpload::query()
+                    ->where('portfolio_item_id', $lockedItem->id)
+                    ->where('expires_at', '>', now())
+                    ->whereIn('status', ['allocating', 'pending'])
+                    ->count();
+                if ($mediaCount + $reservedVideoSlots >= $this->mediaCapacity($lockedItem)) {
+                    throw ValidationException::withMessages([
+                        'file' => ['A portfolio project can contain up to 12 media files.'],
+                    ]);
+                }
                 $maxSortOrder = $lockedItem->mediaFiles()->max('sort_order') ?? -1;
-                return $lockedItem->mediaFiles()->create([
+                $media = $lockedItem->mediaFiles()->create([
                     'client_request_id' => $clientRequestId,
                     'file_path' => $filePath,
                     'file_type' => $fileType,
@@ -627,6 +778,21 @@ final class PortfolioController extends Controller
                     'sort_order' => $maxSortOrder + 1,
                     'caption' => $request->input('caption'),
                 ]);
+                $this->consumeUploadedMediaCandidate([
+                    'file_path' => $filePath,
+                    'file_type' => $fileType,
+                ]);
+                $uploadedCount = $lockedItem->mediaFiles()->count();
+                $expectedCount = max(0, (int) $lockedItem->expected_media_count);
+                if (
+                    !$lockedItem->is_public
+                    && $uploadedCount >= max(1, $expectedCount)
+                ) {
+                    $lockedItem->forceFill(['is_public' => true])->save();
+                } else {
+                    $lockedItem->touch();
+                }
+                return $media;
             });
         } catch (Throwable $exception) {
             $this->cleanupUploadedMedia([[
@@ -644,7 +810,85 @@ final class PortfolioController extends Controller
             ]]);
         }
 
-        return $this->mediaResponse($media, $replayed);
+                return $this->mediaResponse($media, $replayed);
+            });
+        } catch (LockTimeoutException) {
+            return $this->error('جارٍ رفع هذا الملف\nحاول بعد قليل', 409);
+        }
+    }
+
+    public function issueVideoUpload(Request $request, $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'idempotency_key' => ['required', 'uuid'],
+            'size' => ['required', 'integer', 'min:1', 'max:' . PortfolioVideoUploadService::MAX_BYTES],
+            'mime' => ['required', Rule::in(PortfolioVideoUploadService::MIMES)],
+            'original_name' => ['required', 'string', 'max:255'],
+            'sha256' => ['required', 'regex:/^[a-f0-9]{64}$/'],
+        ]);
+        /** @var User $user */
+        $user = auth('api')->user();
+        $item = $user->portfolioItems()->whereNull('deletion_started_at')->findOrFail($id);
+
+        return response()->json([
+            'status' => 200,
+            'success' => true,
+            'message' => 'تم تجهيز رفع الفيديو',
+            'data' => $this->videoUploads->issue(
+                $user,
+                $item,
+                (string) $validated['idempotency_key'],
+                (int) $validated['size'],
+                (string) $validated['mime'],
+                (string) $validated['original_name'],
+                (string) $validated['sha256']
+            ),
+        ]);
+    }
+
+    public function renewVideoUpload(Request $request, $id): JsonResponse
+    {
+        $validated = $request->validate(['claim' => ['required', 'string', 'max:4096']]);
+        /** @var User $user */
+        $user = auth('api')->user();
+        abort_unless($user->portfolioItems()->whereNull('deletion_started_at')->whereKey($id)->exists(), 404);
+
+        return response()->json([
+            'status' => 200,
+            'success' => true,
+            'message' => 'تم تجديد رابط الرفع',
+            'data' => $this->videoUploads->renew($user, (int) $id, (string) $validated['claim']),
+        ]);
+    }
+
+    public function claimVideoUpload(Request $request, $id): JsonResponse
+    {
+        if ($request->has('caption')) {
+            $request->merge(['caption' => UnicodeText::clean($request->input('caption'), false)]);
+        }
+        $validated = $request->validate([
+            'claim' => ['required', 'string', 'max:4096'],
+            'caption' => ['nullable', 'string', 'max:255'],
+        ]);
+        /** @var User $user */
+        $user = auth('api')->user();
+        abort_unless($user->portfolioItems()->whereNull('deletion_started_at')->whereKey($id)->exists(), 404);
+        $media = $this->videoUploads->attach(
+            $user,
+            (int) $id,
+            (string) $validated['claim'],
+            $validated['caption'] ?? null
+        );
+
+        return $this->mediaResponse($media, $media->wasRecentlyCreated === false);
+    }
+
+    private function mediaCapacity(PortfolioItem $item): int
+    {
+        $expected = max(0, (int) $item->expected_media_count);
+        return !$item->is_public && $expected > 0
+            ? min(self::MAX_MEDIA_PER_ITEM, $expected)
+            : self::MAX_MEDIA_PER_ITEM;
     }
 
     private function mediaResponse($media, bool $replayed): JsonResponse
@@ -658,37 +902,55 @@ final class PortfolioController extends Controller
         ]);
     }
 
+    /** Publish an intentionally shortened upload after at least one file landed. */
+    public function finalize($id): JsonResponse
+    {
+        $user = auth('api')->user();
+        $item = DB::transaction(function () use ($user, $id): PortfolioItem {
+            $lockedUser = User::query()->whereKey($user->id)->lockForUpdate()->first();
+            abort_if(!$lockedUser, 404);
+            $item = $lockedUser->portfolioItems()->lockForUpdate()->find($id);
+            abort_if(!$item || $item->deletion_started_at, 404);
+            $uploadedCount = $item->mediaFiles()->count();
+            abort_if($uploadedCount < 1 && (int) $item->expected_media_count > 0, 409);
+            $item->forceFill([
+                'expected_media_count' => $uploadedCount,
+                'is_public' => true,
+            ])->save();
+            return $item->fresh(['mediaFiles', 'course'])->loadCount('mediaFiles');
+        }, 3);
+
+        return response()->json([
+            'status' => 200,
+            'success' => true,
+            'message' => 'تم نشر المشروع',
+            'data' => new PortfolioItemResource($item),
+        ]);
+    }
+
     /**
      * Delete a media file from a portfolio item.
      */
     public function deleteMedia($id, $mediaId): JsonResponse
     {
         $user = auth('api')->user();
-        $item = $user->portfolioItems()->find($id);
-
-        if (!$item) {
-            return $this->error('المشروع غير متاح', 404);
-        }
-
-        $media = $item->mediaFiles()->find($mediaId);
-
-        if (!$media) {
-            return $this->error('الملف غير متاح', 404);
-        }
-
-        if ($media->file_type === 'video' && $media->file_path) {
-            $deleted = $this->bunnyService->deleteVideo($media->file_path);
-        } elseif ($media->file_type === 'image' && $media->file_path) {
-            $deleted = $this->bunnyService->deleteFileFromStorage($media->file_path);
-        } else {
-            $deleted = true;
-        }
-
-        if (!$deleted) {
-            return $this->error('تعذّر حذف الملف الآن', 503);
-        }
-
-        $media->delete();
+        DB::transaction(function () use ($user, $id, $mediaId): void {
+            $lockedUser = User::query()->whereKey($user->id)->lockForUpdate()->first();
+            abort_if(!$lockedUser, 404);
+            $item = $lockedUser->portfolioItems()->lockForUpdate()->find($id);
+            abort_if(!$item || $item->deletion_started_at, 404);
+            $media = $item->mediaFiles()->lockForUpdate()->find($mediaId);
+            abort_if(!$media, 404);
+            $media->forceFill([
+                'deletion_lease_id' => (string) Str::uuid(),
+                'deletion_started_at' => now(),
+            ])->save();
+            $this->queuePortfolioMediaCleanup($media, 'portfolio_media_deleted');
+            $media->delete();
+            if (!$item->mediaFiles()->exists() && $item->expected_media_count > 0) {
+                $item->forceFill(['is_public' => false])->save();
+            }
+        }, 3);
 
         return response()->json([
             'status' => 200,
@@ -708,6 +970,28 @@ final class PortfolioController extends Controller
             'message' => 'تم تحميل بيانات المعرض',
             'data' => $this->profilePayload($user),
         ]);
+    }
+
+    private function queuePortfolioMediaCleanup($media, string $reason): void
+    {
+        if ($media->file_type === 'video' && $media->file_path) {
+            $candidate = $this->bunnyService->queueVideoCleanup(
+                $media->file_path,
+                null,
+                $reason,
+                1,
+                false
+            );
+            if (!$candidate) {
+                throw new \RuntimeException('Unable to persist portfolio video cleanup.');
+            }
+            return;
+        }
+        if ($media->file_type === 'image' && $media->file_path) {
+            if (!$this->bunnyService->queueStorageCleanup($media->file_path, $reason)) {
+                throw new \RuntimeException('Unable to persist portfolio image cleanup.');
+            }
+        }
     }
 
     public function updateProfile(Request $request): JsonResponse
@@ -767,7 +1051,13 @@ final class PortfolioController extends Controller
         if (array_key_exists('portfolio_slug', $validated)) {
             $validated['portfolio_slug'] = Str::slug((string) $validated['portfolio_slug']);
         }
-        $user->update($validated);
+        $user = DB::transaction(function () use ($user, $validated): User {
+            /** @var User $locked */
+            $locked = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $locked->update($validated);
+
+            return $locked->fresh();
+        });
 
         return response()->json([
             'status' => 200,
@@ -812,31 +1102,36 @@ final class PortfolioController extends Controller
     private function cleanupUploadedMedia(array $uploadedMedia): void
     {
         foreach (array_reverse($uploadedMedia) as $media) {
-            $deleted = $media['file_type'] === 'video'
-                ? $this->bunnyService->deleteVideo($media['file_path'])
-                : $this->bunnyService->deleteFileFromStorage($media['file_path']);
-            if (!$deleted) {
-                if ($media['file_type'] === 'video') {
-                    $this->bunnyService->queueVideoCleanup(
-                        $media['file_path'],
-                        null,
-                        'portfolio_rollback',
-                        1,
-                        true
-                    );
-                } else {
-                    $this->bunnyService->queueStorageCleanup(
-                        $media['file_path'],
-                        'portfolio_rollback',
-                        5
-                    );
-                }
-                Log::warning('Portfolio rollback could not remove Bunny artifact', [
-                    'file_type' => $media['file_type'],
-                    'file_path' => $media['file_path'],
-                ]);
+            // A replay can observe an object that another request has already
+            // published. Never delete synchronously: the cleanup workers check
+            // the live reference graph before retiring the queued generation.
+            if ($media['file_type'] === 'video') {
+                $this->bunnyService->queueVideoCleanup(
+                    $media['file_path'],
+                    null,
+                    'portfolio_rollback',
+                    1,
+                    false
+                );
+            } else {
+                $this->bunnyService->queueStorageCleanup(
+                    $media['file_path'],
+                    'portfolio_rollback',
+                    5
+                );
             }
         }
+    }
+
+    /** Consume the staged cleanup lease beside the reference created by this transaction. */
+    private function consumeUploadedMediaCandidate(array $media): void
+    {
+        if (($media['file_type'] ?? null) === 'video') {
+            $this->bunnyService->consumeVideoCleanupCandidate((string) ($media['file_path'] ?? ''));
+            return;
+        }
+
+        $this->bunnyService->consumeStorageCleanupCandidate((string) ($media['file_path'] ?? ''));
     }
 
     private function assertMediaMatchesType($file, string $fileType, string $field): void
@@ -890,6 +1185,16 @@ final class PortfolioController extends Controller
     private function safeOriginalName(?string $name): string
     {
         return DownloadFilename::safe($name, 'portfolio-file');
+    }
+
+    private function portfolioMediaRequestId(string $parentRequestId, int $index, string $sha256): string
+    {
+        $hex = sha1(strtolower($parentRequestId) . '|' . $index . '|' . strtolower($sha256));
+        return substr($hex, 0, 8) . '-'
+            . substr($hex, 8, 4) . '-'
+            . '5' . substr($hex, 13, 3) . '-'
+            . dechex((hexdec($hex[16]) & 0x3) | 0x8) . substr($hex, 17, 3) . '-'
+            . substr($hex, 20, 12);
     }
 
     private function normalizePortfolioInput(Request $request): void

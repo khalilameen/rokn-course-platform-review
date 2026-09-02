@@ -21,7 +21,7 @@ final class AdminAuthorizationMatrixTest extends TestCase
         self::assertTrue($matrix->allows('moderator', 'admin.courses.update', 'PATCH'));
         self::assertTrue($matrix->allows('moderator', 'admin.courses.sections.update', 'PATCH'));
 
-        self::assertFalse($matrix->allows('moderator', 'admin.project-submissions.reject', 'POST'));
+        self::assertTrue($matrix->allows('moderator', 'admin.project-submissions.reject', 'POST'));
         self::assertFalse($matrix->allows('moderator', 'admin.settings', 'GET'));
         self::assertFalse($matrix->allows('moderator', 'admin.payment-reconciliation-findings.index', 'GET'));
         self::assertFalse($matrix->allows('moderator', 'admin.payment-reconciliation-findings.resolve', 'PATCH'));
@@ -42,7 +42,6 @@ final class AdminAuthorizationMatrixTest extends TestCase
             'admin.orders.index',
             'admin.courses.destroy',
             'admin.student-progress.index',
-            'admin.project-submissions.index',
             'admin.exam-results.index',
             'admin.exam-results.export',
             'admin.users.index',
@@ -57,6 +56,7 @@ final class AdminAuthorizationMatrixTest extends TestCase
             'admin.operating-costs.report',
             'admin.operating-costs.report.export',
             'admin.courses.commercial-report.export',
+            'admin.notifications.retry',
         ] as $name) {
             $route = Route::getRoutes()->getByName($name);
             self::assertNotNull($route, "Missing expected route {$name}");
@@ -68,6 +68,11 @@ final class AdminAuthorizationMatrixTest extends TestCase
         self::assertNotNull($moderatorRoute);
         self::assertNotContains('admin.only', $moderatorRoute->gatherMiddleware());
         self::assertContains('admin.mfa', $moderatorRoute->gatherMiddleware());
+
+        $contentReviewRoute = Route::getRoutes()->getByName('admin.project-submissions.index');
+        self::assertNotNull($contentReviewRoute);
+        self::assertNotContains('admin.only', $contentReviewRoute->gatherMiddleware());
+        self::assertContains('admin.mfa', $contentReviewRoute->gatherMiddleware());
     }
 
     public function test_every_moderator_matrix_entry_names_a_real_route_and_method(): void
@@ -138,7 +143,7 @@ final class AdminAuthorizationMatrixTest extends TestCase
         self::assertStringNotContainsString(route('admin.payment-reconciliation-findings.index'), $html);
         self::assertStringNotContainsString(route('admin.users.index'), $html);
         self::assertStringNotContainsString(route('admin.student-progress.index'), $html);
-        self::assertStringNotContainsString(route('admin.project-submissions.index'), $html);
+        self::assertStringContainsString(route('admin.project-submissions.index'), $html);
     }
 
     public function test_administrator_navigation_normalizes_legacy_role_case(): void

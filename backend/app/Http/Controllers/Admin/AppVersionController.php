@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\AppVersion;
 use App\Services\AppReleasePolicyService;
+use App\Services\AdminAuthoringCreateIntentService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -62,11 +64,20 @@ class AppVersionController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
      */
-    public function store(Request $request)
+    public function store(Request $request, AdminAuthoringCreateIntentService $createIntents)
     {
         $data = $this->validatedPayload($request);
 
-        AppVersion::create($data);
+        DB::transaction(function () use ($request, $data, $createIntents): void {
+            $version = AppVersion::create($data);
+            $createIntents->completeRedirect(
+                $request,
+                route('admin.app-versions.index'),
+                302,
+                AppVersion::class,
+                $version->id
+            );
+        }, 3);
 
         return redirect()->route('admin.app-versions.index')->with('success', 'تم إضافة الإصدار بنجاح');
     }
@@ -223,7 +234,10 @@ class AppVersionController extends Controller
             ],
             'release_notes_ar' => ['nullable', 'string', 'max:5000'],
             'release_notes_en' => ['nullable', 'string', 'max:5000'],
+            'authoring_request_id' => [$existing ? 'nullable' : 'required', 'uuid'],
         ]);
+
+        unset($data['authoring_request_id']);
 
         $data['is_force_update'] = $request->boolean('is_force_update');
         $data['is_active'] = $request->boolean('is_active');

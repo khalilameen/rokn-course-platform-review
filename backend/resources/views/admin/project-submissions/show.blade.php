@@ -39,17 +39,53 @@
                     <h5>النص المرسل</h5>
                     <div class="admin-copy mb-4">{{ $submission->submission_text ?: 'لا يوجد نص مرفق.' }}</div>
 
-                    <h5>المرفق</h5>
-                    @if($submission->submission_file)
-                        <div class="border rounded p-3 d-flex flex-wrap justify-content-between align-items-center admin-gap">
-                            <div><strong>{{ $submission->original_file_name ?: 'ملف المحاولة' }}</strong><br><small class="text-muted">{{ $submission->mime_type ?: 'نوع غير معروف' }} @if($submission->file_size) · {{ number_format($submission->file_size / 1024, 1) }} KB @endif</small></div>
-                            <a href="{{ route('admin.project-submissions.download', $submission) }}" class="btn btn-outline-primary"><i class="fa fa-download"></i> تنزيل آمن</a>
-                        </div>
+                    <h5>ملفات المشروع</h5>
+                    @if($submission->aiInputAttachments->isNotEmpty())
+                        @foreach($submission->aiInputAttachments as $attachment)
+                            <div class="border rounded p-3 mb-2 d-flex flex-wrap justify-content-between align-items-center admin-gap">
+                                <div><strong>{{ $attachment->original_file_name }}</strong><br><small class="text-muted">{{ $attachment->mime_type }} · {{ number_format($attachment->size_bytes / 1024, 1) }} KB</small></div>
+                                <a href="{{ route('admin.project-submissions.attachments.download', [$submission, $attachment]) }}" class="btn btn-outline-primary"><i class="fa fa-download"></i> تنزيل</a>
+                            </div>
+                        @endforeach
+                    @elseif($submission->submission_file)
+                        <a href="{{ route('admin.project-submissions.download', $submission) }}" class="btn btn-outline-primary"><i class="fa fa-download"></i> {{ $submission->original_file_name ?: 'تنزيل الملف' }}</a>
                     @else
                         <p class="text-muted">لا يوجد ملف مرفق.</p>
                     @endif
                 </div>
             </div>
+
+            @if($submission->feedbackThread)
+                <div class="card admin-card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>تقرير ركن ومحادثة المشروع</strong>
+                        <span class="badge badge-light">{{ $submission->feedbackThread->feedback_level }}</span>
+                    </div>
+                    <div class="card-body">
+                        @forelse($threadMessages as $message)
+                            <div class="border rounded p-3 mb-3 {{ $message->role === 'user' ? 'border-primary' : '' }}">
+                                <div class="d-flex flex-wrap justify-content-between admin-gap mb-2">
+                                    <strong>{{ $message->role === 'user' ? 'الطالب' : 'ركن' }}</strong>
+                                    <small class="text-muted">{{ $message->status }} · {{ $message->created_at ? \App\Support\BusinessClock::format($message->created_at, 'Y-m-d H:i:s') : '—' }}</small>
+                                </div>
+                                @if($message->body)<div class="admin-copy mb-2">{{ $message->body }}</div>@endif
+                                @foreach($message->getRelation('inputAttachments') as $attachment)
+                                    <a class="btn btn-sm btn-outline-primary mb-2" href="{{ route('admin.project-submissions.attachments.download', [$submission, $attachment]) }}">
+                                        <i class="fa fa-download"></i> {{ $attachment->original_file_name }}
+                                    </a>
+                                @endforeach
+                                @if($isAdministrator && $message->relationLoaded('usageEvent') && $message->usageEvent)
+                                    <div class="small text-muted mt-2">
+                                        AI {{ $message->usageEvent->status }} · {{ number_format((int) $message->usageEvent->total_tokens) }} توكن · ${{ number_format((float) $message->usageEvent->cost_usd, 6) }}
+                                    </div>
+                                @endif
+                            </div>
+                        @empty
+                            <p class="text-muted mb-0">لم يصدر تقرير بعد</p>
+                        @endforelse
+                    </div>
+                </div>
+            @endif
 
             @if($submission->review_status === 'pending' || ($submission->review_status === 'passed' && $submission->review_source === 'graceful_fallback'))
                 <div class="card admin-card mb-4">

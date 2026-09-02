@@ -216,6 +216,7 @@ describe('course-code redemption UI', () => {
 
   it('shows the same sufficient package choices inline without opening the wallet page', async () => {
     const onBuyCoins = jest.fn();
+    const onChangePlan = jest.fn();
     let renderer: ReactTestRenderer.ReactTestRenderer;
 
     await ReactTestRenderer.act(() => {
@@ -231,6 +232,7 @@ describe('course-code redemption UI', () => {
           isTablet={false}
           notice=""
           onBuyCoins={onBuyCoins}
+          onChangePlan={onChangePlan}
           onClose={jest.fn()}
           onConfirmPurchase={jest.fn()}
           onSelectPlan={jest.fn()}
@@ -288,6 +290,12 @@ describe('course-code redemption UI', () => {
     expect(onBuyCoins).toHaveBeenCalledWith(
       expect.objectContaining({id: 'coins-1000'}),
     );
+    await ReactTestRenderer.act(() =>
+      renderer!.root
+        .find(node => node.props.accessibilityLabel === 'تغيير فئة الكورس')
+        .props.onPress(),
+    );
+    expect(onChangePlan).toHaveBeenCalledTimes(1);
 
     await ReactTestRenderer.act(() => renderer!.unmount());
   });

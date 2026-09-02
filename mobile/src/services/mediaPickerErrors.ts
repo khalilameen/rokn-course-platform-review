@@ -2,6 +2,13 @@ import {Alert, Linking} from 'react-native';
 
 /** Maps vendor-specific picker failures to one stable learner recovery path. */
 export const showMediaPickerFailure = (errorCode?: string) => {
+  if (errorCode === 'LEARNER_DRAFT_STORAGE_FULL') {
+    Alert.alert(
+      'اكتملت مساحة الملفات المعلّقة',
+      'اتصل بالإنترنت لإرسال الملفات المعلّقة\nثم حاول مرة أخرى',
+    );
+    return;
+  }
   if (errorCode === 'permission') {
     Alert.alert(
       'تعذّر فتح الصور',

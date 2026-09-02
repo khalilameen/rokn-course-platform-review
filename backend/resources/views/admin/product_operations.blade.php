@@ -410,7 +410,8 @@
         </div></div></div>
         <div class="col-lg-5 mb-3"><div class="card admin-card h-100"><div class="card-body">
             <h2 class="h5 mb-3">فصل الإيراد عن المكافآت</h2>
-            <p class="mb-2">إجمالي المبيعات المسجل بكل القنوات <strong class="float-left">{{ number_format($finance['cash_revenue'], 2) }} جنيه</strong></p>
+            <p class="mb-2">إجمالي التحصيل المؤكد بكل القنوات <strong class="float-left">{{ number_format($finance['cash_revenue'], 2) }} جنيه</strong></p>
+            @if($finance['cash_revenue_catalog_estimate'] > 0)<p class="mb-2 text-warning">تقدير الكتالوج خارج الإجمالي <strong class="float-left">{{ number_format($finance['cash_revenue_catalog_estimate'], 2) }} جنيه</strong></p>@endif
             <p class="mb-2">الصافي المؤكد من كشوف التسوية <strong class="float-left">{{ number_format($finance['confirmed_net_revenue'], 2) }} جنيه</strong></p>
             <p class="mb-2">الصافي الحالي (يشمل التقديري) <strong class="float-left">{{ number_format($finance['estimated_net_revenue'], 2) }} جنيه</strong></p>
             <p class="mb-2">عمليات تنتظر كشف التسوية <strong class="float-left">{{ number_format($finance['pending_settlements']) }}</strong></p>

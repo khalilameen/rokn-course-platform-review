@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   type Dispatch,
   type MutableRefObject,
   type SetStateAction,
@@ -72,10 +73,27 @@ export const useReelsProgress = ({
   setCourse: Dispatch<SetStateAction<CourseLearningData | null>>;
   setPreviewGateVisible: Dispatch<SetStateAction<boolean>>;
 }) => {
+  const activeContextRef = useRef({courseId: '', feedKey: ''});
+  activeContextRef.current = {
+    courseId: course?.id || '',
+    feedKey: feedItems[currentIndex]?.key || '',
+  };
+
+  const ownsCourse = useCallback(
+    (courseId: string) => activeContextRef.current.courseId === courseId,
+    [],
+  );
+  const ownsActiveReel = useCallback(
+    (courseId: string, reel: CourseReel) =>
+      ownsCourse(courseId) &&
+      activeContextRef.current.feedKey === `reel-${reel.id}`,
+    [ownsCourse],
+  );
+
   const updateReelCompletion = useCallback(
-    (reel: CourseReel) => {
+    (courseId: string, reel: CourseReel) => {
       setCourse(current =>
-        current ? markReelCompleted(current, reel) : current,
+        current?.id === courseId ? markReelCompleted(current, reel) : current,
       );
     },
     [setCourse],
@@ -84,15 +102,16 @@ export const useReelsProgress = ({
   const confirmReelCompletion = useCallback(
     async (reel: CourseReel, evidenceSave: Promise<void>): Promise<boolean> => {
       if (!course) return false;
+      const courseId = course.id;
       try {
         await evidenceSave;
         await flushPendingPlaybackPositions();
-        const completed = await markSectionComplete(course.id, reel.sectionId);
+        const completed = await markSectionComplete(courseId, reel.sectionId);
         if (!completed) {
           refs.completionSent.current.delete(reel.sectionId);
           return false;
         }
-        updateReelCompletion(reel);
+        updateReelCompletion(courseId, reel);
         return true;
       } catch {
         refs.completionSent.current.delete(reel.sectionId);
@@ -198,10 +217,11 @@ export const useReelsProgress = ({
           );
         const completeLocally = previewMode || isLocalDemoId(course.id);
         if (completeLocally) {
-          updateReelCompletion(reel);
+          updateReelCompletion(course.id, reel);
         }
         void confirmReelCompletion(reel, finalEvidenceSave).then(completed => {
           if (!completed && !completeLocally) return;
+          if (!ownsActiveReel(course.id, reel)) return;
           maybeOfferReminders();
           const nextTitle = nextLearningTitle(course, reel);
           const lastPreviewItem = feedItems[feedItems.length - 1];
@@ -224,6 +244,7 @@ export const useReelsProgress = ({
       feedItems,
       flushDemoStudy,
       maybeOfferReminders,
+      ownsActiveReel,
       playbackSpeed,
       previewMode,
       refs,
@@ -238,9 +259,10 @@ export const useReelsProgress = ({
       flushDemoStudy(true);
       const completeLocally = previewMode || isLocalDemoId(course.id);
       if (completeLocally) {
-        updateReelCompletion(reel);
+        updateReelCompletion(course.id, reel);
       }
       const advance = () => {
+        if (!ownsActiveReel(course.id, reel)) return;
         maybeOfferReminders();
         const isLastPreviewReel =
           previewMode && currentIndex >= refs.feedLength.current - 1;
@@ -258,7 +280,11 @@ export const useReelsProgress = ({
           return;
         }
         if (autoplay) {
-          scheduleDelayedAction(() => scrollToIndex(currentIndex + 1), 280);
+          scheduleDelayedAction(() => {
+            if (ownsActiveReel(course.id, reel)) {
+              scrollToIndex(currentIndex + 1);
+            }
+          }, 280);
         }
       };
       if (!refs.completionSent.current.has(reel.sectionId)) {
@@ -292,6 +318,7 @@ export const useReelsProgress = ({
       currentIndex,
       flushDemoStudy,
       maybeOfferReminders,
+      ownsActiveReel,
       playbackSpeed,
       previewMode,
       refs,

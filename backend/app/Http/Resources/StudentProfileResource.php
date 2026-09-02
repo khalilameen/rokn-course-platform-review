@@ -10,6 +10,7 @@ use Illuminate\Support\Str;
 class StudentProfileResource extends JsonResource
 {
     private bool $includeLearningSnapshot = true;
+    private bool $includeEarnedBadges = true;
 
     /**
      * Authentication and preference mutations only need the account snapshot.
@@ -20,6 +21,16 @@ class StudentProfileResource extends JsonResource
     public function withoutLearningSnapshot(): static
     {
         $this->includeLearningSnapshot = false;
+        $this->includeEarnedBadges = false;
+
+        return $this;
+    }
+
+    /** Learning home consumes badges without needing courses and history. */
+    public function onlyEarnedBadges(): static
+    {
+        $this->includeLearningSnapshot = false;
+        $this->includeEarnedBadges = true;
 
         return $this;
     }
@@ -34,6 +45,8 @@ class StudentProfileResource extends JsonResource
     {
         if ($this->includeLearningSnapshot) {
             $this->prepareProfileSnapshot();
+        } elseif ($this->includeEarnedBadges) {
+            $this->resource->loadMissing('earnedLevels:id,name_ar,name_en,badge_image');
         }
         $attributes = $this->resource->getAttributes();
         $examAttempts = (int) ($attributes['profile_exam_attempts_count'] ?? 0);
@@ -109,7 +122,7 @@ class StudentProfileResource extends JsonResource
                 fn () => $this->getInterestsSafely()
             ),
             'earned_badges' => $this->when(
-                $this->includeLearningSnapshot,
+                $this->includeLearningSnapshot || $this->includeEarnedBadges,
                 fn () => $this->getEarnedBadgesSafely()
             ),
             'created_at' => $this->created_at,
@@ -211,6 +224,7 @@ class StudentProfileResource extends JsonResource
                 ];
             }) : [];
         } catch (\Exception $e) {
+            report($e);
             return [];
         }
     }
@@ -250,6 +264,7 @@ class StudentProfileResource extends JsonResource
                 ];
             })->values();
         } catch (\Exception $e) {
+            report($e);
             return [];
         }
     }

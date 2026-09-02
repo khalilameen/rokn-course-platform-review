@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Jobs\RecordQueueHeartbeat;
 use App\Models\OperationalIncident;
+use App\Models\InternalSignal;
 use App\Models\OutboxEvent;
 use App\Models\ProjectFeedbackMessage;
 use App\Models\StudentNotification;
@@ -51,6 +52,7 @@ final class OperationalRuntimeService
             'queues' => $queues,
             'failed_jobs' => $this->failedJobs(),
             'outbox' => $this->outbox(),
+            'internal_signals' => $this->internalSignals(),
             'notifications' => $this->notifications(),
             'certificates' => $this->certificates(),
             'ai' => $this->ai(),
@@ -193,6 +195,7 @@ final class OperationalRuntimeService
             ['failed_jobs', 'queue', 'تعطلت مهام ووصلت إلى قائمة الفشل'],
             ['failed', 'webhook', 'أحداث webhook وصلت إلى قائمة الفشل'],
             ['blocked', 'webhook', 'أحداث webhook تنتظر حدثًا أقدم لم يكتمل'],
+            ['stale_internal', 'internal_signal', 'آثار داخلية مهمة تنتظر الاستعادة'],
             ['stale', 'notification', 'إشعارات لم تصل إلى push بعد المهلة'],
             ['failed_pushes', 'notification', 'إشعارات push استنفدت محاولاتها'],
             ['failed_campaigns', 'notification', 'حملات إشعار تعطلت قبل اكتمال البريد الداخلي'],
@@ -215,6 +218,7 @@ final class OperationalRuntimeService
             $source = match ($key) {
                 'failed_jobs' => $snapshot['failed_jobs'],
                 'failed', 'blocked' => $snapshot['outbox'],
+                'stale_internal' => $snapshot['internal_signals'],
                 'stale', 'failed_pushes', 'failed_campaigns' => $snapshot['notifications'],
                 'pending_certificates', 'failed_certificates' => $snapshot['certificates'],
                 'stale_messages', 'expired_reservations' => $snapshot['ai'],
@@ -294,6 +298,39 @@ final class OperationalRuntimeService
     }
 
     /** @return array<string, mixed> */
+    private function internalSignals(): array
+    {
+        if (!Schema::hasTable('internal_signals')) {
+            return ['stale_internal' => 0, 'pending' => 0, 'processing' => 0];
+        }
+
+        $staleBefore = now()->subMinutes(5);
+        $base = InternalSignal::query();
+        $stale = InternalSignal::query()
+            ->where(function ($query) use ($staleBefore): void {
+                $query->where(function ($pending) use ($staleBefore): void {
+                    $pending->where('status', InternalSignal::STATUS_PENDING)
+                        ->where('created_at', '<=', $staleBefore);
+                })->orWhere(function ($processing) use ($staleBefore): void {
+                    $processing->where('status', InternalSignal::STATUS_PROCESSING)
+                        ->where(function ($lease) use ($staleBefore): void {
+                            $lease->whereNull('locked_at')->orWhere('locked_at', '<=', $staleBefore);
+                        });
+                });
+            });
+
+        return [
+            'pending' => (clone $base)->where('status', InternalSignal::STATUS_PENDING)->count(),
+            'processing' => (clone $base)->where('status', InternalSignal::STATUS_PROCESSING)->count(),
+            'stale_internal' => (clone $stale)->count(),
+            'stale_internal_oldest_at' => (clone $stale)->min('created_at'),
+            'stale_internal_affected' => (clone $stale)
+                ->distinct()
+                ->count('aggregate_id'),
+        ];
+    }
+
+    /** @return array<string, mixed> */
     private function notifications(): array
     {
         $result = [
@@ -317,7 +354,14 @@ final class OperationalRuntimeService
                 $failedPushes = StudentNotification::query()
                     ->whereNull('push_sent_at')
                     ->whereNotNull('push_failed_at')
-                    ->where('push_failure_code', '<>', 'not_push_eligible');
+                    ->whereNotIn('push_failure_code', [
+                        'not_push_eligible',
+                        'preference_disabled',
+                        'account_inactive',
+                        'no_registered_device',
+                        'token_unbound',
+                        'delivery_window_expired',
+                    ]);
                 $result['failed_pushes'] = (clone $failedPushes)->count();
                 $result['failed_pushes_affected'] = (clone $failedPushes)
                     ->distinct()->count('user_id');

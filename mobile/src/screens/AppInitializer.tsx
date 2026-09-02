@@ -46,6 +46,8 @@ import {
   runDeviceStorageUpgrade,
 } from '../services/storageUpgrade';
 import {flushProductEvents} from '../services/productAnalytics';
+import {flushPendingAccountWrites} from '../services/pendingAccountWrites';
+import {flushOperationalTelemetry} from '../services/operationalTelemetry';
 
 type DeadlineResult<T> =
   | {settled: true; value: T}
@@ -269,6 +271,7 @@ const AppInitializer: FC = () => {
     // Token refresh/retry happens only for an authenticated, already opted-in
     // learner. This bootstrap path never opens the notification permission UI.
     void reconcilePushRegistration();
+    void flushPendingAccountWrites().catch(() => undefined);
   }, [storedUser]);
 
   useEffect(() => {
@@ -337,8 +340,10 @@ const AppInitializer: FC = () => {
         reconcileStorePurchases();
         void reconcilePushRegistration();
         void flushProductEvents().catch(() => undefined);
+        void flushOperationalTelemetry().catch(() => undefined);
         void refreshUpdateNotice();
         void flushPendingNotificationNavigation().catch(() => undefined);
+        void flushPendingAccountWrites().catch(() => undefined);
         restoreSessionAfterUnlock();
         void resumePendingSocialAuth()
           .then(session => {

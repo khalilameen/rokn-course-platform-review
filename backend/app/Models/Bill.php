@@ -114,22 +114,13 @@ class Bill extends Model
         ]);
     }
 
-    /**
-     * Generate bill number.
-     */
-    public static function generateBillNumber()
+    /** One durable invoice identity per order; safe under concurrent checkout retries. */
+    public static function numberForOrder(int $orderId): string
     {
-        $prefix = 'BILL-';
-        $year = date('Y');
-        $month = date('m');
+        if ($orderId <= 0) {
+            throw new \InvalidArgumentException('A persisted order is required for billing.');
+        }
 
-        $lastBill = self::whereYear('created_at', $year)
-            ->whereMonth('created_at', $month)
-            ->orderBy('id', 'desc')
-            ->first();
-
-            $sequence =  $lastBill ? (@end(explode('-', $lastBill->bill_number)) + 1) : 1;
-
-            return sprintf('%s-%s%s-%s', $prefix, $year, $month, $sequence);
+        return 'BILL-ORDER-' . $orderId;
     }
 }

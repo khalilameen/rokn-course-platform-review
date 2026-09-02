@@ -4,10 +4,13 @@ import * as WebBrowser from 'expo-web-browser';
 import {publicRequest} from '../constants/api';
 import {
   accountScopedStorageKey,
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
   getItem,
   removeItem,
   saveItem,
 } from '../constants/helpers';
+import type {AccountSessionBoundary} from '../constants/helpers';
 import {DemoCoinPackage} from './demoExperience';
 import {
   CAN_START_EXTERNAL_CHECKOUT,
@@ -63,6 +66,9 @@ const checkoutReconciliationFlights = new Map<
   string,
   Promise<CoinCheckoutResult | null>
 >();
+const checkoutCreditListeners = new Set<(result: CoinCheckoutResult) => void>();
+const emittedCheckoutCredits = new Set<string>();
+const MAX_EMITTED_CHECKOUT_CREDITS = 128;
 
 const withCheckoutAttemptStorageLock = <T>(
   operation: () => Promise<T>,
@@ -75,8 +81,8 @@ const withCheckoutAttemptStorageLock = <T>(
   return result;
 };
 
-const checkoutAttemptStorageKey = () =>
-  accountScopedStorageKey(CHECKOUT_ATTEMPT_KEY);
+const checkoutAttemptStorageKey = (boundary?: AccountSessionBoundary) =>
+  accountScopedStorageKey(CHECKOUT_ATTEMPT_KEY, boundary);
 
 const normalizeCheckoutAttempt = (
   value: PersistedCheckoutAttempt | null,
@@ -128,15 +134,18 @@ const normalizeCheckoutLedger = (
   return [...byPackage.values()];
 };
 
-const readCheckoutAttempts = async () =>
+const readCheckoutAttempts = async (boundary?: AccountSessionBoundary) =>
   normalizeCheckoutLedger(
     await getItem<PersistedCheckoutAttempt | PersistedCheckoutLedger>(
-      await checkoutAttemptStorageKey(),
+      await checkoutAttemptStorageKey(boundary),
     ),
   );
 
-const readCheckoutAttempt = async (packageId?: number) => {
-  const attempts = await readCheckoutAttempts();
+const readCheckoutAttempt = async (
+  packageId?: number,
+  boundary?: AccountSessionBoundary,
+) => {
+  const attempts = await readCheckoutAttempts(boundary);
   return packageId === undefined
     ? attempts[0] ?? null
     : attempts.find(attempt => attempt.packageId === packageId) ?? null;
@@ -157,9 +166,11 @@ const getOrCreateCheckoutAttempt = async (
   packageId: number,
   expectedPrice: number,
   expectedCoins: number,
+  boundary: AccountSessionBoundary,
 ): Promise<PersistedCheckoutAttempt> =>
   withCheckoutAttemptStorageLock(async () => {
-    const storageKey = await checkoutAttemptStorageKey();
+    assertAccountSessionBoundary(boundary);
+    const storageKey = await checkoutAttemptStorageKey(boundary);
     const attempts = normalizeCheckoutLedger(
       await getItem<PersistedCheckoutAttempt | PersistedCheckoutLedger>(storageKey),
     );
@@ -187,9 +198,11 @@ const getOrCreateCheckoutAttempt = async (
 const rememberCheckoutOrder = async (
   attempt: PersistedCheckoutAttempt,
   orderRef: string,
+  boundary: AccountSessionBoundary,
 ) =>
   withCheckoutAttemptStorageLock(async () => {
-    const storageKey = await checkoutAttemptStorageKey();
+    assertAccountSessionBoundary(boundary);
+    const storageKey = await checkoutAttemptStorageKey(boundary);
     const attempts = normalizeCheckoutLedger(
       await getItem<PersistedCheckoutAttempt | PersistedCheckoutLedger>(storageKey),
     );
@@ -214,9 +227,11 @@ const rememberCheckoutOrder = async (
 
 const clearCheckoutAttempt = async (
   expectedIdempotencyKey: string,
+  boundary: AccountSessionBoundary,
 ) =>
   withCheckoutAttemptStorageLock(async () => {
-    const storageKey = await checkoutAttemptStorageKey();
+    assertAccountSessionBoundary(boundary);
+    const storageKey = await checkoutAttemptStorageKey(boundary);
     const attempts = normalizeCheckoutLedger(
       await getItem<PersistedCheckoutAttempt | PersistedCheckoutLedger>(storageKey),
     );
@@ -284,18 +299,29 @@ const openCheckoutSurface = async (url: string): Promise<string> => {
   throw new Error(`In-app checkout is unavailable on ${Platform.OS}`);
 };
 
-const pollOrder = async (orderRef: string, attempts = 4) => {
+const pollOrder = async (
+  orderRef: string,
+  boundary: AccountSessionBoundary,
+  attempts = 4,
+) => {
   const normalizedOrderRef = String(orderRef).trim();
   if (!/^[a-zA-Z0-9_-]{8,100}$/.test(normalizedOrderRef)) {
     throw new Error('PAYMENT_ORDER_REFERENCE_INVALID');
   }
   for (let attempt = 0; attempt < attempts; attempt += 1) {
+    assertAccountSessionBoundary(boundary);
     let response;
     try {
       response = await publicRequest.post(
         `payment/reconcile/${encodeURIComponent(normalizedOrderRef)}`,
       );
+      assertAccountSessionBoundary(boundary);
     } catch {
+      // A reconciliation response belongs to the account which opened the
+      // checkout. Do not turn an account-boundary rejection into an ordinary
+      // provider delay and then poll the old order again with the next
+      // account's bearer.
+      assertAccountSessionBoundary(boundary);
       // The callback may arrive before the status endpoint sees the webhook.
       if (attempt + 1 < attempts) {
         await new Promise<void>(resolve =>
@@ -342,9 +368,45 @@ const pollOrder = async (orderRef: string, attempts = 4) => {
   return {approved: false, pending: true, coinsAdded: 0};
 };
 
+const abandonOrder = async (
+  orderRef: string,
+  boundary: AccountSessionBoundary,
+) => {
+  assertAccountSessionBoundary(boundary);
+  try {
+    const response = await publicRequest.post(
+      `payment/abandon/${encodeURIComponent(orderRef)}`,
+    );
+    assertAccountSessionBoundary(boundary);
+    const root = response?.data;
+    const data = root?.data || root;
+    const status = String(data?.status || '').toLowerCase();
+    const financialStatus = String(data?.financial_status || '').toLowerCase();
+    const coinsAdded = Number(data?.coins_added || 0);
+    const approved = status === 'approved' && financialStatus === 'settled';
+    const terminal = ['cancelled', 'rejected', 'failed'].includes(status);
+    return {
+      approved,
+      // Closing the browser is never proof that Kashier rejected the charge.
+      // Only an explicit terminal server state may retire the durable attempt;
+      // an empty or future response shape stays recoverable.
+      pending: !approved && !terminal,
+      coinsAdded:
+        Number.isSafeInteger(coinsAdded) && coinsAdded > 0 ? coinsAdded : 0,
+    };
+  } catch {
+    // A closed surface is not proof of provider failure. If the server cannot
+    // inspect Kashier now, keep the durable intent for background recovery.
+    assertAccountSessionBoundary(boundary);
+    return {approved: false, pending: true, coinsAdded: 0};
+  }
+};
+
 const reconcileCheckoutAttempt = async (
   attempt: PersistedCheckoutAttempt,
+  boundary: AccountSessionBoundary,
 ): Promise<CoinCheckoutResult> => {
+  assertAccountSessionBoundary(boundary);
   if (!attempt.orderRef) {
     // The server may have accepted initiation while the response was lost.
     // Replay the same account/package/key to recover the one authoritative
@@ -366,7 +428,11 @@ const reconcileCheckoutAttempt = async (
       );
       const orderRef = String(response?.data?.order_ref || '').trim();
       if (orderRef) {
-        const remembered = await rememberCheckoutOrder(attempt, orderRef);
+        const remembered = await rememberCheckoutOrder(
+          attempt,
+          orderRef,
+          boundary,
+        );
         if (!remembered) throw new Error('CHECKOUT_ORDER_REFERENCE_UNAVAILABLE');
         return {
           success: false,
@@ -385,7 +451,11 @@ const reconcileCheckoutAttempt = async (
           : undefined;
       const orderRef = String(conflict?.order_ref || '').trim();
       if (orderRef) {
-        const remembered = await rememberCheckoutOrder(attempt, orderRef);
+        const remembered = await rememberCheckoutOrder(
+          attempt,
+          orderRef,
+          boundary,
+        );
         if (!remembered) throw new Error('CHECKOUT_ORDER_REFERENCE_UNAVAILABLE');
         return {
           success: false,
@@ -406,9 +476,9 @@ const reconcileCheckoutAttempt = async (
     };
   }
 
-  const status = await pollOrder(attempt.orderRef, 1);
+  const status = await pollOrder(attempt.orderRef, boundary, 1);
   if (!status.pending) {
-    await clearCheckoutAttempt(attempt.idempotencyKey);
+    await clearCheckoutAttempt(attempt.idempotencyKey, boundary);
   }
   return {
     success: status.approved,
@@ -420,17 +490,21 @@ const reconcileCheckoutAttempt = async (
   };
 };
 
-const reconcilePendingCoinCheckoutOnce = async (): Promise<
+const reconcilePendingCoinCheckoutOnce = async (
+  boundary: AccountSessionBoundary,
+): Promise<
   CoinCheckoutResult | null
 > => {
   if (!CAN_START_EXTERNAL_CHECKOUT) return null;
-  const attempts = await readCheckoutAttempts();
+  assertAccountSessionBoundary(boundary);
+  const attempts = await readCheckoutAttempts(boundary);
   if (attempts.length === 0) return null;
 
   let pending: CoinCheckoutResult | null = null;
   let approved: CoinCheckoutResult | null = null;
   for (const attempt of attempts) {
-    const result = await reconcileCheckoutAttempt(attempt);
+    assertAccountSessionBoundary(boundary);
+    const result = await reconcileCheckoutAttempt(attempt, boundary);
     if (result.success) approved = result;
     else if (result.pending && !pending) pending = result;
   }
@@ -447,23 +521,50 @@ const reconcilePendingCoinCheckoutOnce = async (): Promise<
 export const reconcilePendingCoinCheckout = async (): Promise<
   CoinCheckoutResult | null
 > => {
-  const scope = await checkoutAttemptStorageKey();
+  const boundary = await captureAccountSessionBoundary();
+  const scope = await checkoutAttemptStorageKey(boundary);
   const current = checkoutReconciliationFlights.get(scope);
   if (current) return current;
 
-  const operation = reconcilePendingCoinCheckoutOnce().finally(() => {
-    if (checkoutReconciliationFlights.get(scope) === operation) {
-      checkoutReconciliationFlights.delete(scope);
-    }
-  });
+  const operation = reconcilePendingCoinCheckoutOnce(boundary)
+    .then(result => {
+      assertAccountSessionBoundary(boundary);
+      if (result?.success && result.orderRef) {
+        const creditKey = `${boundary.scope}:${result.orderRef}`;
+        if (!emittedCheckoutCredits.has(creditKey)) {
+          emittedCheckoutCredits.add(creditKey);
+          while (emittedCheckoutCredits.size > MAX_EMITTED_CHECKOUT_CREDITS) {
+            const oldest = emittedCheckoutCredits.values().next().value;
+            if (typeof oldest !== 'string') break;
+            emittedCheckoutCredits.delete(oldest);
+          }
+          checkoutCreditListeners.forEach(listener => {
+            try {
+              listener(result);
+            } catch {
+              // A screen observer cannot turn an authoritative reconciliation
+              // into a failed financial operation.
+            }
+          });
+        }
+      }
+      return result;
+    })
+    .finally(() => {
+      if (checkoutReconciliationFlights.get(scope) === operation) {
+        checkoutReconciliationFlights.delete(scope);
+      }
+    });
   checkoutReconciliationFlights.set(scope, operation);
   return operation;
 };
 
 const runCoinCheckout = async (
   coinPackage: DemoCoinPackage,
+  boundary: AccountSessionBoundary,
   allowFreshRetry = true,
 ): Promise<CoinCheckoutResult> => {
+  assertAccountSessionBoundary(boundary);
   const demoShaped = String(coinPackage.id || '').startsWith('demo');
   const isDemo = isLocalDemoId(coinPackage.id);
   if (demoShaped && !LOCAL_DEMO_ENABLED) {
@@ -500,11 +601,11 @@ const runCoinCheckout = async (
   let idempotencyKey = '';
 
   const packageId = validatedPackageId;
-  let attempt = await readCheckoutAttempt(packageId);
+  let attempt = await readCheckoutAttempt(packageId, boundary);
   if (attempt?.orderRef) {
-    const previous = await pollOrder(attempt.orderRef, 1);
+    const previous = await pollOrder(attempt.orderRef, boundary, 1);
     if (previous.approved) {
-      await clearCheckoutAttempt(attempt.idempotencyKey);
+      await clearCheckoutAttempt(attempt.idempotencyKey, boundary);
       return {
         success: true,
         pending: false,
@@ -515,7 +616,7 @@ const runCoinCheckout = async (
       };
     }
     if (!previous.pending) {
-      await clearCheckoutAttempt(attempt.idempotencyKey);
+      await clearCheckoutAttempt(attempt.idempotencyKey, boundary);
       attempt = null;
     } else if (
       Date.now() - Date.parse(attempt.createdAt) >= CHECKOUT_ATTEMPT_TTL_MS
@@ -523,7 +624,7 @@ const runCoinCheckout = async (
       // The provider may still settle the old order, so do not cancel it.
       // Stop making an abandoned local intent monopolize this package after
       // its checkout window; a new explicit tap gets a new idempotency key.
-      await clearCheckoutAttempt(attempt.idempotencyKey);
+      await clearCheckoutAttempt(attempt.idempotencyKey, boundary);
       attempt = null;
     }
   }
@@ -533,9 +634,11 @@ const runCoinCheckout = async (
       packageId,
       coinPackage.price,
       coinPackage.coins,
+      boundary,
     ));
   idempotencyKey = attempt.idempotencyKey;
   try {
+    assertAccountSessionBoundary(boundary);
     const response = await publicRequest.post(
       'payment/initiate',
       {
@@ -556,7 +659,11 @@ const runCoinCheckout = async (
     ) {
       throw new Error('PAYMENT_SESSION_UNAVAILABLE');
     }
-    const remembered = await rememberCheckoutOrder(attempt, orderRef);
+    const remembered = await rememberCheckoutOrder(
+      attempt,
+      orderRef,
+      boundary,
+    );
     if (!remembered) {
       // The server has created a payable order. Losing its reference here
       // would make a restart unsafe to reconcile.
@@ -584,10 +691,11 @@ const runCoinCheckout = async (
     ) {
       const approved = await pollOrder(
         String(closed?.order_ref || attempt.orderRef || ''),
+        boundary,
         1,
       );
       if (!approved.approved) throw error;
-      await clearCheckoutAttempt(idempotencyKey);
+      await clearCheckoutAttempt(idempotencyKey, boundary);
       return {
         success: true,
         pending: false,
@@ -604,8 +712,8 @@ const runCoinCheckout = async (
         (code === 'checkout_attempt_closed' &&
           ['cancelled', 'rejected', 'failed'].includes(closedStatus)))
     ) {
-      await clearCheckoutAttempt(idempotencyKey);
-      return runCoinCheckout(coinPackage, false);
+      await clearCheckoutAttempt(idempotencyKey, boundary);
+      return runCoinCheckout(coinPackage, boundary, false);
     }
     if (code === 'pending_checkout_exists') {
       const pendingOrderRef = String(closed?.order_ref || '').trim();
@@ -614,6 +722,7 @@ const runCoinCheckout = async (
         const remembered = await rememberCheckoutOrder(
           attempt,
           pendingOrderRef,
+          boundary,
         );
         if (!remembered) {
           throw new Error('CHECKOUT_ORDER_REFERENCE_UNAVAILABLE');
@@ -642,22 +751,24 @@ const runCoinCheckout = async (
           'package_terms_changed',
         ].includes(code)
       ) {
-        await clearCheckoutAttempt(idempotencyKey);
+        await clearCheckoutAttempt(idempotencyKey, boundary);
       }
       throw error;
     }
   }
   try {
+    assertAccountSessionBoundary(boundary);
     const callbackUrl = await openCheckoutSurface(paymentUrl);
+    assertAccountSessionBoundary(boundary);
     const callback = resultFromUrl(callbackUrl);
     if (!callback.valid) throw new Error('PAYMENT_CALLBACK_INVALID');
     if (callback.orderRef && callback.orderRef !== orderRef) {
       throw new Error('PAYMENT_CALLBACK_ORDER_MISMATCH');
     }
 
-    const status = await pollOrder(orderRef);
+    const status = await pollOrder(orderRef, boundary);
     if (!status.pending) {
-      await clearCheckoutAttempt(idempotencyKey);
+      await clearCheckoutAttempt(idempotencyKey, boundary);
     }
     if (status.pending) {
       reportClientError(new Error('payment_status_timeout'), {
@@ -674,14 +785,16 @@ const runCoinCheckout = async (
     };
   } catch (error: unknown) {
     if (errorCode(error) === 'CHECKOUT_CANCELLED') {
-      // Closing the browser does not prove that the provider-side order was
-      // cancelled. Keep the same durable key so a retry resumes/reconciles the
-      // existing payable order instead of creating a second chargeable order.
+      assertAccountSessionBoundary(boundary);
+      const abandoned = await abandonOrder(orderRef, boundary);
+      if (!abandoned.pending) {
+        await clearCheckoutAttempt(idempotencyKey, boundary);
+      }
       return {
-        success: false,
-        pending: true,
-        cancelled: true,
-        coinsAdded: 0,
+        success: abandoned.approved,
+        pending: abandoned.pending,
+        cancelled: !abandoned.approved,
+        coinsAdded: abandoned.approved ? abandoned.coinsAdded : 0,
         orderRef,
         demo: false,
       };
@@ -699,7 +812,8 @@ export const openCoinCheckout = async (
   coinPackage: DemoCoinPackage,
   options: {returnTo?: LoginReturnTo} = {},
 ): Promise<CoinCheckoutResult> => {
-  const scope = await checkoutAttemptStorageKey();
+  const boundary = await captureAccountSessionBoundary();
+  const scope = await checkoutAttemptStorageKey(boundary);
   const flightKey = `${scope}:${String(coinPackage.id)}:${coinPackage.price}:${coinPackage.coins}`;
   const current = checkoutFlights.get(flightKey);
   if (current) return current;
@@ -709,18 +823,31 @@ export const openCoinCheckout = async (
   // live caller acknowledges this receipt on return; a killed process cannot,
   // so cold start restores the exact course/wallet context once.
   const returnClaim = options.returnTo
-    ? await savePendingCheckoutReturn(options.returnTo).catch(() => undefined)
+    ? await savePendingCheckoutReturn(options.returnTo, boundary).catch(
+        () => undefined,
+      )
     : undefined;
-  const operation = runCoinCheckout(coinPackage).finally(async () => {
+  const operation = runCoinCheckout(coinPackage, boundary).finally(async () => {
     if (checkoutFlights.get(flightKey) === operation) {
       checkoutFlights.delete(flightKey);
     }
     if (returnClaim) {
-      await acknowledgePendingCheckoutReturn(returnClaim).catch(
-        () => undefined,
-      );
+      try {
+        // Only the account which opened the live checkout may consume its
+        // navigation hand-off. If the learner switched accounts meanwhile,
+        // retain the old account's receipt for its next safe restoration.
+        assertAccountSessionBoundary(boundary);
+        await acknowledgePendingCheckoutReturn(returnClaim);
+      } catch {}
     }
   });
   checkoutFlights.set(flightKey, operation);
   return operation;
+};
+
+export const subscribeCoinCheckoutCredits = (
+  listener: (result: CoinCheckoutResult) => void,
+) => {
+  checkoutCreditListeners.add(listener);
+  return () => checkoutCreditListeners.delete(listener);
 };

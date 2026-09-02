@@ -436,7 +436,7 @@ class CourseCode extends Model
                 'order_id' => $order->id,
                 'user_id' => $userId,
                 'course_id' => $courseId,
-                'bill_number' => Bill::generateBillNumber(),
+                'bill_number' => Bill::numberForOrder((int) $order->id),
                 'amount' => 0,
                 'tax_amount' => 0,
                 'total_amount' => 0,

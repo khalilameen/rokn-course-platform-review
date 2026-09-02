@@ -11,6 +11,14 @@ Route::post('store-notifications/apple', [\App\Http\Controllers\API\StoreServerN
     ->middleware(['recovery.write', 'throttle:store-notification']);
 Route::post('integrations/bunny/stream', \App\Http\Controllers\API\BunnyStreamWebhookController::class)
     ->middleware('throttle:240,1');
+Route::get('project-input-attachments/{attachment}/download', [\App\Http\Controllers\API\ProjectController::class, 'downloadInputAttachment'])
+    ->middleware(['signed', 'throttle:30,1'])
+    ->name('api.project-input-attachments.download');
+Route::get('feedback/{publicId}/attachments/{attachment}', [\App\Http\Controllers\API\FeedbackController::class, 'attachment'])
+    ->where('publicId', '[0-9A-HJKMNP-TV-Z]{26}')
+    ->whereNumber('attachment')
+    ->middleware(['signed', 'throttle:30,1'])
+    ->name('api.feedback.attachment');
 
 /*
 |--------------------------------------------------------------------------
@@ -116,8 +124,12 @@ $registerCourseApiRoutes = function () {
                 Route::get('project-feedback-threads/{thread}', [\App\Http\Controllers\API\ProjectController::class, 'feedbackThread']);
                 Route::post('project-feedback-threads/{thread}/messages', [\App\Http\Controllers\API\ProjectController::class, 'sendFeedbackMessage'])
                     ->middleware('throttle:20,1');
+                Route::post('project-feedback-threads/{thread}/attachments', [\App\Http\Controllers\API\ProjectController::class, 'uploadFeedbackAttachment'])
+                    ->middleware('throttle:20,1');
                 Route::get('project-submissions/{submission}/file', [\App\Http\Controllers\API\ProjectController::class, 'downloadSubmissionFile'])
                     ->name('api.project-submissions.file');
+                Route::get('project-submission-attachments/{attachment}/file', [\App\Http\Controllers\API\ProjectController::class, 'downloadSubmissionAttachment'])
+                    ->name('api.project-submission-attachments.file');
                 Route::post('projects/{project}/evaluate', [\App\Http\Controllers\API\ProjectController::class, 'saveEvaluation']);
                 Route::get('courses/{course}/project-evaluations', [\App\Http\Controllers\API\ProjectController::class, 'getUserProjectEvaluations']);
 
@@ -142,10 +154,17 @@ $registerCourseApiRoutes = function () {
                 Route::post('portfolio', [\App\Http\Controllers\API\PortfolioController::class, 'store']);
                 Route::get('portfolio/{id}', [\App\Http\Controllers\API\PortfolioController::class, 'show']);
                 Route::post('portfolio/{id}', [\App\Http\Controllers\API\PortfolioController::class, 'update']); // Using POST for file update
+                Route::post('portfolio/{id}/finalize', [\App\Http\Controllers\API\PortfolioController::class, 'finalize']);
                 Route::delete('portfolio/{id}', [\App\Http\Controllers\API\PortfolioController::class, 'destroy']);
 
                 // Portfolio Media
                 Route::post('portfolio/{id}/media', [\App\Http\Controllers\API\PortfolioController::class, 'appendMedia']);
+                Route::post('portfolio/{id}/media/video-uploads', [\App\Http\Controllers\API\PortfolioController::class, 'issueVideoUpload'])
+                    ->middleware('throttle:10,1');
+                Route::post('portfolio/{id}/media/video-uploads/renew', [\App\Http\Controllers\API\PortfolioController::class, 'renewVideoUpload'])
+                    ->middleware('throttle:60,1');
+                Route::post('portfolio/{id}/media/video-uploads/claim', [\App\Http\Controllers\API\PortfolioController::class, 'claimVideoUpload'])
+                    ->middleware('throttle:20,1');
                 Route::delete('portfolio/{id}/media/{mediaId}', [\App\Http\Controllers\API\PortfolioController::class, 'deleteMedia']);
 
                 // Coin Earning Methods
@@ -183,8 +202,18 @@ $registerCourseApiRoutes = function () {
                     ->middleware(['product.feature:ai_chat', 'throttle:12,1']);
                 Route::get('course-chat/messages', [\App\Http\Controllers\API\CourseChatController::class, 'history'])
                     ->middleware(['product.feature:ai_chat', 'throttle:30,1']);
+                Route::get('course-chat/turns/{clientRequestId}', [\App\Http\Controllers\API\CourseChatController::class, 'status'])
+                    ->whereUuid('clientRequestId')
+                    ->middleware(['product.feature:ai_chat', 'throttle:60,1']);
+                Route::delete('course-chat/turns/{clientRequestId}', [\App\Http\Controllers\API\CourseChatController::class, 'cancel'])
+                    ->whereUuid('clientRequestId')
+                    ->middleware(['product.feature:ai_chat', 'throttle:20,1']);
                 Route::post('courses/{course}/chat', [\App\Http\Controllers\API\CourseChatController::class, 'sendForCourse'])
                     ->middleware(['product.feature:ai_chat', 'throttle:12,1']);
+                Route::post('courses/{course}/chat/attachments', [\App\Http\Controllers\API\CourseChatController::class, 'uploadAttachment'])
+                    ->middleware(['product.feature:ai_chat', 'throttle:20,1']);
+                Route::get('ai-input-attachments/{attachment}', [\App\Http\Controllers\API\ProjectController::class, 'showInputAttachment'])
+                    ->middleware('throttle:60,1');
                 Route::get('courses/{course}/chat-upgrade', [\App\Http\Controllers\API\CourseChatUpgradeController::class, 'quote']);
                 Route::post('courses/{course}/chat-upgrade', [\App\Http\Controllers\API\CourseChatUpgradeController::class, 'purchase'])
                     ->middleware(['product.feature:checkout', 'throttle:6,1']);
@@ -248,6 +277,9 @@ $registerCourseApiRoutes = function () {
                 Route::post('payment/reconcile/{orderRef}', [\App\Http\Controllers\API\PaymentController::class, 'reconcile'])
                     ->middleware(['recovery.write', 'throttle:payment-reconcile'])
                     ->name('api.payment.reconcile');
+                Route::post('payment/abandon/{orderRef}', [\App\Http\Controllers\API\PaymentController::class, 'abandon'])
+                    ->middleware(['recovery.write', 'throttle:payment-reconcile'])
+                    ->name('api.payment.abandon');
                 Route::get('store-billing/context', [\App\Http\Controllers\API\StorePurchaseController::class, 'context'])
                     ->middleware(['product.feature:checkout', 'throttle:payment-read']);
                 Route::post('store-purchases/verify', [\App\Http\Controllers\API\StorePurchaseController::class, 'verify'])

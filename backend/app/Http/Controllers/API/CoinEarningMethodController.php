@@ -232,9 +232,15 @@ final class CoinEarningMethodController extends Controller
             $result = DB::transaction(function () use ($user, $method, $walletService): array {
                 // Serializes two rapid claim taps even before an attempt row exists.
                 \App\Models\User::query()->lockForUpdate()->findOrFail($user->id);
-                $lockedMethod = CoinEarningMethod::query()
-                    ->lockForUpdate()
-                    ->findOrFail($method->id);
+                $methodQuery = CoinEarningMethod::query();
+                // Unlimited campaigns have no shared financial aggregate.
+                // Only a finite global quota needs the campaign-row lock;
+                // otherwise every learner claiming the same task would queue
+                // behind one unrelated catalogue row.
+                if ($method->total_claim_limit !== null) {
+                    $methodQuery->lockForUpdate();
+                }
+                $lockedMethod = $methodQuery->findOrFail($method->id);
                 if (!$lockedMethod->isAvailableNow()) {
                     throw new \DomainException('task_unavailable');
                 }

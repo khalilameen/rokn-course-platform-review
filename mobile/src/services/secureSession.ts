@@ -156,7 +156,7 @@ export const assertSecureSessionStorageAvailable = async () => {
 };
 
 export type PendingSocialAuthAttempt = {
-  provider: 'google' | 'tiktok' | 'facebook';
+  provider: 'google' | 'tiktok' | 'facebook' | 'apple';
   verifier: string;
   startedAt: string;
   callbackUrl?: string;
@@ -176,7 +176,7 @@ export const loadPendingSocialAuthAttempt = async () => {
   try {
     const attempt = JSON.parse(value) as Partial<PendingSocialAuthAttempt>;
     if (
-      !['google', 'tiktok', 'facebook'].includes(String(attempt.provider)) ||
+      !['google', 'tiktok', 'facebook', 'apple'].includes(String(attempt.provider)) ||
       typeof attempt.verifier !== 'string' ||
       !/^[A-Za-z0-9._~-]{43,128}$/.test(attempt.verifier) ||
       typeof attempt.startedAt !== 'string' ||

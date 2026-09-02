@@ -19,6 +19,7 @@
 
         <div class="form-body">
             {!! Form::open(['route' => ['admin.courses.modules.store', $course], 'method' => 'POST', 'id' => 'moduleForm']) !!}
+            <input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">
             <input type="hidden" name="return_to" value="{{ request('return_to') === 'studio' ? 'studio' : '' }}">
             <input type="hidden" name="authoring_version" value="{{ $course->authoring_version }}">
 

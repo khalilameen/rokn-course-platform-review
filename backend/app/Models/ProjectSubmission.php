@@ -67,6 +67,12 @@ class ProjectSubmission extends Model
         return $this->hasOne(ProjectFeedbackThread::class, 'submission_id');
     }
 
+    public function aiInputAttachments()
+    {
+        return $this->hasMany(AiInputAttachment::class, 'owner_id')
+            ->where('owner_type', AiInputAttachment::OWNER_PROJECT_SUBMISSION);
+    }
+
     public function getSubmissionFileUrlAttribute(): ?string
     {
         return $this->submission_file

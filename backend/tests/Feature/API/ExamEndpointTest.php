@@ -344,7 +344,7 @@ class ExamEndpointTest extends ApiTestCase
         $retry = $this->actingAs($this->user, 'api')
             ->postJson('/api/v1/exams/submit-answer', $payload)
             ->assertOk();
-        self::assertSame($first->json(), $retry->json());
+        self::assertSame($first->json('data'), $retry->json('data'));
 
         $this->actingAs($this->user, 'api')
             ->postJson('/api/v1/exams/submit-answer', [

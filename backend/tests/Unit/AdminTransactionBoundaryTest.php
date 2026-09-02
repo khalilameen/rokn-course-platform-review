@@ -15,7 +15,10 @@ final class AdminTransactionBoundaryTest extends TestCase
         );
 
         self::assertIsString($source);
-        self::assertStringContainsString('DB::transaction(function () use ($request, $numberOfCodes)', $source);
+        self::assertStringContainsString(
+            'DB::transaction(function () use ($request, $numberOfCodes, $createIntents)',
+            $source
+        );
         self::assertStringNotContainsString('DB::beginTransaction()', $source);
         self::assertStringNotContainsString('DB::commit()', $source);
         self::assertStringNotContainsString('DB::rollBack()', $source);

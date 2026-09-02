@@ -1,6 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {cappedRewardCredit, ECONOMY_CONFIG} from '../config/economy';
-import {accountScopedStorageKey} from '../constants/helpers';
+import {
+  accountScopedStorageKey,
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+  type AccountSessionBoundary,
+} from '../constants/helpers';
 import {roknCalendarDay} from '../constants/roknCalendar';
 import {serverNowMs} from '../utils/serverClock';
 import {LOCAL_DEMO_ENABLED} from '../config/runtime';
@@ -99,7 +104,8 @@ const MAX_DEMO_TRANSACTIONS = 250;
 const listeners = new Set<(state: DemoExperienceState) => void>();
 const writeQueues = new Map<string, Promise<unknown>>();
 
-const currentStorageKey = () => accountScopedStorageKey(STORAGE_KEY);
+const currentStorageKey = (boundary: AccountSessionBoundary) =>
+  accountScopedStorageKey(STORAGE_KEY, boundary);
 
 const localDayKey = (date = new Date()) => roknCalendarDay(date);
 
@@ -344,12 +350,15 @@ const emit = (state: DemoExperienceState) => {
 
 export const getDemoExperience = async (): Promise<DemoExperienceState> => {
   assertLocalDemoEnabled();
-  const storageKey = await currentStorageKey();
+  const boundary = await captureAccountSessionBoundary();
+  const storageKey = await currentStorageKey(boundary);
   const raw = await AsyncStorage.getItem(storageKey);
+  assertAccountSessionBoundary(boundary);
   const state = parseState(raw);
   const normalized = JSON.stringify(state);
   if (raw !== normalized) {
     await AsyncStorage.setItem(storageKey, normalized);
+    assertAccountSessionBoundary(boundary);
   }
   return state;
 };
@@ -362,15 +371,17 @@ const updateDemoExperience = (
   } catch (error) {
     return Promise.reject(error);
   }
-  const operation = currentStorageKey().then(storageKey => {
+  const operation = captureAccountSessionBoundary().then(async boundary => {
+    const storageKey = await currentStorageKey(boundary);
     const previous = writeQueues.get(storageKey) ?? Promise.resolve();
     const nextWrite = previous.then(async () => {
+      assertAccountSessionBoundary(boundary);
       const current = parseState(await AsyncStorage.getItem(storageKey));
+      assertAccountSessionBoundary(boundary);
       const next = compactDemoState(updater(current));
       await AsyncStorage.setItem(storageKey, JSON.stringify(next));
-      if ((await currentStorageKey()) === storageKey) {
-        emit(next);
-      }
+      assertAccountSessionBoundary(boundary);
+      emit(next);
       return next;
     });
     const tail = nextWrite.then(
@@ -391,12 +402,14 @@ export const subscribeDemoExperience = (
 ) => {
   assertLocalDemoEnabled();
   listeners.add(listener);
-  void currentStorageKey().then(async storageKey => {
-    const state = parseState(await AsyncStorage.getItem(storageKey));
-    if ((await currentStorageKey()) === storageKey && listeners.has(listener)) {
-      listener(state);
-    }
-  });
+  void captureAccountSessionBoundary()
+    .then(async boundary => {
+      const storageKey = await currentStorageKey(boundary);
+      const state = parseState(await AsyncStorage.getItem(storageKey));
+      assertAccountSessionBoundary(boundary);
+      if (listeners.has(listener)) listener(state);
+    })
+    .catch(() => undefined);
   return () => {
     listeners.delete(listener);
   };

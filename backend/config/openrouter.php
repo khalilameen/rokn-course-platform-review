@@ -21,6 +21,23 @@ return [
     'global_monthly_token_budget' => (int) env('OPENROUTER_GLOBAL_MONTHLY_TOKEN_BUDGET', 50000000),
     'answer_cache_minutes' => (int) env('OPENROUTER_ANSWER_CACHE_MINUTES', 360),
     'chat_history_days' => (int) env('OPENROUTER_CHAT_HISTORY_DAYS', 90),
+    // OpenRouter PDF parsing is explicit so adding a PDF never silently
+    // switches to a paid parser. cloudflare-ai is currently the free parser.
+    'pdf_parser_engine' => env('OPENROUTER_PDF_PARSER_ENGINE', 'cloudflare-ai'),
+    'attachment_provider_max_bytes' => (int) env('OPENROUTER_ATTACHMENT_PROVIDER_MAX_BYTES', 8388608),
+    // Course-chat context never crosses a new learner session. This keeps the
+    // user-visible privacy promise while preserving continuity during a real
+    // study session and across lesson swipes.
+    'chat_context_session_minutes' => (int) env('OPENROUTER_CHAT_CONTEXT_SESSION_MINUTES', 120),
+    'queue_stale_seconds' => (int) env('OPENROUTER_QUEUE_STALE_SECONDS', 900),
+    // A provider response is cached briefly under the same API key. This is a
+    // recovery optimization for an identical request, not the correctness
+    // boundary: account-level ZDR or edge eviction may disable the cache, so
+    // an uncertain call is still quarantined rather than blindly repeated.
+    'response_recovery_cache_ttl_seconds' => (int) env(
+        'OPENROUTER_RESPONSE_RECOVERY_CACHE_TTL_SECONDS',
+        900
+    ),
     'allowed_models' => array_values(array_filter(array_map(
         'trim',
         explode(',', (string) env('OPENROUTER_ALLOWED_MODELS', ''))

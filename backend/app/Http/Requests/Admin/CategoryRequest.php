@@ -30,6 +30,7 @@ class CategoryRequest extends FormRequest
             'description_en' => 'nullable|string|max:1000',
             'type' => 'nullable|string|max:50',
             'image' => 'nullable|image|max:4096',
+            'authoring_request_id' => [$this->isMethod('post') ? 'required' : 'nullable', 'uuid'],
         ];
     }
 

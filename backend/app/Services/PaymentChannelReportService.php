@@ -55,12 +55,16 @@ final class PaymentChannelReportService
         }
 
         $aggregates = $query
-            ->selectRaw("payment_method, COALESCE(gateway_currency, 'EGP') as report_currency")
+            ->selectRaw("payment_method, CASE WHEN gateway_currency IS NULL AND payment_method IN ('google_play', 'app_store') THEN 'PENDING' ELSE COALESCE(gateway_currency, 'EGP') END as report_currency")
             ->selectRaw("SUM(CASE WHEN COALESCE(gateway_settlement_status, '') = 'test_purchase' THEN 1 ELSE 0 END) as test_count")
             ->selectRaw("SUM(CASE WHEN COALESCE(gateway_settlement_status, '') <> 'test_purchase' THEN 1 ELSE 0 END) as live_count")
             ->selectRaw("SUM(CASE WHEN COALESCE(gateway_settlement_status, '') <> 'test_purchase' THEN COALESCE(package_coins, 0) ELSE 0 END) as live_coins")
             ->selectRaw("SUM(CASE WHEN COALESCE(gateway_settlement_status, '') = 'test_purchase' THEN COALESCE(package_coins, 0) ELSE 0 END) as test_coins")
             ->selectRaw("SUM(CASE WHEN COALESCE(gateway_settlement_status, '') <> 'test_purchase' THEN COALESCE(gateway_gross_amount, final_amount, 0) ELSE 0 END) as gross_amount")
+            ->selectRaw("SUM(CASE WHEN COALESCE(gateway_settlement_status, '') NOT IN ('test_purchase', 'catalog_estimate') AND gateway_gross_amount IS NOT NULL THEN gateway_gross_amount ELSE 0 END) as confirmed_gross_amount")
+            ->selectRaw("SUM(CASE WHEN COALESCE(gateway_settlement_status, '') <> 'test_purchase' AND (gateway_gross_amount IS NULL OR gateway_settlement_status = 'catalog_estimate') THEN COALESCE(final_amount, 0) ELSE 0 END) as catalog_estimated_gross_amount")
+            ->selectRaw("SUM(CASE WHEN COALESCE(gateway_settlement_status, '') NOT IN ('test_purchase', 'catalog_estimate') AND gateway_gross_amount IS NOT NULL THEN 1 ELSE 0 END) as confirmed_gross_count")
+            ->selectRaw("SUM(CASE WHEN COALESCE(gateway_settlement_status, '') <> 'test_purchase' AND (gateway_gross_amount IS NULL OR gateway_settlement_status = 'catalog_estimate') THEN 1 ELSE 0 END) as catalog_estimated_gross_count")
             ->selectRaw("SUM(CASE WHEN COALESCE(gateway_settlement_status, '') <> 'test_purchase' THEN COALESCE(gateway_fee_amount, 0) ELSE 0 END) as confirmed_fee_amount")
             ->selectRaw("SUM(CASE WHEN COALESCE(gateway_settlement_status, '') <> 'test_purchase' THEN COALESCE(gateway_net_amount, 0) ELSE 0 END) as confirmed_net_amount")
             ->selectRaw("SUM(CASE WHEN COALESCE(gateway_settlement_status, '') <> 'test_purchase' AND gateway_net_amount IS NOT NULL THEN 1 ELSE 0 END) as confirmed_net_count")
@@ -99,6 +103,10 @@ final class PaymentChannelReportService
                 'test_count' => (int) $egpRows->sum('test_count'),
                 'live_coins' => (int) $egpRows->sum('live_coins'),
                 'gross_amount' => (float) $egpRows->sum('gross_amount'),
+                'confirmed_gross_amount' => (float) $egpRows->sum('confirmed_gross_amount'),
+                'catalog_estimated_gross_amount' => (float) $egpRows->sum('catalog_estimated_gross_amount'),
+                'confirmed_gross_count' => (int) $egpRows->sum('confirmed_gross_count'),
+                'catalog_estimated_gross_count' => (int) $egpRows->sum('catalog_estimated_gross_count'),
                 'confirmed_fee_amount' => (float) $egpRows->sum('confirmed_fee_amount'),
                 'confirmed_net_amount' => (float) $egpRows->sum('confirmed_net_amount'),
                 'estimated_net_amount' => (float) $egpRows->sum('estimated_net_amount'),
@@ -129,11 +137,12 @@ final class PaymentChannelReportService
             ->where('approved_at', '>=', $from)
             ->where('approved_at', '<', $to)
             ->whereRaw("UPPER(COALESCE(gateway_currency, 'EGP')) = 'EGP'")
+            ->whereNotNull('gateway_gross_amount')
             ->where(function ($query): void {
                 $query->whereNull('gateway_settlement_status')
-                    ->orWhere('gateway_settlement_status', '<>', 'test_purchase');
+                    ->orWhereNotIn('gateway_settlement_status', ['test_purchase', 'catalog_estimate']);
             })
-            ->select(['id', 'approved_at', 'gateway_gross_amount', 'final_amount'])
+            ->select(['id', 'approved_at', 'gateway_gross_amount'])
             ->eachById(500, function ($orders) use ($totals): void {
                 foreach ($orders as $order) {
                     $month = $order->approved_at
@@ -144,7 +153,7 @@ final class PaymentChannelReportService
                     $totals->put(
                         $month,
                         (float) $totals->get($month, 0)
-                            + (float) ($order->gateway_gross_amount ?? $order->final_amount ?? 0)
+                            + (float) $order->gateway_gross_amount
                     );
                 }
             }, 'id');
@@ -168,6 +177,10 @@ final class PaymentChannelReportService
             'live_coins' => (int) ($aggregate?->live_coins ?? 0),
             'test_coins' => (int) ($aggregate?->test_coins ?? 0),
             'gross_amount' => (float) ($aggregate?->gross_amount ?? 0),
+            'confirmed_gross_amount' => (float) ($aggregate?->confirmed_gross_amount ?? 0),
+            'catalog_estimated_gross_amount' => (float) ($aggregate?->catalog_estimated_gross_amount ?? 0),
+            'confirmed_gross_count' => (int) ($aggregate?->confirmed_gross_count ?? 0),
+            'catalog_estimated_gross_count' => (int) ($aggregate?->catalog_estimated_gross_count ?? 0),
             'confirmed_fee_amount' => (float) ($aggregate?->confirmed_fee_amount ?? 0),
             'confirmed_net_amount' => (float) ($aggregate?->confirmed_net_amount ?? 0),
             'confirmed_net_count' => (int) ($aggregate?->confirmed_net_count ?? 0),

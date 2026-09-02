@@ -8,9 +8,11 @@ use App\Models\Setting;
 use App\Models\Lesson;
 use App\Models\BunnyVideoCleanupCandidate;
 use App\Models\BunnyStorageCleanupCandidate;
+use App\Models\BunnyVideoAllocationIntent;
 use App\Models\LessonMediaState;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -392,6 +394,38 @@ class BunnyService
         }
     }
 
+    /** @return array<int, string> */
+    public function findVideoGuidsByTitleMarker(string $marker): array
+    {
+        $marker = trim($marker);
+        if (!$this->isEnabled() || $marker === '' || strlen($marker) > 100) return [];
+        try {
+            $response = $this->client(15)
+                ->withHeaders(['AccessKey' => $this->getApiKey()])
+                ->get("https://video.bunnycdn.com/library/{$this->getLibraryId()}/videos", [
+                    'page' => 1,
+                    'itemsPerPage' => 100,
+                    'search' => $marker,
+                ]);
+            if (!$response->successful()) return [];
+            return collect((array) data_get($response->json(), 'items', []))
+                ->filter(fn ($item): bool => is_array($item)
+                    && str_contains((string) ($item['title'] ?? ''), $marker))
+                ->pluck('guid')
+                ->map(fn ($guid): string => strtolower(trim((string) $guid)))
+                ->filter(fn (string $guid): bool => preg_match('/^[a-f0-9-]{36}$/i', $guid) === 1)
+                ->unique()
+                ->values()
+                ->all();
+        } catch (Throwable $exception) {
+            Log::warning('Bunny allocation marker lookup failed.', [
+                'marker_hash' => hash('sha256', $marker),
+                'exception' => $exception::class,
+            ]);
+            return [];
+        }
+    }
+
     /** Return a stable operational code without exposing provider payloads. */
     public function remoteVideoIntegrityError(array $details, string $expectedGuid): ?string
     {
@@ -509,6 +543,8 @@ class BunnyService
                     throw new RuntimeException('The lesson video changed while the replacement was uploading.');
                 }
 
+                $this->consumeVideoCleanupCandidate($newVideoGuid);
+
                 $lockedLesson->update([
                     'bunny_video_id' => $newVideoGuid,
                     'video_source_type' => 'bunny',
@@ -516,17 +552,20 @@ class BunnyService
                 ]);
                 LessonMediaState::query()->updateOrCreate(
                     ['lesson_id' => $lockedLesson->id],
-                    [
-                        'provider' => 'bunny',
-                        'provider_media_id' => $newVideoGuid,
-                        'status' => 'processing',
-                        'protocol' => 'hls',
-                        'available_qualities' => ['auto'],
-                        'last_error_code' => null,
-                        'last_error_message' => null,
-                        'retry_count' => 0,
-                    ]
+                    LessonMediaState::resetForGeneration($newVideoGuid)
                 );
+                if ($oldVideoGuid) {
+                    $candidate = $this->queueVideoCleanup(
+                        $oldVideoGuid,
+                        $lockedLesson,
+                        'superseded_video',
+                        168,
+                        true
+                    );
+                    if (!$candidate) {
+                        throw new RuntimeException('Unable to persist superseded video cleanup.');
+                    }
+                }
             });
 
             $lesson->forceFill([
@@ -545,7 +584,6 @@ class BunnyService
         }
 
         if ($oldVideoGuid) {
-            $this->queueVideoCleanup($oldVideoGuid, $lesson, 'superseded_video', 168, true);
             Log::info('Superseded Bunny lesson video retained by safety policy', [
                 'lesson_id' => $lesson->getKey(),
                 'video_guid' => $oldVideoGuid,
@@ -565,20 +603,59 @@ class BunnyService
     public function uploadVerifiedVideo(
         string $title,
         UploadedFile $file,
-        ?Lesson $lesson = null
+        ?Lesson $lesson = null,
+        ?string $trackingMarker = null
     ): ?string {
         if (!$this->isEnabled()) {
             return null;
         }
 
-        $videoData = $this->createVideo(trim($title) !== '' ? trim($title) : 'Rokn lesson');
-        $videoGuid = (string) ($videoData['guid'] ?? '');
+        $marker = $trackingMarker && Str::isUuid($trackingMarker)
+            ? strtolower($trackingMarker)
+            : (string) Str::uuid();
+        try {
+            return Cache::lock('bunny-verified-upload:' . $marker, 3900)
+                ->block(30, function () use ($marker, $title, $file, $lesson): ?string {
+        $intent = BunnyVideoAllocationIntent::query()->firstOrCreate(
+            ['marker' => $marker],
+            ['video_guid' => null, 'status' => 'allocating', 'context' => 'verified_upload']
+        );
+        $remoteTitle = trim($title) !== '' ? trim($title) : 'Rokn lesson';
+        $remoteTitle = mb_substr($remoteTitle, 0, 190) . " [rokn-upload:{$marker}]";
+        $videoGuid = strtolower(trim((string) $intent->video_guid));
+        if ($videoGuid === '') {
+            $videoGuid = $this->findVideoGuidsByTitleMarker("[rokn-upload:{$marker}]")[0] ?? '';
+        }
+        if ($videoGuid === '') {
+            $videoData = $this->createVideo($remoteTitle);
+            $videoGuid = strtolower(trim((string) ($videoData['guid'] ?? '')));
+        }
         if ($videoGuid === '') {
             return null;
         }
 
+        BunnyVideoAllocationIntent::query()
+            ->where('marker', $marker)
+            ->update([
+                'video_guid' => $videoGuid,
+                'status' => 'allocated',
+                'updated_at' => now(),
+            ]);
+        $cleanup = $this->queueVideoCleanup(
+            $videoGuid,
+            $lesson,
+            'unpublished_upload',
+            24,
+            false
+        );
+        if (!$cleanup || $cleanup->last_attempt_at !== null || $cleanup->remote_deleted_at !== null) {
+            // Do not upload bytes into a GUID whose deletion was already sent
+            // to Bunny. The remote outcome may still be unknown here.
+            $this->deleteVideo($videoGuid);
+            return null;
+        }
+
         if (!$this->uploadVideo($videoGuid, $file) || !$this->verifyVideoUpload($videoGuid)) {
-            $this->queueVideoCleanup($videoGuid, $lesson, 'unpublished_upload', 24, true);
             Log::warning('Unpublished Bunny upload retained for safe cleanup', [
                 'lesson_id' => $lesson?->getKey(),
                 'video_guid' => $videoGuid,
@@ -587,7 +664,18 @@ class BunnyService
             return null;
         }
 
-        return $videoGuid;
+        BunnyVideoAllocationIntent::query()
+            ->where('marker', $marker)
+            ->update(['status' => 'uploaded', 'updated_at' => now()]);
+
+                    return $videoGuid;
+                });
+        } catch (LockTimeoutException) {
+            Log::warning('Bunny verified upload is already active for this marker.', [
+                'marker' => $marker,
+            ]);
+            return null;
+        }
     }
 
     /**
@@ -900,6 +988,27 @@ class BunnyService
     }
 
     /**
+     * Consume the unpublished-object guard in the same transaction that adds
+     * the live reference. A cleanup worker that claimed the GUID first wins;
+     * publishing an object with an uncertain/deleting provider state is denied.
+     */
+    public function consumeVideoCleanupCandidate(string $videoGuid): void
+    {
+        $videoGuid = strtolower(trim($videoGuid));
+        $candidate = BunnyVideoCleanupCandidate::query()
+            ->whereRaw('LOWER(video_guid) = ?', [$videoGuid])
+            ->whereNull('remote_deleted_at')
+            ->whereNull('last_attempt_at')
+            ->lockForUpdate()
+            ->first();
+        if (!$candidate) {
+            throw new RuntimeException('The staged Bunny video is no longer safe to publish.');
+        }
+
+        $candidate->delete();
+    }
+
+    /**
      * Get video data for a lesson, including signed URLs if using Bunny
      *
      * @param Lesson $lesson
@@ -936,7 +1045,12 @@ class BunnyService
      * @param string $folder
      * @return string|null Returns the file path/URL on success, or null on failure
      */
-    public function uploadFileToStorage(\Illuminate\Http\UploadedFile $file, string $folder = 'general'): ?string
+    public function uploadFileToStorage(
+        \Illuminate\Http\UploadedFile $file,
+        string $folder = 'general',
+        ?string $objectKey = null,
+        ?string $cleanupReason = 'unpublished_storage_upload'
+    ): ?string
     {
         if (!$this->isEnabled()) {
             return null;
@@ -959,8 +1073,20 @@ class BunnyService
         $extension = $this->extensionForMimeType($mimeType);
         // A cryptographically random, server-owned object key prevents
         // same-second collisions and never exposes or trusts the client name.
-        $fileName = Str::uuid()->toString() . '.' . $extension;
+        $fileName = ($objectKey && Str::isUuid($objectKey)
+            ? strtolower($objectKey)
+            : Str::uuid()->toString()) . '.' . $extension;
         $path = "{$folder}/{$fileName}";
+        if ($cleanupReason !== null) {
+            // The deterministic path and cleanup row are durable before the
+            // external PUT, closing the process-death gap after Bunny accepts
+            // bytes but before the application publishes a reference.
+            if (!$this->queueStorageCleanup($path, $cleanupReason, 24 * 60)) {
+                // A cleanup worker has already claimed this deterministic key.
+                // Never overwrite an object whose delete outcome is uncertain.
+                return null;
+            }
+        }
         $stream = null;
         try {
             $stream = fopen($file->getRealPath(), 'rb');
@@ -1087,10 +1213,10 @@ class BunnyService
             . '&expires=' . $expires;
     }
 
-    public function queueStorageCleanup(string $path, string $reason, int $delayMinutes = 0): void
+    public function queueStorageCleanup(string $path, string $reason, int $delayMinutes = 0): bool
     {
         $normalized = $this->normalizeStorageObjectPath($path);
-        if ($normalized === null) return;
+        if ($normalized === null) return false;
 
         $attributes = [
             'path' => $normalized,
@@ -1105,10 +1231,47 @@ class BunnyService
             $attributes['quarantined_at'] = null;
         }
 
-        BunnyStorageCleanupCandidate::query()->updateOrCreate(
-            ['path_hash' => hash('sha256', $normalized)],
-            $attributes
-        );
+        return DB::transaction(function () use ($normalized, $attributes): bool {
+            $pathHash = hash('sha256', $normalized);
+            BunnyStorageCleanupCandidate::query()->firstOrCreate(
+                ['path_hash' => $pathHash],
+                $attributes
+            );
+            $candidate = BunnyStorageCleanupCandidate::query()
+                ->where('path_hash', $pathHash)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            // Once a delete request has left our process its result can be
+            // unknown. Reusing the same deterministic object key would let a
+            // late DELETE erase newly uploaded bytes.
+            if ($candidate->completed_at === null && $candidate->last_attempt_at !== null) {
+                return false;
+            }
+
+            $candidate->forceFill($attributes)->save();
+            return true;
+        }, 3);
+    }
+
+    /** Consume a staged Storage cleanup row atomically with its live reference. */
+    public function consumeStorageCleanupCandidate(string $path): void
+    {
+        $normalized = $this->normalizeStorageObjectPath($path);
+        if ($normalized === null) {
+            throw new RuntimeException('The staged Bunny Storage path is invalid.');
+        }
+        $candidate = BunnyStorageCleanupCandidate::query()
+            ->where('path_hash', hash('sha256', $normalized))
+            ->whereNull('completed_at')
+            ->whereNull('last_attempt_at')
+            ->lockForUpdate()
+            ->first();
+        if (!$candidate) {
+            throw new RuntimeException('The staged Bunny Storage object is no longer safe to publish.');
+        }
+
+        $candidate->delete();
     }
 
     private function normalizeStorageObjectPath(string $value): ?string

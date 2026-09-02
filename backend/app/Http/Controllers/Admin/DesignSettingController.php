@@ -12,14 +12,18 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use App\Services\PublicAppSettingsService;
+use App\Services\StoredFileDeletionService;
+use App\Services\AdminAuthoringCreateIntentService;
 use Illuminate\Validation\ValidationException;
 
 final class DesignSettingController extends Controller
 {
     public function index(): View
     {
+        $settings = DesignSetting::getDefaultSettings();
         return view('admin.design-settings.index', [
-            'settings' => DesignSetting::getDefaultSettings(),
+            'settings' => $settings,
+            'editorVersion' => $this->editorVersion($settings),
         ]);
     }
 
@@ -28,9 +32,15 @@ final class DesignSettingController extends Controller
      * it on first use and updates it afterwards, so there is no second editor
      * with a competing contract.
      */
-    public function store(Request $request, PublicAppSettingsService $publicSettings): RedirectResponse
+    public function store(
+        Request $request,
+        PublicAppSettingsService $publicSettings,
+        StoredFileDeletionService $storedFiles,
+        AdminAuthoringCreateIntentService $createIntents
+    ): RedirectResponse
     {
         $validated = $request->validate($this->rules());
+        $submittedEditorVersion = (string) $validated['editor_version'];
         foreach (['facebook', 'youtube', 'instagram', 'tiktok', 'telegram'] as $channel) {
             $field = "{$channel}_url";
             $value = $validated[$field] ?? null;
@@ -74,6 +84,8 @@ final class DesignSettingController extends Controller
             'home_background_file',
             'powered_by_titles',
             'powered_by_urls',
+            'editor_version',
+            'authoring_request_id',
         ])->all();
         $data['show_how_platform_works'] = $request->boolean('show_how_platform_works');
         $data['powered_by'] = $this->normalisePartners(
@@ -95,10 +107,7 @@ final class DesignSettingController extends Controller
                     continue;
                 }
 
-                $path = $request->file($input)->store($directory, 'public');
-                if (!is_string($path) || $path === '') {
-                    throw new \RuntimeException("Failed to store {$input}");
-                }
+                $path = $storedFiles->storeTrackedUpload($request->file($input), $directory);
 
                 $newFiles[] = $path;
                 $data[$attribute] = Storage::disk('public')->url($path);
@@ -107,17 +116,40 @@ final class DesignSettingController extends Controller
                 }
             }
 
-            DB::transaction(function () use (&$settings, $data): void {
-                if ($settings) {
-                    $settings->update($data);
-                    return;
+            DB::transaction(function () use (
+                &$settings,
+                $data,
+                $submittedEditorVersion,
+                $request,
+                $createIntents
+            ): void {
+                $locked = DesignSetting::query()->lockForUpdate()->first();
+                $current = $locked ?: DesignSetting::getDefaultSettings();
+                if (!hash_equals($this->editorVersion($current), $submittedEditorVersion)) {
+                    throw ValidationException::withMessages([
+                        'editor_version' => ['عدّل شخص آخر إعدادات التصميم\nأعد تحميل الصفحة قبل الحفظ'],
+                    ]);
                 }
-
-                $settings = DesignSetting::create($data);
+                if ($locked) {
+                    $locked->update($data);
+                    $settings = $locked;
+                } else {
+                    $settings = DesignSetting::create($data);
+                }
+                $createIntents->completeRedirect(
+                    $request,
+                    route('admin.design-settings.index'),
+                    302,
+                    DesignSetting::class,
+                    $settings->id
+                );
             });
         } catch (\Throwable $exception) {
             foreach ($newFiles as $path) {
-                Storage::disk('public')->delete($path);
+                $storedFiles->deleteOrQueue('public', $path);
+            }
+            if ($exception instanceof ValidationException) {
+                throw $exception;
             }
             report($exception);
 
@@ -125,11 +157,7 @@ final class DesignSettingController extends Controller
         }
 
         foreach (array_filter($oldFiles) as $path) {
-            try {
-                Storage::disk('public')->delete($path);
-            } catch (\Throwable $exception) {
-                report($exception);
-            }
+            $storedFiles->deleteOrQueue('public', $path);
         }
 
         return redirect()->route('admin.design-settings.index')
@@ -172,6 +200,8 @@ final class DesignSettingController extends Controller
             'how_platform_works_title_ar' => ['nullable', 'string', 'max:255'],
             'how_platform_works_title_en' => ['nullable', 'string', 'max:255'],
             'how_platform_works_video_link' => ['nullable', 'url', 'starts_with:https://', 'max:2048'],
+            'editor_version' => ['required', 'string', 'size:64'],
+            'authoring_request_id' => ['required', 'uuid'],
         ];
     }
 
@@ -202,5 +232,13 @@ final class DesignSettingController extends Controller
         }
 
         return ltrim(substr($path, strlen('/storage/')), '/');
+    }
+
+    private function editorVersion(DesignSetting $settings): string
+    {
+        return hash('sha256', implode('|', [
+            (string) ($settings->id ?? 'new'),
+            (string) optional($settings->updated_at)->format('Y-m-d H:i:s.u'),
+        ]));
     }
 }

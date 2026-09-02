@@ -8,11 +8,14 @@
   <rect width="1200" height="1500" rx="56" fill="url(#bg)"/>
   <rect width="1200" height="1500" rx="56" fill="url(#glow)"/>
   <g fill="none" stroke="#fff" stroke-opacity=".1"><circle cx="930" cy="240" r="360"/><circle cx="930" cy="240" r="250"/><path d="M-80 1120C280 850 570 900 1280 520"/></g>
-  <text x="92" y="130" fill="#d9ad62" font-family="Cairo,Arial" font-size="34" font-weight="700">كورس عملي · 30 ريل</text>
-  <text x="92" y="930" fill="#fff" font-family="Cairo,Arial" font-size="88" font-weight="800">من الصفر</text>
-  <text x="92" y="1040" fill="#fff" font-family="Cairo,Arial" font-size="88" font-weight="800">لأول عميل</text>
-  <text x="92" y="1150" fill="#78a8ff" font-family="Cairo,Arial" font-size="88" font-weight="800">فريلانس</text>
-  <text x="92" y="1270" fill="#bdc9d9" font-family="Cairo,Arial" font-size="35">شاهد · طبّق · اعبر</text>
+  <g transform="translate(176 386)">
+    <path d="M90 610C224 494 314 410 412 294C506 182 596 98 754 28" fill="none" stroke="#78a8ff" stroke-width="22" stroke-linecap="round" stroke-dasharray="2 54"/>
+    <rect x="0" y="540" width="260" height="180" rx="42" fill="#0b1729" stroke="#fff" stroke-opacity=".16" stroke-width="4"/>
+    <rect x="250" y="300" width="260" height="240" rx="42" fill="#112647" stroke="#78a8ff" stroke-opacity=".42" stroke-width="4"/>
+    <rect x="500" y="0" width="260" height="300" rx="42" fill="#1f55b7" stroke="#fff" stroke-opacity=".2" stroke-width="4"/>
+    <circle cx="130" cy="630" r="34" fill="#d9ad62"/>
+    <circle cx="380" cy="420" r="34" fill="#fff" fill-opacity=".86"/>
+    <circle cx="630" cy="150" r="34" fill="#fff"/>
+  </g>
   <rect x="92" y="1350" width="180" height="10" rx="5" fill="#3478f6"/>
-  <text x="1080" y="1420" text-anchor="end" fill="#fff" font-family="Arial" font-size="44" font-weight="700">ROKN</text>
 </svg>

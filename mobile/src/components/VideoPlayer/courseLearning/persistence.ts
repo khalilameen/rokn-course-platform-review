@@ -2,7 +2,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {isLocalDemoId} from '../../../config/runtime';
 import {
   accountScopedStorageKey,
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
   getCurrentAccountStorageScope,
+  type AccountSessionBoundary,
 } from '../../../constants/helpers';
 import type {CourseLearningData, CourseLearningModule} from '../types';
 import {asArray} from './shared';
@@ -88,11 +91,22 @@ const compactPlayerState = (
 
 export const readPlayerState = async (
   scopedStorageKey?: string,
+  accountBoundary?: AccountSessionBoundary,
 ): Promise<PersistedPlayerState> => {
+  const boundary =
+    accountBoundary ||
+    (scopedStorageKey ? undefined : await captureAccountSessionBoundary());
+  const storageKey =
+    scopedStorageKey ||
+    (await accountScopedStorageKey(PLAYER_STATE_KEY, boundary));
+  let value: string | null;
   try {
-    const storageKey =
-      scopedStorageKey || (await accountScopedStorageKey(PLAYER_STATE_KEY));
-    const value = await AsyncStorage.getItem(storageKey);
+    value = await AsyncStorage.getItem(storageKey);
+  } catch {
+    return {...EMPTY_STATE};
+  }
+  if (boundary) assertAccountSessionBoundary(boundary);
+  try {
     if (!value) {
       return {...EMPTY_STATE};
     }
@@ -127,7 +141,9 @@ export const readPlayerState = async (
         MAX_LOCAL_RESUME_ENTRIES ||
       asArray(parsed?.activityDays).length > state.activityDays.length
     ) {
+      if (boundary) assertAccountSessionBoundary(boundary);
       await AsyncStorage.setItem(storageKey, JSON.stringify(state));
+      if (boundary) assertAccountSessionBoundary(boundary);
     }
     return state;
   } catch {
@@ -144,8 +160,11 @@ const mergeStringArrays = (left: string[], right: string[]) =>
  */
 export const migrateGuestLearningState = async (
   guestScope: string,
+  accountBoundary?: AccountSessionBoundary,
 ): Promise<boolean> => {
-  const accountScope = await getCurrentAccountStorageScope();
+  if (accountBoundary) assertAccountSessionBoundary(accountBoundary);
+  const accountScope =
+    accountBoundary?.scope ?? (await getCurrentAccountStorageScope());
   if (!guestScope || guestScope === accountScope) {
     return false;
   }
@@ -210,24 +229,34 @@ export const migrateGuestLearningState = async (
       asArray(target.activityDays),
     ).slice(-60),
   });
+  if (accountBoundary) assertAccountSessionBoundary(accountBoundary);
   await AsyncStorage.setItem(targetKey, JSON.stringify(next));
+  if (accountBoundary) assertAccountSessionBoundary(accountBoundary);
   return true;
 };
 
 export const updatePlayerState = async (
   update: (state: PersistedPlayerState) => PersistedPlayerState,
   scopedStorageKey?: string,
+  accountBoundary?: AccountSessionBoundary,
 ) => {
   // Resolve the account once per operation. A global queue that recalculates
   // the key at write time can leak progress from account A into account B if
   // logout/login happens while an update is waiting.
+  const boundary =
+    accountBoundary ||
+    (scopedStorageKey ? undefined : await captureAccountSessionBoundary());
   const storageKey =
-    scopedStorageKey || (await accountScopedStorageKey(PLAYER_STATE_KEY));
+    scopedStorageKey ||
+    (await accountScopedStorageKey(PLAYER_STATE_KEY, boundary));
   const previous = playerStateQueues.get(storageKey) ?? Promise.resolve();
   const operation = previous.then(async () => {
-    const current = await readPlayerState(storageKey);
+    if (boundary) assertAccountSessionBoundary(boundary);
+    const current = await readPlayerState(storageKey, boundary);
     const next = compactPlayerState(update(current));
+    if (boundary) assertAccountSessionBoundary(boundary);
     await AsyncStorage.setItem(storageKey, JSON.stringify(next));
+    if (boundary) assertAccountSessionBoundary(boundary);
     return next;
   });
   const settled = operation.catch(() => undefined);
@@ -243,20 +272,59 @@ export const updatePlayerState = async (
 export const updatePlayerStateForScope = async (
   accountScope: string,
   update: (state: PersistedPlayerState) => PersistedPlayerState,
+  boundary?: AccountSessionBoundary,
 ) => {
   if (!/^[a-z0-9_-]+$/i.test(accountScope)) {
     throw new Error('INVALID_ACCOUNT_STORAGE_SCOPE');
   }
-  return updatePlayerState(update, `${PLAYER_STATE_KEY}:${accountScope}`);
+  if (boundary) assertAccountSessionBoundary(boundary);
+  const storageKey = `${PLAYER_STATE_KEY}:${accountScope}`;
+  const result = await updatePlayerState(update, storageKey, boundary);
+  if (!boundary) return result;
+  try {
+    assertAccountSessionBoundary(boundary);
+    return result;
+  } catch (error) {
+    // A different owner may have cleared this scope while the native storage
+    // write was already in progress. Remove only the obsolete owner's key;
+    // a same-account token refresh keeps its valid learning record.
+    if ((await getCurrentAccountStorageScope()) !== accountScope) {
+      await AsyncStorage.removeItem(storageKey);
+    }
+    throw error;
+  }
+};
+
+export const readPlayerStateForScope = async (
+  accountScope: string,
+  boundary?: AccountSessionBoundary,
+) => {
+  if (!/^[a-z0-9_-]+$/i.test(accountScope)) {
+    throw new Error('INVALID_ACCOUNT_STORAGE_SCOPE');
+  }
+  if (boundary) assertAccountSessionBoundary(boundary);
+  const state = await readPlayerState(
+    `${PLAYER_STATE_KEY}:${accountScope}`,
+    boundary,
+  );
+  if (boundary) assertAccountSessionBoundary(boundary);
+  return state;
 };
 
 export const getLocalLearningState = readPlayerState;
 
 export const isWatchHistoryEnabled = async (): Promise<boolean> => {
+  const boundary = await captureAccountSessionBoundary();
+  let stored: string | null;
   try {
-    const stored = await AsyncStorage.getItem(
-      await accountScopedStorageKey(WATCH_HISTORY_ENABLED_KEY),
+    stored = await AsyncStorage.getItem(
+      await accountScopedStorageKey(WATCH_HISTORY_ENABLED_KEY, boundary),
     );
+  } catch {
+    return true;
+  }
+  assertAccountSessionBoundary(boundary);
+  try {
     return stored === null ? true : JSON.parse(stored) !== false;
   } catch {
     return true;

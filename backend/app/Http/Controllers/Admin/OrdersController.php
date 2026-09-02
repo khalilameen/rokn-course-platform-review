@@ -101,7 +101,8 @@ class OrdersController extends Controller
             'approved' => (clone $filteredScope)->where('status', Order::STATUS_APPROVED)->count(),
             'rejected' => (clone $filteredScope)->where('status', Order::STATUS_REJECTED)->count(),
             'cancelled' => (clone $filteredScope)->where('status', Order::STATUS_CANCELLED)->count(),
-            'total_amount' => $paymentChannelReport['egp']['gross_amount'],
+            'total_amount' => $paymentChannelReport['egp']['confirmed_gross_amount'],
+            'catalog_estimated_amount' => $paymentChannelReport['egp']['catalog_estimated_gross_amount'],
         ];
 
         $designSettings = $this->getDesignSettings();

@@ -4,23 +4,26 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\API;
 
-use App\Exceptions\AiPlanLimitReachedException;
 use App\Http\Controllers\Controller;
+use App\Jobs\GenerateCourseChatReply;
 use App\Models\AiUsageEvent;
+use App\Models\AiInputAttachment;
 use App\Models\Course;
 use App\Models\CourseChatTurn;
 use App\Models\Lesson;
 use App\Models\Setting;
 use App\Services\AiEntitlementBudgetService;
+use App\Services\AiInputAttachmentService;
 use App\Services\CourseAccessPlanService;
 use App\Services\CourseChatAccessService;
 use App\Services\CourseChatTurnService;
-use App\Services\OpenRouterService;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use App\Support\BusinessClock;
 use App\Support\RoknLocale;
@@ -34,20 +37,80 @@ final class CourseChatController extends Controller
     public function __construct(
         private readonly CourseAccessPlanService $accessPlans,
         private readonly AiEntitlementBudgetService $entitlementBudget,
-        private readonly CourseChatTurnService $turns
+        private readonly CourseChatTurnService $turns,
+        private readonly AiInputAttachmentService $attachments
     ) {
     }
 
     public function sendForCourse(
         Request $request,
         Course $course,
-        OpenRouterService $openRouter,
         CourseChatAccessService $access
     ): JsonResponse
     {
         $request->merge(['course_id' => $course->id]);
 
-        return $this->send($request, $openRouter, $access);
+        return $this->send($request, $access);
+    }
+
+    public function uploadAttachment(Request $request, Course $course, CourseChatAccessService $access): JsonResponse
+    {
+        $user = auth('api')->user();
+        if (!$course->isPublishedForLearning()
+            || !$access->hasLearningAccess((int) $user->id, (int) $course->id)
+            || !$access->hasChatAccess((int) $user->id, (int) $course->id)) {
+            abort(404);
+        }
+        $enrollment = $access->activeEnrollmentFor((int) $user->id, (int) $course->id);
+        $terms = $enrollment ? $this->accessPlans->termsForEnrollment($enrollment) : null;
+        $contract = $this->attachmentContract($course, $terms);
+        if (!$contract['enabled']) {
+            return response()->json([
+                'status' => 403,
+                'success' => false,
+                'code' => 'chat_attachments_not_included',
+                'message' => 'المرفقات غير متاحة في فئتك الحالية',
+            ], 403);
+        }
+        $validated = $request->validate([
+            'client_upload_id' => 'required|uuid',
+            'attachment' => [
+                'required', 'file',
+                'max:' . min(
+                    (int) config('projects.maximum_file_kilobytes', 25600),
+                    (int) floor((int) config('openrouter.attachment_provider_max_bytes', 8388608) / 1024)
+                ),
+                'mimetypes:' . implode(',', $this->attachments->allowedMimeTypes()),
+            ],
+        ]);
+        try {
+            $attachment = $this->attachments->store(
+                $user,
+                $course,
+                $validated['attachment'],
+                AiInputAttachment::PURPOSE_COURSE_CHAT,
+                (string) $validated['client_upload_id']
+            );
+        } catch (\UnexpectedValueException) {
+            return response()->json([
+                'status' => 409,
+                'success' => false,
+                'code' => 'attachment_identity_conflict',
+                'message' => 'تعذر استكمال رفع هذا الملف',
+            ], 409);
+        }
+
+        return response()->json([
+            'status' => 200,
+            'success' => true,
+            'message' => 'تم رفع الملف',
+            'data' => [
+                'id' => (string) $attachment->public_id,
+                'name' => (string) $attachment->original_file_name,
+                'mime_type' => (string) $attachment->mime_type,
+                'size_bytes' => (int) $attachment->size_bytes,
+            ],
+        ]);
     }
 
     public function history(Request $request, CourseChatAccessService $access): JsonResponse
@@ -100,12 +163,39 @@ final class CourseChatController extends Controller
             $lessonId,
             (int) ($validated['per_page'] ?? 20)
         );
+        $turnIds = collect($page->items())->pluck('id')->all();
+        $attachmentsByTurn = AiInputAttachment::query()
+            ->where('owner_type', AiInputAttachment::OWNER_COURSE_CHAT_TURN)
+            ->whereIn('owner_id', $turnIds)
+            ->where('status', AiInputAttachment::READY)
+            ->orderBy('id')
+            ->get(['owner_id', 'public_id', 'original_file_name', 'mime_type', 'size_bytes'])
+            ->groupBy('owner_id');
         $messages = collect($page->items())
             ->reverse()
-            ->flatMap(function (CourseChatTurn $turn): array {
-                $assistantText = $turn->status === CourseChatTurn::COMPLETED
+            ->flatMap(function (CourseChatTurn $turn) use ($attachmentsByTurn): array {
+                $assistantText = in_array($turn->status, [
+                    CourseChatTurn::STREAMING,
+                    CourseChatTurn::COMPLETED,
+                ], true)
                     ? trim((string) $turn->answer)
                     : null;
+                $turnAttachments = $attachmentsByTurn->get($turn->id, collect())
+                    ->map(function (AiInputAttachment $attachment): array {
+                        $expiresAt = now()->addMinutes(30);
+                        return [
+                        'id' => (string) $attachment->public_id,
+                        'name' => (string) $attachment->original_file_name,
+                        'mime_type' => (string) $attachment->mime_type,
+                        'size_bytes' => (int) $attachment->size_bytes,
+                        'download_url' => URL::temporarySignedRoute(
+                            'api.project-input-attachments.download',
+                            $expiresAt,
+                            ['attachment' => $attachment->public_id, 'user' => $attachment->user_id]
+                        ),
+                        'download_url_expires_at' => $expiresAt->toIso8601String(),
+                    ];
+                    })->values()->all();
 
                 return [[
                     'id' => 'user-' . $turn->public_id,
@@ -118,6 +208,7 @@ final class CourseChatController extends Controller
                     ], true) ? 'sent' : $turn->status,
                     'created_at' => $turn->created_at?->toIso8601String(),
                     'context_eligible' => $turn->status === CourseChatTurn::COMPLETED,
+                    'attachments' => $turnAttachments,
                 ], [
                     'id' => 'assistant-' . $turn->public_id,
                     'role' => 'assistant',
@@ -144,15 +235,126 @@ final class CourseChatController extends Controller
         ]);
     }
 
+    /** Lightweight polling path for a turn already admitted to the AI queue. */
+    public function status(string $clientRequestId): JsonResponse
+    {
+        if (!Str::isUuid($clientRequestId)) {
+            abort(404);
+        }
+
+        $turn = CourseChatTurn::query()
+            ->where('user_id', auth('api')->id())
+            ->where('client_request_id', $clientRequestId)
+            ->first();
+        if (!$turn) {
+            abort(404);
+        }
+
+        if ($turn->status === CourseChatTurn::COMPLETED) {
+            return response()->json([
+                'status' => 200,
+                'success' => true,
+                'message' => 'تم استلام الرد',
+                'data' => [
+                    'message' => (string) $turn->answer,
+                    'unavailable' => false,
+                    'cached' => false,
+                    'client_request_id' => (string) $turn->client_request_id,
+                    'turn_status' => CourseChatTurn::COMPLETED,
+                ],
+            ]);
+        }
+
+        if (in_array($turn->status, [CourseChatTurn::QUEUED, CourseChatTurn::STREAMING], true)) {
+            $partial = $turn->status === CourseChatTurn::STREAMING
+                ? trim((string) $turn->answer)
+                : '';
+            return response()->json([
+                'status' => 200,
+                'success' => true,
+                'code' => 'chat_answer_in_progress',
+                'message' => 'نجهز إجابتك الآن',
+                'data' => [
+                    'message' => $partial !== ''
+                        ? $partial
+                        : "نجهز إجابتك الآن\nستظهر خلال لحظات",
+                    'partial' => $partial !== '',
+                    'unavailable' => false,
+                    'can_retry' => true,
+                    'retry_after_seconds' => $partial !== '' ? 1 : 2,
+                    'client_request_id' => (string) $turn->client_request_id,
+                    'turn_status' => (string) $turn->status,
+                ],
+            ]);
+        }
+
+        return response()->json([
+            'status' => 200,
+            'success' => true,
+            'code' => (string) ($turn->error_code ?: 'chat_turn_failed'),
+            'message' => 'لم تكتمل الإجابة',
+            'data' => [
+                'message' => "لم تكتمل الإجابة السابقة\nأرسل السؤال مرة أخرى",
+                'unavailable' => true,
+                'can_retry' => true,
+                'retry_after_seconds' => 1,
+                'client_request_id' => (string) $turn->client_request_id,
+                'turn_status' => (string) $turn->status,
+            ],
+        ]);
+    }
+
+    public function cancel(string $clientRequestId): JsonResponse
+    {
+        if (!Str::isUuid($clientRequestId)) abort(404);
+        $cancelled = DB::transaction(function () use ($clientRequestId): bool {
+            $turn = CourseChatTurn::query()
+                ->where('user_id', auth('api')->id())
+                ->where('client_request_id', $clientRequestId)
+                ->lockForUpdate()->first();
+            if (!$turn) abort(404);
+            if ($turn->status === CourseChatTurn::COMPLETED) return false;
+            if ($turn->status === CourseChatTurn::CANCELLED) return true;
+            $event = AiUsageEvent::query()
+                ->where('request_id', $clientRequestId)
+                ->where('user_id', $turn->user_id)
+                ->where('course_id', $turn->course_id)
+                ->lockForUpdate()->first();
+            if ($event?->status === 'reserved' && in_array(
+                data_get($event->metadata, 'provider_call_state'),
+                ['started', 'outcome_unknown'],
+                true
+            )) return false;
+            if ($event?->status === 'reserved') {
+                $this->entitlementBudget->release($event, 'learner_cancelled_before_provider');
+            }
+            $turn->forceFill([
+                'status' => CourseChatTurn::CANCELLED,
+                'error_code' => 'learner_cancelled',
+                'completed_at' => now(),
+            ])->save();
+            $this->turns->releaseAdmissionQuota($turn);
+            return true;
+        }, 3);
+
+        return response()->json([
+            'status' => $cancelled ? 200 : 409,
+            'success' => $cancelled,
+            'code' => $cancelled ? 'chat_turn_cancelled' : 'provider_call_in_progress',
+            'message' => $cancelled ? 'تم الإيقاف' : 'بدأ تجهيز الرد بالفعل',
+        ], $cancelled ? 200 : 409);
+    }
+
     public function send(
         Request $request,
-        OpenRouterService $openRouter,
         CourseChatAccessService $access
     ): JsonResponse
     {
         $validated = $request->validate([
             'course_id' => 'required|integer|exists:courses,id',
-            'message' => 'required|string|min:1|max:16000',
+            'message' => 'nullable|string|max:16000|required_without:attachment_ids',
+            'attachment_ids' => 'nullable|array|max:5|required_without:message',
+            'attachment_ids.*' => 'required|uuid|distinct',
             'client_request_id' => 'nullable|uuid',
             'lesson_id' => 'nullable|integer|exists:lessons,id',
             'reel_title' => 'nullable|string|max:640',
@@ -200,7 +402,12 @@ final class CourseChatController extends Controller
             ], 403);
         }
 
-        $question = UnicodeText::clean(strip_tags((string) $validated['message']));
+        $attachmentIds = array_values($validated['attachment_ids'] ?? []);
+        sort($attachmentIds);
+        $question = UnicodeText::clean(strip_tags((string) ($validated['message'] ?? '')));
+        if ($question === '' && $attachmentIds !== []) {
+            $question = 'راجع المرفق';
+        }
         if ($question === '') {
             return response()->json([
                 'status' => 422,
@@ -225,7 +432,7 @@ final class CourseChatController extends Controller
             ?? RoknLocale::normalize(app()->getLocale())
             ?? RoknLocale::ARABIC;
         $promptVersion = $this->promptVersion($course);
-        $questionHash = hash('sha256', $question);
+        $questionHash = hash('sha256', $question . '|' . implode('|', $attachmentIds));
 
         $currentStepTitle = UnicodeText::limit(
             UnicodeText::clean(strip_tags((string) ($validated['reel_title'] ?? '')), false),
@@ -256,11 +463,33 @@ final class CourseChatController extends Controller
             'lesson_id' => isset($lesson) ? (int) $lesson->id : null,
             'language' => $language,
             'prompt_version' => $promptVersion,
+            'attachment_count' => count($attachmentIds),
         ];
         $enrollment = $access->activeEnrollmentFor((int) $user->id, (int) $course->id);
         $planTerms = $enrollment
             ? $this->accessPlans->termsForEnrollment($enrollment)
             : null;
+        if (!$enrollment || !$planTerms) {
+            return response()->json([
+                'status' => 403,
+                'success' => false,
+                'code' => 'chat_upgrade_required',
+                'message' => 'ركن AI غير متاح في وصولك الحالي',
+                'data' => null,
+            ], 403);
+        }
+        $attachmentContract = $this->attachmentContract($course, $planTerms);
+        if ($attachmentIds !== [] && (
+            !$attachmentContract['enabled']
+            || count($attachmentIds) > $attachmentContract['max_files']
+        )) {
+            return response()->json([
+                'status' => 403,
+                'success' => false,
+                'code' => 'chat_attachments_not_included',
+                'message' => 'المرفقات غير متاحة في فئتك الحالية',
+            ], 403);
+        }
         try {
             $this->activeTurn = $this->turns->begin(
                 (int) $user->id,
@@ -270,8 +499,19 @@ final class CourseChatController extends Controller
                 $clientRequestId,
                 $question,
                 $language,
-                $promptVersion
+                $promptVersion,
+                $attachmentIds
             );
+            $claimedAttachments = $this->activeTurn
+                ? $this->attachments->claim(
+                    $user,
+                    $course,
+                    $attachmentIds,
+                    AiInputAttachment::PURPOSE_COURSE_CHAT,
+                    AiInputAttachment::OWNER_COURSE_CHAT_TURN,
+                    (int) $this->activeTurn->id
+                )
+                : collect();
         } catch (\UnexpectedValueException) {
             return response()->json([
                 'status' => 409,
@@ -280,6 +520,14 @@ final class CourseChatController extends Controller
                 'message' => 'تعذر استكمال هذا الطلب',
                 'data' => null,
             ], 409);
+        }
+        if (!$this->activeTurn) {
+            return $this->gracefulUnavailable(
+                "ركن AI غير متاح الآن\nأكمل المشاهدة وحاول لاحقًا",
+                45,
+                'chat_queue_unavailable',
+                $clientRequestId
+            );
         }
         if ($this->activeTurn?->status === CourseChatTurn::COMPLETED) {
             return $this->completedResponse(
@@ -373,10 +621,17 @@ final class CourseChatController extends Controller
                 'failed'
             );
         }
+        $queuedReplay = !$this->activeTurn->wasRecentlyCreated;
+        $consumeAdmissionQuota = !$queuedReplay
+            || !$this->activeTurn->admission_quota_consumed_at
+            || $this->activeTurn->admission_quota_released_at;
 
         $minuteKey = sprintf('course-chat:minute:%d:%d', $user->id, $course->id);
         $perMinute = max(1, (int) config('openrouter.per_minute_limit', 8));
-        if (RateLimiter::tooManyAttempts($minuteKey, $perMinute)) {
+        if (
+            $consumeAdmissionQuota
+            && RateLimiter::tooManyAttempts($minuteKey, $perMinute)
+        ) {
             return $this->gracefulUnavailable(
                 "انتظر قليلًا\nثم أرسل سؤالك مرة أخرى\nمكانك في الكورس محفوظ",
                 RateLimiter::availableIn($minuteKey),
@@ -406,7 +661,11 @@ final class CourseChatController extends Controller
                     isset($lesson) ? (int) $lesson->id : null,
                     $language,
                     $promptVersion,
-                    (int) $this->activeTurn->id
+                    (int) $this->activeTurn->id,
+                    max(4000, min(
+                        24000,
+                        (int) (($planTerms['chat_token_budget'] ?? 8000) * 2)
+                    ))
                 )
                 : [];
             $model = $this->resolveModel($course, $planTerms['model_override'] ?? null);
@@ -435,8 +694,7 @@ final class CourseChatController extends Controller
         $estimatedTokens = $maxTokens + (int) ceil(array_sum(array_map(
             static fn (array $message): int => strlen((string) ($message['content'] ?? '')),
             $messages
-        )) / 4);
-        $planBudget = $this->entitlementBudget;
+        )) / 4) + $this->attachments->estimatedInputTokens($claimedAttachments);
         $answerCacheKey = sprintf(
             'course-chat:answer:v8:%d:%d:%d:%s:%s:%s:%s:%d:%s:%s',
             $user->id,
@@ -445,7 +703,7 @@ final class CourseChatController extends Controller
             sha1($language),
             $promptVersion,
             sha1(Str::lower($currentStepTitle)),
-            sha1(Str::lower($question).'|'.json_encode($history, JSON_UNESCAPED_UNICODE)),
+            sha1(Str::lower($question).'|'.json_encode($history, JSON_UNESCAPED_UNICODE).'|'.implode('|', $attachmentIds)),
             $maxTokens,
             sha1($model),
             sha1(json_encode([
@@ -456,7 +714,6 @@ final class CourseChatController extends Controller
         );
 
         try {
-            $this->turns->markStreaming($this->activeTurn);
             $answer = Cache::get($answerCacheKey);
             $wasCached = is_array($answer);
 
@@ -467,18 +724,17 @@ final class CourseChatController extends Controller
                 )->block(3, function () use (
                     $answerCacheKey,
                     $user,
-                    $openRouter,
                     $model,
                     $messages,
                     $course,
                     $enrollment,
                     $maxTokens,
                     $estimatedTokens,
-                    $planBudget,
                     $clientRequestId,
                     $requestContext,
                     $minuteKey,
-                    $perMinute
+                    $perMinute,
+                    $consumeAdmissionQuota
                 ): array {
                     $cachedAnswer = Cache::get($answerCacheKey);
                     if (is_array($cachedAnswer)) {
@@ -486,17 +742,18 @@ final class CourseChatController extends Controller
                             'answer' => $cachedAnswer,
                             'cached' => true,
                             'quota' => true,
-                            'plan_budget' => true,
                             'rate' => true,
                         ];
                     }
 
-                    if (!$this->consumeMinuteQuota($minuteKey, $perMinute)) {
+                    if (
+                        $consumeAdmissionQuota
+                        && !$this->consumeMinuteQuota($minuteKey, $perMinute)
+                    ) {
                         return [
                             'answer' => null,
                             'cached' => false,
                             'quota' => true,
-                            'plan_budget' => true,
                             'rate' => false,
                         ];
                     }
@@ -511,110 +768,80 @@ final class CourseChatController extends Controller
                         'openrouter.daily_user_limit',
                         100
                     );
-                    if (!$this->consumeDailyQuota($dailyKey, $dailyLimit)) {
+                    if (
+                        $consumeAdmissionQuota
+                        && !$this->consumeDailyQuota($dailyKey, $dailyLimit)
+                    ) {
                         $this->releaseMinuteQuota($minuteKey);
 
                         return [
                             'answer' => null,
                             'cached' => false,
                             'quota' => false,
-                            'plan_budget' => true,
                             'rate' => true,
                         ];
                     }
-
-                    try {
-                        $reservation = $enrollment
-                            ? $planBudget->reserve(
-                                $enrollment,
-                                'course_chat',
-                                $estimatedTokens,
-                                $model,
-                                $clientRequestId
-                            )
-                            : null;
-                    } catch (AiPlanLimitReachedException $exception) {
-                        $this->releaseMinuteQuota($minuteKey);
-                        $this->releaseDailyQuota($dailyKey);
-
-                        return [
-                            'answer' => null,
-                            'cached' => false,
-                            'quota' => true,
-                            'plan_budget' => false,
-                            'rate' => true,
-                        ];
-                    }
-
-                    // A retry can race the original HTTP request before its
-                    // usage event becomes visible to the early replay check.
-                    // Never send that same paid turn to the provider twice.
-                    if ($reservation && !$reservation->wasRecentlyCreated) {
-                        $reservation = $reservation->fresh();
-                        $accepted = trim((string) data_get(
-                            $reservation?->metadata,
-                            'accepted_response',
-                            ''
-                        ));
-                        $this->releaseDailyQuota($dailyKey);
-                        $this->releaseMinuteQuota($minuteKey);
-
-                        if ($reservation?->status === 'completed' && $accepted !== '') {
-                            return [
-                                'answer' => ['message' => $accepted],
-                                'cached' => true,
-                                'quota' => true,
-                                'plan_budget' => true,
-                                'rate' => true,
-                            ];
+                    $ownsAdmissionQuota = false;
+                    if ($consumeAdmissionQuota) {
+                        try {
+                            $ownsAdmissionQuota = $this->turns->markAdmissionQuotaConsumed(
+                                $this->activeTurn,
+                                $minuteKey,
+                                $dailyKey
+                            );
+                            if (!$ownsAdmissionQuota) {
+                                // A concurrent replay already owns this
+                                // logical turn. Undo only this request's extra
+                                // ephemeral debit; the durable owner remains.
+                                $this->releaseDailyQuota($dailyKey);
+                                $this->releaseMinuteQuota($minuteKey);
+                            }
+                        } catch (\Throwable $exception) {
+                            $this->releaseDailyQuota($dailyKey);
+                            $this->releaseMinuteQuota($minuteKey);
+                            throw $exception;
                         }
-
-                        return [
-                            'answer' => null,
-                            'cached' => false,
-                            'quota' => true,
-                            'plan_budget' => true,
-                            'rate' => true,
-                            'turn_state' => $reservation?->status === 'reserved'
-                                ? 'in_progress'
-                                : 'failed',
-                        ];
                     }
 
                     try {
-                        $freshAnswer = $openRouter->chat(
+                        GenerateCourseChatReply::dispatch(
+                            (int) $this->activeTurn->id,
+                            (int) $enrollment->id,
+                            $estimatedTokens,
+                            $answerCacheKey,
                             $model,
                             $messages,
                             (float) ($course->temperature ?? 0.45),
-                            $maxTokens
+                            $maxTokens,
+                            $requestContext,
+                            $this->cappedPositiveSetting(
+                                'ai_answer_cache_minutes',
+                                'openrouter.answer_cache_minutes',
+                                360
+                            )
                         );
-                        $freshAnswer['request_context'] = $requestContext;
-                        $planBudget->settle($reservation, $freshAnswer);
                     } catch (\Throwable $exception) {
-                        // Provider outages do not consume the learner's daily
-                        // allowance. The financial reservation is released
-                        // separately below.
-                        $this->releaseDailyQuota($dailyKey);
-                        $this->releaseMinuteQuota($minuteKey);
-                        $planBudget->release($reservation, 'provider_request_failed');
+                        if (!$ownsAdmissionQuota) {
+                            report($exception);
+
+                            return [
+                                'answer' => null,
+                                'cached' => false,
+                                'quota' => true,
+                                'rate' => true,
+                                'turn_state' => 'in_progress',
+                            ];
+                        }
+                        $this->turns->releaseAdmissionQuota($this->activeTurn);
                         throw $exception;
                     }
-                    Cache::put(
-                        $answerCacheKey,
-                        $freshAnswer,
-                        now()->addMinutes($this->cappedPositiveSetting(
-                            'ai_answer_cache_minutes',
-                            'openrouter.answer_cache_minutes',
-                            360
-                        ))
-                    );
 
                     return [
-                        'answer' => $freshAnswer,
+                        'answer' => null,
                         'cached' => false,
                         'quota' => true,
-                        'plan_budget' => true,
                         'rate' => true,
+                        'turn_state' => 'in_progress',
                     ];
                 });
 
@@ -625,18 +852,6 @@ final class CourseChatController extends Controller
                         'chat_rate_limited',
                         $clientRequestId
                     );
-                }
-
-                if (!$result['plan_budget']) {
-                    $this->turns->fail($this->activeTurn, 'chat_plan_limit_reached');
-
-                    return response()->json([
-                        'status' => 403,
-                        'success' => false,
-                        'code' => 'chat_plan_limit_reached',
-                        'message' => "استخدمت مساحة ركن AI المتاحة في فئتك\nيمكنك الترقية إذا احتجت إلى أسئلة أكثر",
-                        'data' => null,
-                    ], 403);
                 }
 
                 if (!$result['quota']) {
@@ -654,7 +869,7 @@ final class CourseChatController extends Controller
                         3,
                         'chat_answer_in_progress',
                         $clientRequestId,
-                        'streaming'
+                        'queued'
                     );
                 }
 
@@ -673,11 +888,11 @@ final class CourseChatController extends Controller
             }
         } catch (LockTimeoutException $exception) {
             return $this->gracefulUnavailable(
-                "نجهز إجابة سؤالك الآن\nحاول إرساله بعد قليل",
+                "تعذر وضع السؤال في الطابور الآن\nحاول مرة أخرى بعد قليل",
                 3,
-                'chat_answer_in_progress',
+                'chat_queue_busy',
                 $clientRequestId,
-                'streaming'
+                'failed'
             );
         } catch (\Throwable $exception) {
             report($exception);
@@ -691,15 +906,28 @@ final class CourseChatController extends Controller
         }
 
         if ($wasCached && $enrollment) {
-            $this->recordCachedTurn(
-                $clientRequestId,
-                $user->id,
-                $course->id,
-                $enrollment->id,
-                $enrollment->access_plan_id ? (int) $enrollment->access_plan_id : null,
-                $model,
+            $cachedUsage = null;
+            try {
+                $cachedUsage = $this->recordCachedTurn(
+                    $clientRequestId,
+                    $user->id,
+                    $course->id,
+                    $enrollment->id,
+                    $enrollment->access_plan_id ? (int) $enrollment->access_plan_id : null,
+                    $model,
+                    (string) ($answer['message'] ?? ''),
+                    $requestContext
+                );
+            } catch (\Throwable $exception) {
+                report($exception);
+            }
+            // The learner-visible turn is the source of truth. Usage metadata
+            // for a zero-cost cache hit is useful, but a reporting write must
+            // never prevent delivery of an answer we already have.
+            $this->turns->complete(
+                $this->activeTurn,
                 (string) ($answer['message'] ?? ''),
-                $requestContext
+                $cachedUsage
             );
         }
 
@@ -829,6 +1057,20 @@ final class CourseChatController extends Controller
         return $this->runtimeSettings ??= (Setting::query()->first() ?? new Setting());
     }
 
+    /** @param array<string,mixed>|null $terms */
+    private function attachmentContract(Course $course, ?array $terms): array
+    {
+        $plan = $terms ? $this->accessPlans->publicPayloadFromTerms($terms) : [];
+        $planMax = max(0, (int) ($plan['chat_attachment_max_files'] ?? 0));
+        $courseMax = min(5, max(1, (int) ($course->chat_attachment_max_files ?? 1)));
+        return [
+            'enabled' => (bool) $course->chat_attachments_enabled
+                && (bool) ($plan['chat_attachments_enabled'] ?? false)
+                && $planMax > 0,
+            'max_files' => min($courseMax, $planMax),
+        ];
+    }
+
     /** Poison/error output may be shown in UI but never fed back to a model. */
     private function historyMessageIsSafe(array $message): bool
     {
@@ -846,6 +1088,8 @@ final class CourseChatController extends Controller
     {
         return sha1(implode('|', [
             'course-chat-prompt-v6',
+            (string) $course->name_ar,
+            (string) $course->name_en,
             (string) $course->chat_ai_prompt,
             (string) $course->description_ar,
             (string) $course->description_en,
@@ -882,8 +1126,8 @@ final class CourseChatController extends Controller
         string $model,
         string $answer,
         array $requestContext
-    ): void {
-        AiUsageEvent::query()->firstOrCreate(
+    ): AiUsageEvent {
+        return AiUsageEvent::query()->firstOrCreate(
             ['request_id' => $requestId],
             [
                 'enrollment_id' => $enrollmentId,
@@ -917,9 +1161,9 @@ final class CourseChatController extends Controller
         string $turnStatus = 'failed'
     ): JsonResponse
     {
-        if ($turnStatus === 'streaming') {
+        if ($turnStatus === CourseChatTurn::STREAMING) {
             $this->turns->markStreaming($this->activeTurn);
-        } else {
+        } elseif ($turnStatus !== CourseChatTurn::QUEUED) {
             $this->turns->fail($this->activeTurn, $code);
         }
 

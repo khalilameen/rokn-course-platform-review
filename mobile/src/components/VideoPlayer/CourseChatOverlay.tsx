@@ -3,8 +3,10 @@ import {useNavigation} from '@react-navigation/native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   KeyboardAvoidingView,
+  Image,
   Modal,
   Platform,
   Pressable,
@@ -15,6 +17,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import Svg, {Path} from 'react-native-svg';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {
@@ -29,6 +32,13 @@ import type {CourseLearningData, CourseReel} from './types';
 import type {AssistantPresence} from './courseChat/useCourseChat';
 import {useReducedMotion} from '../../hooks/useReducedMotion';
 import {cleanUnicodeText, truncateGraphemes} from '../../utils/unicodeText';
+import {secureRandomUuid} from '../../utils/secureRandom';
+import {
+  cacheLearnerDraftFile,
+  removeLearnerDraftFile,
+} from '../../services/learnerDraftFiles';
+import {showMediaPickerFailure} from '../../services/mediaPickerErrors';
+import {openCourseAssistantAttachment} from './courseLearningApi';
 
 interface CourseChatOverlayProps {
   visible: boolean;
@@ -38,7 +48,10 @@ interface CourseChatOverlayProps {
 }
 
 type CourseChatNavigation = {
-  navigate: (screen: 'Wallet') => void;
+  navigate: (
+    screen: 'Wallet',
+    params?: {returnTo?: import('../../navigation/types').LoginReturnTo},
+  ) => void;
 };
 
 const SendIcon = () => (
@@ -126,9 +139,12 @@ const CourseChatOverlay = ({
   const navigation = useNavigation<CourseChatNavigation>();
   const [copiedMessageId, setCopiedMessageId] = useState<string>();
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const attachmentPickerFlightRef = useRef(false);
+  const upgradeAutoLoadCourseRef = useRef<string | undefined>(undefined);
   const {
     assistantPresence,
     assistantIncluded,
+    attachments,
     confirmUpgrade,
     input,
     loadUpgradeQuote,
@@ -139,7 +155,9 @@ const CourseChatOverlay = ({
     scrollRef,
     send,
     sending,
+    stop,
     setInput,
+    setAttachments,
     upgradeError,
     upgradeLoading,
     upgradeQuote,
@@ -148,11 +166,97 @@ const CourseChatOverlay = ({
     course,
     reel,
     onOpenWallet: () => {
-      onClose();
-      navigation.navigate('Wallet');
+      navigation.navigate('Wallet', {
+        returnTo: {
+          name: 'Reels',
+          params: {
+            courseId: String(course.id),
+            reelId: reel?.id ? String(reel.id) : undefined,
+            lessonId: reel?.lessonId ? String(reel.lessonId) : undefined,
+            openCourseChatUpgrade: true,
+          },
+        },
+      });
     },
   });
-  const hasSendableInput = cleanUnicodeText(input).length > 0;
+  const hasSendableInput = cleanUnicodeText(input).length > 0 || attachments.length > 0;
+  const attachmentLimit = Math.max(0, course.chatAttachmentMaxFiles || 0);
+
+  useEffect(() => {
+    if (upgradeAutoLoadCourseRef.current !== String(course.id)) {
+      upgradeAutoLoadCourseRef.current = undefined;
+    }
+    if (
+      visible &&
+      !assistantIncluded &&
+      !upgradeQuote &&
+      !upgradeLoading &&
+      !upgradeError &&
+      upgradeAutoLoadCourseRef.current !== String(course.id)
+    ) {
+      upgradeAutoLoadCourseRef.current = String(course.id);
+      void loadUpgradeQuote();
+    }
+  }, [
+    assistantIncluded,
+    course.id,
+    loadUpgradeQuote,
+    upgradeError,
+    upgradeLoading,
+    upgradeQuote,
+    visible,
+  ]);
+
+  const pickAttachments = async () => {
+    if (!course.chatAttachmentsEnabled || attachments.length >= attachmentLimit
+      || attachmentPickerFlightRef.current) return;
+    attachmentPickerFlightRef.current = true;
+    const selected: import('./types').ChatAttachmentDraft[] = [];
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: [
+          'image/jpeg', 'image/png', 'image/webp', 'application/pdf', 'text/plain',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        ],
+        multiple: true,
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled) return;
+      const remaining = Math.max(0, attachmentLimit - attachments.length);
+      for (const asset of result.assets.slice(0, remaining)) {
+        const cached = await cacheLearnerDraftFile('course_chat', {
+          uri: asset.uri,
+          fileName: asset.name,
+          type: asset.mimeType || 'application/octet-stream',
+          size: asset.size,
+        }, 8 * 1024 * 1024);
+        selected.push({
+          uri: cached.uri,
+          name: cached.fileName || asset.name,
+          type: cached.type || asset.mimeType || 'application/octet-stream',
+          size: cached.size,
+          uploadId: secureRandomUuid(),
+        });
+      }
+      setAttachments(current => {
+        const combined = [...current, ...selected];
+        const kept = combined.slice(0, attachmentLimit);
+        const keptIds = new Set(kept.map(file => file.uploadId));
+        void Promise.all(selected.filter(file => !keptIds.has(file.uploadId)).map(removeLearnerDraftFile));
+        return kept;
+      });
+    } catch (error: unknown) {
+      await Promise.all(selected.map(removeLearnerDraftFile));
+      showMediaPickerFailure(
+        error instanceof Error && error.message === 'LEARNER_DRAFT_STORAGE_FULL'
+          ? error.message
+          : 'document_picker_failed',
+      );
+    } finally {
+      attachmentPickerFlightRef.current = false;
+    }
+  };
 
   useEffect(
     () => () => {
@@ -342,6 +446,17 @@ const CourseChatOverlay = ({
                         <Text selectable={false} style={styles.bubbleText}>
                           {message.text}
                         </Text>
+                        {message.attachments?.map(file => (
+                          <Pressable
+                            key={file.serverId || file.uploadId}
+                            disabled={!file.serverId && !file.downloadUrl}
+                            onPress={() => void openCourseAssistantAttachment(file).catch(() =>
+                              Alert.alert('تعذّر فتح الملف', 'حاول مرة أخرى'))}>
+                            <Text numberOfLines={1} style={styles.messageAttachment}>
+                              {file.name}
+                            </Text>
+                          </Pressable>
+                        ))}
                         {!!message.text && (
                           <Pressable
                             accessibilityRole="button"
@@ -380,6 +495,32 @@ const CourseChatOverlay = ({
                 ))}
               </ScrollView>
 
+              {attachments.length > 0 && (
+                <ScrollView horizontal style={styles.attachmentStrip} showsHorizontalScrollIndicator={false}>
+                  {attachments.map(file => (
+                    <View key={file.uploadId} style={styles.attachmentChip}>
+                      {file.type.startsWith('image/') && file.uri !== '' && (
+                        <Image source={{uri: file.uri}} style={styles.attachmentPreview} />
+                      )}
+                      <Text numberOfLines={1} style={styles.attachmentName}>{file.name}</Text>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`حذف ${file.name}`}
+                        onPress={() => {
+                          setAttachments(current => current.filter(item => item.uploadId !== file.uploadId));
+                          void removeLearnerDraftFile(file);
+                        }}>
+                        <Text style={styles.attachmentRemove}>×</Text>
+                      </Pressable>
+                    </View>
+                  ))}
+                </ScrollView>
+              )}
+              {sending && (
+                <Pressable accessibilityRole="button" style={styles.stopButton} onPress={() => void stop()}>
+                  <Text style={styles.stopButtonText}>إيقاف</Text>
+                </Pressable>
+              )}
               <View
                 style={[
                   styles.composer,
@@ -398,6 +539,16 @@ const CourseChatOverlay = ({
                   onSubmitEditing={() => send()}
                   blurOnSubmit={false}
                 />
+                {course.chatAttachmentsEnabled && attachmentLimit > 0 && (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="إضافة صورة أو ملف"
+                    disabled={sending || attachments.length >= attachmentLimit}
+                    style={styles.attachButton}
+                    onPress={() => void pickAttachments()}>
+                    <Text style={styles.attachButtonText}>＋</Text>
+                  </Pressable>
+                )}
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="إرسال"
@@ -554,6 +705,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 7,
   },
+  messageAttachment: {
+    color: 'rgba(255,255,255,.78)',
+    fontFamily: Fonts.medium,
+    fontSize: 11,
+    marginTop: 5,
+  },
   workingIndicator: {
     minWidth: 42,
     minHeight: 20,
@@ -675,6 +832,50 @@ const styles = StyleSheet.create({
     borderTopColor: 'rgba(255,255,255,.08)',
     backgroundColor: '#0B1017',
   },
+  attachmentStrip: {
+    flexGrow: 0,
+    maxHeight: 58,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    backgroundColor: '#0B1017',
+  },
+  stopButton: {
+    alignSelf: 'center',
+    marginVertical: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderRadius: 14,
+    backgroundColor: '#192230',
+  },
+  stopButtonText: {color: '#FFFFFF', fontFamily: Fonts.medium, fontSize: 12},
+  attachmentChip: {
+    height: 44,
+    maxWidth: 190,
+    marginEnd: 8,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    ...rtlRowStyle,
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: '#192230',
+  },
+  attachmentPreview: {width: 30, height: 30, borderRadius: 7},
+  attachmentName: {
+    maxWidth: 110,
+    color: '#FFFFFF',
+    fontFamily: Fonts.regular,
+    fontSize: 12,
+  },
+  attachmentRemove: {color: '#FFFFFF', fontSize: 20, lineHeight: 22},
+  attachButton: {
+    width: 42,
+    height: 48,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#192230',
+  },
+  attachButtonText: {color: '#FFFFFF', fontSize: 24, lineHeight: 26},
   input: {
     ...textDirection,
     flex: 1,

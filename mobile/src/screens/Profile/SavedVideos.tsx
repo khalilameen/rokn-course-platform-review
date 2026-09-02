@@ -92,6 +92,7 @@ export default function SavedVideos() {
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [deletingFolder, setDeletingFolder] = useState(false);
   const [folderError, setFolderError] = useState('');
+  const [folderLoadError, setFolderLoadError] = useState('');
   const [serverSession, setServerSession] = useState<boolean | null>(null);
   const loadGenerationRef = useRef(0);
   const loadingMoreRef = useRef(false);
@@ -118,13 +119,26 @@ export default function SavedVideos() {
           const sessionAvailable = await hasSession();
           if (active) setServerSession(sessionAvailable);
           if (sessionAvailable) {
-            const [result, folderOptions] = await Promise.all([
+            const [result, folderOptionsResult] = await Promise.all([
               getSavedLessonsPage(1),
-              getSavedFolderOptions().catch(() => []),
+              getSavedFolderOptions().then(
+                value => ({ok: true as const, value}),
+                () => ({ok: false as const}),
+              ),
             ]);
             if (!active || generation !== loadGenerationRef.current) return;
             setSaved(remoteLessonsToRows(result.lessons));
-            setFolders(folderOptions);
+            if (folderOptionsResult.ok) {
+              setFolders(folderOptionsResult.value);
+              setFolderLoadError('');
+            } else {
+              // Keep the last known folder list. Replacing it with [] hides
+              // valid empty folders and makes a partial outage look like data
+              // the learner deleted.
+              setFolderLoadError(
+                'تعذّر تحديث القوائم\nالمحفوظات ما زالت موجودة',
+              );
+            }
             setNextPage(result.hasMore ? result.page + 1 : null);
             setError('');
             return;
@@ -133,6 +147,7 @@ export default function SavedVideos() {
             if (active) {
               setSaved([]);
               setFolders([]);
+              setFolderLoadError('');
               setError('');
             }
             return;
@@ -147,6 +162,7 @@ export default function SavedVideos() {
             folderOptions.map(folder => [folder.id, folder.name]),
           );
           setFolders(folderOptions);
+          setFolderLoadError('');
           const course = createDemoCourse();
           const reels = course.modules.flatMap(module => module.reels);
           setSaved(
@@ -204,7 +220,8 @@ export default function SavedVideos() {
       loadingMore ||
       loadingMoreRef.current ||
       serverSession !== true
-    ) return;
+    )
+      return;
     loadingMoreRef.current = true;
     const generation = loadGenerationRef.current;
     setLoadingMore(true);
@@ -257,10 +274,7 @@ export default function SavedVideos() {
     setFolderError('');
     try {
       const created = await createSavedFolderOption(name);
-      if (
-        !screenActiveRef.current ||
-        generation !== loadGenerationRef.current
-      )
+      if (!screenActiveRef.current || generation !== loadGenerationRef.current)
         return;
       setFolders(current => [
         ...current.filter(folder => folder.id !== created.id),
@@ -270,69 +284,67 @@ export default function SavedVideos() {
       setNewFolderName('');
       setShowCreateFolder(false);
     } catch {
-      if (
-        screenActiveRef.current &&
-        generation === loadGenerationRef.current
-      ) {
-        setFolderError("تعذّر إنشاء القائمة\nتحقق من الاتصال ثم حاول مرة أخرى");
+      if (screenActiveRef.current && generation === loadGenerationRef.current) {
+        setFolderError('تعذّر إنشاء القائمة\nتحقق من الاتصال ثم حاول مرة أخرى');
       }
     } finally {
       createFolderFlightRef.current = false;
-      if (
-        screenActiveRef.current &&
-        generation === loadGenerationRef.current
-      ) {
+      if (screenActiveRef.current && generation === loadGenerationRef.current) {
         setCreatingFolder(false);
       }
     }
   }, [creatingFolder, folders, newFolderName]);
 
-  const removeSaved = useCallback(async (item: SavedReel) => {
-    const key = `${item.folderId || ''}:${item.id}`;
-    if (removingSaved.has(key) || removeFlightsRef.current.has(key)) return;
-    const generation = loadGenerationRef.current;
-    removeFlightsRef.current.add(key);
-    setActionError('');
-    setRemovingSaved(current => new Set(current).add(key));
-    try {
-      if (item.remote && item.folderId) {
-        await deleteSavedLesson(item.folderId, item.id);
-      } else if (item.folderId) {
-        await removeLessonFromSavedFolder(item.id, item.folderId);
-      } else {
-        await toggleWatchLater(item.id, true);
+  const removeSaved = useCallback(
+    async (item: SavedReel) => {
+      const key = `${item.folderId || ''}:${item.id}`;
+      if (removingSaved.has(key) || removeFlightsRef.current.has(key)) return;
+      const generation = loadGenerationRef.current;
+      removeFlightsRef.current.add(key);
+      setActionError('');
+      setRemovingSaved(current => new Set(current).add(key));
+      try {
+        if (item.remote && item.folderId) {
+          await deleteSavedLesson(item.folderId, item.id);
+        } else if (item.folderId) {
+          await removeLessonFromSavedFolder(item.id, item.folderId);
+        } else {
+          await toggleWatchLater(item.id, true);
+        }
+        if (
+          !screenActiveRef.current ||
+          generation !== loadGenerationRef.current
+        )
+          return;
+        setSaved(current =>
+          current.filter(
+            video =>
+              !(video.id === item.id && video.folderId === item.folderId),
+          ),
+        );
+      } catch {
+        if (
+          screenActiveRef.current &&
+          generation === loadGenerationRef.current
+        ) {
+          setActionError('تعذّرت إزالة المقطع\nحاول مرة أخرى');
+        }
+      } finally {
+        removeFlightsRef.current.delete(key);
+        if (
+          screenActiveRef.current &&
+          generation === loadGenerationRef.current
+        ) {
+          setRemovingSaved(current => {
+            const next = new Set(current);
+            next.delete(key);
+            return next;
+          });
+        }
       }
-      if (
-        !screenActiveRef.current ||
-        generation !== loadGenerationRef.current
-      )
-        return;
-      setSaved(current =>
-        current.filter(
-          video => !(video.id === item.id && video.folderId === item.folderId),
-        ),
-      );
-    } catch {
-      if (
-        screenActiveRef.current &&
-        generation === loadGenerationRef.current
-      ) {
-        setActionError('تعذّرت إزالة المقطع\nحاول مرة أخرى');
-      }
-    } finally {
-      removeFlightsRef.current.delete(key);
-      if (
-        screenActiveRef.current &&
-        generation === loadGenerationRef.current
-      ) {
-        setRemovingSaved(current => {
-          const next = new Set(current);
-          next.delete(key);
-          return next;
-        });
-      }
-    }
-  }, [removingSaved]);
+    },
+    [removingSaved],
+  );
 
   const deleteActiveFolder = useCallback(() => {
     const folder = folders.find(item => item.id === activeFolderId);
@@ -442,7 +454,7 @@ export default function SavedVideos() {
         description="سجّل الدخول لعرض محفوظاتك على أي جهاز"
         onAction={() =>
           navigation.navigate('Login', {
-            returnTo: {name: 'Profile'},
+            returnTo: {name: 'Profile', params: {tab: 'saved'}},
           })
         }
         state="empty"
@@ -464,6 +476,11 @@ export default function SavedVideos() {
       {!!error && saved.length ? (
         <Text accessibilityRole="alert" style={styles.actionError}>
           {error}
+        </Text>
+      ) : null}
+      {folderLoadError ? (
+        <Text accessibilityRole="alert" style={styles.actionError}>
+          {folderLoadError}
         </Text>
       ) : null}
       {showCreateFolder ? (
@@ -640,52 +657,54 @@ export default function SavedVideos() {
                         styles.row,
                         pressed && styles.pressed,
                       ]}>
-                    <View style={styles.thumbWrap}>
-                      <Image
-                        source={
-                          item.imageUrl
-                            ? {uri: item.imageUrl}
-                            : item.remote
-                            ? require('../../assets/images/courseSliderBackground.jpg')
-                            : require('../../assets/images/demo-course/ui-freelance-cover.jpg')
-                        }
-                        style={styles.thumb}
-                      />
-                      <View style={styles.playMark}>
-                        <Text style={styles.playText}>▶</Text>
+                      <View style={styles.thumbWrap}>
+                        <Image
+                          source={
+                            item.imageUrl
+                              ? {uri: item.imageUrl}
+                              : item.remote
+                              ? require('../../assets/images/courseSliderBackground.jpg')
+                              : require('../../assets/images/demo-course/ui-freelance-cover.jpg')
+                          }
+                          style={styles.thumb}
+                        />
+                        <View style={styles.playMark}>
+                          <Text style={styles.playText}>▶</Text>
+                        </View>
                       </View>
-                    </View>
-                    <View style={styles.copy}>
-                      <Text numberOfLines={2} style={styles.title}>
-                        {formatArabicDisplayText(item.title)}
-                      </Text>
-                      <Text numberOfLines={1} style={styles.course}>
-                        {formatArabicDisplayText(item.courseTitle)}
-                      </Text>
-                      <Text style={styles.duration}>
-                        {toArabicDigits(item.duration)}
-                      </Text>
-                    </View>
-                    <Pressable
-                      accessibilityLabel={
-                        removalPending ? 'جارٍ الإزالة' : 'إزالة من هذه القائمة'
-                      }
-                      accessibilityRole="button"
-                      accessibilityState={{
-                        busy: removalPending,
-                        disabled: removalPending,
-                      }}
-                      disabled={removalPending}
-                      hitSlop={8}
-                      onPress={event => {
-                        event.stopPropagation();
-                        void removeSaved(item);
-                      }}
-                      style={styles.removeButton}>
-                      <Text style={styles.removeText}>
-                        {removalPending ? '…' : '×'}
-                      </Text>
-                    </Pressable>
+                      <View style={styles.copy}>
+                        <Text numberOfLines={2} style={styles.title}>
+                          {formatArabicDisplayText(item.title)}
+                        </Text>
+                        <Text numberOfLines={1} style={styles.course}>
+                          {formatArabicDisplayText(item.courseTitle)}
+                        </Text>
+                        <Text style={styles.duration}>
+                          {toArabicDigits(item.duration)}
+                        </Text>
+                      </View>
+                      <Pressable
+                        accessibilityLabel={
+                          removalPending
+                            ? 'جارٍ الإزالة'
+                            : 'إزالة من هذه القائمة'
+                        }
+                        accessibilityRole="button"
+                        accessibilityState={{
+                          busy: removalPending,
+                          disabled: removalPending,
+                        }}
+                        disabled={removalPending}
+                        hitSlop={8}
+                        onPress={event => {
+                          event.stopPropagation();
+                          void removeSaved(item);
+                        }}
+                        style={styles.removeButton}>
+                        <Text style={styles.removeText}>
+                          {removalPending ? '…' : '×'}
+                        </Text>
+                      </Pressable>
                     </Pressable>
                   </Swipeable>
                   {index < group.items.length - 1 && (

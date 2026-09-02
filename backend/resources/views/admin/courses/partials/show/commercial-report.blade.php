@@ -36,7 +36,8 @@
         </div>
         <div class="stat-card">
             <span class="stat-counter">{{ number_format($commercialReport['cash_gross_egp'], 2) }} ج.م</span>
-            <span class="stat-label">إجمالي نقدي منسوب للكورس</span>
+            <span class="stat-label">إجمالي نقدي مؤكد منسوب للكورس</span>
+            @if($commercialReport['cash_estimated_gross_egp'] > 0)<small class="text-warning">+ {{ number_format($commercialReport['cash_estimated_gross_egp'], 2) }} ج.م بسعر الكتالوج بانتظار كشف المزود</small>@endif
         </div>
         <div class="stat-card">
             <span class="stat-counter">
@@ -91,7 +92,7 @@
         </div>
     </div>
 
-    @if(!$commercialReport['cash_net_complete'])
+    @if(!$commercialReport['cash_net_complete'] || !$commercialReport['cash_gross_complete'])
         <div class="alert alert-warning mt-3">
             لم تكتمل رسوم وصافي كل عمليات الشحن بعد
             ولن يخلط النظام العملات الأجنبية بالجنيه أو يحوّلها بسعر تخميني
@@ -100,6 +101,27 @@
             @endforeach
         </div>
     @endif
+
+    <div class="info-section mt-4">
+        <h3 class="section-title"><i class="fa fa-credit-card ml-2"></i> النقد المنسوب حسب قناة الشحن</h3>
+        <div class="table-responsive"><table class="table table-striped"><thead><tr><th>القناة</th><th>عملات صُرفت</th><th>الإجمالي المؤكد</th><th>تقدير الكتالوج</th><th>الصافي المؤكد</th><th>بانتظار التسوية</th></tr></thead><tbody>
+        @forelse($commercialReport['cash_channel_breakdown'] as $channel)
+            <tr>
+                <td>{{ $channel['label'] }}</td>
+                <td>{{ number_format($channel['paid_coins']) }}</td>
+                <td>{{ number_format($channel['gross_egp'], 2) }} ج.م</td>
+                <td>{{ number_format($channel['estimated_gross_egp'], 2) }} ج.م</td>
+                <td>{{ $channel['net_complete'] ? number_format($channel['net_known_egp'], 2).' ج.م' : number_format($channel['net_known_egp'], 2).' ج.م مؤكد جزئيًا' }}</td>
+                <td>
+                    {{ number_format($channel['pending_settlement_egp'], 2) }} ج.م
+                    @foreach($channel['foreign_currency_amounts'] as $currency => $amount)<br><small>{{ $currency }} {{ number_format($amount, 2) }}</small>@endforeach
+                </td>
+            </tr>
+        @empty
+            <tr><td colspan="6" class="text-center text-muted">لا يوجد تحصيل نقدي منسوب لهذا الكورس بعد.</td></tr>
+        @endforelse
+        </tbody></table></div>
+    </div>
 
     <div class="info-section mt-4">
         <h3 class="section-title"><i class="fa fa-server ml-2"></i> تكلفة كل خدمة</h3>
@@ -151,7 +173,7 @@
                 <thead>
                 <tr>
                     <th>الطالب</th><th>الحالة</th><th>المصدر</th><th>الفئة الحالية</th>
-                    <th>سعر العقد</th><th>المدفوع فعليًا</th><th>التوزيع</th><th>نقد كاشير</th><th>الصافي</th><th>الاستهلاك</th><th>تكلفة الخدمات</th><th>نسبة التكلفة</th><th>الهامش</th><th>شامل التقديرات</th>
+                    <th>سعر العقد</th><th>المدفوع فعليًا</th><th>التوزيع</th><th>قناة الشحن والإجمالي</th><th>الصافي</th><th>الاستهلاك</th><th>تكلفة الخدمات</th><th>نسبة التكلفة</th><th>الهامش</th><th>شامل التقديرات</th>
                 </tr>
                 </thead>
                 <tbody>
@@ -176,7 +198,13 @@
                             {{ number_format($row['paid_coins']) }} مشتراة<br>
                             {{ number_format($row['reward_coins']) }} مكافآت
                         </td>
-                        <td>{{ number_format($row['cash_gross_egp'], 2) }} ج.م</td>
+                        <td>
+                            {{ number_format($row['cash_gross_egp'], 2) }} ج.م
+                            @if($row['cash_estimated_gross_egp'] > 0)<br><small class="text-warning">{{ number_format($row['cash_estimated_gross_egp'], 2) }} ج.م تقديري</small>@endif
+                            @foreach($row['cash_channels'] as $channel)
+                                <br><small>{{ $channel['label'] }} · {{ number_format($channel['paid_coins']) }} عملة</small>
+                            @endforeach
+                        </td>
                         <td>
                             @if($row['cash_net_complete'])
                                 {{ number_format($row['cash_net_known_egp'], 2) }} ج.م
@@ -186,6 +214,9 @@
                         </td>
                         <td>
                             {{ number_format($row['ai_requests']) }} طلب AI · {{ number_format($row['ai_tokens']) }} توكن<br>
+                            @foreach(($row['ai_by_feature'] ?? []) as $feature => $featureUsage)
+                                <small>{{ ['course_chat' => 'شات الكورس', 'project_feedback' => 'تقرير المشروع', 'project_followup' => 'متابعة المشروع'][$feature] ?? $feature }} · {{ number_format($featureUsage['delivered_requests']) }} مكتمل · {{ number_format($featureUsage['unanswered_requests']) }} بلا نتيجة · ${{ number_format($featureUsage['cost_usd'], 6) }}</small><br>
+                            @endforeach
                             ${{ number_format($row['ai_cost_usd'], 6) }} · {{ number_format($row['playback_minutes'], 0) }} دقيقة
                         </td>
                         <td>

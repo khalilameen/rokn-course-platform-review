@@ -10,6 +10,7 @@ use App\Http\Resources\CertificateResource;
 use App\Http\Resources\PortfolioItemResource;
 use App\Models\Certificate;
 use App\Models\PortfolioItem;
+use App\Models\PortfolioMedia;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -72,16 +73,23 @@ final class PublicPortfolioService
             return null;
         }
 
-        $candidateSlug = trim((string) $certificate->user->portfolio_slug);
-        $slug = $candidateSlug !== ''
-            && !$this->shareIdentity->isPredictableLegacySlug(
-                $candidateSlug,
-                (int) $certificate->user->id
-            )
-            ? $candidateSlug
-            : null;
+        return $this->activeVerificationPayload($certificate);
+    }
 
-        return $this->fullPortfolio($certificate->user, $slug, $certificate);
+    public function mediaForPortfolio(string $slug, string $mediaPublicId): ?PortfolioMedia
+    {
+        $user = $this->userForSlug($slug);
+        if (!$user || !Str::isUuid($mediaPublicId)) return null;
+
+        return PortfolioMedia::query()
+            ->where('public_id', $mediaPublicId)
+            ->whereNull('deletion_lease_id')
+            ->whereHas('portfolioItem', fn ($items) =>
+                $items->where('user_id', $user->id)
+                    ->where('is_public', true)
+                    ->whereNull('deletion_started_at')
+            )
+            ->first();
     }
 
     private function userForSlug(string $slug): ?User
@@ -125,9 +133,11 @@ final class PublicPortfolioService
         return $certificate;
     }
 
-    private function fullPortfolio(User $user, ?string $slug, ?Certificate $highlighted): ?array
+    private function fullPortfolio(User $user, string $slug, ?Certificate $highlighted): ?array
     {
         $items = $user->portfolioItems()
+            ->where('is_public', true)
+            ->whereNull('deletion_started_at')
             ->with(['mediaFiles', 'course'])
             ->orderByDesc('is_featured')
             ->orderBy('sort_order')
@@ -217,7 +227,10 @@ final class PublicPortfolioService
                 'is_public' => true,
             ],
             'projects' => $items
-                ->map(fn (PortfolioItem $item): array => $this->publicProjectPayload($item))
+                ->map(fn (PortfolioItem $item): array => $this->publicProjectPayload(
+                    $item,
+                    $slug
+                ))
                 ->values()
                 ->all(),
             'certificates' => $certificates
@@ -245,7 +258,10 @@ final class PublicPortfolioService
     }
 
     /** Public share payloads use public slugs/UUIDs, never database keys. */
-    private function publicProjectPayload(PortfolioItem $item): array
+    private function publicProjectPayload(
+        PortfolioItem $item,
+        string $slug
+    ): array
     {
         $payload = (new PortfolioItemResource($item))->resolve();
         unset(
@@ -258,8 +274,19 @@ final class PublicPortfolioService
             unset($payload['course']['id']);
         }
         if (is_array($payload['media'] ?? null)) {
-            $payload['media'] = array_map(static function ($media): mixed {
-                if (is_array($media)) unset($media['id']);
+            $payload['media'] = array_map(function ($media) use ($slug): mixed {
+                if (!is_array($media)) return $media;
+                $mediaPublicId = (string) ($media['public_id'] ?? '');
+                $deliveryUrl = Str::isUuid($mediaPublicId)
+                    && ($media['status'] ?? null) === 'ready'
+                    ? RoknPublicUrl::portfolioMedia($slug, $mediaPublicId)
+                    : null;
+                if (($media['file_type'] ?? null) === 'image') {
+                    $media['image_url'] = $deliveryUrl;
+                } elseif (($media['file_type'] ?? null) === 'video') {
+                    $media['video_url'] = $deliveryUrl;
+                }
+                unset($media['id'], $media['public_id'], $media['playback_url']);
                 return $media;
             }, $payload['media']);
         }
@@ -276,6 +303,35 @@ final class PublicPortfolioService
         }
 
         return $payload;
+    }
+
+    /** A certificate UUID verifies that credential only; it is not a portfolio share key. */
+    private function activeVerificationPayload(Certificate $certificate): array
+    {
+        $payload = $this->publicCertificatePayload($certificate);
+        $holderName = trim((string) ($payload['holder_name'] ?? '')) ?: 'طالب ركن';
+        $verificationUrl = RoknPublicUrl::certificate((string) $certificate->public_id);
+
+        return [
+            'profile' => [
+                'name' => $holderName,
+                'headline' => null,
+                'bio' => null,
+                'location' => null,
+                'image_url' => null,
+                'skills' => [],
+                'links' => [],
+                'slug' => null,
+                'public_url' => $verificationUrl,
+                'share_mode' => 'verification_only',
+                'is_public' => false,
+            ],
+            'projects' => [],
+            'certificates' => [],
+            'highlighted_certificate' => $payload,
+            'badges' => [],
+            'is_limited_certificate_view' => true,
+        ];
     }
 
     /** A revoked credential proves status only and exposes no live profile. */

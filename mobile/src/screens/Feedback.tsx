@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {
   Alert,
   Image,
+  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -35,10 +36,13 @@ import {
   clearProductFeedbackDraft,
   loadProductFeedbackCases,
   loadProductFeedbackDraft,
+  loadProductFeedbackDraftConflicts,
   loadProductFeedbackReplyDraft,
   ProductFeedbackCase,
+  ProductFeedbackArtifact,
   ProductFeedbackCategory,
   replyToProductFeedback,
+  restoreProductFeedbackDraftConflict,
   saveProductFeedbackDraft,
   saveProductFeedbackReplyDraft,
   submitProductFeedback,
@@ -93,12 +97,22 @@ export default function Feedback() {
   const [casesBusy, setCasesBusy] = useState(true);
   const [casesError, setCasesError] = useState('');
   const [selectedCaseId, setSelectedCaseId] = useState('');
+  const [replyStateOwnerId, setReplyStateOwnerId] = useState('');
   const [replyMessage, setReplyMessage] = useState('');
+  const [replyRequestId, setReplyRequestId] = useState(secureRandomUuid);
   const [replyAttachment, setReplyAttachment] = useState<FeedbackAttachment>();
-  const [replyBusy, setReplyBusy] = useState(false);
+  const [replyPendingCaseIds, setReplyPendingCaseIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [replyError, setReplyError] = useState('');
+  const [previewArtifact, setPreviewArtifact] =
+    useState<ProductFeedbackArtifact>();
   const mountedRef = useRef(true);
   const submitFlightRef = useRef(false);
+  const replyFlightsRef = useRef(new Map<string, symbol>());
+  const replyGenerationRef = useRef(0);
+  const replyDraftEpochRef = useRef(0);
+  const casesGenerationRef = useRef(0);
   const pickerFlightRef = useRef(false);
   const draftSnapshotRef = useRef({
     attachment,
@@ -118,24 +132,33 @@ export default function Feedback() {
     () => message.trim().length >= 10 && !busy,
     [busy, message],
   );
-  const selectedCase = supportCases.find(item => item.publicId === selectedCaseId);
+  const selectedCase = supportCases.find(
+    item => item.publicId === selectedCaseId,
+  );
+  const replyBusy = selectedCaseId
+    ? replyPendingCaseIds.has(selectedCaseId)
+    : false;
   const requestedCaseId = route.params?.caseId?.trim().toUpperCase() || '';
 
   const reloadCases = async () => {
+    const generation = ++casesGenerationRef.current;
     setCasesBusy(true);
     setCasesError('');
     try {
       const loaded = await loadProductFeedbackCases();
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || generation !== casesGenerationRef.current)
+        return;
       setSupportCases(loaded);
       const targetCaseId = requestedCaseId || receiptPublicId;
       if (targetCaseId && loaded.some(item => item.publicId === targetCaseId)) {
         setSelectedCaseId(targetCaseId);
       }
     } catch {
-      if (mountedRef.current) setCasesError('تعذّر تحديث الحالات الآن');
+      if (mountedRef.current && generation === casesGenerationRef.current)
+        setCasesError('تعذّر تحديث الحالات الآن');
     } finally {
-      if (mountedRef.current) setCasesBusy(false);
+      if (mountedRef.current && generation === casesGenerationRef.current)
+        setCasesBusy(false);
     }
   };
 
@@ -147,26 +170,90 @@ export default function Feedback() {
 
   useEffect(() => {
     let active = true;
+    const generation = ++replyGenerationRef.current;
+    setReplyStateOwnerId('');
     setReplyError('');
     setReplyMessage('');
-    setReplyAttachment(current => {
-      void removeLearnerDraftFile(current);
-      return undefined;
-    });
-    if (!selectedCaseId) return () => { active = false; };
-    void loadProductFeedbackReplyDraft(selectedCaseId).then(value => {
-      if (active) setReplyMessage(value);
-    }).catch(() => undefined);
-    return () => { active = false; };
+    setReplyRequestId(secureRandomUuid());
+    setReplyAttachment(undefined);
+    if (!selectedCaseId)
+      return () => {
+        active = false;
+      };
+    void Promise.all([
+      loadProductFeedbackReplyDraft(selectedCaseId),
+      loadProductFeedbackDraftConflicts(),
+    ])
+      .then(([draft, conflicts]) => {
+        if (!active || generation !== replyGenerationRef.current) return;
+        if (draft) {
+          setReplyMessage(draft.message);
+          setReplyAttachment(draft.attachment);
+          setReplyRequestId(draft.clientRequestId || secureRandomUuid());
+        }
+        setReplyStateOwnerId(selectedCaseId);
+        const alternative = conflicts.find(
+          conflict => conflict.type === 'reply' && conflict.publicId === selectedCaseId,
+        );
+        if (alternative) {
+          Alert.alert('توجد مسودة رد أخرى', 'يمكنك استعادة الرد الذي كتبته قبل تسجيل الدخول', [
+            {text: 'الاحتفاظ بالحالي', style: 'cancel'},
+            {
+              text: 'استعادة الآخر',
+              onPress: () => {
+                void restoreProductFeedbackDraftConflict(alternative.id).then(async restored => {
+                  if (!restored || !mountedRef.current) return;
+                  const value = await loadProductFeedbackReplyDraft(selectedCaseId);
+                  if (!value || !mountedRef.current) return;
+                  setReplyMessage(value.message);
+                  setReplyAttachment(value.attachment);
+                  setReplyRequestId(value.clientRequestId || secureRandomUuid());
+                });
+              },
+            },
+          ]);
+        }
+      })
+      .catch(() => {
+        if (active && generation === replyGenerationRef.current) {
+          setReplyStateOwnerId(selectedCaseId);
+        }
+      });
+    return () => {
+      active = false;
+    };
   }, [selectedCaseId]);
 
   useEffect(() => {
-    if (!selectedCaseId) return;
+    if (!selectedCaseId || replyStateOwnerId !== selectedCaseId) return;
+    const draftEpoch = replyDraftEpochRef.current;
+    const persistReplyDraft = () => {
+      if (draftEpoch !== replyDraftEpochRef.current) return;
+      void saveProductFeedbackReplyDraft(
+        selectedCaseId,
+        replyMessage.trim() || replyAttachment
+          ? {
+              attachment: replyAttachment,
+              clientRequestId: replyRequestId,
+              message: replyMessage,
+            }
+          : null,
+      );
+    };
     const timer = setTimeout(() => {
-      void saveProductFeedbackReplyDraft(selectedCaseId, replyMessage);
+      persistReplyDraft();
     }, 300);
-    return () => clearTimeout(timer);
-  }, [replyMessage, selectedCaseId]);
+    return () => {
+      clearTimeout(timer);
+      persistReplyDraft();
+    };
+  }, [
+    replyAttachment,
+    replyMessage,
+    replyRequestId,
+    replyStateOwnerId,
+    selectedCaseId,
+  ]);
 
   useEffect(() => {
     let active = true;
@@ -182,13 +269,39 @@ export default function Feedback() {
 
   useEffect(() => {
     let active = true;
-    void loadProductFeedbackDraft()
-      .then(draft => {
-        if (!active || !draft) return;
-        setCategory(draft.category);
-        setMessage(draft.message);
-        setAttachment(draft.attachment);
-        setClientRequestId(draft.clientRequestId);
+    void Promise.all([loadProductFeedbackDraft(), loadProductFeedbackDraftConflicts()])
+      .then(([draft, conflicts]) => {
+        if (!active) return;
+        if (draft) {
+          setCategory(draft.category);
+          setMessage(draft.message);
+          setAttachment(draft.attachment);
+          setClientRequestId(draft.clientRequestId);
+        }
+        const alternative = conflicts.find(conflict => conflict.type === 'new');
+        if (alternative) {
+          Alert.alert('توجد مسودة أخرى', 'يمكنك استعادة المسودة التي كتبتها قبل تسجيل الدخول', [
+            {text: 'الاحتفاظ بالحالية', style: 'cancel'},
+            {
+              text: 'استعادة الأخرى',
+              onPress: () => {
+                void restoreProductFeedbackDraftConflict(alternative.id).then(restored => {
+                  if (restored && mountedRef.current) {
+                    setDraftReady(false);
+                    void loadProductFeedbackDraft().then(value => {
+                      if (!value || !mountedRef.current) return;
+                      setCategory(value.category);
+                      setMessage(value.message);
+                      setAttachment(value.attachment);
+                      setClientRequestId(value.clientRequestId);
+                      setDraftReady(true);
+                    });
+                  }
+                });
+              },
+            },
+          ]);
+        }
       })
       .catch(() => {
         if (active) setDraftSaveError(true);
@@ -241,6 +354,8 @@ export default function Feedback() {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      replyGenerationRef.current += 1;
+      casesGenerationRef.current += 1;
     };
   }, []);
 
@@ -311,6 +426,8 @@ export default function Feedback() {
 
   const chooseReplyScreenshot = async () => {
     if (pickerFlightRef.current || replyBusy) return;
+    const ownerCaseId = selectedCaseId;
+    const ownerGeneration = replyGenerationRef.current;
     pickerFlightRef.current = true;
     try {
       const result = await launchImageLibrary({
@@ -329,19 +446,34 @@ export default function Feedback() {
         Alert.alert('الصورة كبيرة', 'اختر صورة أصغر من ٤ ميجابايت');
         return;
       }
-      const cached = await cacheLearnerDraftFile('feedback', {
-        fileName: asset.fileName,
-        size: asset.fileSize,
-        type: asset.type,
-        uri: asset.uri,
-      }, 4 * 1024 * 1024);
+      const cached = await cacheLearnerDraftFile(
+        'feedback',
+        {
+          fileName: asset.fileName,
+          size: asset.fileSize,
+          type: asset.type,
+          uri: asset.uri,
+        },
+        4 * 1024 * 1024,
+      );
+      if (
+        !mountedRef.current ||
+        ownerGeneration !== replyGenerationRef.current ||
+        ownerCaseId !== selectedCaseId
+      ) {
+        await removeLearnerDraftFile(cached);
+        return;
+      }
       const previous = replyAttachment;
       setReplyAttachment(cached);
+      setReplyRequestId(secureRandomUuid());
       await removeLearnerDraftFile(previous);
     } catch (pickerError: unknown) {
       if (mountedRef.current) {
         showMediaPickerFailure(
-          typeof pickerError === 'object' && pickerError && 'errorCode' in pickerError
+          typeof pickerError === 'object' &&
+            pickerError &&
+            'errorCode' in pickerError
             ? String(pickerError.errorCode)
             : undefined,
         );
@@ -382,34 +514,63 @@ export default function Feedback() {
   };
 
   const sendCaseReply = async () => {
-    if (!selectedCase || replyBusy || replyMessage.trim().length < 2) return;
-    setReplyBusy(true);
+    if (
+      !selectedCase ||
+      replyStateOwnerId !== selectedCase.publicId ||
+      replyBusy ||
+      replyFlightsRef.current.has(selectedCase.publicId) ||
+      replyMessage.trim().length < 2
+    )
+      return;
+    const generation = replyGenerationRef.current;
+    const caseId = selectedCase.publicId;
+    const messageToSend = replyMessage;
+    const attachmentToSend = replyAttachment;
+    const requestId = replyRequestId;
+    const flight = Symbol(`support-reply-${caseId}`);
+    replyFlightsRef.current.set(caseId, flight);
+    setReplyPendingCaseIds(current => new Set(current).add(caseId));
     setReplyError('');
     try {
       const updated = await replyToProductFeedback({
         accessToken: selectedCase.accessToken,
-        attachment: replyAttachment,
-        clientRequestId: secureRandomUuid(),
-        message: replyMessage,
-        publicId: selectedCase.publicId,
+        attachment: attachmentToSend,
+        clientRequestId: requestId,
+        message: messageToSend,
+        publicId: caseId,
       });
-      await saveProductFeedbackReplyDraft(selectedCase.publicId, '').catch(() => undefined);
+      await saveProductFeedbackReplyDraft(caseId, null).catch(() => undefined);
       if (!mountedRef.current) return;
-      const sentAttachment = replyAttachment;
+      setSupportCases(current =>
+        current.map(item =>
+          item.publicId === updated.publicId
+            ? {...updated, accessToken: item.accessToken}
+            : item,
+        ),
+      );
+      void removeLearnerDraftFile(attachmentToSend);
+      if (generation !== replyGenerationRef.current) return;
+      replyDraftEpochRef.current += 1;
       setReplyAttachment(undefined);
-      void removeLearnerDraftFile(sentAttachment);
       setReplyMessage('');
-      setSupportCases(current => current.map(item =>
-        item.publicId === updated.publicId
-          ? {...updated, accessToken: item.accessToken}
-          : item,
-      ));
+      setReplyRequestId(secureRandomUuid());
     } catch {
-      if (mountedRef.current) {
-        setReplyError('لم يصل الرد\nتحقق من الاتصال ثم حاول مرة أخرى\nنصك محفوظ');
+      if (mountedRef.current && generation === replyGenerationRef.current) {
+        setReplyError(
+          'لم يصل الرد\nتحقق من الاتصال ثم حاول مرة أخرى\nنصك محفوظ',
+        );
       }
     } finally {
-      if (mountedRef.current) setReplyBusy(false);
+      if (replyFlightsRef.current.get(caseId) === flight) {
+        replyFlightsRef.current.delete(caseId);
+      }
+      if (mountedRef.current) {
+        setReplyPendingCaseIds(current => {
+          const next = new Set(current);
+          next.delete(caseId);
+          return next;
+        });
+      }
     }
   };
 
@@ -453,7 +614,9 @@ export default function Feedback() {
                   accessibilityRole="button"
                   disabled={casesBusy}
                   onPress={() => void reloadCases()}>
-                  <Text style={styles.refreshCases}>{casesBusy ? 'جارٍ التحديث' : 'تحديث'}</Text>
+                  <Text style={styles.refreshCases}>
+                    {casesBusy ? 'جارٍ التحديث' : 'تحديث'}
+                  </Text>
                 </Pressable>
               </View>
               {casesBusy && supportCases.length === 0 ? (
@@ -463,25 +626,39 @@ export default function Feedback() {
                   const selected = item.publicId === selectedCaseId;
                   return (
                     <Pressable
-                      accessibilityLabel={`الحالة ${item.caseNumber} ${CASE_STATUS[item.status] || 'قيد المتابعة'}`}
+                      accessibilityLabel={`الحالة ${item.caseNumber} ${
+                        CASE_STATUS[item.status] || 'قيد المتابعة'
+                      }`}
                       accessibilityRole="button"
                       key={item.publicId}
-                      onPress={() => setSelectedCaseId(selected ? '' : item.publicId)}
+                      onPress={() =>
+                        setSelectedCaseId(selected ? '' : item.publicId)
+                      }
                       style={({pressed}) => [
                         styles.caseRow,
                         selected && styles.caseRowSelected,
                         pressed && styles.pressed,
                       ]}>
                       <View style={styles.caseCopy}>
-                        <Text style={styles.caseNumber}>الحالة {item.caseNumber}</Text>
-                        <Text numberOfLines={1} style={styles.caseMessage}>{item.message}</Text>
+                        <Text style={styles.caseNumber}>
+                          الحالة {item.caseNumber}
+                        </Text>
+                        <Text numberOfLines={1} style={styles.caseMessage}>
+                          {item.message}
+                        </Text>
                       </View>
-                      <Text style={styles.caseStatus}>{CASE_STATUS[item.status] || 'قيد المتابعة'}</Text>
+                      <Text style={styles.caseStatus}>
+                        {CASE_STATUS[item.status] || 'قيد المتابعة'}
+                      </Text>
                     </Pressable>
                   );
                 })
               )}
-              {!!casesError && <Text accessibilityRole="alert" style={styles.error}>{casesError}</Text>}
+              {!!casesError && (
+                <Text accessibilityRole="alert" style={styles.error}>
+                  {casesError}
+                </Text>
+              )}
 
               {!!selectedCase && (
                 <View style={styles.timeline}>
@@ -496,13 +673,37 @@ export default function Feedback() {
                         {item.author === 'support' ? 'فريق الدعم' : 'أنت'}
                       </Text>
                       <Text style={styles.timelineText}>{item.text}</Text>
+                      {item.attachments.map(file => (
+                        <Pressable
+                          accessibilityLabel="فتح الصورة المرفقة"
+                          accessibilityRole="button"
+                          key={file.id}
+                          onPress={() => setPreviewArtifact(file)}
+                          style={({pressed}) => [
+                            styles.timelineAttachment,
+                            pressed && styles.pressed,
+                          ]}>
+                          <Image
+                            accessibilityIgnoresInvertColors
+                            source={{uri: file.url}}
+                            style={styles.timelineAttachmentImage}
+                          />
+                          <Text style={styles.timelineAttachmentLabel}>
+                            فتح الصورة
+                          </Text>
+                        </Pressable>
+                      ))}
                     </View>
                   ))}
                   <TextInput
                     accessibilityLabel="ردك على الحالة"
                     maxLength={2000}
                     multiline
-                    onChangeText={setReplyMessage}
+                    onChangeText={value => {
+                      setReplyMessage(value);
+                      setReplyRequestId(secureRandomUuid());
+                      setReplyError('');
+                    }}
                     placeholder="اكتب ردك"
                     placeholderTextColor={Palette.textFaint}
                     style={styles.replyInput}
@@ -522,6 +723,7 @@ export default function Feedback() {
                         onPress={() => {
                           const previous = replyAttachment;
                           setReplyAttachment(undefined);
+                          setReplyRequestId(secureRandomUuid());
                           void removeLearnerDraftFile(previous);
                         }}>
                         <Text style={styles.removeAttachment}>حذف الصورة</Text>
@@ -532,22 +734,35 @@ export default function Feedback() {
                       accessibilityLabel="إضافة صورة إلى الرد"
                       accessibilityRole="button"
                       onPress={() => void chooseReplyScreenshot()}
-                      style={({pressed}) => [styles.replyAttachmentButton, pressed && styles.pressed]}>
+                      style={({pressed}) => [
+                        styles.replyAttachmentButton,
+                        pressed && styles.pressed,
+                      ]}>
                       <Text style={styles.attachmentButtonText}>أضف صورة</Text>
                     </Pressable>
                   )}
-                  {!!replyError && <Text accessibilityRole="alert" style={styles.error}>{replyError}</Text>}
+                  {!!replyError && (
+                    <Text accessibilityRole="alert" style={styles.error}>
+                      {replyError}
+                    </Text>
+                  )}
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityState={{busy: replyBusy, disabled: replyBusy || replyMessage.trim().length < 2}}
+                    accessibilityState={{
+                      busy: replyBusy,
+                      disabled: replyBusy || replyMessage.trim().length < 2,
+                    }}
                     disabled={replyBusy || replyMessage.trim().length < 2}
                     onPress={() => void sendCaseReply()}
                     style={({pressed}) => [
                       styles.replyButton,
-                      (replyBusy || replyMessage.trim().length < 2) && styles.submitDisabled,
+                      (replyBusy || replyMessage.trim().length < 2) &&
+                        styles.submitDisabled,
                       pressed && styles.pressed,
                     ]}>
-                    <Text style={styles.submitText}>{replyBusy ? 'جارٍ الإرسال' : 'إرسال الرد'}</Text>
+                    <Text style={styles.submitText}>
+                      {replyBusy ? 'جارٍ الإرسال' : 'إرسال الرد'}
+                    </Text>
                   </Pressable>
                 </View>
               )}
@@ -684,6 +899,33 @@ export default function Feedback() {
               {busy ? 'جارٍ الإرسال' : 'إرسال'}
             </Text>
           </Pressable>
+          <Modal
+            animationType="fade"
+            onRequestClose={() => setPreviewArtifact(undefined)}
+            transparent
+            visible={Boolean(previewArtifact)}>
+            <View
+              accessibilityViewIsModal
+              importantForAccessibility="yes"
+              style={styles.previewBackdrop}>
+              <Pressable
+                accessibilityLabel="إغلاق الصورة"
+                accessibilityRole="button"
+                onPress={() => setPreviewArtifact(undefined)}
+                style={styles.previewClose}>
+                <Text style={styles.previewCloseText}>إغلاق</Text>
+              </Pressable>
+              {previewArtifact && (
+                <Image
+                  accessibilityLabel={previewArtifact.name}
+                  accessibilityIgnoresInvertColors
+                  resizeMode="contain"
+                  source={{uri: previewArtifact.url}}
+                  style={styles.previewImage}
+                />
+              )}
+            </View>
+          </Modal>
         </ResponsiveFrame>
       </Content>
     </Container>
@@ -693,9 +935,22 @@ export default function Feedback() {
 const styles = StyleSheet.create({
   frame: {paddingBottom: Spacing.section},
   casesCard: {padding: Spacing.lg, marginTop: Spacing.md},
-  casesHeader: {...rtlRowStyle, alignItems: 'center', justifyContent: 'space-between'},
-  refreshCases: {...Type.caption, color: '#9ABFFF', paddingVertical: Spacing.sm},
-  caseMuted: {...Type.caption, ...textDirection, color: Palette.textMuted, marginTop: Spacing.sm},
+  casesHeader: {
+    ...rtlRowStyle,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  refreshCases: {
+    ...Type.caption,
+    color: '#9ABFFF',
+    paddingVertical: Spacing.sm,
+  },
+  caseMuted: {
+    ...Type.caption,
+    ...textDirection,
+    color: Palette.textMuted,
+    marginTop: Spacing.sm,
+  },
   caseRow: {
     ...rtlRowStyle,
     alignItems: 'center',
@@ -708,7 +963,12 @@ const styles = StyleSheet.create({
   caseRowSelected: {backgroundColor: Palette.primarySoft},
   caseCopy: {flex: 1, alignItems: 'flex-start'},
   caseNumber: {...Type.bodyStrong, ...textDirection, color: Palette.text},
-  caseMessage: {...Type.caption, ...textDirection, color: Palette.textMuted, marginTop: Spacing.xxs},
+  caseMessage: {
+    ...Type.caption,
+    ...textDirection,
+    color: Palette.textMuted,
+    marginTop: Spacing.xxs,
+  },
   caseStatus: {...Type.caption, color: '#9ABFFF'},
   timeline: {marginTop: Spacing.lg},
   timelineMessage: {
@@ -720,7 +980,27 @@ const styles = StyleSheet.create({
   },
   timelineSupport: {backgroundColor: Palette.primarySoft},
   timelineAuthor: {...Type.caption, ...textDirection, color: Palette.textMuted},
-  timelineText: {...Type.body, ...textDirection, color: Palette.text, marginTop: Spacing.xxs},
+  timelineText: {
+    ...Type.body,
+    ...textDirection,
+    color: Palette.text,
+    marginTop: Spacing.xxs,
+  },
+  timelineAttachment: {
+    alignSelf: 'flex-start',
+    marginTop: Spacing.sm,
+  },
+  timelineAttachmentImage: {
+    width: 112,
+    height: 84,
+    borderRadius: Radius.md,
+    backgroundColor: Palette.canvasSoft,
+  },
+  timelineAttachmentLabel: {
+    ...Type.caption,
+    color: '#9ABFFF',
+    marginTop: Spacing.xxs,
+  },
   replyInput: {
     ...Type.body,
     ...textDirection,
@@ -853,4 +1133,21 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: Spacing.sm,
   },
+  previewBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.94)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.md,
+  },
+  previewClose: {
+    position: 'absolute',
+    top: Spacing.xl,
+    right: Spacing.lg,
+    minHeight: Accessibility.minTouchTarget,
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  previewCloseText: {...Type.bodyStrong, color: '#FFFFFF'},
+  previewImage: {width: '100%', height: '82%'},
 });

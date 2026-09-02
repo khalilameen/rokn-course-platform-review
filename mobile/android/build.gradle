@@ -44,5 +44,23 @@ if (externalBuildRoot) {
     }
 }
 
+// CMake keeps its staging directory beside each dependency by default. On
+// Windows that can push React Native's long generated object names beyond
+// Ninja's path limit. Keep native intermediates in a disposable short root
+// without moving source code (React Native codegen requires a single drive).
+def externalCxxRoot = System.getenv("ROKN_ANDROID_CXX_ROOT") ?: externalBuildRoot
+if (externalCxxRoot) {
+    subprojects { project ->
+        ["com.android.application", "com.android.library"].each { pluginId ->
+            project.plugins.withId(pluginId) {
+                def androidExtension = project.extensions.findByName("android")
+                androidExtension.externalNativeBuild.cmake.buildStagingDirectory(
+                    file("${externalCxxRoot}/${project.name}")
+                )
+            }
+        }
+    }
+}
+
 apply plugin: "expo-root-project"
 apply plugin: "com.facebook.react.rootproject"

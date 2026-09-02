@@ -32,6 +32,7 @@
     <div class="form-container">
         <form action="{{ route('admin.courses.pdfs.store', $course) }}" method="POST" enctype="multipart/form-data" id="coursePdfForm">
             @csrf
+            <input type="hidden" name="authoring_request_id" value="{{ old('authoring_request_id', (string) \Illuminate\Support\Str::uuid()) }}">
             <input type="hidden" name="authoring_version" value="{{ $course->authoring_version }}">
 
             <!-- Arabic Content -->

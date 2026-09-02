@@ -103,7 +103,7 @@ describe('course assistant waiting experience', () => {
     expect(overlay).toContain('accessibilityLabel="نسخ الرسالة"');
     expect(overlay).toContain("hardwareAccelerated={Platform.OS === 'android'}");
     expect(reels).toMatch(
-      /scrollEnabled=\{\s*!chatVisible\s*&&\s*!reminderNudgeVisible\s*&&\s*!previewGateVisible\s*\}/,
+      /scrollEnabled=\{\s*!chatVisible\s*&&\s*!reminderNudgeVisible\s*&&\s*!previewGateVisible\s*&&\s*!contentOverlayVisible\s*\}/,
     );
   });
 });

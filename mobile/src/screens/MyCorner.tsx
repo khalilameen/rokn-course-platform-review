@@ -1,7 +1,7 @@
 import {useFocusEffect, useNavigation} from '@react-navigation/native';
 import type {RootNavigation} from '../navigation/types';
-import React, {useCallback, useEffect, useState} from 'react';
-import {Pressable, StyleSheet, Text, View} from 'react-native';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import TabBar from '../components/TabBar';
 import {Container, Content} from '../components/containers/Containers';
@@ -52,10 +52,7 @@ import {
 } from '../constants/arabicFormatting';
 import {LOCAL_DEMO_ENABLED} from '../config/runtime';
 import {friendlyNetworkMessage} from '../services/networkExperience';
-import {
-  roknCalendarDay,
-  shiftRoknCalendarDay,
-} from '../constants/roknCalendar';
+import {roknCalendarDay, shiftRoknCalendarDay} from '../constants/roknCalendar';
 import {serverNow} from '../utils/serverClock';
 
 const juniorBadgeImage = require('../assets/images/badges/junior.png');
@@ -119,6 +116,7 @@ export default function MyCorner() {
   const [watchHistory, setWatchHistory] = useState<WatchHistory | null>(null);
   const [watchHistoryLoading, setWatchHistoryLoading] = useState(false);
   const [watchHistoryError, setWatchHistoryError] = useState('');
+  const [selectedPathId, setSelectedPathId] = useState<string | null>(null);
   const [learning, setLearning] = useState({
     completedSections: [] as string[],
     passedProjects: [] as string[],
@@ -272,9 +270,23 @@ export default function MyCorner() {
   const professionalProgress = professionalCourses.length
     ? Math.max(...professionalCourses.map(course => course.progress))
     : 0;
-  const primaryPath = learningDashboard?.paths?.[0];
-  const pathProgress = primaryPath?.progress ?? professionalProgress;
-  const nextPathLevel = primaryPath?.nextLevel;
+  const learningPaths = useMemo(
+    () => learningDashboard?.paths || [],
+    [learningDashboard?.paths],
+  );
+  const selectedPath =
+    learningPaths.find(path => path.id === selectedPathId) || learningPaths[0];
+  const pathProgress = selectedPath?.progress ?? professionalProgress;
+  const nextPathLevel = selectedPath?.nextLevel;
+  useEffect(() => {
+    if (!learningPaths.length) {
+      setSelectedPathId(null);
+      return;
+    }
+    if (!learningPaths.some(path => path.id === selectedPathId)) {
+      setSelectedPathId(learningPaths[0].id);
+    }
+  }, [learningPaths, selectedPathId]);
   const professionalCourseIds = new Set(
     professionalCourses.map(course => String(course.id)),
   );
@@ -551,52 +563,52 @@ export default function MyCorner() {
                   )}
                   <View style={styles.historyList}>
                     {(watchHistory?.items || []).map(item => (
-                    <Pressable
-                      accessibilityLabel={`استكمال ${item.lessonTitle}`}
-                      accessibilityRole="button"
-                      key={item.id}
-                      onPress={() =>
-                        navigation.navigate('Reels', {
-                          courseId: item.courseId,
-                          lessonId: item.lessonId,
-                          initialPositionSeconds: item.positionSeconds,
-                        })
-                      }
-                      style={({pressed}) => [
-                        styles.historyRow,
-                        pressed && styles.pressed,
-                      ]}>
-                      <CourseArtwork
-                        fallback={require('../assets/images/courseSliderBackground.jpg')}
-                        source={
-                          item.lessonThumbnail || item.courseImage
-                            ? {uri: item.lessonThumbnail || item.courseImage}
-                            : undefined
+                      <Pressable
+                        accessibilityLabel={`استكمال ${item.lessonTitle}`}
+                        accessibilityRole="button"
+                        key={item.id}
+                        onPress={() =>
+                          navigation.navigate('Reels', {
+                            courseId: item.courseId,
+                            lessonId: item.lessonId,
+                            initialPositionSeconds: item.positionSeconds,
+                          })
                         }
-                        style={styles.historyThumb}
-                      />
-                      <View style={styles.historyCopy}>
-                        <Text
-                          numberOfLines={largeText ? 4 : 2}
-                          style={styles.historyTitle}>
-                          {formatArabicDisplayText(item.lessonTitle)}
-                        </Text>
-                        <Text
-                          numberOfLines={largeText ? 2 : 1}
-                          style={styles.historyCourse}>
-                          {formatArabicDisplayText(item.courseTitle)}
-                        </Text>
-                        <View style={styles.historyProgressTrack}>
-                          <View
-                            style={[
-                              styles.historyProgressFill,
-                              {width: `${item.progress}%`},
-                            ]}
-                          />
+                        style={({pressed}) => [
+                          styles.historyRow,
+                          pressed && styles.pressed,
+                        ]}>
+                        <CourseArtwork
+                          fallback={require('../assets/images/courseSliderBackground.jpg')}
+                          source={
+                            item.lessonThumbnail || item.courseImage
+                              ? {uri: item.lessonThumbnail || item.courseImage}
+                              : undefined
+                          }
+                          style={styles.historyThumb}
+                        />
+                        <View style={styles.historyCopy}>
+                          <Text
+                            numberOfLines={largeText ? 4 : 2}
+                            style={styles.historyTitle}>
+                            {formatArabicDisplayText(item.lessonTitle)}
+                          </Text>
+                          <Text
+                            numberOfLines={largeText ? 2 : 1}
+                            style={styles.historyCourse}>
+                            {formatArabicDisplayText(item.courseTitle)}
+                          </Text>
+                          <View style={styles.historyProgressTrack}>
+                            <View
+                              style={[
+                                styles.historyProgressFill,
+                                {width: `${item.progress}%`},
+                              ]}
+                            />
+                          </View>
                         </View>
-                      </View>
-                      <Text style={styles.historyAction}>أكمل</Text>
-                    </Pressable>
+                        <Text style={styles.historyAction}>أكمل</Text>
+                      </Pressable>
                     ))}
                   </View>
                 </>
@@ -604,9 +616,39 @@ export default function MyCorner() {
             </>
           ) : null}
 
-          {(professionalCourses.length > 0 || Boolean(primaryPath)) && (
+          {(professionalCourses.length > 0 || Boolean(selectedPath)) && (
             <>
               <SectionHeading style={styles.section} title="شاراتك المهنية" />
+              {learningPaths.length > 1 && (
+                <ScrollView
+                  horizontal
+                  contentContainerStyle={styles.pathSelector}
+                  showsHorizontalScrollIndicator={false}>
+                  {learningPaths.map(path => {
+                    const active = path.id === selectedPath?.id;
+                    return (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{selected: active}}
+                        key={path.id}
+                        onPress={() => setSelectedPathId(path.id)}
+                        style={[
+                          styles.pathChoice,
+                          active && styles.pathChoiceActive,
+                        ]}>
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            styles.pathChoiceText,
+                            active && styles.pathChoiceTextActive,
+                          ]}>
+                          {formatArabicDisplayText(path.title)}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              )}
               <View style={styles.badgeGrid}>
                 {displayedBadges.map(badge => (
                   <PremiumCard
@@ -632,23 +674,27 @@ export default function MyCorner() {
                       </Text>
                     )}
                     {!earnedProfessionalBadge && (
-                      <Text style={styles.badgeLockedText}>اقتربت من الوصول</Text>
+                      <Text style={styles.badgeLockedText}>
+                        اقتربت من الوصول
+                      </Text>
                     )}
                   </PremiumCard>
                 ))}
               </View>
-              {Boolean(nextPathLevel) && (
+              {Boolean(selectedPath) && (
                 <PremiumCard style={styles.pathCard}>
                   <View style={styles.pathProgressRow}>
                     <Text style={styles.pathTitle}>
                       {formatArabicDisplayText(
-                        `تقدمك نحو ${nextPathLevel?.name || 'المستوى التالي'}`,
+                        nextPathLevel
+                          ? `تقدمك نحو ${nextPathLevel.name}`
+                          : selectedPath?.currentLevel
+                          ? `مستواك ${selectedPath.currentLevel.name}`
+                          : selectedPath?.title || 'مسارك المهني',
                       )}
                     </Text>
                     <Text style={styles.pathValue}>
-                      {formatArabicDisplayText(
-                        `${Math.round(pathProgress)}%`,
-                      )}
+                      {formatArabicDisplayText(`${Math.round(pathProgress)}%`)}
                     </Text>
                   </View>
                   <View style={styles.progressTrack}>
@@ -661,13 +707,69 @@ export default function MyCorner() {
                       ]}
                     />
                   </View>
-                  <Text style={styles.pathHint}>
-                    {formatArabicDisplayText(
-                      `متبقي ${Math.round(
-                        primaryPath?.remainingToNextLevel || 0,
-                      )}% للوصول للهدف التالي`,
-                    )}
-                  </Text>
+                  {nextPathLevel && (
+                    <Text style={styles.pathHint}>
+                      {formatArabicDisplayText(
+                        `متبقي ${Math.round(
+                          selectedPath?.remainingToNextLevel || 0,
+                        )}% للوصول للهدف التالي`,
+                      )}
+                    </Text>
+                  )}
+                  {(selectedPath?.currentLevel ||
+                    selectedPath?.upcomingLevels.length) && (
+                    <View style={styles.levelList}>
+                      {selectedPath.currentLevel && (
+                        <View style={[styles.levelRow, styles.levelRowCurrent]}>
+                          <CourseArtwork
+                            fallback={localBadgeImage(
+                              selectedPath.currentLevel.name,
+                            )}
+                            source={
+                              selectedPath.currentLevel.imageUrl
+                                ? {uri: selectedPath.currentLevel.imageUrl}
+                                : undefined
+                            }
+                            style={styles.levelArtwork}
+                          />
+                          <View style={styles.levelCopy}>
+                            <Text style={styles.levelName}>
+                              {formatArabicDisplayText(
+                                selectedPath.currentLevel.name,
+                              )}
+                            </Text>
+                            <Text style={styles.levelStatus}>
+                              مستواك الحالي
+                            </Text>
+                          </View>
+                        </View>
+                      )}
+                      {selectedPath.upcomingLevels.map(level => {
+                        const isNext = level.id === nextPathLevel?.id;
+                        return (
+                          <View key={level.id} style={styles.levelRow}>
+                            <CourseArtwork
+                              fallback={localBadgeImage(level.name)}
+                              source={
+                                level.imageUrl
+                                  ? {uri: level.imageUrl}
+                                  : undefined
+                              }
+                              style={styles.levelArtwork}
+                            />
+                            <View style={styles.levelCopy}>
+                              <Text style={styles.levelName}>
+                                {formatArabicDisplayText(level.name)}
+                              </Text>
+                              <Text style={styles.levelStatus}>
+                                {isNext ? 'الهدف التالي' : 'بعده'}
+                              </Text>
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
                 </PremiumCard>
               )}
             </>
@@ -687,9 +789,7 @@ export default function MyCorner() {
                       } متتالية`
                     : 'ابدأ سلسلتك اليوم'}
                 </Text>
-                <Text style={styles.streakHint}>
-                  إكمال مقطع يحسب يوم تعلم
-                </Text>
+                <Text style={styles.streakHint}>إكمال مقطع يحسب يوم تعلم</Text>
               </View>
             </View>
             <View style={styles.weekRow}>
@@ -879,6 +979,27 @@ const styles = StyleSheet.create({
     color: Palette.textFaint,
     marginTop: Spacing.xs,
   },
+  pathSelector: {
+    direction: 'rtl',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.sm,
+  },
+  pathChoice: {
+    maxWidth: 240,
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.md,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+    borderColor: Palette.line,
+    backgroundColor: Palette.surface,
+  },
+  pathChoiceActive: {
+    borderColor: Palette.primary,
+    backgroundColor: Palette.primarySoft,
+  },
+  pathChoiceText: {...Type.caption, ...textDirection, color: Palette.textMuted},
+  pathChoiceTextActive: {color: Palette.text},
   pathCard: {padding: Spacing.lg, marginTop: Spacing.md},
   pathProgressRow: {
     ...rtlRowStyle,
@@ -892,6 +1013,29 @@ const styles = StyleSheet.create({
     ...textDirection,
     color: Palette.textMuted,
     marginTop: Spacing.sm,
+  },
+  levelList: {
+    marginTop: Spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Palette.lineSoft,
+  },
+  levelRow: {
+    ...rtlRowStyle,
+    alignItems: 'center',
+    minHeight: 72,
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Palette.lineSoft,
+  },
+  levelRowCurrent: {backgroundColor: Palette.primarySoft},
+  levelArtwork: {width: 48, height: 48, resizeMode: 'contain'},
+  levelCopy: {flex: 1, minWidth: 0, marginStart: Spacing.md},
+  levelName: {...Type.bodyStrong, ...textDirection, color: Palette.text},
+  levelStatus: {
+    ...Type.caption,
+    ...textDirection,
+    color: Palette.textMuted,
+    marginTop: 2,
   },
   rhythmCard: {
     padding: Spacing.lg,

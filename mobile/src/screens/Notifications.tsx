@@ -1,6 +1,4 @@
-import {
-  useFocusEffect,
-} from '@react-navigation/native';
+import {useFocusEffect} from '@react-navigation/native';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   AccessibilityInfo,
@@ -54,7 +52,14 @@ import {
   readLocalNotificationIds,
   writeLocalNotificationIds,
 } from '../services/localUiState';
-import {accountScopedStorageKey, getItem, saveItem} from '../constants/helpers';
+import {
+  accountScopedStorageKey,
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+  getItem,
+  saveItem,
+  type AccountSessionBoundary,
+} from '../constants/helpers';
 import {networkFailureKind} from '../services/networkExperience';
 import {isServerTimestampFresh, serverNowMs} from '../utils/serverClock';
 
@@ -67,11 +72,15 @@ type NotificationsCache = {
   items: NotificationDto[];
 };
 
-const notificationCacheKey = () =>
-  accountScopedStorageKey(NOTIFICATIONS_CACHE_KEY);
+const notificationCacheKey = (boundary: AccountSessionBoundary) =>
+  accountScopedStorageKey(NOTIFICATIONS_CACHE_KEY, boundary);
 
-const readCachedNotifications = async (key: string) => {
+const readCachedNotifications = async (
+  key: string,
+  boundary: AccountSessionBoundary,
+) => {
   const cached = await getItem<Partial<NotificationsCache>>(key);
+  assertAccountSessionBoundary(boundary);
   if (
     cached?.version !== 2 ||
     !isServerTimestampFresh(
@@ -99,14 +108,18 @@ const readCachedNotifications = async (key: string) => {
 const saveCachedNotifications = async (
   key: string | null,
   items: NotificationDto[],
-) =>
-  key
-    ? saveItem(key, {
-        version: 2,
-        savedAt: serverNowMs(),
-        items: items.slice(0, 120),
-      } satisfies NotificationsCache)
-    : false;
+  boundary: AccountSessionBoundary | null,
+) => {
+  if (!key || !boundary) return false;
+  assertAccountSessionBoundary(boundary);
+  const saved = await saveItem(key, {
+    version: 2,
+    savedAt: serverNowMs(),
+    items: items.slice(0, 120),
+  } satisfies NotificationsCache);
+  assertAccountSessionBoundary(boundary);
+  return saved;
+};
 
 type NotificationItem = {
   id: string;
@@ -148,6 +161,9 @@ export default function Notifications() {
   const refreshControllerRef = useRef<AbortController | null>(null);
   const loadMoreControllerRef = useRef<AbortController | null>(null);
   const notificationCacheKeyRef = useRef<string | null>(null);
+  const notificationCacheBoundaryRef = useRef<AccountSessionBoundary | null>(
+    null,
+  );
   const loadMoreFlightRef = useRef<symbol | null>(null);
   const markAllFlightRef = useRef<symbol | null>(null);
   const readFlightsRef = useRef(new Map<string, symbol>());
@@ -189,7 +205,9 @@ export default function Notifications() {
     setLoadingMore(false);
     setLoading(true);
     try {
-      const scopedCacheKey = await notificationCacheKey();
+      const boundary = await captureAccountSessionBoundary();
+      const scopedCacheKey = await notificationCacheKey(boundary);
+      assertAccountSessionBoundary(boundary);
       if (requestGeneration !== notificationGenerationRef.current) return;
       if (
         notificationCacheKeyRef.current !== null &&
@@ -205,14 +223,18 @@ export default function Notifications() {
         setNotificationError('');
       }
       notificationCacheKeyRef.current = scopedCacheKey;
+      notificationCacheBoundaryRef.current = boundary;
       const localReadIds = await readLocalNotificationIds().catch(() => []);
+      assertAccountSessionBoundary(boundary);
       if (requestGeneration !== notificationGenerationRef.current) return;
       setReadIds(localReadIds);
       const sessionAvailable = await hasSession();
+      assertAccountSessionBoundary(boundary);
       if (requestGeneration !== notificationGenerationRef.current) return;
       setServerSession(sessionAvailable);
       if (!sessionAvailable) {
         notificationCacheKeyRef.current = null;
+        notificationCacheBoundaryRef.current = null;
         setServerNotifications([]);
         setCourseImages({});
         setNotificationCursor(null);
@@ -220,9 +242,10 @@ export default function Notifications() {
         setNotificationError('');
         return;
       }
-      const pageRequest = getNotificationsPage({signal: controller.signal});
-      const coursesRequest = getCachedPublishedCourses().catch(() => []);
-      const cachedNotifications = await readCachedNotifications(scopedCacheKey);
+      const cachedNotifications = await readCachedNotifications(
+        scopedCacheKey,
+        boundary,
+      );
       if (
         requestGeneration === notificationGenerationRef.current &&
         cachedNotifications.length
@@ -230,10 +253,12 @@ export default function Notifications() {
         setServerNotifications(cachedNotifications);
         setLoading(false);
       }
+      assertAccountSessionBoundary(boundary);
       const [page, cachedCourses] = await Promise.all([
-        pageRequest,
-        coursesRequest,
+        getNotificationsPage({signal: controller.signal}),
+        getCachedPublishedCourses().catch(() => []),
       ]);
+      assertAccountSessionBoundary(boundary);
       if (requestGeneration !== notificationGenerationRef.current) return;
       setServerNotifications(page.notifications);
       setCourseImages(
@@ -244,8 +269,17 @@ export default function Notifications() {
       setNotificationCursor(page.nextCursor);
       setHasMoreNotifications(page.hasMore);
       setNotificationError('');
-      void saveCachedNotifications(scopedCacheKey, page.notifications);
+      void saveCachedNotifications(
+        scopedCacheKey,
+        page.notifications,
+        boundary,
+      ).catch(() => undefined);
     } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === 'ACCOUNT_CHANGED_DURING_REQUEST'
+      )
+        return;
       if (networkFailureKind(error) === 'cancelled') return;
       if (requestGeneration === notificationGenerationRef.current) {
         setNotificationError('تعذّر تحديث الإشعارات\nحاول مرة أخرى');
@@ -278,10 +312,14 @@ export default function Notifications() {
     loadMoreFlightRef.current = flight;
     setLoadingMore(true);
     try {
+      const boundary = notificationCacheBoundaryRef.current;
+      if (!boundary) return;
+      assertAccountSessionBoundary(boundary);
       const page = await getNotificationsPage({
         cursor: notificationCursor,
         signal: controller.signal,
       });
+      assertAccountSessionBoundary(boundary);
       if (
         loadMoreFlightRef.current !== flight ||
         requestGeneration !== notificationGenerationRef.current
@@ -291,7 +329,11 @@ export default function Notifications() {
         const merged = new Map(current.map(item => [item.id, item]));
         page.notifications.forEach(item => merged.set(item.id, item));
         const next = Array.from(merged.values());
-        void saveCachedNotifications(notificationCacheKeyRef.current, next);
+        void saveCachedNotifications(
+          notificationCacheKeyRef.current,
+          next,
+          boundary,
+        ).catch(() => undefined);
         return next;
       });
       setNotificationCursor(page.nextCursor);
@@ -373,6 +415,7 @@ export default function Notifications() {
         appStateSubscription.remove();
         notificationGenerationRef.current += 1;
         notificationCacheKeyRef.current = null;
+        notificationCacheBoundaryRef.current = null;
         loadMoreFlightRef.current = null;
         markAllFlightRef.current = null;
         readFlightsRef.current.clear();
@@ -470,19 +513,35 @@ export default function Notifications() {
       const flight = Symbol('notifications-mark-all-read');
       markAllFlightRef.current = flight;
       const requestGeneration = notificationGenerationRef.current;
+      const boundary = notificationCacheBoundaryRef.current;
+      if (!boundary) {
+        markAllFlightRef.current = null;
+        return;
+      }
       try {
+        assertAccountSessionBoundary(boundary);
         await markAllNotificationsRead();
+        assertAccountSessionBoundary(boundary);
         if (
           markAllFlightRef.current === flight &&
           requestGeneration === notificationGenerationRef.current
         ) {
           setServerNotifications(current => {
             const next = current.map(item => ({...item, read: true}));
-            void saveCachedNotifications(notificationCacheKeyRef.current, next);
+            void saveCachedNotifications(
+              notificationCacheKeyRef.current,
+              next,
+              boundary,
+            ).catch(() => undefined);
             return next;
           });
         }
-      } catch {
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message === 'ACCOUNT_CHANGED_DURING_REQUEST'
+        )
+          return;
         if (requestGeneration === notificationGenerationRef.current) {
           setNotificationError('تعذّر تحديث حالة القراءة\nحاول مرة أخرى');
           void refreshNotifications();
@@ -501,6 +560,7 @@ export default function Notifications() {
 
   const openNotification = async (item: NotificationItem, read: boolean) => {
     const requestGeneration = notificationGenerationRef.current;
+    const boundary = notificationCacheBoundaryRef.current;
     if (!read) {
       if (serverSession === true) {
         if (!readFlightsRef.current.has(item.id)) {
@@ -508,6 +568,7 @@ export default function Notifications() {
           readFlightsRef.current.set(item.id, flight);
           void markNotificationRead(item.id)
             .then(() => {
+              if (boundary) assertAccountSessionBoundary(boundary);
               if (requestGeneration !== notificationGenerationRef.current) {
                 return;
               }
@@ -520,7 +581,8 @@ export default function Notifications() {
                 void saveCachedNotifications(
                   notificationCacheKeyRef.current,
                   next,
-                );
+                  boundary,
+                ).catch(() => undefined);
                 return next;
               });
             })
