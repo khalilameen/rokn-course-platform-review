@@ -158,6 +158,8 @@ export const assertSecureSessionStorageAvailable = async () => {
 export type PendingSocialAuthAttempt = {
   provider: 'google' | 'tiktok' | 'facebook' | 'apple';
   verifier: string;
+  challenge?: string;
+  flow?: 'browser' | 'native';
   startedAt: string;
   callbackUrl?: string;
   purpose?: 'login' | 'reauth';
@@ -179,6 +181,10 @@ export const loadPendingSocialAuthAttempt = async () => {
       !['google', 'tiktok', 'facebook', 'apple'].includes(String(attempt.provider)) ||
       typeof attempt.verifier !== 'string' ||
       !/^[A-Za-z0-9._~-]{43,128}$/.test(attempt.verifier) ||
+      (attempt.challenge !== undefined &&
+        !/^[A-Za-z0-9_-]{43,128}$/.test(attempt.challenge)) ||
+      (attempt.flow !== undefined &&
+        !['browser', 'native'].includes(attempt.flow)) ||
       typeof attempt.startedAt !== 'string' ||
       (attempt.purpose !== undefined &&
         !['login', 'reauth'].includes(attempt.purpose))

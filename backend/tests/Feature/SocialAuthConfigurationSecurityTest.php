@@ -50,4 +50,30 @@ final class SocialAuthConfigurationSecurityTest extends TestCase
             (string) $response->headers->get('Location')
         );
     }
+
+    public function test_callback_is_bound_to_the_pkce_attempt_that_started_it(): void
+    {
+        config([
+            'social_auth.allow_legacy_pkce' => false,
+            'social_auth.return_urls' => ['rokn://auth'],
+            'services.google.client_id' => 'test-client-id',
+        ]);
+        $challenge = str_repeat('C', 43);
+        $start = $this->get('/api/v1/social-auth/google/start?' . http_build_query([
+            'code_challenge' => $challenge,
+            'code_challenge_method' => 'S256',
+            'return_to' => 'rokn://auth',
+        ]));
+        parse_str((string) parse_url((string) $start->headers->get('Location'), PHP_URL_QUERY), $query);
+
+        $callback = $this->get('/api/v1/social-auth/google/callback?' . http_build_query([
+            'state' => $query['state'],
+            'error' => 'access_denied',
+        ]));
+
+        $callback->assertRedirect('rokn://auth?' . http_build_query([
+            'error' => 'login_cancelled',
+            'attempt' => $challenge,
+        ]));
+    }
 }

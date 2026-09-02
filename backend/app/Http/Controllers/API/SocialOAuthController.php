@@ -5,15 +5,16 @@ declare(strict_types=1);
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Models\SocialOAuthAttempt;
+use App\Services\SocialAuthProviderRegistry;
+use App\Services\SocialOAuthAttemptService;
+use App\Support\RoknLocale;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use RuntimeException;
-use App\Services\SocialAuthProviderRegistry;
-use App\Services\SocialOAuthAttemptService;
-use App\Support\RoknLocale;
 
 final class SocialOAuthController extends Controller
 {
@@ -55,7 +56,10 @@ final class SocialOAuthController extends Controller
             $attempt->delete();
             report($exception);
 
-            return $this->redirectToApp($returnTo, ['error' => 'provider_unavailable']);
+            return $this->redirectToApp(
+                $returnTo,
+                $this->callbackPayload($attempt, ['error' => 'provider_unavailable'])
+            );
         }
     }
 
@@ -81,11 +85,11 @@ final class SocialOAuthController extends Controller
             $this->attempts->consumeState($state, $provider);
             $providerError = strtolower(trim((string) $request->query('error', '')));
 
-            return $this->redirectToApp($returnTo, [
+            return $this->redirectToApp($returnTo, $this->callbackPayload($stateAttempt, [
                 'error' => in_array($providerError, ['access_denied', 'user_cancelled', 'cancelled'], true)
                     ? 'login_cancelled'
                     : 'provider_unavailable',
-            ]);
+            ]));
         }
 
         $claimedState = $this->attempts->consumeState($state, $provider);
@@ -105,10 +109,16 @@ final class SocialOAuthController extends Controller
                 Crypt::encryptString($token)
             );
 
-            return $this->redirectToApp($returnTo, ['code' => $completionCode]);
+            return $this->redirectToApp(
+                $returnTo,
+                $this->callbackPayload($claimedState, ['code' => $completionCode])
+            );
         } catch (\Throwable $exception) {
             report($exception);
-            return $this->redirectToApp($returnTo, ['error' => 'provider_unavailable']);
+            return $this->redirectToApp(
+                $returnTo,
+                $this->callbackPayload($claimedState, ['error' => 'provider_unavailable'])
+            );
         }
     }
 
@@ -378,6 +388,17 @@ final class SocialOAuthController extends Controller
     {
         $separator = str_contains($returnTo, '?') ? '&' : '?';
         return redirect()->away($returnTo . $separator . http_build_query($query));
+    }
+
+    /** Bind a mobile callback to the PKCE flow that created it. */
+    private function callbackPayload(SocialOAuthAttempt $attempt, array $query): array
+    {
+        $binding = trim((string) $attempt->code_challenge);
+        if ($binding !== '') {
+            $query['attempt'] = $binding;
+        }
+
+        return $query;
     }
 
     private function callbackUrl(string $provider): string

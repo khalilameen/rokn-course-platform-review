@@ -43,6 +43,8 @@ describe('social auth cold-start recovery', () => {
     provider: 'google',
     verifier:
       '1111111111114111811111111111111111111111111141118111111111111111',
+    challenge: 'P'.repeat(43),
+    flow: 'browser' as const,
     startedAt: new Date().toISOString(),
   };
 
@@ -69,11 +71,13 @@ describe('social auth cold-start recovery', () => {
     });
 
     await expect(
-      resumePendingSocialAuth('rokn://auth?code=one-time-code'),
+      resumePendingSocialAuth(
+        `rokn://auth?code=one-time-code&attempt=${pending.challenge}`,
+      ),
     ).resolves.toMatchObject({api_token: 'session-token'});
     expect(mockSave).toHaveBeenNthCalledWith(1, {
       ...pending,
-      callbackUrl: 'rokn://auth?code=one-time-code',
+      callbackUrl: `rokn://auth?code=one-time-code&attempt=${pending.challenge}`,
     });
     expect(mockSave).toHaveBeenNthCalledWith(
       2,
@@ -105,10 +109,48 @@ describe('social auth cold-start recovery', () => {
     mockPost.mockRejectedValue(new Error('network'));
 
     await expect(
-      resumePendingSocialAuth('rokn://auth?code=retryable-code'),
+      resumePendingSocialAuth(
+        `rokn://auth?code=retryable-code&attempt=${pending.challenge}`,
+      ),
     ).rejects.toThrow('network');
     expect(mockSave).toHaveBeenCalled();
     expect(mockDelete).not.toHaveBeenCalled();
     timeout.mockRestore();
+  });
+
+  it('ignores a stale callback without consuming the newer PKCE attempt', async () => {
+    const current = {
+      ...pending,
+      challenge: 'N'.repeat(43),
+    };
+    mockLoad.mockResolvedValue(current);
+
+    await expect(
+      resumePendingSocialAuth(
+        `rokn://auth?code=stale-code&attempt=${'O'.repeat(43)}`,
+      ),
+    ).resolves.toBeNull();
+
+    expect(mockPost).not.toHaveBeenCalled();
+    expect(mockSave).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  it('does not let a delayed browser callback consume a native attempt', async () => {
+    mockLoad.mockResolvedValue({
+      ...pending,
+      challenge: undefined,
+      flow: 'native',
+    });
+
+    await expect(
+      resumePendingSocialAuth(
+        `rokn://auth?code=browser-code&attempt=${'B'.repeat(43)}`,
+      ),
+    ).resolves.toBeNull();
+
+    expect(mockPost).not.toHaveBeenCalled();
+    expect(mockSave).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
   });
 });

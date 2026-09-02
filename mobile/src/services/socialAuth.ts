@@ -137,6 +137,7 @@ const createNativeAttempt = async (
   const attempt = {
     provider,
     verifier,
+    flow: 'native' as const,
     startedAt: serverNow().toISOString(),
     purpose,
   };
@@ -412,6 +413,21 @@ export const resumePendingSocialAuth = async (
       : pending.callbackUrl;
   if (!returnedUrl || !isAuthCallbackUrl(returnedUrl)) return null;
 
+  const returnedAttempt = queryValue(returnedUrl, 'attempt');
+  if (
+    pending.flow === 'native' ||
+    (pending.flow === 'browser' &&
+      (!pending.challenge || returnedAttempt !== pending.challenge)) ||
+    (pending.flow === undefined &&
+      pending.challenge &&
+      returnedAttempt !== pending.challenge)
+  ) {
+    // Android can deliver the callback from an older browser attempt after a
+    // retry has already installed a new verifier. PKCE rejects that old code,
+    // but it must not delete the newer attempt which still owns this device.
+    return null;
+  }
+
   if (pending.callbackUrl !== returnedUrl) {
     await savePendingSocialAuthAttempt({...pending, callbackUrl: returnedUrl});
   }
@@ -542,6 +558,7 @@ export const signInWithSocialProvider = async (
       const appleAttempt = {
         provider: 'apple' as const,
         verifier: nonce.raw,
+        flow: 'native' as const,
         startedAt: new Date(serverNowMs()).toISOString(),
         purpose: options.purpose ?? 'login',
       };
@@ -658,6 +675,8 @@ export const signInWithSocialProvider = async (
   await savePendingSocialAuthAttempt({
     provider,
     verifier: pkce.verifier,
+    challenge: pkce.challenge,
+    flow: 'browser',
     startedAt: serverNow().toISOString(),
     purpose: options.purpose ?? 'login',
   });
