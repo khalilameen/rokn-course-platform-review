@@ -2,7 +2,7 @@
   "expo": {
     "name": "Rokn",
     "slug": "rokn",
-    "version": "1.0.32",
+    "version": "1.0.33",
     "icon": "./src/assets/images/brand/rokn-app-icon-1024.png",
     "orientation": "default",
     "scheme": "rokn",
@@ -31,7 +31,7 @@
     },
     "android": {
       "package": "com.rokn",
-      "versionCode": 33,
+      "versionCode": 34,
       "googleServicesFile": "./android/app/google-services.json",
       "intentFilters": [
         {
