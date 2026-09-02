@@ -28,8 +28,8 @@ if ($missing === []) {
     $requiredCommandTokens = [
         'ops:verify-restore',
         'rokn_restore_verify_',
-        'dumpSha256',
-        'schemaFingerprint',
+        'artifact_sha256',
+        'schema_fingerprint',
         'DROP DATABASE IF EXISTS',
     ];
     $requiredRunbookTokens = [
@@ -37,8 +37,8 @@ if ($missing === []) {
         '--confirm=RESTORE_',
         'First reconciled-baseline cutover',
         'database/migration-baseline-manifest.json',
-        'dumpSha256',
-        'schemaFingerprint',
+        'artifact_sha256',
+        'schema_fingerprint',
         'productionUpgradeVerified',
         'does not verify',
         'production upgrade',
