@@ -402,7 +402,23 @@ test('workflow is discoverable from the monorepo root and preserves native check
   assert.match(workflow, /cd mobile\r?\n/);
   assert.match(workflow, /runs-on: macos-26/);
   assert.match(workflow, /ruby-version: 3\.3\.6/);
-  assert.match(workflow, /bundle _4\.0\.19_ exec pod install --deployment/);
+  const gemLock = fs.readFileSync(path.join(root, 'Gemfile.lock'), 'utf8');
+  const bundlerVersion = gemLock.match(
+    /^BUNDLED WITH\r?\n\s+([0-9.]+)$/m,
+  )?.[1];
+  assert.equal(bundlerVersion, '4.0.20');
+  assert.match(
+    workflow,
+    new RegExp(
+      `gem install bundler --version ${bundlerVersion.replaceAll('.', '\\.')}`,
+    ),
+  );
+  assert.match(
+    workflow,
+    new RegExp(
+      `bundle _${bundlerVersion.replaceAll('.', '\\.')}_ exec pod install --deployment`,
+    ),
+  );
   assert.equal([...workflow.matchAll(/NODE_ENV: production/g)].length, 3);
   assert.match(workflow, /npm run licenses:native:check/);
   assert.match(

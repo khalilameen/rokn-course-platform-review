@@ -150,13 +150,13 @@ jobs:
       - name: Install locked JavaScript and Ruby dependencies
         run: |
           npm ci --include=dev
-          gem install bundler --version 4.0.19 --no-document
-          bundle _4.0.19_ install
+          gem install bundler --version 4.0.20 --no-document
+          bundle _4.0.20_ install
       - name: Verify the checked-in iOS dependency lock
         run: npm run verify:ios-lock
       - name: Resolve pinned CocoaPods dependencies
         working-directory: mobile/ios
-        run: bundle _4.0.19_ exec pod install --deployment
+        run: bundle _4.0.20_ exec pod install --deployment
       - name: Verify installed native legal provenance
         run: npm run licenses:native:check
       - name: Build the unsigned Release target for an iOS device

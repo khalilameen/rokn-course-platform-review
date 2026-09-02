@@ -112,9 +112,9 @@ jobs:
         run: |
           npm install --global npm@10.9.3
           npm ci --include=dev
-          gem install bundler --version 4.0.19 --no-document
-          bundle _4.0.19_ update --bundler
-          bundle _4.0.19_ install
+          gem install bundler --version 4.0.20 --no-document
+          bundle _4.0.20_ update --bundler=4.0.20
+          bundle _4.0.20_ install
       - name: Regenerate native locks and macOS verification metadata
         working-directory: mobile
         env:
@@ -151,7 +151,7 @@ jobs:
           node --test scripts/tests/gradle-dependency-provenance.test.js
           cd ios
           rm -rf Pods Podfile.lock
-          bundle _4.0.19_ exec pod install
+          bundle _4.0.20_ exec pod install
           cd ..
           npm run verify:ios-lock
       - name: Commit native locks before the slower legal inventory
