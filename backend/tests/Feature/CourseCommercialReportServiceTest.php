@@ -223,7 +223,10 @@ final class CourseCommercialReportServiceTest extends TestCase
         self::assertSame(100.0, $report['average_cost_per_student_egp']);
         self::assertSame(1, $report['push_attempts']);
         self::assertSame(1, $report['push_provider_accepted']);
-        $legacyPlan = $report['plan_breakdown']->get('إتاحة قديمة');
+        // The collection is keyed by the stable plan code so filters and
+        // exports do not depend on a translated label. Legacy enrollments have
+        // no code; locate their learner-facing fallback name explicitly.
+        $legacyPlan = $report['plan_breakdown']->firstWhere('plan_name', 'إتاحة قديمة');
         self::assertSame(1, $legacyPlan['students']);
         self::assertSame(2, $legacyPlan['enrollments']);
         self::assertSame(100.0, $legacyPlan['average_cost_per_student_egp']);

@@ -30,7 +30,10 @@ final class AppleNonceAuthenticationTest extends TestCase
         $this->mock(GoogleService::class, function (MockInterface $mock): void {
             $mock->shouldReceive('verify')
                 ->once()
-                ->with('google-id-token')
+                // SignController always forwards the optional expected nonce
+                // hash. A direct Google login has no OAuth attempt, so the
+                // second argument is explicitly null rather than omitted.
+                ->with('google-id-token', null)
                 ->andThrow(new Exception('expected test rejection'));
         });
 

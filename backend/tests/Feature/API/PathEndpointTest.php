@@ -149,6 +149,18 @@ class PathEndpointTest extends ApiTestCase
         $nextCourse['created_at'] = now();
         $nextCourse['updated_at'] = now();
         $nextCourseId = DB::table('courses')->insertGetId($nextCourse);
+        // A published course is reachable only when it has an active access
+        // plan. Copy the base plan so this fixture represents a genuine next
+        // level rather than a catalogue-invalid course.
+        $nextPlan = (array) DB::table('course_access_plans')
+            ->where('course_id', $this->courseId)
+            ->where('code', 'basic')
+            ->first();
+        unset($nextPlan['id']);
+        $nextPlan['course_id'] = $nextCourseId;
+        $nextPlan['created_at'] = now();
+        $nextPlan['updated_at'] = now();
+        DB::table('course_access_plans')->insert($nextPlan);
         DB::table('course_sections')->insert([
             'course_id' => $nextCourseId,
             'title_ar' => 'محتوى المستوى التالي',
