@@ -21,7 +21,10 @@ jest.mock('../src/services/learnerDraftFiles', () => ({
   removeLearnerDraftFile: jest.fn(async () => undefined),
 }));
 
-import {saveCourseChatHistory} from '../src/components/VideoPlayer/courseChat/persistence';
+import {
+  loadCourseChatHistory,
+  saveCourseChatHistory,
+} from '../src/components/VideoPlayer/courseChat/persistence';
 import {saveProjectFeedbackDraft} from '../src/services/projectSubmissionDraft';
 
 describe('chat draft account ownership', () => {
@@ -54,6 +57,28 @@ describe('chat draft account ownership', () => {
       expect.any(String),
     );
     expect(mockAssertBoundary).toHaveBeenCalledWith(owner);
+  });
+
+  it('keeps an accepted turn pending so reopening reconciles the same request', async () => {
+    await saveCourseChatHistory('52', [
+      {
+        id: 'assistant-request-1',
+        role: 'assistant',
+        text: '',
+        createdAt: Date.now(),
+        pending: true,
+        clientRequestId: 'request-1',
+        deliveryStatus: 'queued',
+        contextEligible: false,
+      },
+    ], '7');
+
+    const [restored] = await loadCourseChatHistory('52', '7');
+    expect(restored).toMatchObject({
+      clientRequestId: 'request-1',
+      deliveryStatus: 'queued',
+      pending: true,
+    });
   });
 
   it('keeps a project feedback draft under its sending account', async () => {

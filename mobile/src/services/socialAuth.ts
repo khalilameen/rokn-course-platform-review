@@ -54,6 +54,11 @@ WebBrowser.maybeCompleteAuthSession();
 
 const SOCIAL_AUTH_METHODS_CACHE_KEY = '@rokn/social-auth-methods/v1';
 const SOCIAL_AUTH_METHODS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+// Discovery is the first network read on the login screen. Keep its whole
+// retry ladder below a human waiting threshold; a later tap or foreground
+// refresh can start a fresh read, while the last-known-good contract remains
+// available offline.
+const SOCIAL_AUTH_METHODS_READ_BUDGET_MS = 12_000;
 type SocialAuthMethodsCacheDisposition = 'replace' | 'preserve' | 'clear';
 
 const queryValue = (url: string, key: string) => {
@@ -719,8 +724,11 @@ const readCachedSocialAuthMethods = async () => {
 
 export const getSocialAuthMethods = async (): Promise<SocialAuthMethods> => {
   try {
+    const retryDeadlineAt = Date.now() + SOCIAL_AUTH_METHODS_READ_BUDGET_MS;
     const methodsResponse = await publicRequest.get<unknown>('auth-methods', {
       skipAuthorization: true,
+      timeout: 8_000,
+      roknNetworkRetryDeadlineAt: retryDeadlineAt,
     } as RoknRequestConfig);
     const recovered = await recoverIncompleteSocialAuthMethods(
       methodsResponse.data,

@@ -70,9 +70,14 @@ describe('social auth discovery', () => {
 
     expect(methods.providers).toEqual([]);
     expect(methods.authorizationUrls).toEqual({});
-    expect(mockGet).toHaveBeenCalledWith('auth-methods', {
-      skipAuthorization: true,
-    });
+    expect(mockGet).toHaveBeenCalledWith(
+      'auth-methods',
+      expect.objectContaining({
+        skipAuthorization: true,
+        timeout: 8_000,
+        roknNetworkRetryDeadlineAt: expect.any(Number),
+      }),
+    );
   });
 
   it('uses the backend-declared independent OAuth API host', async () => {

@@ -366,15 +366,16 @@ export const useCourseChat = ({
     selectedAttachments.forEach(file =>
       inFlightAttachmentIdsRef.current.add(file.uploadId),
     );
+    const currentMessages = messagesRef.current;
     const existingUser = retryClientRequestId
-      ? messages.find(
+      ? currentMessages.find(
           item =>
             item.role === 'user' &&
             item.clientRequestId === retryClientRequestId,
         )
       : undefined;
     const existingAssistant = retryClientRequestId
-      ? messages.find(
+      ? currentMessages.find(
           item =>
             item.role === 'assistant' &&
             item.clientRequestId === retryClientRequestId,
@@ -394,7 +395,7 @@ export const useCourseChat = ({
     const conversationGeneration = conversationGenerationRef.current;
     let queuedMessages: ChatMessage[] =
       existingUser && existingAssistant
-        ? messages.map(item =>
+        ? currentMessages.map(item =>
             item.id === existingUser.id
               ? {
                   ...item,
@@ -415,7 +416,7 @@ export const useCourseChat = ({
               : item,
           )
         : [
-            ...messages,
+            ...currentMessages,
             userMessage,
             {
               id: pendingId,
@@ -726,7 +727,7 @@ export const useCourseChat = ({
   const isSendInFlight = () => Boolean(sendFlightRef.current);
 
   const retry = (clientRequestId: string) => {
-    const userMessage = messages.find(
+    const userMessage = messagesRef.current.find(
       item => item.role === 'user' && item.clientRequestId === clientRequestId,
     );
     if (userMessage) {

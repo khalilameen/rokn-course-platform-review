@@ -54,7 +54,8 @@ const normaliseStoredMessage = (value: unknown): ChatMessage | null => {
     return null;
   }
 
-  const interrupted = status !== undefined && ACTIVE_STATUSES.has(String(status));
+  const acceptedPending =
+    status !== undefined && ACTIVE_STATUSES.has(String(status));
   const attachments = Array.isArray(record.attachments)
     ? record.attachments.flatMap(attachmentValue => {
         if (!attachmentValue || typeof attachmentValue !== 'object') return [];
@@ -81,29 +82,22 @@ const normaliseStoredMessage = (value: unknown): ChatMessage | null => {
   return {
     id,
     role,
-    text:
-      interrupted && role === 'assistant' && !text
-        ? 'انقطع الاتصال قبل وصول الرد\nاستعد الرد'
-        : text,
+    text,
     createdAt:
       typeof record.createdAt === 'number' && Number.isFinite(record.createdAt)
         ? record.createdAt
         : Date.now(),
-    pending: false,
+    pending: role === 'assistant' && acceptedPending,
     clientRequestId:
       typeof record.clientRequestId === 'string'
         ? record.clientRequestId.slice(0, 100)
         : undefined,
-    deliveryStatus: interrupted
-      ? 'failed'
-      : (status as ChatMessage['deliveryStatus']),
-    errorCode: interrupted
-      ? 'interrupted_turn'
-      : typeof record.errorCode === 'string'
+    deliveryStatus: status as ChatMessage['deliveryStatus'],
+    errorCode: typeof record.errorCode === 'string'
       ? record.errorCode.slice(0, 80)
       : undefined,
     contextEligible:
-      !interrupted &&
+      !acceptedPending &&
       status === 'completed' &&
       record.contextEligible !== false,
     attachments,
