@@ -6,9 +6,9 @@
 
 This file is bound to the resolved Gradle releaseRuntimeClasspath and retains package-specific LICENSE and NOTICE documents from the distributed artifacts.
 
-- Dependencies: 234
-- npm source-project components: 22
-- Retained unique legal texts: 23
+- Dependencies: 241
+- npm source-project components: 23
+- Retained unique legal texts: 24
 
 ### androidx.activity:activity-ktx:1.9.3
 
@@ -1379,6 +1379,14 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - Exact license review: This exact empty Guava compatibility marker is distributed under the Guava Apache-2.0 terms.
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
+### com.google.protobuf:protobuf-javalite:3.25.8
+
+- Platform: Android
+- Selected license(s): BSD-3-Clause
+- POM SHA-256: `953cfbe5c61bb66858cfcb5806262cc3ac09f0ec4252ca39dc6cce3fe188b8e8`
+- Exact license review: The exact protobuf-javalite coordinate inherits the protobuf BSD-3-Clause license; its published child POM and JAR omit the inherited legal file.
+- Retained legal document(s): `5fe5599c080ef8e9ddcf73795b8facb3852bef1ba7dd14c7e8f66a221ac93505`
+
 ### com.jakewharton:process-phoenix:2.1.2
 
 - Platform: Android
@@ -1532,6 +1540,48 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - POM SHA-256: `58be4da1ad78feb927aa2c76ce6a48f822916f70da596fc316c217180628735b`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
 
+### io.sentry:sentry-android-core:8.31.0
+
+- Platform: Android
+- Selected license(s): MIT
+- POM SHA-256: `45e504e73154ab70bda1dcdbd44378970f77daf3d151bc1aa0f051c6c148af85`
+- Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
+
+### io.sentry:sentry-android-ndk:8.31.0
+
+- Platform: Android
+- Selected license(s): MIT
+- POM SHA-256: `4dc58bbd5207ee4912c93845d142069fc61130e458948d2305fc31bb7e2e7500`
+- Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
+
+### io.sentry:sentry-android-replay:8.31.0
+
+- Platform: Android
+- Selected license(s): MIT
+- POM SHA-256: `6d6c5951d3244a676e053dd3d18992534148e3dbd34bb1a107c095996d878162`
+- Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
+
+### io.sentry:sentry-android:8.31.0
+
+- Platform: Android
+- Selected license(s): MIT
+- POM SHA-256: `9850c278ebfd2b20f63776e6a0807b3c6eb0108c408e154c8366ed3c543fa766`
+- Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
+
+### io.sentry:sentry-native-ndk:0.12.3
+
+- Platform: Android
+- Selected license(s): MIT
+- POM SHA-256: `41dbeda68418cc7e7bc8445d99948d62eb3be0e99ae5b9bf7d6a4b7a6d7106ec`
+- Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
+
+### io.sentry:sentry:8.31.0
+
+- Platform: Android
+- Selected license(s): MIT
+- POM SHA-256: `3ee85911e6fd2edd104ddaa2a49519cfe6c76aa4fe9812b5869e7ebc7ada5da6`
+- Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`
+
 ### javax.inject:javax.inject:1
 
 - Platform: Android
@@ -1595,11 +1645,11 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - POM SHA-256: `dcf3de1ba53393a449c789f1e515f9aa88c603a6d356a480ea42ff7d4a98b737`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
-### org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.10
+### org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.24
 
 - Platform: Android
 - Selected license(s): Apache-2.0
-- POM SHA-256: `5f4b94dd3065a7764c37fa15de2ad6d81f40d59f8cb33f17d181c6384fb7a72e`
+- POM SHA-256: `06e06def49f96aaf6e5c3ec42836ae59d6e2da6254700914281675679dc9f2a5`
 - Retained legal document(s): `283ea6cc2997a1a70da0049e09adf9317bb60ca1b51279b65196b83a69e1996b`
 
 ### org.jetbrains.kotlin:kotlin-stdlib:2.2.20
@@ -1832,6 +1882,13 @@ This file is bound to the resolved Gradle releaseRuntimeClasspath and retains pa
 - Selected license(s): MIT
 - Classified npm production source: `react-native-worklets@0.7.4`
 - Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `ed1bbb0f45e47aad55abcfadbce9fb60beec13a755cb6d048ced5189ce917a46`
+
+### gradle-project:::sentry_react-native
+
+- Platform: Android project
+- Selected license(s): MIT
+- Classified npm production source: `@sentry/react-native@7.11.0`
+- Retained legal document(s): `8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2`, `f6201a2b36e05dad270ee15238a7dba1b609be9009634d84ae505627e9f6e24d`
 
 ## Retained legal document catalog
 
@@ -2976,6 +3033,34 @@ MIT License
 
 Copyright (c) 2016-2022 Project contributors
 Copyright (c) 2016 Brent Vatne, Baris Sencan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### f6201a2b36e05dad270ee15238a7dba1b609be9009634d84ae505627e9f6e24d
+
+Source(s): `npm:@sentry/react-native@7.11.0/LICENSE.md`
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2017-2024 Sentry
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

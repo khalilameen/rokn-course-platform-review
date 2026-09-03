@@ -431,14 +431,14 @@ test('Android release snapshot covers the resolved closure and ships exact texts
   );
   assert.equal(snapshot.schemaVersion, 1);
   assert.equal(snapshot.configuration, 'releaseRuntimeClasspath');
-  assert.equal(snapshot.dependencyCount, 234);
-  assert.equal(snapshot.dependencies.length, 234);
+  assert.equal(snapshot.dependencyCount, 241);
+  assert.equal(snapshot.dependencies.length, 241);
   assert.equal(
     snapshot.dependencies.filter(item => item.artifacts.length === 0).length,
     34,
   );
-  assert.equal(snapshot.projectComponentCount, 22);
-  assert.equal(snapshot.projectComponents.length, 22);
+  assert.equal(snapshot.projectComponentCount, 23);
+  assert.equal(snapshot.projectComponents.length, 23);
   assert.equal(snapshot.unresolvedDependencyCount, 0);
   assert.equal(snapshot.unclassifiedLocalFileCount, 0);
   assert.equal(snapshot.unclassifiedResolvedArtifactCount, 0);
@@ -524,11 +524,11 @@ test('Android release snapshot covers the resolved closure and ships exact texts
       'utf8',
     ),
   );
-  assert.equal(appMetadata.androidDependencyCount, 234);
-  assert.equal(appMetadata.androidProjectComponentCount, 22);
+  assert.equal(appMetadata.androidDependencyCount, 241);
+  assert.equal(appMetadata.androidProjectComponentCount, 23);
   assert.equal(appMetadata.podDependencyCount, podSnapshot.dependencyCount);
-  assert.equal(appMetadata.android.length, 234);
-  assert.equal(appMetadata.androidProjects.length, 22);
+  assert.equal(appMetadata.android.length, 241);
+  assert.equal(appMetadata.androidProjects.length, 23);
   assert.equal(appMetadata.pods.length, podSnapshot.dependencies.length);
   assert.deepEqual(
     appMetadata.pods.map(item => item.coordinate),

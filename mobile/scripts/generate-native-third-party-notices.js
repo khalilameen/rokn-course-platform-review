@@ -164,6 +164,14 @@ const ANDROID_EXACT_LICENSE_SELECTIONS = new Map([
     },
   ],
   [
+    'com.google.protobuf:protobuf-javalite:3.25.8',
+    {
+      license: 'BSD-3-Clause',
+      reason:
+        'The exact protobuf-javalite coordinate inherits the protobuf BSD-3-Clause license; its published child POM and JAR omit the inherited legal file.',
+    },
+  ],
+  [
     'commons-codec:commons-codec:1.10',
     {
       license: 'Apache-2.0',

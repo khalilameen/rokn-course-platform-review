@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedFrom": "Gradle releaseRuntimeClasspath artifact resolution",
   "configuration": "releaseRuntimeClasspath",
-  "dependencyCount": 234,
+  "dependencyCount": 241,
   "dependencies": [
     {
       "coordinate": "androidx.activity:activity-ktx:1.9.3",
@@ -5409,6 +5409,31 @@
       "reviewedAbsence": null
     },
     {
+      "coordinate": "com.google.protobuf:protobuf-javalite:3.25.8",
+      "pomSha256": "953cfbe5c61bb66858cfcb5806262cc3ac09f0ec4252ca39dc6cce3fe188b8e8",
+      "pomLicenses": [],
+      "selectedLicenses": [
+        "BSD-3-Clause"
+      ],
+      "artifacts": [
+        {
+          "fileName": "protobuf-javalite-3.25.8.jar",
+          "type": "jar",
+          "sha256": "918bcc959cc0f5cb58798cec347a15d41cee9a1b8101c352954fd18d44e2e1c7",
+          "size": 711462
+        }
+      ],
+      "owningNpmPackage": null,
+      "exactLicenseSelection": {
+        "license": "BSD-3-Clause",
+        "reason": "The exact protobuf-javalite coordinate inherits the protobuf BSD-3-Clause license; its published child POM and JAR omit the inherited legal file."
+      },
+      "legalDocumentSha256s": [
+        "5fe5599c080ef8e9ddcf73795b8facb3852bef1ba7dd14c7e8f66a221ac93505"
+      ],
+      "reviewedAbsence": null
+    },
+    {
       "coordinate": "com.jakewharton:process-phoenix:2.1.2",
       "pomSha256": "f3873951c1cf85484824864eaa7cd63fb8d1b517fa45e9e993cedaf045eee5e1",
       "pomLicenses": [
@@ -6017,6 +6042,180 @@
       "reviewedAbsence": null
     },
     {
+      "coordinate": "io.sentry:sentry-android-core:8.31.0",
+      "pomSha256": "45e504e73154ab70bda1dcdbd44378970f77daf3d151bc1aa0f051c6c148af85",
+      "pomLicenses": [
+        {
+          "name": "MIT",
+          "url": "http://www.opensource.org/licenses/mit-license.php",
+          "distribution": null,
+          "selectedLicense": "MIT"
+        }
+      ],
+      "selectedLicenses": [
+        "MIT"
+      ],
+      "artifacts": [
+        {
+          "fileName": "sentry-android-core-8.31.0.aar",
+          "type": "aar",
+          "sha256": "1f251566ac5c5620d48e5ef5d14730d0457430cce6a314195244daebba1dd6dd",
+          "size": 486591
+        }
+      ],
+      "owningNpmPackage": null,
+      "exactLicenseSelection": null,
+      "legalDocumentSha256s": [
+        "8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2"
+      ],
+      "reviewedAbsence": null
+    },
+    {
+      "coordinate": "io.sentry:sentry-android-ndk:8.31.0",
+      "pomSha256": "4dc58bbd5207ee4912c93845d142069fc61130e458948d2305fc31bb7e2e7500",
+      "pomLicenses": [
+        {
+          "name": "MIT",
+          "url": "http://www.opensource.org/licenses/mit-license.php",
+          "distribution": null,
+          "selectedLicense": "MIT"
+        }
+      ],
+      "selectedLicenses": [
+        "MIT"
+      ],
+      "artifacts": [
+        {
+          "fileName": "sentry-android-ndk-8.31.0.aar",
+          "type": "aar",
+          "sha256": "0b9a1ba760f07a7b7c3ec159b184d044186db77c1fc85969e4533a3c863c04f1",
+          "size": 12121
+        }
+      ],
+      "owningNpmPackage": null,
+      "exactLicenseSelection": null,
+      "legalDocumentSha256s": [
+        "8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2"
+      ],
+      "reviewedAbsence": null
+    },
+    {
+      "coordinate": "io.sentry:sentry-android-replay:8.31.0",
+      "pomSha256": "6d6c5951d3244a676e053dd3d18992534148e3dbd34bb1a107c095996d878162",
+      "pomLicenses": [
+        {
+          "name": "MIT",
+          "url": "http://www.opensource.org/licenses/mit-license.php",
+          "distribution": null,
+          "selectedLicense": "MIT"
+        }
+      ],
+      "selectedLicenses": [
+        "MIT"
+      ],
+      "artifacts": [
+        {
+          "fileName": "sentry-android-replay-8.31.0.aar",
+          "type": "aar",
+          "sha256": "96259727b577ed46aa81b13416e60fa84d872794d592eccaaa60b199d9bff651",
+          "size": 309069
+        }
+      ],
+      "owningNpmPackage": null,
+      "exactLicenseSelection": null,
+      "legalDocumentSha256s": [
+        "8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2"
+      ],
+      "reviewedAbsence": null
+    },
+    {
+      "coordinate": "io.sentry:sentry-android:8.31.0",
+      "pomSha256": "9850c278ebfd2b20f63776e6a0807b3c6eb0108c408e154c8366ed3c543fa766",
+      "pomLicenses": [
+        {
+          "name": "MIT",
+          "url": "http://www.opensource.org/licenses/mit-license.php",
+          "distribution": null,
+          "selectedLicense": "MIT"
+        }
+      ],
+      "selectedLicenses": [
+        "MIT"
+      ],
+      "artifacts": [
+        {
+          "fileName": "sentry-android-8.31.0.aar",
+          "type": "aar",
+          "sha256": "058229bfda961bb909896ebcd982cc6c539795e505bd4a4f31c22bf255c7207b",
+          "size": 1372
+        }
+      ],
+      "owningNpmPackage": null,
+      "exactLicenseSelection": null,
+      "legalDocumentSha256s": [
+        "8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2"
+      ],
+      "reviewedAbsence": null
+    },
+    {
+      "coordinate": "io.sentry:sentry-native-ndk:0.12.3",
+      "pomSha256": "41dbeda68418cc7e7bc8445d99948d62eb3be0e99ae5b9bf7d6a4b7a6d7106ec",
+      "pomLicenses": [
+        {
+          "name": "MIT",
+          "url": "http://www.opensource.org/licenses/mit-license.php",
+          "distribution": null,
+          "selectedLicense": "MIT"
+        }
+      ],
+      "selectedLicenses": [
+        "MIT"
+      ],
+      "artifacts": [
+        {
+          "fileName": "sentry-native-ndk-0.12.3.aar",
+          "type": "aar",
+          "sha256": "726fd222691dfebaf19aa162d512865524c1b3ce12c39c6e6308d79ec82b77fa",
+          "size": 9684673
+        }
+      ],
+      "owningNpmPackage": null,
+      "exactLicenseSelection": null,
+      "legalDocumentSha256s": [
+        "8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2"
+      ],
+      "reviewedAbsence": null
+    },
+    {
+      "coordinate": "io.sentry:sentry:8.31.0",
+      "pomSha256": "3ee85911e6fd2edd104ddaa2a49519cfe6c76aa4fe9812b5869e7ebc7ada5da6",
+      "pomLicenses": [
+        {
+          "name": "MIT",
+          "url": "http://www.opensource.org/licenses/mit-license.php",
+          "distribution": null,
+          "selectedLicense": "MIT"
+        }
+      ],
+      "selectedLicenses": [
+        "MIT"
+      ],
+      "artifacts": [
+        {
+          "fileName": "sentry-8.31.0.jar",
+          "type": "jar",
+          "sha256": "bf4feb94944d03cc12e6d64ac8827d2328e3992744a3ce836f3f561e2c896209",
+          "size": 1199051
+        }
+      ],
+      "owningNpmPackage": null,
+      "exactLicenseSelection": null,
+      "legalDocumentSha256s": [
+        "8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2"
+      ],
+      "reviewedAbsence": null
+    },
+    {
       "coordinate": "javax.inject:javax.inject:1",
       "pomSha256": "943e12b100627804638fa285805a0ab788a680266531e650921ebfe4621a8bfa",
       "pomLicenses": [
@@ -6264,8 +6463,8 @@
       "reviewedAbsence": null
     },
     {
-      "coordinate": "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.10",
-      "pomSha256": "5f4b94dd3065a7764c37fa15de2ad6d81f40d59f8cb33f17d181c6384fb7a72e",
+      "coordinate": "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.24",
+      "pomSha256": "06e06def49f96aaf6e5c3ec42836ae59d6e2da6254700914281675679dc9f2a5",
       "pomLicenses": [
         {
           "name": "The Apache License, Version 2.0",
@@ -6279,10 +6478,10 @@
       ],
       "artifacts": [
         {
-          "fileName": "kotlin-stdlib-jdk8-1.9.10.jar",
+          "fileName": "kotlin-stdlib-jdk8-1.9.24.jar",
           "type": "jar",
-          "sha256": "a4c74d94d64ce1abe53760fe0389dd941f6fc558d0dab35e47c085a11ec80f28",
-          "size": 965
+          "sha256": "5b5bbfb3e1184b5e13317c3d42237fa24add443b2e7781961eea334db136adb1",
+          "size": 967
         }
       ],
       "owningNpmPackage": null,
@@ -6584,7 +6783,7 @@
       "reviewedAbsence": null
     }
   ],
-  "projectComponentCount": 22,
+  "projectComponentCount": 23,
   "projectComponents": [
     {
       "coordinate": "gradle-project:::expo",
@@ -6934,14 +7133,30 @@
         "8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2",
         "ed1bbb0f45e47aad55abcfadbce9fb60beec13a755cb6d048ced5189ce917a46"
       ]
+    },
+    {
+      "coordinate": "gradle-project:::sentry_react-native",
+      "buildPath": ":",
+      "displayName": "project :sentry_react-native",
+      "projectPath": ":sentry_react-native",
+      "classification": "npm-production-source-project",
+      "npmCoordinate": "@sentry/react-native@7.11.0",
+      "npmIntegrity": "sha512-OiDaLCAGpRN18YG/o7IIwLhU0Xpb0tYKQ5QxkGHiwb+L3VHn+MqGCGfITYNdhqr06HHMvu9Lysm+UJxaNmGaJg==",
+      "selectedLicenses": [
+        "MIT"
+      ],
+      "legalDocumentSha256s": [
+        "8f08c824b2bb54eda2b6ee6053d2eeed46877b3b7b2ef3f60fc2b9fa580f54b2",
+        "f6201a2b36e05dad270ee15238a7dba1b609be9009634d84ae505627e9f6e24d"
+      ]
     }
   ],
   "unresolvedDependencyCount": 0,
   "unclassifiedLocalFileCount": 0,
   "unclassifiedResolvedArtifactCount": 0,
-  "resolvedArtifactCount": 222,
-  "moduleArtifactCount": 200,
-  "projectArtifactCount": 22,
+  "resolvedArtifactCount": 230,
+  "moduleArtifactCount": 207,
+  "projectArtifactCount": 23,
   "documents": [
     {
       "sha256": "04caed11bcb1929847055fe6868c38489bd0b6d95957704d2a3aef4b56c0df7c",
@@ -7342,6 +7557,16 @@
         {
           "source": "npm:react-native-video@6.18.0",
           "path": "LICENSE"
+        }
+      ]
+    },
+    {
+      "sha256": "f6201a2b36e05dad270ee15238a7dba1b609be9009634d84ae505627e9f6e24d",
+      "text": "The MIT License (MIT)\n\nCopyright (c) 2017-2024 Sentry\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.",
+      "sources": [
+        {
+          "source": "npm:@sentry/react-native@7.11.0",
+          "path": "LICENSE.md"
         }
       ]
     }

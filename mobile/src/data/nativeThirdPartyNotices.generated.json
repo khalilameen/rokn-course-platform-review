@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "androidDependencyCount": 234,
-  "androidProjectComponentCount": 22,
+  "androidDependencyCount": 241,
+  "androidProjectComponentCount": 23,
   "podDependencyCount": 113,
   "android": [
     {
@@ -1549,6 +1549,14 @@
       "firstPartyGenerated": false
     },
     {
+      "coordinate": "com.google.protobuf:protobuf-javalite:3.25.8",
+      "licenses": [
+        "BSD-3-Clause"
+      ],
+      "legalDocumentCount": 1,
+      "firstPartyGenerated": false
+    },
+    {
       "coordinate": "com.jakewharton:process-phoenix:2.1.2",
       "licenses": [
         "Apache-2.0"
@@ -1709,6 +1717,54 @@
       "firstPartyGenerated": false
     },
     {
+      "coordinate": "io.sentry:sentry-android-core:8.31.0",
+      "licenses": [
+        "MIT"
+      ],
+      "legalDocumentCount": 1,
+      "firstPartyGenerated": false
+    },
+    {
+      "coordinate": "io.sentry:sentry-android-ndk:8.31.0",
+      "licenses": [
+        "MIT"
+      ],
+      "legalDocumentCount": 1,
+      "firstPartyGenerated": false
+    },
+    {
+      "coordinate": "io.sentry:sentry-android-replay:8.31.0",
+      "licenses": [
+        "MIT"
+      ],
+      "legalDocumentCount": 1,
+      "firstPartyGenerated": false
+    },
+    {
+      "coordinate": "io.sentry:sentry-android:8.31.0",
+      "licenses": [
+        "MIT"
+      ],
+      "legalDocumentCount": 1,
+      "firstPartyGenerated": false
+    },
+    {
+      "coordinate": "io.sentry:sentry-native-ndk:0.12.3",
+      "licenses": [
+        "MIT"
+      ],
+      "legalDocumentCount": 1,
+      "firstPartyGenerated": false
+    },
+    {
+      "coordinate": "io.sentry:sentry:8.31.0",
+      "licenses": [
+        "MIT"
+      ],
+      "legalDocumentCount": 1,
+      "firstPartyGenerated": false
+    },
+    {
       "coordinate": "javax.inject:javax.inject:1",
       "licenses": [
         "Apache-2.0"
@@ -1781,7 +1837,7 @@
       "firstPartyGenerated": false
     },
     {
-      "coordinate": "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.10",
+      "coordinate": "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.24",
       "licenses": [
         "Apache-2.0"
       ],
@@ -2048,6 +2104,14 @@
     },
     {
       "coordinate": "gradle-project:::react-native-worklets",
+      "licenses": [
+        "MIT"
+      ],
+      "legalDocumentCount": 2,
+      "firstPartyGenerated": false
+    },
+    {
+      "coordinate": "gradle-project:::sentry_react-native",
       "licenses": [
         "MIT"
       ],
@@ -3011,5 +3075,5 @@
       ]
     }
   ],
-  "inventoryHash": "f78731c9090662711325c15203d7d11f4e14897ed6b0604b95d7720cf2f9bbf4"
+  "inventoryHash": "4c3745d8c89bd1a4ccacf0f5c65d5b478818b1e7465eef2c29b75631dd8bafcc"
 }
