@@ -93,4 +93,22 @@ final class CourseAuthoringPolicyTest extends TestCase
             (string) $sources[2]
         );
     }
+
+    public function test_unknown_provider_outcome_is_not_exposed_as_a_retryable_generic_failure(): void
+    {
+        $controller = file_get_contents(
+            dirname(__DIR__, 2).'/app/Http/Controllers/API/CourseChatController.php'
+        );
+
+        self::assertNotFalse($controller);
+        self::assertStringContainsString(
+            "'chat_provider_outcome_unknown'",
+            $controller
+        );
+        self::assertStringContainsString(
+            '$this->terminalFailureResponse($this->activeTurn, $clientRequestId)',
+            $controller
+        );
+        self::assertStringContainsString("'can_retry' => \$canRetry", $controller);
+    }
 }

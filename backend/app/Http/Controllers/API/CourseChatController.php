@@ -87,7 +87,11 @@ final class CourseChatController extends Controller
                     (int) config('projects.maximum_file_kilobytes', 25600),
                     (int) floor((int) config('openrouter.attachment_provider_max_bytes', 8388608) / 1024)
                 ),
-                'mimetypes:' . implode(',', $this->attachments->allowedMimeTypes()),
+                'mimetypes:' . implode(',', [
+                    ...$this->attachments->allowedMimeTypes(),
+                    'application/zip',
+                    'application/x-zip-compressed',
+                ]),
             ],
         ]);
         try {
@@ -295,15 +299,20 @@ final class CourseChatController extends Controller
             ]);
         }
 
+        $failureCode = (string) ($turn->error_code ?: 'chat_turn_failed');
+        $canRetry = $this->terminalFailureCanRetry($failureCode);
+
         return response()->json([
             'status' => 200,
             'success' => true,
-            'code' => (string) ($turn->error_code ?: 'chat_turn_failed'),
+            'code' => $failureCode,
             'message' => 'لم تكتمل الإجابة',
             'data' => [
-                'message' => "لم تكتمل الإجابة السابقة\nأرسل السؤال مرة أخرى",
+                'message' => $canRetry
+                    ? "لم تكتمل الإجابة السابقة\nأرسل السؤال مرة أخرى"
+                    : 'تعذّر تأكيد نتيجة الإجابة السابقة',
                 'unavailable' => true,
-                'can_retry' => true,
+                'can_retry' => $canRetry,
                 'retry_after_seconds' => 1,
                 'client_request_id' => (string) $turn->client_request_id,
                 'turn_status' => (string) $turn->status,
@@ -559,13 +568,7 @@ final class CourseChatController extends Controller
             CourseChatTurn::FAILED,
             CourseChatTurn::CANCELLED,
         ], true)) {
-            return $this->gracefulUnavailable(
-                "لم تكتمل الإجابة السابقة\nأرسل السؤال مرة أخرى",
-                1,
-                'chat_turn_failed',
-                $clientRequestId,
-                'failed'
-            );
+            return $this->terminalFailureResponse($this->activeTurn, $clientRequestId);
         }
         $prior = AiUsageEvent::query()
             ->where('request_id', $clientRequestId)
@@ -654,12 +657,9 @@ final class CourseChatController extends Controller
                         );
                     }
 
-                    return $this->gracefulUnavailable(
-                        "لم تكتمل الإجابة السابقة\nأرسل السؤال مرة أخرى",
-                        1,
-                        'chat_turn_failed',
-                        $clientRequestId,
-                        'failed'
+                    return $this->terminalFailureResponse(
+                        $this->activeTurn->fresh(),
+                        $clientRequestId
                     );
                 }
 
@@ -991,12 +991,9 @@ final class CourseChatController extends Controller
                 }
 
                 if (($result['turn_state'] ?? null) === 'failed') {
-                    return $this->gracefulUnavailable(
-                        "لم تكتمل الإجابة السابقة\nأرسل السؤال مرة أخرى",
-                        1,
-                        'chat_turn_failed',
-                        $clientRequestId,
-                        'failed'
+                    return $this->terminalFailureResponse(
+                        $this->activeTurn->fresh(),
+                        $clientRequestId
                     );
                 }
 
@@ -1303,7 +1300,8 @@ final class CourseChatController extends Controller
         int $retryAfter,
         string $code,
         ?string $clientRequestId = null,
-        string $turnStatus = 'failed'
+        string $turnStatus = 'failed',
+        bool $canRetry = true
     ): JsonResponse
     {
         if ($turnStatus === CourseChatTurn::STREAMING) {
@@ -1320,11 +1318,39 @@ final class CourseChatController extends Controller
             'data' => [
                 'message' => $message,
                 'unavailable' => true,
-                'can_retry' => true,
+                'can_retry' => $canRetry,
                 'retry_after_seconds' => max(1, $retryAfter),
                 'client_request_id' => $clientRequestId,
                 'turn_status' => $turnStatus,
             ],
         ]);
+    }
+
+    private function terminalFailureResponse(
+        ?CourseChatTurn $turn,
+        string $clientRequestId
+    ): JsonResponse {
+        $code = (string) ($turn?->error_code ?: 'chat_turn_failed');
+        $canRetry = $this->terminalFailureCanRetry($code);
+
+        return $this->gracefulUnavailable(
+            $canRetry
+                ? "لم تكتمل الإجابة السابقة\nأرسل السؤال مرة أخرى"
+                : 'تعذّر تأكيد نتيجة الإجابة السابقة',
+            1,
+            $code,
+            $clientRequestId,
+            'failed',
+            $canRetry
+        );
+    }
+
+    private function terminalFailureCanRetry(string $code): bool
+    {
+        return !in_array($code, [
+            'chat_provider_outcome_unknown',
+            'learner_cancelled',
+            'chat_turn_cancelled',
+        ], true);
     }
 }
