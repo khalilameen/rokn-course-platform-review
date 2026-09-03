@@ -85,7 +85,9 @@ final class OoxmlAttachmentPolicyTest extends TestCase
         $zip = new ZipArchive();
         self::assertTrue($zip->open($path, ZipArchive::OVERWRITE) === true);
         $main = $type === 'docx' ? 'word/document.xml' : 'ppt/presentation.xml';
-        $root = $type === 'docx' ? '<w:document/>' : '<p:presentation/>';
+        $root = $type === 'docx'
+            ? '<w:document><w:p><w:r><w:t>محاولة مشروع مكتوبة بوضوح</w:t></w:r></w:p></w:document>'
+            : '<p:presentation/>';
         $zip->addFromString(
             '_rels/.rels',
             "<Relationships><Relationship Type=\"officeDocument\" Target=\"{$main}\"/></Relationships>"
