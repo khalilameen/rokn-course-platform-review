@@ -14,7 +14,7 @@ test('mutable external package URLs are rejected', () => {
 });
 
 test('static CDN assets without exact SRI are rejected', () => {
-    const errors = validateExternalTag('<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>');
+    const errors = validateExternalTag('<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>');
     assert.match(errors.join('\n'), /SRI/);
 });
 
