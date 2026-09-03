@@ -706,6 +706,39 @@ final class BackendHardeningTest extends TestCase
         }
     }
 
+    public function test_project_effort_guard_rejects_empty_documents_without_grading_real_work(): void
+    {
+        $service = app(ProjectSubmissionService::class);
+        $detect = new \ReflectionMethod(ProjectSubmissionService::class, 'detectEffort');
+
+        $emptyText = UploadedFile::fake()->createWithContent(
+            'empty.txt',
+            str_repeat(" \n", 300)
+        );
+        self::assertSame(
+            ProjectSubmission::EFFORT_INVALID,
+            $detect->invoke($service, null, [$emptyText])
+        );
+
+        $brokenPdf = UploadedFile::fake()->createWithContent(
+            'broken.pdf',
+            "%PDF-1.7\n".str_repeat('x', 700)."\n%%EOF"
+        );
+        self::assertSame(
+            ProjectSubmission::EFFORT_INVALID,
+            $detect->invoke($service, null, [$brokenPdf])
+        );
+
+        $realNote = UploadedFile::fake()->createWithContent(
+            'work.txt',
+            str_repeat('شرحت ما نفذته في المشروع والنتيجة التي وصلت إليها ', 20)
+        );
+        self::assertSame(
+            ProjectSubmission::EFFORT_VALID,
+            $detect->invoke($service, null, [$realNote])
+        );
+    }
+
     public function test_admin_downloads_project_file_from_private_submission_path(): void
     {
         Storage::fake('local');

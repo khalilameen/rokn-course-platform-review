@@ -27,6 +27,7 @@ use App\Support\DownloadFilename;
 use App\Support\DurableJobDispatch;
 use App\Support\ProjectSubmissionEvaluationSnapshot;
 use App\Support\UnicodeText;
+use ZipArchive;
 
 final class ProjectSubmissionService
 {
@@ -776,7 +777,7 @@ final class ProjectSubmissionService
                 if ((int) $file->getSize() < (int) config('projects.minimum_file_bytes', 512)) {
                     continue;
                 }
-                if (!str_starts_with((string) $file->getMimeType(), 'image/') || !$this->isBlankImage($file)) {
+                if ($this->isMeaningfulFile($file)) {
                     return ProjectSubmission::EFFORT_VALID;
                 }
             }
@@ -789,6 +790,81 @@ final class ProjectSubmissionService
             && !$this->isObviousGaming($plainText)
             ? ProjectSubmission::EFFORT_VALID
             : ProjectSubmission::EFFORT_INVALID;
+    }
+
+    private function isMeaningfulFile(UploadedFile $file): bool
+    {
+        $mime = strtolower((string) $file->getMimeType());
+        if (str_starts_with($mime, 'image/')) {
+            return !$this->isBlankImage($file);
+        }
+
+        $path = $file->getRealPath();
+        if (!is_string($path) || $path === '' || !is_readable($path)) {
+            return false;
+        }
+
+        if ($mime === 'text/plain') {
+            $body = file_get_contents($path, false, null, 0, 65536);
+            if (!is_string($body)) return false;
+            $body = UnicodeText::clean($body);
+
+            return UnicodeText::graphemeLength($body) >= (int) config('projects.minimum_text_length', 10)
+                && !$this->isObviousGaming($body);
+        }
+
+        if ($mime === 'application/pdf') {
+            $body = file_get_contents($path);
+            if (!is_string($body) || !str_starts_with($body, '%PDF-')) return false;
+            $eof = strrpos($body, '%%EOF');
+            $page = strpos($body, '/Type /Page');
+            $stream = strpos($body, 'stream');
+            $endStream = $stream === false ? false : strpos($body, 'endstream', $stream + 6);
+
+            return $eof !== false && $page !== false && $stream !== false
+                && $endStream !== false
+                && trim(substr($body, $stream + 6, $endStream - $stream - 6)) !== '';
+        }
+
+        if (in_array($mime, [
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        ], true)) {
+            if (!class_exists(ZipArchive::class)) return false;
+            $archive = new ZipArchive();
+            if ($archive->open($path) !== true) return false;
+            try {
+                $mainEntry = $mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                    ? 'word/document.xml'
+                    : 'ppt/presentation.xml';
+                if ($archive->locateName('[Content_Types].xml') === false
+                    || $archive->locateName($mainEntry) === false) {
+                    return false;
+                }
+
+                for ($index = 0; $index < $archive->numFiles; $index++) {
+                    $name = (string) $archive->getNameIndex($index);
+                    if (preg_match('#^(?:word|ppt)/media/[^/]+$#', $name) === 1) {
+                        $stat = $archive->statIndex($index);
+                        if ((int) ($stat['size'] ?? 0) > 0) return true;
+                    }
+                    if (preg_match('#^(?:word/document|ppt/slides/slide[0-9]+)\.xml$#', $name) !== 1) {
+                        continue;
+                    }
+                    $xml = $archive->getFromIndex($index);
+                    if (is_string($xml)
+                        && preg_match('/<(?:w:t|a:t)(?:\s[^>]*)?>\s*[^<\s][^<]*</u', $xml) === 1) {
+                        return true;
+                    }
+                }
+
+                return false;
+            } finally {
+                $archive->close();
+            }
+        }
+
+        return false;
     }
 
     private function submissionIncludesProjectReport(ProjectSubmission $submission): bool
