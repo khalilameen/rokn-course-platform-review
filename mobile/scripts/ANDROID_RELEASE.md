@@ -8,18 +8,19 @@ debug key, or development API cannot leak into a store artifact.
 
 | Command | Output | Signing | Quality gates |
 | --- | --- | --- | --- |
-| `npm run apk:test` | `artifacts/Rokn-test.apk` | Debug key | Android compilation |
-| `npm run apk:direct` | `artifacts/Rokn-direct.apk` | Release upload key | TypeScript, ESLint, Jest, Android lint/unit tests |
-| `npm run aab:play` | `artifacts/Rokn-play.aab` | Release upload key | TypeScript, ESLint, Jest, Android lint/unit tests |
+| `npm run apk:test` | `artifacts/Rokn-internal-test.apk` | Debug key | Android compilation |
+| `npm run apk:direct` | `artifacts/Rokn-direct.apk` | Direct application-signing key | TypeScript, ESLint, Jest, Android lint/unit tests |
+| `npm run aab:play` | `artifacts/Rokn-play.aab` | Google Play upload key | TypeScript, ESLint, Jest, Android lint/unit tests |
 
 `npm run apk` is a convenience alias for the installable test APK. `npm run
 apk:play` is a compatibility alias for the Play AAB; Play never receives an APK
 from this pipeline.
 
-The test APK targets `arm64-v8a` by default to keep local iteration fast. Set
-`ROKN_ANDROID_ARCHITECTURES` when a test device needs another ABI. The direct
-production APK includes both ARM ABIs, and the Play bundle includes all supported
-ABIs for Play-managed delivery.
+The test APK includes `armeabi-v7a`, `arm64-v8a`, and `x86_64` so it covers the
+Android 7+ device floor and the common emulator. Set
+`ROKN_ANDROID_ARCHITECTURES` only when a test device needs a different ABI. The
+direct production APK includes both ARM ABIs, and the Play bundle includes all
+supported ABIs for Play-managed delivery.
 
 ## Production environment
 
@@ -42,11 +43,31 @@ UPLOAD_KEY_ALIAS=...
 UPLOAD_KEY_PASSWORD=...
 ```
 
+For `apk:direct`, these variables must identify the exact private key whose
+certificate signed the previous public direct APK. The Gradle property names are
+historical: a Google Play **upload key** is not automatically the direct
+application-signing key. Creating a new keystore, or substituting the debug or
+Play upload key, produces an APK that Android cannot install over the existing
+application.
+
+If the direct signing credential is managed by EAS, use the existing
+`production-direct` project credential or recover that same credential into
+protected external storage. Do not let EAS generate a replacement. Before a
+release, set `ROKN_ANDROID_APP_SIGNING_SHA256` in the build process to the
+certificate fingerprint of the last public direct APK. The script rejects a
+different signer without printing or storing any private-key material.
+
 Production and Play configuration fails if any value is missing, incomplete,
 or the keystore does not exist. A production APK is also checked after the build
 and rejected if its certificate is the Android debug certificate. The Play AAB
 is verified with the JDK signer as well. Production artifacts can only be built
 from a clean Git tree; local investigations use `npm run apk:test`.
+
+When a previous APK has no provenance sidecar, retain it as the signer reference
+until the credential is recovered. Verify an in-place update from that installed
+APK; never uninstall it merely to hide a certificate mismatch. APKs signed by
+different certificates are separate Android lineages and cannot update one
+another.
 
 ## Diagnostics and symbol files
 

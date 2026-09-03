@@ -6,20 +6,27 @@
 <div class="admin-page">
     <div class="card admin-hero mb-4">
         <div class="card-body">
-            <h1 class="h3 mb-2">مركز تشغيل ركن</h1>
-            <p class="admin-hero__description">صورة واحدة لما يراه الطالب وما يحتاج متابعة من الفريق</p>
+            <div class="d-flex flex-wrap justify-content-between align-items-center admin-gap">
+                <div>
+                    <h1 class="h3 mb-2">مركز تشغيل ركن</h1>
+                    <p class="admin-hero__description mb-0">صورة واحدة لما يراه الطالب وما يحتاج متابعة من الفريق</p>
+                </div>
+                <span class="badge {{ $launchReady ? 'badge-success' : 'badge-danger' }} p-2">
+                    {{ $launchReady ? 'جاهز للإطلاق' : 'الإطلاق الكامل غير جاهز' }}
+                </span>
+            </div>
         </div>
     </div>
 
-    <div class="card admin-card mb-4 {{ $operationalIncidents->where('severity', 'critical')->isNotEmpty() ? 'border-danger' : ($operationalIncidents->isNotEmpty() ? 'border-warning' : '') }}">
+    <div class="card admin-card mb-4 {{ $operationalIncidents->where('severity', 'critical')->isNotEmpty() || $runtimeHeartbeatFailures->isNotEmpty() ? 'border-danger' : ($operationalIncidents->isNotEmpty() ? 'border-warning' : '') }}">
         <div class="card-body">
             <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 admin-gap">
                 <div>
                     <h2 class="h5 mb-1">التشغيل تحت الضغط</h2>
                     <small class="text-muted">العامل والجدولة والمهام المتأخرة والأعطال التي لا يراها الطالب</small>
                 </div>
-                <span class="badge {{ $operationalIncidents->isEmpty() ? 'badge-success' : 'badge-danger' }} p-2">
-                    {{ $operationalIncidents->isEmpty() ? 'لا توجد أعطال مفتوحة' : number_format($operationalIncidents->count()).' عطل مفتوح' }}
+                <span class="badge {{ $operationalIncidents->isEmpty() && $runtimeHeartbeatFailures->isEmpty() ? 'badge-success' : 'badge-danger' }} p-2">
+                    {{ $operationalIncidents->isEmpty() && $runtimeHeartbeatFailures->isEmpty() ? 'لا توجد أعطال مفتوحة' : 'التشغيل يحتاج متابعة' }}
                 </span>
             </div>
 
@@ -37,7 +44,10 @@
                             {{ $state['healthy'] ? 'يعمل' : 'متأخر' }}
                         </span>
                         <strong>{{ $queue }}</strong>
-                        <small class="d-block text-muted mt-1">في الانتظار {{ $state['size'] === null ? 'غير متاح' : number_format($state['size']) }}</small>
+                        <small class="d-block text-muted mt-1">
+                            في الانتظار {{ $state['size'] === null ? 'غير متاح' : number_format($state['size']) }}
+                            · آخر نبض {{ $state['last_heartbeat_at'] ? \App\Support\BusinessClock::relative($state['last_heartbeat_at']) : 'لم يصل' }}
+                        </small>
                     </div>
                 @endforeach
             </div>
@@ -341,7 +351,8 @@
         <div class="col-lg-7 mb-3"><div class="card admin-card h-100"><div class="card-body">
             <h2 class="h5 mb-3">جاهزية التشغيل</h2><div class="row">
             @foreach([
-                'hero' => 'كورس رئيسي واحد', 'published_course' => 'كورس منشور للتجربة',
+                'hero' => 'كورس رئيسي واحد', 'published_course' => 'كورس ظاهر فعليًا في التطبيق',
+                'auth_methods' => 'طرق الدخول المعلنة ظاهرة وجاهزة',
                 'packages' => 'باقات قابلة للشراء', 'reward_tasks' => 'مهام ربح فعالة',
                 'support' => 'دعم واتساب',
                 'private_attachments' => 'المرفقات الداخلية خارج المسار العام',
@@ -382,14 +393,17 @@
                     ['فتح التطبيق على Android', data_get($capabilityReport, 'capabilities.app_links.android')],
                     ['فتح التطبيق على Apple', data_get($capabilityReport, 'capabilities.app_links.apple')],
                     ['عامل المهام Queue', data_get($capabilityReport, 'capabilities.queue')],
+                    ['النسخ المطلوبة للتطبيق', $mobileReleaseCapability],
+                    ['النسخ الاحتياطي والاستعادة', data_get($capabilityReport, 'capabilities.recovery')],
                 ];
             @endphp
             <hr>
             <h3 class="h6 mb-3">جاهزية البنية — كل قدرة مستقلة</h3>
             @foreach($infrastructure as [$label, $capability])
                 <div class="d-flex align-items-start mb-3 admin-gap">
-                    <span class="badge {{ data_get($capability, 'ready') ? 'badge-success' : 'badge-danger' }} mt-1">
-                        {{ data_get($capability, 'ready') ? 'الإعداد مكتمل' : 'ناقص' }}
+                    @php($optional = data_get($capability, 'required') === false)
+                    <span class="badge {{ $optional ? 'badge-secondary' : (data_get($capability, 'ready') ? 'badge-success' : 'badge-danger') }} mt-1">
+                        {{ $optional ? 'غير معلن' : (data_get($capability, 'ready') ? 'الإعداد مكتمل' : 'ناقص') }}
                     </span>
                     <div><strong class="d-block">{{ $label }}</strong><small class="text-muted">{{ data_get($capability, 'reason', 'لم يتم الفحص') }}</small></div>
                 </div>

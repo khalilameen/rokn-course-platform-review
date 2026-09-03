@@ -28,6 +28,8 @@ use App\Models\OutboxEvent;
 use App\Models\WebhookDelivery;
 use App\Jobs\DeliverOutboxEvent;
 use App\Services\ProductionCapabilityService;
+use App\Services\AppReleasePolicyService;
+use App\Services\CourseCatalogueQueryService;
 use App\Support\BusinessClock;
 use App\Support\AdminSingletonLock;
 use App\Services\OperationsReadinessService;
@@ -48,6 +50,8 @@ class ProductOperationsController extends Controller
 {
     public function index(
         ProductionCapabilityService $capabilities,
+        AppReleasePolicyService $releasePolicy,
+        CourseCatalogueQueryService $catalogue,
         PlaybackOperationsService $playbackOperationsService,
         OperationsReadinessService $operationsReadiness,
         ProductFeatureFlagService $productFeatureFlags,
@@ -80,6 +84,24 @@ class ProductOperationsController extends Controller
 
         $settings = Setting::query()->first() ?? new Setting();
         $capabilityReport = $capabilities->report();
+        $mobileRelease = $releasePolicy->launchReadiness();
+        $missingReleaseChannels = collect($mobileRelease['required_channels'] ?? [])
+            ->reject(fn (string $channel): bool => (bool) data_get($mobileRelease, "channels.{$channel}.ready"))
+            ->map(fn (string $channel): string => match ($channel) {
+                AppReleasePolicyService::CHANNEL_DIRECT => 'نسخة APK المباشرة',
+                AppReleasePolicyService::CHANNEL_PLAY => 'نسخة Google Play',
+                AppReleasePolicyService::CHANNEL_APP_STORE => 'نسخة App Store',
+                default => $channel,
+            })
+            ->values();
+        $mobileReleaseCapability = [
+            'ready' => (bool) ($mobileRelease['ready'] ?? false),
+            'reason' => (bool) ($mobileRelease['ready'] ?? false)
+                ? 'توجد نسخة فعالة لكل قناة إصدار معلنة'
+                : ($missingReleaseChannels->isEmpty()
+                    ? 'لا توجد قناة إصدار معلنة'
+                    : 'لا توجد نسخة فعالة وصالحة: '.$missingReleaseChannels->implode(' و')),
+        ];
         $legacyPublicAttachments = Attachment::query()
             ->where('attachable_type', CourseModule::class)
             ->where(function ($query): void {
@@ -89,7 +111,10 @@ class ProductOperationsController extends Controller
 
         $readiness = [
             'hero' => Course::query()->whereNull('parent_id')->where('is_main_course', true)->count() === 1,
-            'published_course' => Course::query()->whereNull('parent_id')->where('is_coming_soon', false)->exists(),
+            // Measure the public boundary itself. A published database row can
+            // still be hidden or malformed and therefore absent from the app.
+            'published_course' => $catalogue->constrainPublic(Course::query())->exists(),
+            'auth_methods' => (bool) data_get($capabilityReport, 'capabilities.social.ready'),
             'packages' => Package::query()->where('price', '>', 0)->where('coins', '>', 0)->exists(),
             'reward_tasks' => CoinEarningMethod::query()->active()->exists(),
             'support' => filled($settings->support_whatsapp_url),
@@ -250,6 +275,15 @@ class ProductOperationsController extends Controller
         $featureFlags = $productFeatureFlags->operationalSnapshot();
         $providerEvidence = $providerEvidenceService->report();
         $runtime = $operationalRuntime->snapshot();
+        $runtimeHeartbeatFailures = collect(data_get($runtime, 'queues', []))
+            ->filter(fn (array $queue): bool => !(bool) ($queue['healthy'] ?? false))
+            ->keys()
+            ->values();
+        if (!(bool) data_get($runtime, 'scheduler.healthy')) {
+            $runtimeHeartbeatFailures->prepend('scheduler');
+        }
+        $launchReady = (bool) data_get($capabilityReport, 'ready')
+            && (bool) ($mobileRelease['ready'] ?? false);
         $operationalIncidents = Schema::hasTable('operational_incidents')
             ? OperationalIncident::query()
                 ->where('status', OperationalIncident::STATUS_OPEN)
@@ -263,7 +297,8 @@ class ProductOperationsController extends Controller
             'courses', 'settings', 'readiness', 'counts', 'finance', 'capabilityReport', 'mediaAttention',
             'playbackOperations', 'mediaReconcileStatus', 'backupReadiness', 'featureFlags',
             'financialAnomalies', 'paymentChannelReport', 'storeNotificationReviews', 'providerEvidence',
-            'runtime', 'operationalIncidents'
+            'runtime', 'operationalIncidents', 'runtimeHeartbeatFailures', 'launchReady',
+            'mobileReleaseCapability'
         ));
     }
 
