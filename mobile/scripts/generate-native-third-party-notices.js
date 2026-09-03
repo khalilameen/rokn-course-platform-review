@@ -320,6 +320,14 @@ const POD_UPSTREAM_LEGAL_DOCUMENTS = new Map([
 
 const POD_EXACT_LICENSE_SELECTIONS = new Map([
   [
+    'GTMSessionFetcher@3.5.0',
+    {
+      license: 'Apache-2.0',
+      reason:
+        "The exact GTMSessionFetcher 3.5.0 podspec abbreviates its license as 'Apache'; the installed LICENSE contains the reviewed Apache License 2.0 terms.",
+    },
+  ],
+  [
     'glog@0.3.5',
     {
       license: 'BSD-3-Clause',

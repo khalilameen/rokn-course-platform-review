@@ -122,6 +122,63 @@ test('normalizes reviewed Maven and Pod license metadata', () => {
     reason:
       "The exact SocketRocket 0.7.1 podspec says 'BSD'; its installed LICENSE contains the reviewed BSD 3-Clause terms and Facebook attribution.",
   });
+  assert.deepEqual(
+    POD_EXACT_LICENSE_SELECTIONS.get('GTMSessionFetcher@3.5.0'),
+    {
+      license: 'Apache-2.0',
+      reason:
+        "The exact GTMSessionFetcher 3.5.0 podspec abbreviates its license as 'Apache'; the installed LICENSE contains the reviewed Apache License 2.0 terms.",
+    },
+  );
+});
+
+test('applies the exact reviewed Apache selection only to GTMSessionFetcher 3.5.0', async () => {
+  const spec = Buffer.from(
+    JSON.stringify({
+      homepage: 'https://github.com/google/gtm-session-fetcher',
+      license: {type: 'Apache', file: 'LICENSE'},
+      source: {
+        git: 'https://github.com/google/gtm-session-fetcher.git',
+        tag: 'v3.5.0',
+      },
+    }),
+    'utf8',
+  );
+  const originalFetch = global.fetch;
+  global.fetch = async () =>
+    new Response(spec, {
+      status: 200,
+      headers: {'content-type': 'application/json'},
+    });
+  try {
+    const record = await buildRemotePodRecord(
+      {
+        coordinate: 'GTMSessionFetcher@3.5.0',
+        name: 'GTMSessionFetcher',
+        specChecksum: crypto.createHash('sha1').update(spec).digest('hex'),
+      },
+      new Map(),
+    );
+    assert.deepEqual(record.selectedLicenses, ['Apache-2.0']);
+    assert.deepEqual(
+      record.exactLicenseSelection,
+      POD_EXACT_LICENSE_SELECTIONS.get('GTMSessionFetcher@3.5.0'),
+    );
+
+    await assert.rejects(
+      buildRemotePodRecord(
+        {
+          coordinate: 'UnreviewedApachePod@1.0.0',
+          name: 'UnreviewedApachePod',
+          specChecksum: crypto.createHash('sha1').update(spec).digest('hex'),
+        },
+        new Map(),
+      ),
+      /has no reviewed license classification for raw term "Apache"/,
+    );
+  } finally {
+    global.fetch = originalFetch;
+  }
 });
 
 test('applies exact reviewed license selections to remote CocoaPods specs', async () => {
