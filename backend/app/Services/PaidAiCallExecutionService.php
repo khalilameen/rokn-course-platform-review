@@ -115,7 +115,14 @@ final class PaidAiCallExecutionService
         $metadata['provider_call_started_at'] = now()->toIso8601String();
         $metadata['provider_call_attempt'] = max(0, (int) ($metadata['provider_call_attempt'] ?? 0)) + 1;
         unset($metadata['provider_retry_safe_at']);
-        $locked->forceFill(['metadata' => $metadata])->save();
+        $locked->forceFill([
+            'metadata' => $metadata,
+            // The reservation is a worker lease, not a wall clock measured
+            // from the first queue attempt. A retry can legitimately begin
+            // after the original lease, and the minute sweeper must not turn
+            // that live paid request into an unknown terminal outcome.
+            'reservation_expires_at' => now()->addSeconds($this->reservationLeaseSeconds()),
+        ])->save();
         return self::START;
     }
 
@@ -239,8 +246,23 @@ final class PaidAiCallExecutionService
             if (!hash_equals((string) ($metadata['worker_execution_id'] ?? ''), $executionId)) return;
             $metadata['provider_call_state'] = 'retry_safe';
             $metadata['provider_retry_safe_at'] = now()->toIso8601String();
-            $locked->forceFill(['metadata' => $metadata])->save();
+            $locked->forceFill([
+                'metadata' => $metadata,
+                // Cover the queue backoff and the next owned attempt. The
+                // same usage event and request id remain reserved, so this
+                // extends recovery safety without granting another message.
+                'reservation_expires_at' => now()->addSeconds($this->reservationLeaseSeconds()),
+            ])->save();
         }, 3);
+    }
+
+    private function reservationLeaseSeconds(): int
+    {
+        return max(
+            60,
+            (int) config('course_plans.ai_reservation_ttl_seconds', 120),
+            (int) config('openrouter.timeout_seconds', 45) + 60
+        );
     }
 
     public function settleUnknown(

@@ -60,6 +60,26 @@ final class ProductionQueueTopologyTest extends TestCase
         );
     }
 
+    public function test_each_paid_ai_worker_attempt_renews_its_reservation_lease(): void
+    {
+        $source = file_get_contents(
+            base_path('app/Services/PaidAiCallExecutionService.php')
+        );
+
+        self::assertIsString($source);
+        self::assertGreaterThanOrEqual(
+            2,
+            substr_count(
+                $source,
+                "'reservation_expires_at' => now()->addSeconds(\$this->reservationLeaseSeconds())"
+            )
+        );
+        self::assertStringContainsString(
+            "\$metadata['provider_call_state'] = 'retry_safe'",
+            $source
+        );
+    }
+
     public function test_outbox_queue_has_a_dedicated_worker_contract(): void
     {
         self::assertSame('webhooks', config('webhooks.queue'));
