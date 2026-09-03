@@ -11,6 +11,7 @@ use App\Models\CourseAuthoringRevision;
 use App\Models\CourseSection;
 use App\Models\Lesson;
 use App\Models\User;
+use App\Support\DatabaseCapabilities;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Cache;

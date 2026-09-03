@@ -125,6 +125,7 @@ const secretNames = [
   'ROKN_SMOKE_APK_PROVENANCE_URL',
   'ROKN_SMOKE_FORCED_UPDATE_FIXTURE_URL',
   'ROKN_SMOKE_APK_SIGNER_SHA256',
+  'SENTRY_AUTH_TOKEN',
 ];
 const auditedNonSecretNames = new Set([
   'DEVICE_TOKEN',

@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Models\Course;
 use App\Models\CourseAuthoringRevision;
+use App\Support\DatabaseCapabilities;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
@@ -55,10 +56,12 @@ final class CourseAuthoringConcurrencyService
 
     private function lockMutableCourse(Course $course): Course
     {
-        $identity = CourseAuthoringRevision::query()
-            ->where('revision_course_id', $course->id)
-            ->latest('id')
-            ->first();
+        $identity = DatabaseCapabilities::hasTable('course_authoring_revisions')
+            ? CourseAuthoringRevision::query()
+                ->where('revision_course_id', $course->id)
+                ->latest('id')
+                ->first()
+            : null;
         if (!$identity) {
             $locked = Course::query()->whereKey($course->id)->lockForUpdate()->firstOrFail();
             $this->assertMutableDraft($locked, null);

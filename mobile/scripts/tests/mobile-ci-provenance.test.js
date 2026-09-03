@@ -416,9 +416,11 @@ test('workflow is discoverable from the monorepo root and preserves native check
   assert.match(
     workflow,
     new RegExp(
-      `bundle _${bundlerVersion.replaceAll('.', '\\.')}_ exec pod install --deployment`,
+      `bundle _${bundlerVersion.replaceAll('.', '\\.')}_ exec pod install`,
     ),
   );
+  assert.match(workflow, /git diff --exit-code -- ios\/Podfile\.lock/);
+  assert.match(workflow, /name: generated-ios-podfile-lock/);
   assert.equal([...workflow.matchAll(/NODE_ENV: production/g)].length, 3);
   assert.match(workflow, /npm run licenses:native:check/);
   assert.match(

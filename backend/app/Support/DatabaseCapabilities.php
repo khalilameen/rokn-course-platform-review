@@ -25,6 +25,9 @@ final class DatabaseCapabilities
 
     public static function hasTable(string $table): bool
     {
+        if (self::schemaIsMutableInProcess()) {
+            return Schema::hasTable($table);
+        }
         $key = self::connectionKey() . ':table:' . $table;
 
         return self::$tables[$key] ??= Schema::hasTable($table);
@@ -32,6 +35,9 @@ final class DatabaseCapabilities
 
     public static function hasColumn(string $table, string $column): bool
     {
+        if (self::schemaIsMutableInProcess()) {
+            return Schema::hasColumn($table, $column);
+        }
         $key = self::connectionKey() . ':column:' . $table . ':' . $column;
 
         return self::$columns[$key] ??= Schema::hasColumn($table, $column);
@@ -60,5 +66,16 @@ final class DatabaseCapabilities
         $connection = DB::connection();
 
         return $connection->getName() . ':' . (string) $connection->getDatabaseName();
+    }
+
+    /**
+     * A production worker sees one migrated schema for its whole lifetime.
+     * The test runner intentionally creates and drops different partial
+     * schemas on the same in-memory connection, so a process-wide negative
+     * capability from one test is not evidence about the next one.
+     */
+    private static function schemaIsMutableInProcess(): bool
+    {
+        return app()->runningUnitTests();
     }
 }

@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Models\Course;
 use App\Models\CourseAuthoringRevision;
+use App\Support\DatabaseCapabilities;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -20,12 +21,17 @@ final class CourseHeroSelectionService
     ): void {
         DB::transaction(function () use ($course, $expectedAuthoringVersion, $requestedMain): void {
             /** @var Collection<int, Course> $rootCourses */
-            $rootCourses = Course::query()
-                ->whereNull('parent_id')
+            $rootQuery = Course::query()->whereNull('parent_id');
+            if (DatabaseCapabilities::hasTable('course_authoring_revisions')) {
                 // Drafts and retained archives are implementation copies, not
                 // public hero candidates. Touching one here would silently
                 // overwrite an unrelated moderator's pending selection.
-                ->whereNotIn('id', CourseAuthoringRevision::query()->select('revision_course_id'))
+                $rootQuery->whereNotIn(
+                    'id',
+                    CourseAuthoringRevision::query()->select('revision_course_id')
+                );
+            }
+            $rootCourses = $rootQuery
                 ->orderBy('id')
                 ->lockForUpdate()
                 ->get([

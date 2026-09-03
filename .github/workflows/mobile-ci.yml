@@ -152,11 +152,22 @@ jobs:
           npm ci --include=dev
           gem install bundler --version 4.0.20 --no-document
           bundle _4.0.20_ install
-      - name: Verify the checked-in iOS dependency lock
-        run: npm run verify:ios-lock
       - name: Resolve pinned CocoaPods dependencies
         working-directory: mobile/ios
-        run: bundle _4.0.20_ exec pod install --deployment
+        run: bundle _4.0.20_ exec pod install
+      - name: Verify the generated iOS dependency lock is committed
+        id: ios_lock
+        run: |
+          npm run verify:ios-lock
+          git diff --exit-code -- ios/Podfile.lock
+      - name: Upload the generated iOS dependency lock
+        if: ${{ failure() && steps.ios_lock.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: generated-ios-podfile-lock
+          path: mobile/ios/Podfile.lock
+          if-no-files-found: error
+          retention-days: 1
       - name: Verify installed native legal provenance
         run: npm run licenses:native:check
       - name: Build the unsigned Release target for an iOS device

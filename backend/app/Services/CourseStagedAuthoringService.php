@@ -74,6 +74,7 @@ final class CourseStagedAuthoringService
 
     public function canonicalFor(Course $course): Course
     {
+        if (!DatabaseCapabilities::hasTable('course_authoring_revisions')) return $course;
         $revision = CourseAuthoringRevision::query()
             ->where('revision_course_id', $course->id)->latest('id')->first();
 
@@ -84,6 +85,7 @@ final class CourseStagedAuthoringService
 
     public function isManagedDraft(Course $course): bool
     {
+        if (!DatabaseCapabilities::hasTable('course_authoring_revisions')) return false;
         return CourseAuthoringRevision::query()
             ->where('revision_course_id', $course->id)
             ->where('status', CourseAuthoringRevision::DRAFT)
@@ -243,6 +245,7 @@ final class CourseStagedAuthoringService
 
     public function activeArchiveForCourse(Course $course): ?CourseAuthoringRevision
     {
+        if (!DatabaseCapabilities::hasTable('course_authoring_revisions')) return null;
         return CourseAuthoringRevision::query()
             ->where('revision_course_id', $course->id)
             ->where('status', CourseAuthoringRevision::ARCHIVED)

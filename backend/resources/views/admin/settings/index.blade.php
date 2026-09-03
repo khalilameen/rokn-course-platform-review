@@ -53,16 +53,21 @@
                     <div class="form-row">
                         <div class="form-group-modern">
                             <label for="site_name_ar">
-                                <i class="fa fa-globe"></i> اسم التطبيق (عربي)
+                                <i class="fa fa-globe"></i> اسم الموقع ولوحة التحكم (عربي)
                             </label>
                             {!! Form::text('site_name_ar', null, ['class' => 'form-control-modern', 'id' => 'site_name_ar', 'placeholder' => 'رُكن']) !!}
                         </div>
                         <div class="form-group-modern">
                             <label for="site_name_en">
-                                <i class="fa fa-globe"></i> اسم التطبيق (English)
+                                <i class="fa fa-globe"></i> اسم الموقع ولوحة التحكم (English)
                             </label>
                             {!! Form::text('site_name_en', null, ['class' => 'form-control-modern', 'id' => 'site_name_en', 'placeholder' => 'Rokn']) !!}
                         </div>
+                    </div>
+
+                    <div class="helper-text settings-help-panel settings-help-panel--info settings-help-panel--top">
+                        <i class="fa fa-info-circle"></i>
+                        <span>اسم التطبيق وشعاره اللذان يراهما الطالب يُداران من صفحة هوية التطبيق</span>
                     </div>
 
                     <div class="form-row">
