@@ -86,6 +86,21 @@ describe('course assistant waiting experience', () => {
     expect(publicRequest.post).not.toHaveBeenCalled();
   });
 
+  it('labels only server-started work as typing', () => {
+    const hook = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        '../src/components/VideoPlayer/courseChat/useCourseChat.ts',
+      ),
+      'utf8',
+    );
+
+    expect(hook).toContain("['sent', 'streaming'].includes(");
+    expect(hook).not.toMatch(
+      /const assistantPresence[\s\S]{0,180}sending\s*\|\|/,
+    );
+  });
+
   it('copies through an explicit action and freezes the reels behind overlays', () => {
     const overlay = fs.readFileSync(
       path.resolve(

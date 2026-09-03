@@ -61,6 +61,10 @@ import {
   captureAccountSessionBoundary,
   type AccountSessionBoundary,
 } from '../../constants/helpers';
+import {
+  projectFeedbackFailureHasRetryAction,
+  projectFeedbackFailureText,
+} from './projectFeedback/policy';
 
 interface ProjectTransitionProps {
   active: boolean;
@@ -1087,9 +1091,7 @@ const ProjectTransition = ({
                       {message.role === 'assistant' &&
                         message.status === 'failed' && (
                           <Text style={styles.feedbackState}>
-                            {message.errorCode === 'plan_limit_reached'
-                              ? 'اكتملت رسائل متابعة المشروع في هذه الفئة'
-                              : 'تعذّر الرد الآن\nأرسل رسالتك مرة أخرى'}
+                            {projectFeedbackFailureText(message.errorCode)}
                           </Text>
                         )}
                       {message.role === 'user' &&
@@ -1098,7 +1100,9 @@ const ProjectTransition = ({
                         )}
                       {message.status === 'failed' &&
                         message.role === 'user' &&
-                        message.errorCode !== 'plan_limit_reached' && (
+                        projectFeedbackFailureHasRetryAction(
+                          message.errorCode,
+                        ) && (
                           <Pressable
                             accessibilityRole="button"
                             disabled={feedbackSending}

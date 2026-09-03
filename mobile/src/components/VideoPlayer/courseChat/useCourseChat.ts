@@ -104,11 +104,10 @@ export const useCourseChat = ({
   const [attachments, setAttachments] = useState<ChatAttachmentDraft[]>([]);
   const [sending, setSending] = useState(false);
   const assistantPresence: AssistantPresence =
-    sending ||
     messages.some(
       message =>
         message.role === 'assistant' &&
-        ['queued', 'sent', 'streaming'].includes(
+        ['sent', 'streaming'].includes(
           String(message.deliveryStatus || ''),
         ),
     )
