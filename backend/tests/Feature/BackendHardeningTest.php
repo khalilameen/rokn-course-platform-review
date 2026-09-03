@@ -30,6 +30,7 @@ use App\Services\CourseChatAccessService;
 use App\Services\CourseChatTurnService;
 use App\Services\PaidAiCallExecutionService;
 use App\Services\WalletService;
+use App\Support\CourseAccessPlanSnapshot;
 use App\Support\ProjectSubmissionEvaluationSnapshot;
 use App\Support\AdminEditorVersion;
 use Illuminate\Auth\Access\AuthorizationException;
