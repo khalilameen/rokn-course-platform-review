@@ -17,16 +17,30 @@ final class ModeratorCourseCommercialPrivacyTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const COST_FIELDS = [
+    private const AI_POLICY_FIELDS = [
+        'chat_enabled',
+        'chat_message_limit',
+        'chat_token_budget',
+        'chat_attachments_enabled',
+        'chat_attachment_max_files',
         'ai_budget_usd',
         'request_reserve_usd',
+        'max_output_tokens',
+        'model_override',
+        'project_feedback_level',
+        'project_feedback_token_budget',
         'project_feedback_budget_usd',
         'project_feedback_reserve_usd',
+        'project_followup_message_limit',
+        'project_followup_token_budget',
         'project_followup_budget_usd',
         'project_followup_reserve_usd',
+        'project_followup_attachments_enabled',
+        'project_followup_attachment_max_files',
+        'project_output_enabled',
     ];
 
-    public function test_direct_course_editor_hides_provider_cost_controls_from_moderator_only(): void
+    public function test_course_editor_never_exposes_global_ai_policy_controls(): void
     {
         [$course, $moderator, $administrator] = $this->records();
         $this->withoutMiddleware(RequireAdminMfa::class);
@@ -38,7 +52,9 @@ final class ModeratorCourseCommercialPrivacyTest extends TestCase
             ->assertDontSee('project_feedback_budget_usd')
             ->assertDontSee('project_followup_budget_usd')
             ->assertDontSee('حد تكلفة الخطة بالدولار')
-            ->assertDontSee('احتياطي AI المقترح');
+            ->assertDontSee('احتياطي AI المقترح')
+            ->assertDontSee('chat_message_limit')
+            ->assertDontSee('project_feedback_level');
 
         // A dashboard session is deliberately pinned to one identity. Start a
         // fresh browser session before checking the administrator view.
@@ -46,47 +62,52 @@ final class ModeratorCourseCommercialPrivacyTest extends TestCase
         $this->actingAs($administrator)
             ->get(route('admin.courses.edit', $course))
             ->assertOk()
-            ->assertSee('ai_budget_usd')
-            ->assertSee('project_feedback_budget_usd')
-            ->assertSee('project_followup_budget_usd')
-            ->assertSee('حد تكلفة الخطة بالدولار');
+            ->assertDontSee('ai_budget_usd')
+            ->assertDontSee('project_feedback_budget_usd')
+            ->assertDontSee('project_followup_budget_usd')
+            ->assertDontSee('chat_message_limit')
+            ->assertDontSee('project_feedback_level');
     }
 
-    public function test_crafted_moderator_cost_fields_are_replaced_by_persisted_contract_values(): void
+    public function test_crafted_course_request_cannot_replace_global_ai_policy(): void
     {
-        [$course, $moderator] = $this->records();
+        [$course, $moderator, $administrator] = $this->records();
         $persisted = $course->accessPlans()->get()->keyBy('code');
         $submittedPlans = [];
         foreach (CourseAccessPlan::CODES as $code) {
             $submittedPlans[$code] = ['name_ar' => 'فئة '.$code];
-            foreach (self::COST_FIELDS as $field) {
-                $submittedPlans[$code][$field] = '9999.999999';
+            foreach (self::AI_POLICY_FIELDS as $field) {
+                $submittedPlans[$code][$field] = in_array($field, ['model_override', 'project_feedback_level'], true)
+                    ? 'forged-value'
+                    : '9999';
             }
         }
 
-        $request = CourseRequest::create('/dashboard/courses/'.$course->id, 'PATCH', [
-            'access_plans' => $submittedPlans,
-        ]);
-        $request->setContainer($this->app);
-        $request->setUserResolver(fn (): User => $moderator);
-        $request->setRouteResolver(fn () => new class($course) {
-            public function __construct(private readonly Course $course) {}
-            public function parameter(string $key, mixed $default = null): mixed
-            {
-                return $key === 'course' ? $this->course : $default;
-            }
-        });
+        foreach ([$moderator, $administrator] as $actor) {
+            $request = CourseRequest::create('/dashboard/courses/'.$course->id, 'PATCH', [
+                'access_plans' => $submittedPlans,
+            ]);
+            $request->setContainer($this->app);
+            $request->setUserResolver(fn (): User => $actor);
+            $request->setRouteResolver(fn () => new class($course) {
+                public function __construct(private readonly Course $course) {}
+                public function parameter(string $key, mixed $default = null): mixed
+                {
+                    return $key === 'course' ? $this->course : $default;
+                }
+            });
 
-        $prepare = new \ReflectionMethod(CourseRequest::class, 'prepareForValidation');
-        $prepare->invoke($request);
+            $prepare = new \ReflectionMethod(CourseRequest::class, 'prepareForValidation');
+            $prepare->invoke($request);
 
-        foreach (CourseAccessPlan::CODES as $code) {
-            foreach (self::COST_FIELDS as $field) {
-                self::assertSame(
-                    (string) $persisted->get($code)->getAttribute($field),
-                    (string) data_get($request->input('access_plans'), "{$code}.{$field}"),
-                    "Moderator changed protected {$code}.{$field}"
-                );
+            foreach (CourseAccessPlan::CODES as $code) {
+                foreach (self::AI_POLICY_FIELDS as $field) {
+                    self::assertSame(
+                        (string) $persisted->get($code)->getAttribute($field),
+                        (string) data_get($request->input('access_plans'), "{$code}.{$field}"),
+                        "{$actor->role} changed protected {$code}.{$field}"
+                    );
+                }
             }
         }
     }

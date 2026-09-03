@@ -197,9 +197,6 @@ final class GenerateProjectFeedbackReply implements ShouldQueue, ShouldBeUniqueU
             : [
                 'updated_at' => $thread->project?->updated_at?->toIso8601String(),
                 'requirements_text' => (string) $thread->project?->requirements_text,
-                'ai_prompt' => (string) $thread->project?->ai_prompt,
-                'ai_model_type' => $thread->project?->ai_model_type,
-                'tokens_number' => (int) ($thread->project?->tokens_number ?: 500),
             ];
         $allowed = array_values(array_filter(config('openrouter.allowed_models', [])));
         $model = trim((string) (($terms['model_override'] ?? null) ?: config('openrouter.default_model')));

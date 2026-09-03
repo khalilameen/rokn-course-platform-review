@@ -13,6 +13,7 @@ return [
     // preserving room for learner-visible text in the completion budget.
     'reasoning_effort' => env('OPENROUTER_REASONING_EFFORT', 'none'),
     'max_tokens' => (int) env('OPENROUTER_MAX_TOKENS', 420),
+    'temperature' => (float) env('OPENROUTER_TEMPERATURE', 0.35),
     'timeout_seconds' => (int) env('OPENROUTER_TIMEOUT_SECONDS', 45),
     'connect_timeout_seconds' => (int) env('OPENROUTER_CONNECT_TIMEOUT_SECONDS', 5),
     'provider_sort' => env('OPENROUTER_PROVIDER_SORT', 'latency'),

@@ -774,7 +774,6 @@ final class CourseChatController extends Controller
         $messages[] = ['role' => 'user', 'content' => $question];
 
         $maxTokens = min(
-            (int) ($course->tokens_number ?: config('openrouter.max_tokens', 420)),
             (int) (($planTerms['max_output_tokens'] ?? null) ?: config('openrouter.max_tokens', 420)),
             (int) config('openrouter.max_tokens', 420)
         );
@@ -898,7 +897,7 @@ final class CourseChatController extends Controller
                             $answerCacheKey,
                             $model,
                             $messages,
-                            (float) ($course->temperature ?? 0.45),
+                            (float) config('openrouter.temperature', 0.35),
                             $maxTokens,
                             $requestContext,
                             $this->cappedPositiveSetting(

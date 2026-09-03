@@ -71,6 +71,61 @@ final class CourseAccessPlanEditorContractTest extends TestCase
         self::assertSame(4, (int) $course->fresh()->authoring_version);
     }
 
+    public function test_course_save_clears_dormant_ai_budgets_without_editing_the_global_policy(): void
+    {
+        $course = new Course();
+        $course->forceFill([
+            'tenant_id' => 1,
+            'name_ar' => 'كورس بفئات قديمة',
+            'price' => 900,
+            'authoring_version' => 4,
+            'is_coming_soon' => true,
+            'is_catalog_visible' => false,
+        ])->save();
+
+        $service = app(CourseAccessPlanService::class);
+        $service->createDefaults($course);
+        $guided = $course->accessPlans()->where('code', CourseAccessPlan::GUIDED)->firstOrFail();
+        $guided->forceFill([
+            'chat_enabled' => false,
+            'chat_message_limit' => 0,
+            'chat_token_budget' => 0,
+            'ai_budget_usd' => 9,
+            'request_reserve_usd' => 1,
+            'project_feedback_level' => CourseAccessPlan::FEEDBACK_PASS_ONLY,
+            'project_feedback_token_budget' => 0,
+            'project_feedback_budget_usd' => 8,
+            'project_feedback_reserve_usd' => 1,
+            'project_followup_message_limit' => 0,
+            'project_followup_token_budget' => 0,
+            'project_followup_budget_usd' => 7,
+            'project_followup_reserve_usd' => 1,
+        ])->save();
+
+        $input = $service->plansForEditor($course)->mapWithKeys(
+            fn (CourseAccessPlan $plan): array => [
+                $plan->code => [
+                    'name_ar' => $plan->name_ar,
+                    'name_en' => $plan->name_en,
+                    'price_coins' => $plan->price_coins,
+                    'minimum_paid_coins' => $plan->minimum_paid_coins,
+                    'is_active' => $plan->is_active,
+                    'certificate_enabled' => $plan->certificate_enabled,
+                ],
+            ]
+        )->all();
+
+        $service->syncAdminPlans($course, $input);
+
+        $guided->refresh();
+        self::assertSame('0.000000', (string) $guided->ai_budget_usd);
+        self::assertSame('0.000000', (string) $guided->request_reserve_usd);
+        self::assertSame('0.000000', (string) $guided->project_feedback_budget_usd);
+        self::assertSame('0.000000', (string) $guided->project_feedback_reserve_usd);
+        self::assertSame('0.000000', (string) $guided->project_followup_budget_usd);
+        self::assertSame('0.000000', (string) $guided->project_followup_reserve_usd);
+    }
+
     public function test_opening_course_editor_does_not_persist_missing_plans_or_advance_revision(): void
     {
         $moderator = new User();

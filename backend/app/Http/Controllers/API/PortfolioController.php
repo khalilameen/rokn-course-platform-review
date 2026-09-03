@@ -155,9 +155,9 @@ final class PortfolioController extends Controller
                             'title' => $section->module->title,
                             'order' => $section->module->order,
                         ] : null,
-                        'score' => data_get($evaluation->evaluation_data, 'assessment_type') === 'participation'
-                            ? null
-                            : $evaluation->score,
+                        'score' => data_get($evaluation->evaluation_data, 'assessment_type') === 'human_review'
+                            ? $evaluation->score
+                            : null,
                         'assessment_type' => data_get($evaluation->evaluation_data, 'assessment_type', 'legacy'),
                         'skill_verified' => (bool) data_get($evaluation->evaluation_data, 'skill_verified', false),
                         'passed_at' => $evaluation->updated_at,

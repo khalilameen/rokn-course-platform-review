@@ -600,29 +600,25 @@ final readonly class CourseAccessPlanService
                     'project_followup_attachment_max_files' => $projectAttachmentsEnabled
                         ? min(5, max(1, (int) ($row['project_followup_attachment_max_files'] ?? 1)))
                         : 0,
-                    'ai_budget_usd' => $canManageFinancialLimits
-                        ? ($chatEnabled ? $chatBudget : 0)
-                        : $chatBudget,
-                    'request_reserve_usd' => $canManageFinancialLimits
-                        ? ($chatEnabled ? $chatReserve : 0)
-                        : $chatReserve,
+                    // Runtime limits are copied from the global tier policy
+                    // above. A course save may change the commercial offer,
+                    // but it can never retain a dormant provider budget after
+                    // the global feature is disabled.
+                    'ai_budget_usd' => $chatEnabled ? $chatBudget : 0,
+                    'request_reserve_usd' => $chatEnabled ? $chatReserve : 0,
                     'project_feedback_token_budget' => $feedback !== 'pass_only'
                         ? max(100, (int) ($row['project_feedback_token_budget'] ?? 100))
                         : 0,
-                    'project_feedback_budget_usd' => $canManageFinancialLimits
-                        ? ($feedback !== 'pass_only' ? $projectBudget : 0)
-                        : $projectBudget,
-                    'project_feedback_reserve_usd' => $canManageFinancialLimits
-                        ? ($feedback !== 'pass_only' ? $projectReserve : 0)
-                        : $projectReserve,
+                    'project_feedback_budget_usd' => $feedback !== 'pass_only'
+                        ? $projectBudget : 0,
+                    'project_feedback_reserve_usd' => $feedback !== 'pass_only'
+                        ? $projectReserve : 0,
                     'project_followup_message_limit' => $feedback === 'enhanced' ? $followupMessageLimit : 0,
                     'project_followup_token_budget' => $feedback === 'enhanced' ? $followupTokenBudget : 0,
-                    'project_followup_budget_usd' => $canManageFinancialLimits
-                        ? ($feedback === 'enhanced' ? $followupBudget : 0)
-                        : $followupBudget,
-                    'project_followup_reserve_usd' => $canManageFinancialLimits
-                        ? ($feedback === 'enhanced' ? $followupReserve : 0)
-                        : $followupReserve,
+                    'project_followup_budget_usd' => $feedback === 'enhanced'
+                        ? $followupBudget : 0,
+                    'project_followup_reserve_usd' => $feedback === 'enhanced'
+                        ? $followupReserve : 0,
                     'max_output_tokens' => $maxOutputTokens,
                     'model_override' => $model !== '' ? $model : null,
                     'project_feedback_level' => $feedback,

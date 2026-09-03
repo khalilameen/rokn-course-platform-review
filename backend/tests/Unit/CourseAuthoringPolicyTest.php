@@ -49,4 +49,25 @@ final class CourseAuthoringPolicyTest extends TestCase
             self::assertStringNotContainsString("'description' => \$module->description", $source);
         }
     }
+
+    public function test_project_authoring_cannot_submit_ai_runtime_policy(): void
+    {
+        $controller = file_get_contents(
+            dirname(__DIR__, 2).'/app/Http/Controllers/Admin/CourseSectionController.php'
+        );
+        self::assertNotFalse($controller);
+        foreach (['$request->ai_prompt', '$request->ai_model_type', '$request->temperature', '$request->tokens_number', '$request->passing_score'] as $input) {
+            self::assertStringNotContainsString($input, $controller);
+        }
+
+        foreach (['create', 'edit'] as $screen) {
+            $project = file_get_contents(
+                dirname(__DIR__, 2)."/resources/views/admin/course-sections/partials/{$screen}/project-form.blade.php"
+            );
+            self::assertNotFalse($project);
+            self::assertStringContainsString('project_requirements_ar', $project);
+            self::assertStringNotContainsString('ai_prompt', $project);
+            self::assertStringNotContainsString('tokens_number', $project);
+        }
+    }
 }

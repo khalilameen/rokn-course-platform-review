@@ -100,7 +100,6 @@ final class ProjectController extends Controller
                     'id' => $project->id,
                     'requirements_text' => $project->requirements_text,
                     // Prompt/model settings deliberately stay server-side.
-                    'passing_score' => $project->passing_score,
                     'submission_max_files' => max(1, min(5, (int) ($project->submission_max_files ?: 3))),
                     'submission_allowed_mime_types' => $this->projectAllowedMimeTypes($project),
                     'is_graduation_project' => $project->is_graduation_project,
@@ -127,9 +126,11 @@ final class ProjectController extends Controller
                     ],
                     'user_evaluation' => $evaluation ? [
                         'id' => $evaluation->id,
-                        'score' => data_get($evaluation->evaluation_data, 'assessment_type') === 'participation'
-                            ? null
-                            : $evaluation->score,
+                        // Participation acceptance and effort rejection are
+                        // progression decisions, not a learner-facing grade.
+                        'score' => data_get($evaluation->evaluation_data, 'assessment_type') === 'human_review'
+                            ? $evaluation->score
+                            : null,
                         'passed' => $evaluation->passed,
                         'assessment_type' => data_get($evaluation->evaluation_data, 'assessment_type', 'legacy'),
                         'skill_verified' => (bool) data_get($evaluation->evaluation_data, 'skill_verified', false),
@@ -256,13 +257,11 @@ final class ProjectController extends Controller
                 }
                 $maxOutputTokens = max(80, min(
                     (int) config('openrouter.max_tokens', 500),
-                    (int) ($terms['max_output_tokens'] ?? 320),
-                    (int) ($project->tokens_number ?: 500)
+                    (int) ($terms['max_output_tokens'] ?? 320)
                 ));
                 $semanticText = trim(strip_tags(implode("\n", [
                     (string) $request->input('submission_text'),
                     (string) $project->requirements_text,
-                    (string) $project->ai_prompt,
                 ])));
                 $estimatedRequestTokens = $maxOutputTokens
                     + (int) ceil(strlen($semanticText) / 4)
@@ -661,11 +660,12 @@ final class ProjectController extends Controller
                     ] : null,
                     'project' => [
                         'id' => $section->project->id,
-                        'passing_score' => $section->project->passing_score,
                         'is_graduation_project' => $section->project->is_graduation_project,
                     ],
                     'evaluation' => $evaluation ? [
-                        'score' => $evaluation->score,
+                        'score' => data_get($evaluation->evaluation_data, 'assessment_type') === 'human_review'
+                            ? $evaluation->score
+                            : null,
                         'passed' => $evaluation->passed,
                         'submitted_at' => $evaluation->created_at,
                     ] : null,

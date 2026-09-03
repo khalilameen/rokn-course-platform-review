@@ -602,7 +602,6 @@ class CourseResource extends BaseCourseResource
 
                 case 'project':
                     $content['requirements_text'] = $section->sectionable->requirements_text ?? null;
-                    $content['passing_score'] = $section->sectionable->passing_score ?? null;
                     $content['is_graduation_project'] = $section->sectionable->is_graduation_project ?? false;
                     $content['submission_max_files'] = max(1, min(5, (int) (
                         $section->sectionable->submission_max_files ?: 3
@@ -643,7 +642,9 @@ class CourseResource extends BaseCourseResource
                         // the thread endpoint only when this project is open.
                         // Keeping the course payload to a summary avoids a
                         // query/message explosion on long course maps.
-                        'feedback_thread' => $submission->feedbackThread ? [
+                        'feedback_thread' => $submission->feedbackThread
+                            && (bool) ($this->projectFeedbackContract['project_report_enabled'] ?? false)
+                            && $this->projectFeedbackLevel !== 'pass_only' ? [
                             'id' => (string) $submission->feedbackThread->public_id,
                             'feedback_level' => $this->projectFeedbackLevel,
                             'can_reply' => $submission->feedbackThread->status === 'ready'

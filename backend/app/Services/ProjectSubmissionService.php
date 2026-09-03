@@ -796,7 +796,24 @@ final class ProjectSubmissionService
         $snapshot = ProjectSubmissionEvaluationSnapshot::fromSubmission($submission);
         $terms = $snapshot ? data_get($snapshot, 'access.terms') : null;
 
-        return is_array($terms)
+        if (!is_array($terms)) {
+            return false;
+        }
+
+        $courseId = (int) data_get($snapshot, 'course_id', 0);
+        $enrollmentId = (int) data_get($snapshot, 'access.enrollment_id', 0);
+        if ($courseId <= 0 || $enrollmentId <= 0) {
+            return false;
+        }
+
+        $enrollment = $this->courseAccess->activeCapturedEnrollmentFor(
+            (int) $submission->user_id,
+            $courseId,
+            $enrollmentId
+        );
+
+        return $enrollment !== null
+            && $this->courseAccess->enrollmentAllowsVariableCostFeatures($enrollment)
             && (bool) $this->accessPlans->publicPayloadFromTerms($terms)['project_report_enabled'];
     }
 

@@ -333,7 +333,7 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
                 $result = $openRouter->chat(
                     $model,
                     $messages,
-                    (float) ($projectPolicy['temperature'] ?? .35),
+                    (float) config('openrouter.temperature', .35),
                     $maxTokens,
                     (string) $reservation->request_id,
                     function (array $providerResult) use (
