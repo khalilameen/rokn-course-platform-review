@@ -6,6 +6,8 @@ namespace Tests\Unit;
 
 use App\Jobs\DeliverOutboxEvent;
 use App\Jobs\GenerateCourseChatReply;
+use App\Jobs\GenerateProjectFeedback;
+use App\Jobs\GenerateProjectFeedbackReply;
 use Dotenv\Dotenv;
 use Tests\TestCase;
 
@@ -36,6 +38,24 @@ final class ProductionQueueTopologyTest extends TestCase
         self::assertIsString($runbook);
         self::assertStringContainsString(
             '--queue=ai-chat --sleep=1 --tries=3 --timeout=90',
+            $runbook
+        );
+    }
+
+    public function test_ai_feedback_workers_outlive_provider_and_interactive_retry_is_short(): void
+    {
+        config()->set('openrouter.timeout_seconds', 50);
+        $report = new GenerateProjectFeedback(1);
+        $reply = new GenerateProjectFeedbackReply(1);
+
+        self::assertGreaterThanOrEqual(80, $report->timeout);
+        self::assertGreaterThanOrEqual(80, $reply->timeout);
+        self::assertSame([5, 20], $reply->backoff());
+
+        $runbook = file_get_contents(base_path('PRODUCTION_RUNBOOK.md'));
+        self::assertIsString($runbook);
+        self::assertStringContainsString(
+            '--queue=ai-feedback --sleep=1 --tries=3 --timeout=90',
             $runbook
         );
     }

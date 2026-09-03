@@ -39,7 +39,9 @@ final class GenerateProjectFeedbackReply implements ShouldQueue, ShouldBeUniqueU
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
-    public int $timeout = 45;
+    // Must exceed the provider transport timeout, just like course chat.
+    // Killing the worker first turns a valid late reply into outcome_unknown.
+    public int $timeout = 80;
     public int $uniqueFor = 600;
     public bool $failOnTimeout = true;
     public string $executionId;
@@ -47,7 +49,9 @@ final class GenerateProjectFeedbackReply implements ShouldQueue, ShouldBeUniqueU
     /** @return list<int> */
     public function backoff(): array
     {
-        return [20, 90];
+        // This is an interactive learner conversation. Two brief retries
+        // absorb transient 429/5xx responses without a two-minute silent gap.
+        return [5, 20];
     }
 
     public function __construct(public int $messageId)

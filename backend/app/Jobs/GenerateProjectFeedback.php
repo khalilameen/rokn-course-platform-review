@@ -40,7 +40,9 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
-    public int $timeout = 45;
+    // OpenRouter may use the full 50-second transport cap. Preserve enough
+    // time to land and settle a valid report after the final response byte.
+    public int $timeout = 80;
     public int $uniqueFor = 600;
     public bool $failOnTimeout = true;
     public string $executionId;

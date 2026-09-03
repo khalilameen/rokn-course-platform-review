@@ -37,7 +37,7 @@ This backend is prepared for the first production load, but capacity is an opera
   Keep interactive course chat ahead of longer project reports with
   `php artisan queue:work redis --queue=ai-chat --sleep=1 --tries=3 --timeout=90 --backoff=5 --max-jobs=1000 --max-time=3600`.
   A baseline project-feedback worker command is
-  `php artisan queue:work redis --queue=ai-feedback --sleep=1 --tries=3 --timeout=60 --backoff=20 --max-jobs=500 --max-time=3600`;
+  `php artisan queue:work redis --queue=ai-feedback --sleep=1 --tries=3 --timeout=90 --backoff=20 --max-jobs=500 --max-time=3600`;
   run media/storage/certificate work with
   `php artisan queue:work redis --queue=media --sleep=1 --tries=12 --timeout=180 --backoff=15 --max-jobs=500 --max-time=3600`;
   run durable operational signals, maintenance and alert mail with
