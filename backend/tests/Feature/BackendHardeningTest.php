@@ -60,7 +60,7 @@ final class BackendHardeningTest extends TestCase
         'course_enrollments', 'orders', 'course_access_plans',
         'classification_course', 'classifications', 'course_teacher', 'photos',
         'course_ratings', 'grades',
-        'course_chat_turns', 'lesson_media_states', 'lessons', 'course_sections', 'courses', 'paths', 'settings', 'users',
+        'course_chat_turns', 'lesson_media_states', 'lessons', 'course_sections', 'course_modules', 'courses', 'paths', 'settings', 'users',
     ];
 
     protected function setUp(): void
@@ -1980,6 +1980,18 @@ final class BackendHardeningTest extends TestCase
             $table->unsignedInteger('hours_count')->default(0);
             $table->unsignedInteger('home_work_count')->default(0);
             $table->unsignedInteger('files_count')->default(0);
+            $table->timestamps();
+        });
+        Schema::create('course_modules', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('course_id');
+            $table->string('title')->nullable();
+            $table->text('description')->nullable();
+            $table->string('title_ar')->nullable();
+            $table->string('title_en')->nullable();
+            $table->text('description_ar')->nullable();
+            $table->text('description_en')->nullable();
+            $table->unsignedInteger('order')->default(0);
             $table->timestamps();
         });
         Schema::create('course_sections', function (Blueprint $table): void {
