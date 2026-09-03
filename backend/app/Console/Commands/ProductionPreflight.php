@@ -1182,7 +1182,12 @@ class ProductionPreflight extends Command
                 }
                 $lastFailure = 'verification_failed';
             } catch (Throwable $exception) {
-                $lastFailure = class_basename($exception);
+                $detail = preg_replace(
+                    '/https?:\/\/\S+/i',
+                    '[redacted-url]',
+                    str_replace(["\r", "\n"], ' ', $exception->getMessage())
+                );
+                $lastFailure = class_basename($exception) . ': ' . substr((string) $detail, 0, 180);
                 Storage::forgetDisk($diskName);
             } finally {
                 try {
