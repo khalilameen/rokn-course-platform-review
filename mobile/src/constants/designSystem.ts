@@ -43,14 +43,8 @@ export const Accessibility = {
   minTouchTarget: Math.max(48, PixelPerfect(48)),
 } as const;
 
-/**
- * React Native resolves left/right text alignment against the native layout
- * direction. Rokn's native tree runs in RTL, so the
- * Android and iOS text stacks swap `right` to the physical left edge.
- * Supplying `left` here therefore means the Arabic logical start: the
- * physical right edge. Keep this counter-intuitive value centralized.
- */
-export const rtlTextAlign = 'left' as const;
+/** Arabic copy starts at the physical right edge on both Android and iOS. */
+export const rtlTextAlign = 'right' as const;
 
 export const textDirection = {
   direction: 'rtl' as const,

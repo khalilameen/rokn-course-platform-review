@@ -42,7 +42,6 @@ export const useSettingsController = () => {
     onPortfolio: () => navigation.navigate('Profile'),
     onPrivacyPolicy: () => navigation.navigate('PrivacyPolicy'),
     onRateApp: account.openStoreRating,
-    onSupport: account.openWhatsAppSupport,
     onTermsOfUse: () => navigation.navigate('TermsOfUse'),
     onToggleMarketing: preferences.toggleMarketing,
     onToggleNotifications: preferences.toggleNotifications,

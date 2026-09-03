@@ -50,20 +50,30 @@ final class OpenRouterService
         $payload = [
             'model' => $model,
             'messages' => $messages,
-            'temperature' => max(0, min(1.2, $temperature)),
             'max_completion_tokens' => max(
                 80,
                 min((int) config('openrouter.max_tokens', 500), $maxTokens)
             ),
-            'reasoning' => [
-                'effort' => $this->reasoningEffort(),
-                'exclude' => true,
-            ],
             'provider' => [
+                'require_parameters' => true,
                 'data_collection' => 'deny',
                 'zdr' => true,
             ],
         ];
+        $reasoningEffort = $this->reasoningEffort($model);
+        if ($reasoningEffort !== null) {
+            $payload['reasoning'] = [
+                'effort' => $reasoningEffort,
+                'exclude' => true,
+            ];
+        }
+        // GPT-5 endpoints do not advertise temperature support. Sending it
+        // anyway can make an otherwise healthy provider reject the request
+        // before generation starts. Keep sampling control for models that
+        // support it instead of weakening every model to the same payload.
+        if ($this->supportsTemperature($model)) {
+            $payload['temperature'] = max(0, min(1.2, $temperature));
+        }
         if (trim((string) $requestIdentity) !== '') {
             // The stable external-user value is part of the request body, so
             // an identical recovery attempt cannot accidentally address a
@@ -123,6 +133,15 @@ final class OpenRouterService
         if (!$response->successful()) {
             $failureAnnotations = $response->json('error.metadata.file_annotations');
             if (!is_array($failureAnnotations)) $failureAnnotations = [];
+            $providerCode = trim((string) $response->json('error.code'));
+            $providerCode = $providerCode !== ''
+                ? substr($providerCode, 0, 80)
+                : null;
+            Log::warning('OpenRouter rejected a generation request.', [
+                'status' => $response->status(),
+                'provider_code' => $providerCode,
+                'model' => $model,
+            ]);
             if ($response->status() === 402) {
                 $this->openCircuit(
                     'billing',
@@ -139,7 +158,9 @@ final class OpenRouterService
             throw new AiProviderUnavailableException(
                 $response->status() === 429,
                 fileAnnotations: $failureAnnotations,
-                outcomeUnknown: $response->serverError()
+                outcomeUnknown: $response->serverError(),
+                providerStatus: $response->status(),
+                providerCode: $providerCode
             );
         }
 
@@ -565,15 +586,41 @@ final class OpenRouterService
         return implode("\n", $lines);
     }
 
-    private function reasoningEffort(): string
+    private function reasoningEffort(string $model): ?string
     {
         $effort = strtolower(trim((string) config('openrouter.reasoning_effort', 'none')));
-
-        return in_array(
+        $effort = in_array(
             $effort,
             ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
             true
         ) ? $effort : 'none';
+
+        // The original GPT-5 family requires reasoning and advertises
+        // minimal/low/medium/high only. OpenRouter may map an unsupported
+        // "none" to a larger default effort, consuming the small course-chat
+        // completion budget before any learner-visible text is produced.
+        if (
+            $effort === 'none'
+            && preg_match(
+                '/^openai\/gpt-5(?:-(?:mini|nano|pro))?(?:-\d{4}-\d{2}-\d{2})?$/',
+                strtolower(trim($model))
+            )
+        ) {
+            return 'minimal';
+        }
+
+        // `none` is an OpenRouter reasoning control, not a universal model
+        // parameter. Omitting it lets ordinary chat models remain eligible
+        // when strict parameter support is enabled.
+        return $effort === 'none' ? null : $effort;
+    }
+
+    private function supportsTemperature(string $model): bool
+    {
+        $normalized = strtolower(trim($model));
+
+        return !str_starts_with($normalized, 'openai/gpt-5')
+            && !preg_match('/^openai\/(?:o1|o3|o4)(?:-|$)/', $normalized);
     }
 
     private function circuitIsOpen(): bool

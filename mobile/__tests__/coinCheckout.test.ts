@@ -292,7 +292,7 @@ describe('coin checkout boundary', () => {
       packageId: 7,
       expectedPrice: 49,
       expectedCoins: 600,
-      createdAt: '2026-09-01T11:55:43.000Z',
+      createdAt: new Date().toISOString(),
       orderRef: 'PKG-PENDING-RETRY',
     });
     publicRequest.post
@@ -370,14 +370,25 @@ describe('coin checkout boundary', () => {
     helpers.getItem
       .mockResolvedValueOnce(olderAttempt)
       .mockResolvedValueOnce(olderAttempt)
+      .mockResolvedValueOnce(olderAttempt)
       .mockResolvedValueOnce({attempts: [olderAttempt, newAttempt]});
-    publicRequest.post.mockResolvedValueOnce({
-      data: {
-        payment_url: 'https://checkout.kashier.io/new-package',
-        order_ref: 'PKG-NEW-SELECTION',
-        idempotency_key: '11111111-1111-4111-8111-111111111111',
-      },
-    });
+    publicRequest.post
+      .mockResolvedValueOnce({
+        data: {
+          data: {
+            status: 'pending',
+            financial_status: 'pending',
+            package: {coins: 1200},
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          payment_url: 'https://checkout.kashier.io/new-package',
+          order_ref: 'PKG-NEW-SELECTION',
+          idempotency_key: '11111111-1111-4111-8111-111111111111',
+        },
+      });
     WebBrowser.openAuthSessionAsync.mockResolvedValueOnce({type: 'cancel'});
 
     const {openCoinCheckout} = require('../src/services/coinCheckout') as {

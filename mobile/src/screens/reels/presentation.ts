@@ -52,16 +52,21 @@ export const buildAccessibleFeed = (
       if (!quiz.passed) return items;
     }
 
-    if (module.project) {
+    const projects = module.projects?.length
+      ? module.projects
+      : module.project
+      ? [module.project]
+      : [];
+    for (const project of projects) {
       if (lastReel && !lastReel.isCompleted) break;
-
+      if (project.isLocked) break;
       items.push({
-        key: `project-${module.project.id}`,
+        key: `project-${project.id}`,
         type: 'project',
         moduleId: module.id,
-        project: module.project,
+        project,
       });
-      if (module.project.status !== 'passed') break;
+      if (project.status !== 'passed') return items;
     }
   }
   return items;
@@ -93,13 +98,20 @@ export const updateProjectStatusOnly = (
   status: 'reviewing' | 'passed' | 'needs_retry',
 ): CourseLearningData => ({
   ...course,
-  modules: course.modules.map(module => ({
-    ...module,
-    project:
-      module.project?.id === projectId
-        ? {...module.project, status}
-        : module.project,
-  })),
+  modules: course.modules.map(module => {
+    const projects = module.projects || (module.project ? [module.project] : []);
+    if (!projects.some(project => project.id === projectId)) return module;
+    return {
+      ...module,
+      projects: projects.map(project =>
+        project.id === projectId ? {...project, status} : project,
+      ),
+      project:
+        module.project?.id === projectId
+          ? {...module.project, status}
+          : module.project,
+    };
+  }),
 });
 
 export const markQuizPassed = (

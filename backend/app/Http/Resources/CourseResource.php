@@ -321,6 +321,7 @@ class CourseResource extends BaseCourseResource
                     'module_id' => $section->module_id,
                     'is_preview' => $isPreview,
                     'is_locked' => $isLocked,
+                    'lock_reason' => $this->sectionAccessStates->get((int) $section->id)['lock_reason'] ?? null,
                 ];
 
                 // Never serialize playable URLs, project requirements, quiz
@@ -391,6 +392,7 @@ class CourseResource extends BaseCourseResource
                             'order' => $section->order,
                             'is_preview' => $isPreview,
                             'is_locked' => $isLocked,
+                            'lock_reason' => $this->sectionAccessStates->get((int) $section->id)['lock_reason'] ?? null,
                         ];
 
                         if (!$isLocked || $isPreview) {

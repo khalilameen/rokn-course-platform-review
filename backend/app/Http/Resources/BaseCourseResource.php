@@ -201,6 +201,8 @@ class BaseCourseResource extends JsonResource
                         'order' => $section->order,
                         'module_id' => $section->module_id,
                         'is_preview' => $isPreview,
+                        'is_locked' => !$isPreview,
+                        'lock_reason' => $isPreview ? null : 'course_purchase_required',
                     ];
                     if ($isPreview) {
                         $data['content'] = $this->getBasicSectionContent($section);
@@ -241,6 +243,8 @@ class BaseCourseResource extends JsonResource
                             'type' => $section->getSectionType(),
                             'order' => $section->order,
                             'is_preview' => $isPreview,
+                            'is_locked' => !$isPreview,
+                            'lock_reason' => $isPreview ? null : 'course_purchase_required',
                         ];
                         if ($isPreview) {
                             $data['content'] = $this->getBasicSectionContent($section);

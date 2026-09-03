@@ -110,14 +110,22 @@ export default function Lessons() {
   }
 
   const grantAccess = isGrantCourseAccess(course.accessType);
-  const hasProjects = course.modules.some(module => Boolean(module.project));
+  const moduleProjects = (module: (typeof course.modules)[number]) =>
+    module.projects?.length
+      ? module.projects
+      : module.project
+      ? [module.project]
+      : [];
+  const hasProjects = course.modules.some(
+    module => moduleProjects(module).length > 0,
+  );
   const hasAssessments = course.modules.some(
     module => (module.quizzes || []).length > 0,
   );
   const courseCompleted = course.modules.every(
     module =>
       module.reels.every(reel => reel.isCompleted) &&
-      (!module.project || module.project.status === 'passed') &&
+      moduleProjects(module).every(project => project.status === 'passed') &&
       (module.quizzes || []).every(quiz => quiz.passed),
   );
   const certificateReady = course.certificateAvailable === true;
@@ -125,7 +133,7 @@ export default function Lessons() {
     module =>
       !module.isLocked &&
       (module.reels.some(reel => !reel.isCompleted) ||
-        (module.project && module.project.status !== 'passed') ||
+        moduleProjects(module).some(project => project.status !== 'passed') ||
         (module.quizzes || []).some(quiz => !quiz.passed)),
   );
   const lastUnlockedModuleIndex = course.modules.reduce(

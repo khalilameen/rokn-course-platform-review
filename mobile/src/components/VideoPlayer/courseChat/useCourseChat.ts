@@ -20,7 +20,10 @@ import type {
   CourseLearningData,
   CourseReel,
 } from '../types';
-import {courseChatErrorCode} from './policy';
+import {
+  courseChatErrorCode,
+  courseChatFailureCanStartFreshTurn,
+} from './policy';
 import {secureRandomUuid} from '../../../utils/secureRandom';
 import {cleanUnicodeText} from '../../../utils/unicodeText';
 import {isLocalDemoId} from '../../../config/runtime';
@@ -32,6 +35,7 @@ import {
   getCurrentAccountStorageScope,
 } from '../../../constants/helpers';
 import {removeLearnerDraftFile} from '../../../services/learnerDraftFiles';
+import {reportClientError} from '../../../services/operationalTelemetry';
 
 export type AssistantPresence = 'online' | 'working';
 const MAX_IN_MEMORY_MESSAGES = 37;
@@ -125,6 +129,7 @@ export const useCourseChat = ({
   const upgradeFlightRef = useRef<symbol | null>(null);
   const upgradeGenerationRef = useRef(0);
   const resumeInterruptedTurnRef = useRef(false);
+  const reportedTerminalTurnsRef = useRef(new Set<string>());
   const messagesRef = useRef(messages);
   const attachmentsRef = useRef(attachments);
   const runTurnRef = useRef<
@@ -139,6 +144,27 @@ export const useCourseChat = ({
   visibleRef.current = interactive;
   messagesRef.current = messages;
   attachmentsRef.current = attachments;
+
+  const reportTerminalTurn = (requestId: string, code: string) => {
+    const normalizedRequestId = String(requestId || '').trim();
+    if (!normalizedRequestId || reportedTerminalTurnsRef.current.has(normalizedRequestId)) {
+      return;
+    }
+    reportedTerminalTurnsRef.current.add(normalizedRequestId);
+    if (reportedTerminalTurnsRef.current.size > 64) {
+      const oldest = reportedTerminalTurnsRef.current.values().next().value;
+      if (oldest) reportedTerminalTurnsRef.current.delete(oldest);
+    }
+    const normalizedCode = String(code || '').trim().toUpperCase();
+    const safeCode = /^[A-Z0-9][A-Z0-9._-]{0,63}$/.test(normalizedCode)
+      ? normalizedCode
+      : 'CHAT_TERMINAL_FAILURE';
+    void reportClientError(new Error(safeCode), {
+      source: 'course_chat',
+      endpoint: 'course-chat/turns',
+      requestId: normalizedRequestId,
+    });
+  };
 
   const scheduleScrollToEnd = useCallback(
     (animated: boolean, delayMs: number) => {
@@ -462,17 +488,24 @@ export const useCourseChat = ({
         return;
       messagesRef.current = queuedMessages;
       setMessages(queuedMessages);
-      let response = await askCourseAssistant({
-        course: upgraded
-          ? {...course, accessType: 'paid', chatAvailable: true}
-          : course,
-        reel,
-        message: cleanMessage,
-        clientRequestId,
-        attachmentIds: uploadedAttachments
-          .map(file => file.serverId)
-          .filter((id): id is string => Boolean(id)),
-      });
+      const attachmentIds = uploadedAttachments
+        .map(file => file.serverId)
+        .filter((id): id is string => Boolean(id));
+      const requestCourse = upgraded
+        ? {...course, accessType: 'paid', chatAvailable: true}
+        : course;
+      // A retry is reconciliation first, never another POST with the old id.
+      // Completed/active work is recovered in place. A fresh id is allocated
+      // only after the status endpoint proves a retry-safe terminal outcome.
+      let response = retryClientRequestId
+        ? await pollCourseAssistantTurn(retryClientRequestId)
+        : await askCourseAssistant({
+            course: requestCourse,
+            reel,
+            message: cleanMessage,
+            clientRequestId,
+            attachmentIds,
+          });
       if (
         conversationGeneration !== conversationGenerationRef.current ||
         sendGeneration !== sendGenerationRef.current
@@ -483,7 +516,11 @@ export const useCourseChat = ({
       // for the old id to recover a response lost after completion, then move
       // the same visible bubble to one fresh id only when the server confirms
       // that the old turn really failed.
-      if (retryClientRequestId && response.code === 'chat_turn_failed') {
+      if (
+        retryClientRequestId &&
+        response.turnStatus === 'failed' &&
+        courseChatFailureCanStartFreshTurn(response.code)
+      ) {
         clientRequestId = secureRandomUuid();
         queuedMessages = queuedMessages.map(item =>
           item.id === userMessage.id || item.id === pendingId
@@ -499,15 +536,11 @@ export const useCourseChat = ({
         ).catch(() => undefined);
         assertAccountSessionBoundary(turnBoundary);
         response = await askCourseAssistant({
-          course: upgraded
-            ? {...course, accessType: 'paid', chatAvailable: true}
-            : course,
+          course: requestCourse,
           reel,
           message: cleanMessage,
           clientRequestId,
-          attachmentIds: uploadedAttachments
-            .map(file => file.serverId)
-            .filter((id): id is string => Boolean(id)),
+          attachmentIds,
         });
       }
 
@@ -611,6 +644,12 @@ export const useCourseChat = ({
         // because the first answer was slow.
         resumeInterruptedTurnRef.current = true;
       }
+      if (response.turnStatus === 'failed' && !response.blocked) {
+        reportTerminalTurn(
+          response.clientRequestId || clientRequestId,
+          response.code || 'chat_terminal_failure',
+        );
+      }
       setMessages(current =>
         current.map(item => {
           if (item.id === userMessage.id) {
@@ -643,6 +682,10 @@ export const useCourseChat = ({
           error.message === 'ACCOUNT_CHANGED_DURING_REQUEST')
       )
         return;
+      reportTerminalTurn(
+        clientRequestId,
+        error instanceof Error ? error.message : 'network_unavailable',
+      );
       setMessages(current =>
         current.map(item =>
           item.id === userMessage.id

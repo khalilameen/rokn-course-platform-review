@@ -31,12 +31,18 @@ export const nextLearningTitle = (
   const module = course.modules[moduleIndex];
   const reelIndex = module?.reels.findIndex(item => item.id === reel.id) ?? -1;
   const firstPendingQuiz = (module?.quizzes || []).find(quiz => !quiz.passed);
+  const projects = module?.projects?.length
+    ? module.projects
+    : module?.project
+    ? [module.project]
+    : [];
+  const firstPendingProject = projects.find(project => project.status !== 'passed');
   return (
     module?.reels[reelIndex + 1]?.title ||
     (reelIndex === module?.reels.length - 1
       ? firstPendingQuiz?.title ||
-        (module?.project
-          ? `مشروع العبور\n${module.project.title}`
+        (firstPendingProject
+          ? `مشروع العبور\n${firstPendingProject.title}`
           : course.modules[moduleIndex + 1]?.reels[0]?.title)
       : undefined)
   );
@@ -51,9 +57,14 @@ export const markReelCompleted = (
   );
   const activeModule = course.modules[moduleIndex];
   const reelIndex = activeModule?.reels.findIndex(item => item.id === reel.id);
+  const projects = activeModule?.projects?.length
+    ? activeModule.projects
+    : activeModule?.project
+    ? [activeModule.project]
+    : [];
   const unlockFollowingModule =
     reelIndex === activeModule?.reels.length - 1 &&
-    !activeModule?.project &&
+    !projects.length &&
     !(activeModule?.quizzes || []).length;
 
   return {
@@ -69,6 +80,20 @@ export const markReelCompleted = (
               ? {...item, isLocked: !item.videoUrl.trim()}
               : item,
           ),
+          projects:
+            itemIsLastReel(reelIndex, module.reels.length) &&
+            !(module.quizzes || []).length
+              ? projects.map((project, projectIndex) =>
+                  projectIndex === 0
+                    ? {...project, isLocked: false, lockReason: undefined}
+                    : project,
+                )
+              : module.projects,
+          project:
+            itemIsLastReel(reelIndex, module.reels.length) &&
+            !(module.quizzes || []).length && module.project
+              ? {...module.project, isLocked: false, lockReason: undefined}
+              : module.project,
         };
       }
       if (unlockFollowingModule && index === moduleIndex + 1) {
@@ -84,3 +109,6 @@ export const markReelCompleted = (
     }),
   };
 };
+
+const itemIsLastReel = (index: number | undefined, length: number): boolean =>
+  typeof index === 'number' && index >= 0 && index === length - 1;

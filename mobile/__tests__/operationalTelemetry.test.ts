@@ -11,6 +11,13 @@ jest.mock('expo/virtual/env', () => ({env: {}}));
 jest.mock('expo-crypto', () => ({
   randomUUID: () => '8d78f65e-8385-4b8b-8ea1-ccf985a4a191',
 }));
+jest.mock('../src/services/sentryTelemetry', () => ({
+  captureSentryDiagnostic: jest.fn(),
+  requestCorrelationFor: (_error: Error, supplied: Record<string, string>) => ({
+    endpoint: supplied.endpoint ? `/${supplied.endpoint}` : undefined,
+    requestId: supplied.requestId,
+  }),
+}));
 
 describe('operational telemetry contract', () => {
   beforeEach(() => {
@@ -59,5 +66,28 @@ describe('operational telemetry contract', () => {
     ]);
     expect(JSON.stringify(diagnostics)).not.toContain('user@example.com');
     expect(JSON.stringify(diagnostics)).not.toContain('secret');
+  });
+
+  it('keeps a safe chat request correlation without recording prompt text', async () => {
+    (globalThis as any).__DEV__ = false;
+    const {reportClientError} = require('../src/services/operationalTelemetry');
+
+    await reportClientError(new Error('ai_temporarily_unavailable'), {
+      source: 'course_chat',
+      endpoint: 'course-chat/turns',
+      requestId: '1f87903b-6035-4d5d-bb12-c6f796a71f47',
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [, request] = mockFetch.mock.calls[0];
+    const payload = JSON.parse(String(request.body));
+    expect(payload).toMatchObject({
+      event_name: 'course_chat_failure',
+      screen_key: 'course_chat',
+      error_code: 'AI_TEMPORARILY_UNAVAILABLE',
+      endpoint: '/course-chat/turns',
+      request_id: '1f87903b-6035-4d5d-bb12-c6f796a71f47',
+    });
+    expect(payload).not.toHaveProperty('message');
   });
 });

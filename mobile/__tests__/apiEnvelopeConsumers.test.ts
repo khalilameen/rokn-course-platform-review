@@ -31,7 +31,7 @@ describe('API envelope consumers', () => {
     expect(mockedRequest.post).toHaveBeenCalledWith('certificates/52/issue');
   });
 
-  it('reads cursor metadata from the envelope and skips malformed rows', async () => {
+  it('reads cursor metadata from the envelope', async () => {
     mockedRequest.get.mockResolvedValue({
       data: {
         status: 200,
@@ -45,8 +45,6 @@ describe('API envelope consumers', () => {
             created_at: '2026-09-01T00:00:00Z',
             is_read: false,
           },
-          null,
-          {id: 'not-an-id'},
         ],
         pagination: {
           has_more_pages: true,
@@ -61,6 +59,21 @@ describe('API envelope consumers', () => {
       nextCursor: 'next-page',
       notifications: [{id: '9'}],
     });
+  });
+
+  it('rejects a cursor page containing malformed rows', async () => {
+    mockedRequest.get.mockResolvedValue({
+      data: {
+        status: 200,
+        success: true,
+        data: [{id: 'not-an-id'}],
+        pagination: {has_more_pages: false, next_cursor: null},
+      },
+    });
+
+    await expect(getNotificationsPage()).rejects.toThrow(
+      'NOTIFICATIONS_CONTRACT_INVALID',
+    );
   });
 
   it('does not turn an HTML success body into an empty inbox', async () => {

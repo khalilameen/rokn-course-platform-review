@@ -252,6 +252,7 @@ final readonly class KashierCheckoutFlowService
         ]);
 
         return $this->responses->make(true, 'تم تجهيز صفحة الدفع', [
+            'checkout_state' => 'created',
             'payment_url' => $hppUrl,
             'order_ref' => $orderRef,
             'idempotency_key' => $order->checkout_request_key,
@@ -309,6 +310,7 @@ final readonly class KashierCheckoutFlowService
         return $this->responses->make(true, 'تم تحميل حالة الدفع', [
             'order_ref' => $order->order_ref,
             'status' => $order->status,
+            'checkout_state' => $this->checkoutState($order),
             'financial_status' => $order->financial_status,
             'reversed_at' => $order->reversed_at?->toIso8601String(),
             'transaction_id' => $order->transaction_id,
@@ -383,6 +385,7 @@ final readonly class KashierCheckoutFlowService
         return $this->responses->make(true, 'تم تحميل حالة الدفع', [
             'order_ref' => (string) $order->order_ref,
             'status' => (string) $order->status,
+            'checkout_state' => $this->checkoutState($order),
             'financial_status' => (string) $order->financial_status,
             'coins_added' => $order->isFinanciallyEffective()
                 ? $this->payments->coinAmount($order)
@@ -425,7 +428,7 @@ final readonly class KashierCheckoutFlowService
             // opened. Absence during an active local checkout is therefore
             // not payment failure and must not release a second payable
             // attempt. Expiry or an explicit abandon remains authoritative.
-            return $order->fresh(['package']);
+            return $this->withCheckoutState($order->fresh(['package']), 'checkout_opened');
         }
         if ($this->payments->isProviderFailureStatus($providerStatus)) {
             return $this->payments->cancelPendingOrder($order, $apiResponse);
@@ -441,7 +444,12 @@ final readonly class KashierCheckoutFlowService
             return $this->payments->cancelPendingOrder($order, $apiResponse);
         }
 
-        return $order->fresh(['package']);
+        return $this->withCheckoutState(
+            $order->fresh(['package']),
+            $this->payments->providerStatusMayCaptureWithoutLearner($providerStatus)
+                ? 'pending_provider'
+                : 'checkout_opened'
+        );
     }
 
     private function pendingCheckoutResponse(Order $order): JsonResponse
@@ -460,10 +468,11 @@ final readonly class KashierCheckoutFlowService
 
         return $this->responses->make(
             false,
-            'لديك عملية دفع قيد التأكيد',
+            'لديك محاولة دفع مفتوحة',
             [
                 'order_ref' => (string) $order->order_ref,
                 'status' => (string) $order->status,
+                'checkout_state' => $this->checkoutState($order),
                 'payment_url' => $paymentUrl,
                 'checkout_expires_at' => $order->checkout_expires_at?->toIso8601String(),
                 'package' => [
@@ -474,5 +483,25 @@ final readonly class KashierCheckoutFlowService
             409,
             'pending_checkout_exists'
         );
+    }
+
+    private function checkoutState(Order $order): string
+    {
+        if ($order->isFinanciallyEffective()) return 'paid';
+        if (in_array($order->status, [Order::STATUS_CANCELLED, Order::STATUS_REJECTED], true)) {
+            return 'cancelled';
+        }
+        if ($order->isCheckoutExpired()) return 'expired';
+
+        return $order->status === Order::STATUS_PENDING
+            ? (string) ($order->getAttribute('checkout_runtime_state') ?: 'checkout_opened')
+            : 'cancelled';
+    }
+
+    private function withCheckoutState(Order $order, string $state): Order
+    {
+        $order->setAttribute('checkout_runtime_state', $state);
+
+        return $order;
     }
 }

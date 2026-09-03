@@ -258,7 +258,14 @@ final readonly class CoursePresentationService
                 if ($previousSection) {
                     if (!$completedSectionIds->contains($previousSection->id)) {
                         $isLocked = true;
-                        $lockReason = 'previous_section_incomplete';
+                        // A project is a deliberate course gate, not just an
+                        // unfinished neighbouring section. Preserve that
+                        // distinction for the client so it can show the
+                        // project action instead of a generic locked row.
+                        $lockReason = $userId
+                            && $previousSection->getSectionType() === 'project'
+                            ? 'module_project_not_passed'
+                            : 'previous_section_incomplete';
                     }
 
                     if (

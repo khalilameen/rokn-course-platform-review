@@ -154,9 +154,11 @@ const sectionType = (section: CoursePayloadDto): string =>
     'lesson',
   ).toLowerCase();
 
-const stableNumericId = (value: unknown): string => {
+const stableContractId = (value: unknown): string => {
   const id = valueAsString(value).trim();
-  return /^[1-9]\d*$/.test(id) ? id : '';
+  // Backend ids are numeric today, while imported/demo content can use stable
+  // slugs or UUIDs. Identity and uniqueness matter here, not storage shape.
+  return id;
 };
 
 /** Reject a paid learning map if any step would be dropped or overwrite one beside it. */
@@ -167,27 +169,24 @@ const hasValidLearningContract = (modules: CoursePayloadDto[]): boolean => {
   const contentIds = new Set<string>();
 
   return modules.every(module => {
-    const moduleId = stableNumericId(module?.id);
+    const moduleId = stableContractId(module?.id);
     if (!moduleId || moduleIds.has(moduleId)) return false;
     moduleIds.add(moduleId);
 
     const sections = asArray<CoursePayloadDto>(module?.sections);
-    let projectCount = 0;
     return sections.length > 0 && sections.every(section => {
       const type = sectionType(section);
       if (!['lesson', 'video', 'reel', 'quiz', 'project'].includes(type)) {
         return false;
       }
-      if (type === 'project' && ++projectCount > 1) return false;
-
-      const sectionId = stableNumericId(section?.id);
+      const sectionId = stableContractId(section?.id);
       if (!sectionId || sectionIds.has(sectionId)) return false;
       sectionIds.add(sectionId);
 
       const content = courseRecord(
         section.content || section.project || section.sectionable,
       );
-      const contentId = stableNumericId(
+      const contentId = stableContractId(
         content?.id ||
           section?.content_id ||
           section?.lesson_id ||
@@ -228,10 +227,17 @@ const mapProject = (
   moduleId: string,
   moduleAttachments: CourseAttachment[],
   courseId: string,
-): CourseProject => {
+): CourseProject | undefined => {
   const content = courseRecord(
     section.content || section.project || section.sectionable,
   );
+  const lockReason = valueAsString(section?.lock_reason).trim();
+  const isLocked = valueAsBoolean(section?.is_locked);
+  // Public outlines deliberately omit project content. Keeping a fabricated
+  // project here turned the purchase boundary into a submission gate.
+  if (lockReason === 'course_purchase_required' || (!Object.keys(content).length && !isLocked)) {
+    return undefined;
+  }
   const evaluation =
     section?.latest_submission ||
     content?.latest_submission ||
@@ -359,13 +365,15 @@ const mapProject = (
         content?.requirements ||
         content?.description ||
         section?.description,
-      'ارفع محاولتك العملية\nالمطلوب مجهود حقيقي لا إجابة مثالية',
+      '',
     ),
     status: rawStatus,
     isGraduationProject: valueAsBoolean(
       content?.is_graduation_project || section?.is_graduation_project,
     ),
     attachments: allAttachments,
+    isLocked,
+    lockReason: lockReason || undefined,
     feedbackLevel: ['report', 'enhanced'].includes(projectFeedbackLevel)
       ? (projectFeedbackLevel as 'report' | 'enhanced')
       : 'pass_only',
@@ -500,7 +508,7 @@ export const mapCoursePayload = (
   const modules: CourseLearningModule[] = rawModules
     .sort((a, b) => Number(a?.order || 0) - Number(b?.order || 0))
     .map((module, moduleIndex) => {
-      const moduleId = stableNumericId(module?.id);
+      const moduleId = stableContractId(module?.id);
       const platform = normalisePlatform(module?.attachment_platform);
       const attachments = mapAttachments(
         module?.attachments,
@@ -536,18 +544,19 @@ export const mapCoursePayload = (
       );
       const reels: CourseReel[] = [];
       const quizzes: CourseQuiz[] = [];
-      let project: CourseProject | undefined;
+      const projects: CourseProject[] = [];
       let progressionBlocked = valueAsBoolean(module?.is_locked);
 
       sections.forEach(section => {
         const type = sectionType(section);
         if (type === 'project') {
-          project = mapProject(
+          const project = mapProject(
             section,
             moduleId,
             availableAttachments,
             mappedCourseId,
           );
+          if (project) projects.push(project);
           return;
         }
         if (type === 'quiz') {
@@ -582,7 +591,7 @@ export const mapCoursePayload = (
         reels.push({
           id: lessonId,
           lessonId,
-          sectionId: stableNumericId(section?.id),
+          sectionId: stableContractId(section?.id),
           moduleId,
           title: valueAsString(
             section?.title || content?.title,
@@ -622,6 +631,11 @@ export const mapCoursePayload = (
               content?.is_free,
             ),
           isLocked: sectionLocked,
+          lockReason:
+            valueAsString(section?.lock_reason).trim() ||
+            (sectionLocked && !accessType
+              ? 'course_purchase_required'
+              : undefined),
           isCompleted: valueAsBoolean(
             section?.is_completed,
             section?.completed,
@@ -641,11 +655,15 @@ export const mapCoursePayload = (
         attachments: availableAttachments,
         reels,
         quizzes,
-        project,
+        projects,
+        project: projects[0],
       };
     })
     .filter(
-      module => module.reels.length || module.quizzes.length || module.project,
+      module =>
+        module.reels.length ||
+        module.quizzes.length ||
+        Boolean(module.projects?.length),
     );
 
   if (!modules.some(module => module.reels.length)) {

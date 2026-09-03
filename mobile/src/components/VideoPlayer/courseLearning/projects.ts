@@ -1190,8 +1190,19 @@ export const unlockAfterProject = (
     ...course,
     modules: course.modules.map(module => {
       const isNext = mayUnlock && unlockNext;
-      const isCurrent = module.project?.id === projectId;
-      unlockNext = mayUnlock && isCurrent;
+      const projects = module.projects?.length
+        ? module.projects
+        : module.project
+        ? [module.project]
+        : [];
+      const isCurrent = projects.some(project => project.id === projectId);
+      const updatedProjects = projects.map(project =>
+        project.id === projectId ? {...project, status} : project,
+      );
+      unlockNext =
+        mayUnlock &&
+        isCurrent &&
+        updatedProjects.every(project => project.status === 'passed');
       return {
         ...module,
         isLocked: isNext ? false : module.isLocked,
@@ -1205,7 +1216,8 @@ export const unlockAfterProject = (
               (!reel.videoUrl && !reel.fallbackVideoUrl)
             : reel.isLocked,
         })),
-        project: isCurrent ? {...module.project!, status} : module.project,
+        projects: updatedProjects,
+        project: updatedProjects[0],
       };
     }),
   };

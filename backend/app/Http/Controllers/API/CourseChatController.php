@@ -253,6 +253,8 @@ final class CourseChatController extends Controller
             abort(404);
         }
 
+        $turn = $this->turns->reconcileTerminalUsage($turn) ?? $turn;
+
         if ($turn->status === CourseChatTurn::COMPLETED) {
             return response()->json([
                 'status' => 200,

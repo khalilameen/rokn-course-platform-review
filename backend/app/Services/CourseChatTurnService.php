@@ -13,6 +13,8 @@ use App\Support\DatabaseCapabilities;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\CursorPaginator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use App\Support\BusinessClock;
@@ -347,6 +349,102 @@ final class CourseChatTurnService
     public function fail(?CourseChatTurn $turn, string $code): void
     {
         $this->transition($turn, CourseChatTurn::FAILED, $code, now());
+        if (!$turn) {
+            return;
+        }
+
+        $safeCode = substr((string) preg_replace('/[^A-Za-z0-9._-]+/', '_', $code), 0, 64)
+            ?: 'chat_terminal_failure';
+        try {
+            $firstReport = Cache::add(
+                'telemetry:course-chat-terminal:' . hash('sha256', (string) $turn->client_request_id),
+                true,
+                now()->addDay()
+            );
+            if (!$firstReport) {
+                return;
+            }
+            Log::error('Course chat turn entered terminal failure.', [
+                'source' => 'course_chat',
+                'endpoint' => 'course-chat/turns',
+                'request_id' => (string) $turn->client_request_id,
+                'error_code' => $safeCode,
+            ]);
+            report(new \RuntimeException('course_chat_terminal_failure:' . $safeCode));
+        } catch (\Throwable $reportingFailure) {
+            // Observability must never change the learner-facing turn outcome.
+        }
+    }
+
+    /**
+     * Repair the presentation row when the metered event reached a terminal
+     * state but a killed worker missed the final turn write. Polling is the
+     * learner-facing recovery path, so it must not report "in progress" for
+     * work that can no longer make progress.
+     */
+    public function reconcileTerminalUsage(?CourseChatTurn $turn): ?CourseChatTurn
+    {
+        if (
+            !$turn
+            || !$this->available()
+            || !in_array($turn->status, [CourseChatTurn::QUEUED, CourseChatTurn::STREAMING], true)
+            || !DatabaseCapabilities::hasTable('ai_usage_events')
+        ) {
+            return $turn;
+        }
+
+        $failed = DB::transaction(function () use ($turn): bool {
+            $locked = CourseChatTurn::query()->lockForUpdate()->find($turn->id);
+            if (!$locked || !in_array($locked->status, [
+                CourseChatTurn::QUEUED,
+                CourseChatTurn::STREAMING,
+            ], true)) {
+                return false;
+            }
+
+            $usage = AiUsageEvent::query()
+                ->where('request_id', $locked->client_request_id)
+                ->where('user_id', $locked->user_id)
+                ->where('enrollment_id', $locked->enrollment_id)
+                ->where('feature', 'course_chat')
+                ->lockForUpdate()
+                ->first();
+            if (!$usage || $usage->status === 'reserved') {
+                return false;
+            }
+
+            $accepted = trim((string) data_get($usage->metadata, 'accepted_response', ''));
+            if ($usage->status === 'completed' && $accepted !== '') {
+                $locked->forceFill([
+                    'status' => CourseChatTurn::COMPLETED,
+                    'answer' => mb_substr($accepted, 0, 12000),
+                    'error_code' => null,
+                    'usage_event_id' => $usage->id,
+                    'completed_at' => $usage->completed_at ?? now(),
+                ])->save();
+                app(PaidAiCallExecutionService::class)->markPresented($usage);
+
+                return false;
+            }
+
+            $locked->forceFill([
+                'status' => CourseChatTurn::FAILED,
+                'error_code' => $usage->status === 'completed'
+                    ? 'chat_provider_outcome_unknown'
+                    : 'ai_temporarily_unavailable',
+                'completed_at' => now(),
+            ])->save();
+
+            return true;
+        }, 3);
+
+        $fresh = CourseChatTurn::query()->find($turn->id);
+        if ($failed) {
+            $this->releaseAdmissionQuota($fresh);
+            $fresh = CourseChatTurn::query()->find($turn->id);
+        }
+
+        return $fresh;
     }
 
     /**

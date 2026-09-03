@@ -303,9 +303,16 @@ export type CourseProgress = {
   lastWatchedAt?: string;
 };
 
-export const getLearningCourses = async (): Promise<CourseProgress[]> => {
+export const getLearningCourses = async (
+  options: {signal?: AbortSignal; retryDeadlineAt?: number} = {},
+): Promise<CourseProgress[]> => {
   const rawData = payload<unknown>(
-    await publicRequest.get('learning/courses'),
+    await publicRequest.get('learning/courses', {
+      signal: options.signal,
+      ...(options.retryDeadlineAt
+        ? {roknNetworkRetryDeadlineAt: options.retryDeadlineAt}
+        : {}),
+    } as RoknRequestConfig),
   );
   if (!isApiRecord(rawData) || !Array.isArray(rawData.items)) {
     throw new Error('LEARNING_COURSES_CONTRACT_INVALID');
@@ -839,6 +846,10 @@ const learningCatalogueFlights = new Map<string, Promise<CourseProgress[]>>();
 // Long enough for Laravel Cloud's short origin wake-up, but one deadline for
 // the whole read rather than a fresh 15-second timeout on every retry.
 const PUBLIC_COURSE_READ_BUDGET_MS = 22_000;
+// Ownership decorates the public catalogue; it must never hold the entire
+// home screen behind the heavier learning dashboard read. Course details is
+// still authoritative when this bounded overlay cannot be refreshed.
+const HOME_ENTITLEMENT_READ_BUDGET_MS = 2_500;
 
 const getLearningCatalogueSnapshot = async (): Promise<CourseProgress[]> => {
   const scope = await accountScopedStorageKey('@rokn/learning-catalogue');
@@ -849,7 +860,13 @@ const getLearningCatalogueSnapshot = async (): Promise<CourseProgress[]> => {
   const currentFlight = learningCatalogueFlights.get(scope);
   if (currentFlight) return currentFlight;
 
-  const flight = getLearningCourses()
+  const controller = new AbortController();
+  const deadlineAt = Date.now() + HOME_ENTITLEMENT_READ_BUDGET_MS;
+  const timer = setTimeout(() => controller.abort(), HOME_ENTITLEMENT_READ_BUDGET_MS);
+  const flight = getLearningCourses({
+    signal: controller.signal,
+    retryDeadlineAt: deadlineAt,
+  })
     .then(items => {
       learningCatalogueSnapshots.set(scope, {
         expiresAt: serverNowMs() + 30_000,
@@ -863,6 +880,7 @@ const getLearningCatalogueSnapshot = async (): Promise<CourseProgress[]> => {
       return items;
     })
     .finally(() => {
+      clearTimeout(timer);
       learningCatalogueFlights.delete(scope);
     });
   learningCatalogueFlights.set(scope, flight);

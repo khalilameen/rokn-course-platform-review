@@ -129,7 +129,12 @@ let handledExpiredToken: string | null = null;
 // first reads a learner makes, so surfacing that infrastructure transition as
 // two unrelated product errors makes a healthy deployment look broken. Reads
 // are safe to replay; writes keep their endpoint-owned idempotency rules.
-const READ_RECOVERY_DELAYS_MS = [450, 900, 1_800, 3_000, 4_500, 5_000] as const;
+// One foreground read must fail in human time. A long ladder here multiplies
+// the wait across every GET (including screens which have no cached answer)
+// and can leave a healthy UI spinning for more than a minute after the origin
+// has already failed. Three short attempts cover a radio hand-off or gateway
+// wake; the screen-owned background refresh handles longer outages.
+export const READ_RECOVERY_DELAYS_MS = [300, 700, 1_500] as const;
 
 const transientReadFailure = ({
   errorCode,

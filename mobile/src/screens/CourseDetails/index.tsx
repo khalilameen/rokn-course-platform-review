@@ -39,7 +39,6 @@ import {
   CourseHero,
   CourseIntro,
   CourseRatingAction,
-  StickyCourseAction,
 } from './details/sections';
 import {
   CourseCodeRedemptionDialog,
@@ -53,7 +52,6 @@ import {
   selectCourseHeroHeight,
 } from './details/selectors';
 import {useCourseDetailsData} from './details/useCourseDetailsData';
-import {useStickyCourseAction} from './details/useStickyCourseAction';
 import styles from './details/styles';
 import type {CoursePurchaseQuote} from '../../services/roknApi';
 import {normalizeHumanIdentifier} from '../../utils/unicodeText';
@@ -465,8 +463,6 @@ export default function CourseDetails() {
     remoteError,
     remoteSession,
   });
-  const {onPrimaryActionLayout, onScroll, showStickyAction} =
-    useStickyCourseAction(heroHeight);
 
   const openLoginForPurchase = useCallback(() => {
     const routePlanCode = String(route.params?.purchasePlanCode || '').trim();
@@ -976,7 +972,7 @@ export default function CourseDetails() {
             : 'لم يكتمل الدفع\nيمكنك المحاولة مرة أخرى',
         );
       } else if (result.pending) {
-        setNotice('الدفع قيد التأكيد\nسنحدّث الرصيد تلقائيًا');
+        setNotice('لم يكتمل الدفع بعد\nسنراجع العملية تلقائيًا');
       } else if (result.success) {
         if (result.demo) {
           const state = await getDemoExperience();
@@ -1239,8 +1235,6 @@ export default function CourseDetails() {
       <StatusBar barStyle="light-content" backgroundColor={Palette.canvas} />
       <ScrollView
         contentContainerStyle={{paddingBottom: insets.bottom + 112}}
-        onScroll={onScroll}
-        scrollEventThrottle={80}
         showsVerticalScrollIndicator={false}>
         <CourseHero
           courseTitle={courseTitle}
@@ -1266,7 +1260,6 @@ export default function CourseDetails() {
             durationMinutes={durationMinutes}
             hasPreview={hasPreview}
             onPrimaryAction={handlePrimaryAction}
-            onPrimaryActionLayout={onPrimaryActionLayout}
             onPreview={() => startPreview()}
             owned={owned}
             pageReady={pageReady}
@@ -1321,15 +1314,6 @@ export default function CourseDetails() {
           />
         </View>
       </ScrollView>
-
-      <StickyCourseAction
-        bottomInset={insets.bottom}
-        label={primaryActionLabel}
-        onPress={handlePrimaryAction}
-        visible={
-          showStickyAction && pageReady && !remoteError && dialogStep === null
-        }
-      />
 
       <CourseCodeRedemptionDialog
         bottomInset={insets.bottom}

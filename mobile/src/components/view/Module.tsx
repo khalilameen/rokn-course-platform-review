@@ -467,6 +467,11 @@ const Module = ({
     module.isLocked ||
     (module.reels.length > 0 && completed < module.reels.length) ||
     (module.quizzes || []).some(quiz => !quiz.passed);
+  const projects = module.projects?.length
+    ? module.projects
+    : module.project
+    ? [module.project]
+    : [];
 
   return (
     <View style={[styles.container, module.isLocked && styles.lockedContainer]}>
@@ -650,12 +655,13 @@ const Module = ({
             </View>
           )}
 
-          {module.project && module.isLocked ? (
-            <View style={[styles.projectCard, styles.lockedProjectPreview]}>
+          {projects.map(project =>
+            module.isLocked || project.isLocked ? (
+            <View key={project.id} style={[styles.projectCard, styles.lockedProjectPreview]}>
               <View style={styles.projectTopRow}>
                 <View style={styles.projectBadge}>
                   <Text style={styles.projectBadgeText}>
-                    {module.project.isGraduationProject
+                    {project.isGraduationProject
                       ? 'مشروع التخرج'
                       : 'مشروع العبور'}
                   </Text>
@@ -664,18 +670,19 @@ const Module = ({
                   <Text style={styles.lockPillText}>مغلق</Text>
                 </View>
               </View>
-              <Text style={styles.projectTitle}>{module.project.title}</Text>
+              <Text style={styles.projectTitle}>{project.title}</Text>
               <Text style={styles.lockedProjectHint}>
                 تظهر التفاصيل عند الوصول إلى هذه الوحدة
               </Text>
             </View>
-          ) : module.project ? (
+          ) : (
             <MapProjectCard
-              project={module.project}
+              key={project.id}
+              project={project}
               onPassed={onProjectPassed}
               locked={projectSubmissionLocked}
             />
-          ) : null}
+          ))}
         </View>
       )}
     </View>

@@ -573,34 +573,15 @@ const reconcilePackageSwitch = async (
   for (const attempt of attempts) {
     if (attempt.packageId === selectedPackageId) continue;
     assertAccountSessionBoundary(boundary);
+    // An unrelated local intent is not evidence that money is moving. Do not
+    // replay its initiation or block the package the learner just selected.
+    // If it already has an order reference, reconcile it once and retain it
+    // only as background financial recovery.
+    if (!attempt.orderRef) continue;
     const recovered = await reconcileCheckoutAttempt(attempt, boundary);
     if (recovered.success) return recovered;
-    if (!recovered.pending) continue;
-    if (!recovered.orderRef) return recovered;
-
-    const abandoned = await abandonOrder(recovered.orderRef, boundary);
-    if (abandoned.approved) {
-      await clearCheckoutAttempt(attempt.idempotencyKey, boundary);
-      return {
-        success: true,
-        pending: false,
-        cancelled: false,
-        coinsAdded: abandoned.coinsAdded,
-        orderRef: recovered.orderRef,
-        demo: false,
-      };
-    }
-    if (abandoned.pending) {
-      return {
-        success: false,
-        pending: true,
-        cancelled: false,
-        coinsAdded: 0,
-        orderRef: recovered.orderRef,
-        demo: false,
-      };
-    }
-    await clearCheckoutAttempt(attempt.idempotencyKey, boundary);
+    // Pending remains recoverable under its own idempotency key. It must not
+    // masquerade as the result of this different package selection.
   }
   return null;
 };
@@ -865,6 +846,8 @@ const runCoinCheckout = async (
     if (status.pending) {
       reportClientError(new Error('payment_status_timeout'), {
         source: 'coin_checkout',
+        endpoint: 'payment/reconcile',
+        requestId: orderRef,
       });
     }
     return {
@@ -893,7 +876,11 @@ const runCoinCheckout = async (
     }
     reportClientError(
       error instanceof Error ? error : new Error('checkout_unknown_error'),
-      {source: 'coin_checkout'},
+      {
+        source: 'coin_checkout',
+        endpoint: 'payment/reconcile',
+        requestId: orderRef,
+      },
     );
     throw error;
   }

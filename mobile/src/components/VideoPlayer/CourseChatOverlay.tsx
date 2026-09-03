@@ -43,6 +43,7 @@ import {
   assertAccountSessionBoundary,
   captureAccountSessionBoundary,
 } from '../../constants/helpers';
+import {courseChatFailureHasRetryAction} from './courseChat/policy';
 
 interface CourseChatOverlayProps {
   visible: boolean;
@@ -590,7 +591,7 @@ const CourseChatOverlay = ({
                         {message.role === 'assistant' &&
                           message.deliveryStatus === 'failed' &&
                           message.clientRequestId &&
-                          message.errorCode !== 'chat_daily_limit_reached' && (
+                          courseChatFailureHasRetryAction(message.errorCode) && (
                             <Pressable
                               accessibilityRole="button"
                               disabled={sending}

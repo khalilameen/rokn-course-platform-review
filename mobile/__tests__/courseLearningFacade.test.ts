@@ -77,6 +77,7 @@ describe('course learning facade', () => {
       retryPendingSectionCompletions: playback.retryPendingSectionCompletions,
       saveLessonToFolder: savedCollections.saveLessonToFolder,
       savePlaybackPosition: playback.savePlaybackPosition,
+      subscribeCourseRevisionChanges: playback.subscribeCourseRevisionChanges,
       sendProjectFeedbackMessage: projects.sendProjectFeedbackMessage,
       startCourseQuiz: quizzes.startCourseQuiz,
       submitCourseQuizAnswer: quizzes.submitCourseQuizAnswer,

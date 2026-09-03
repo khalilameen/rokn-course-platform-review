@@ -283,7 +283,7 @@ export default function MyCorner() {
       return () => {
         active = false;
       };
-    }, [appIsActive, identityKey]),
+    }, [appIsActive]),
   );
   const demoHasAccess = Boolean(
     experience?.purchasedCourseIds.includes(DEMO_COURSE_ID),

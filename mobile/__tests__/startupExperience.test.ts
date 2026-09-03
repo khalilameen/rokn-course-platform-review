@@ -13,7 +13,7 @@ describe('first-launch experience', () => {
       fs.existsSync(path.resolve(__dirname, '../src/screens/Onboarding.tsx')),
     ).toBe(false);
     expect(navigation).toContain(
-      "const needsArabicBootstrap = languageCode === 'en' && !I18nManager.isRTL",
+      "const needsArabicBootstrap = languageCode !== 'en' && !I18nManager.isRTL",
     );
     expect(navigation).not.toMatch(/Onboarding|ابدأ الآن|مزايا/);
     expect(languageBootstrap).toContain("routes: [{name: 'Home'}]");

@@ -48,6 +48,12 @@ export interface CourseReel {
   mediaStatus?: 'ready' | 'processing' | 'failed' | 'unknown';
   isPreview: boolean;
   isLocked: boolean;
+  /** Server-owned reason; purchase and progression gates are different states. */
+  lockReason?:
+    | 'course_purchase_required'
+    | 'previous_section_incomplete'
+    | 'module_project_not_passed'
+    | string;
   isCompleted: boolean;
   reelNumber: number;
 }
@@ -89,6 +95,8 @@ export interface CourseProject {
   status: ProjectStatus;
   isGraduationProject: boolean;
   attachments: CourseAttachment[];
+  isLocked?: boolean;
+  lockReason?: string;
   feedbackLevel?: 'pass_only' | 'report' | 'enhanced';
   reportEnabled?: boolean;
   feedbackThread?: ProjectFeedbackThread;
@@ -119,6 +127,8 @@ export interface CourseLearningModule {
   attachments: CourseAttachment[];
   reels: CourseReel[];
   quizzes?: CourseQuiz[];
+  projects?: CourseProject[];
+  /** Compatibility alias for screens that present the first crossing project. */
   project?: CourseProject;
 }
 

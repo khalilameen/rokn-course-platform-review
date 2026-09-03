@@ -18,7 +18,6 @@ import {
   SettingsQualityIcon,
   SettingsReminderIcon,
   SettingsTermsIcon,
-  SupportWhatsAppIcon,
 } from '../../assets/SVG';
 import {toArabicDigits} from '../../constants/arabicFormatting';
 import appConfig from '../../../app.json';
@@ -84,7 +83,6 @@ export type SettingsSectionsProps = {
   onPortfolio: () => void;
   onPrivacyPolicy: () => void;
   onRateApp: () => void;
-  onSupport: () => void;
   onTermsOfUse: () => void;
   onToggleMarketing: (value: boolean) => void;
   onToggleNotifications: (value: boolean) => void;
@@ -212,16 +210,10 @@ export const buildSettingsSections = (
       title: 'شروط الاستخدام',
     },
     {
-      id: 'privacy.feedback',
-      icon: SettingsFeedbackIcon,
-      onPress: props.onFeedback,
-      title: 'بلّغنا عن مشكلة أو اقترح',
-    },
-    {
       id: 'privacy.support',
-      icon: SupportWhatsAppIcon,
+      icon: SettingsFeedbackIcon,
       isLast: true,
-      onPress: props.onSupport,
+      onPress: props.onFeedback,
       title: 'تواصل معنا',
     },
   ];

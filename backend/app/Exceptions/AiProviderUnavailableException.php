@@ -11,7 +11,9 @@ final class AiProviderUnavailableException extends \RuntimeException
         string $message = 'AI provider is temporarily unavailable.',
         ?\Throwable $previous = null,
         public readonly bool $outcomeUnknown = false,
-        public readonly array $fileAnnotations = []
+        public readonly array $fileAnnotations = [],
+        public readonly ?int $providerStatus = null,
+        public readonly ?string $providerCode = null
     ) {
         parent::__construct($message, 0, $previous);
     }

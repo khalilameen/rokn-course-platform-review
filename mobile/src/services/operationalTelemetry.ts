@@ -117,6 +117,7 @@ const rememberDiagnostic = (payload: ClientEventPayload) => {
 
 const eventNameFor = (source: string) => {
   if (source.includes('video')) return 'video_failure';
+  if (source.includes('course_chat')) return 'course_chat_failure';
   if (source.includes('checkout') || source.includes('payment')) {
     return 'payment_flow_failure';
   }
@@ -129,7 +130,7 @@ const eventNameFor = (source: string) => {
 const errorCodeFor = (error: Error, source: string) => {
   const message = String(error.message || '').toUpperCase();
   if (
-    source.includes('auth') &&
+    (source.includes('auth') || source.includes('course_chat')) &&
     /^[A-Z0-9][A-Z0-9._-]{0,63}$/.test(message)
   ) {
     return message;

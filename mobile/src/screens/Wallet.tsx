@@ -379,7 +379,7 @@ export default function Wallet() {
     );
     setRemoteError(failed ? 'تعذّر تحديث بعض البيانات\nاسحب لعرض أحدثها' : '');
     setRemoteLoading(false);
-  }, [identityKey, walletOwnerIsCurrent]);
+  }, [walletOwnerIsCurrent]);
 
   const refreshWalletManually = useCallback(async () => {
     const operation = Symbol('wallet-manual-refresh');
@@ -799,7 +799,7 @@ export default function Wallet() {
           Alert.alert('لم يكتمل الدفع', 'يمكنك المحاولة مرة أخرى');
         }
       } else if (result.pending) {
-        Alert.alert('العملية قيد التأكيد', 'سنحدّث رصيدك فور تأكيد الدفع');
+        Alert.alert('لم يكتمل الدفع بعد', 'سنراجع العملية تلقائيًا');
       } else {
         Alert.alert('لم يكتمل الدفع', 'يمكنك المحاولة مرة أخرى');
       }

@@ -1301,6 +1301,53 @@ final class BackendHardeningTest extends TestCase
         self::assertSame('streaming', $turn->fresh()->status);
     }
 
+    public function test_course_chat_poll_repairs_a_terminal_provider_event_immediately(): void
+    {
+        $user = $this->user();
+        $course = $this->course();
+        $order = $this->order($user, $course, Order::PAYMENT_METHOD_WALLET_COINS, 4000, 4000);
+        $enrollmentId = DB::table('course_enrollments')->insertGetId([
+            'user_id' => $user->id,
+            'course_id' => $course->id,
+            'order_id' => $order->id,
+            'is_active' => true,
+            'access_granted_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $requestId = 'de1480ea-4560-4eeb-9394-16d8526be593';
+        $turns = app(CourseChatTurnService::class);
+        $turn = $turns->begin(
+            $user->id,
+            $course->id,
+            $enrollmentId,
+            null,
+            $requestId,
+            'هل ستظل المحاولة معلقة؟',
+            'ar',
+            'prompt-v1'
+        );
+        $turns->markStreaming($turn);
+        DB::table('ai_usage_events')->insert([
+            'request_id' => $requestId,
+            'enrollment_id' => $enrollmentId,
+            'user_id' => $user->id,
+            'course_id' => $course->id,
+            'feature' => 'course_chat',
+            'status' => 'failed',
+            'metadata' => json_encode(['reason' => 'provider_unavailable'], JSON_THROW_ON_ERROR),
+            'completed_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $reconciled = $turns->reconcileTerminalUsage($turn->fresh());
+
+        self::assertSame(CourseChatTurn::FAILED, $reconciled?->status);
+        self::assertSame('ai_temporarily_unavailable', $reconciled?->error_code);
+        self::assertNotNull($reconciled?->completed_at);
+    }
+
     public function test_paid_ai_boundaries_reject_a_different_active_user(): void
     {
         $owner = $this->user();

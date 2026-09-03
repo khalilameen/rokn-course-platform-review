@@ -31,7 +31,6 @@ const createProps = (
   onPortfolio: callback(),
   onPrivacyPolicy: callback(),
   onRateApp: callback(),
-  onSupport: callback(),
   onTermsOfUse: callback(),
   onToggleMarketing: callback(),
   onToggleNotifications: callback(),
@@ -53,7 +52,6 @@ const authenticatedRows = [
   'privacy.marketing',
   'privacy.policy',
   'privacy.terms',
-  'privacy.feedback',
   'privacy.support',
   'about.rate',
   'about.info',
@@ -67,7 +65,6 @@ const guestRows = [
   'learning.clear-history',
   'privacy.policy',
   'privacy.terms',
-  'privacy.feedback',
   'privacy.support',
   'about.rate',
   'about.info',
@@ -114,8 +111,8 @@ describe('settings screen contract', () => {
       [...authenticated, ...guest].map(row => [row.id, row]),
     );
 
-    expect(rowsById.size).toBe(18);
-    expect(new Set([...rowsById.values()].map(row => row.icon)).size).toBe(18);
+    expect(rowsById.size).toBe(17);
+    expect(new Set([...rowsById.values()].map(row => row.icon)).size).toBe(17);
     expect(rowsById.has('learning.display')).toBe(false);
     expect(rowsById.has('about.open-source')).toBe(false);
     expect(rowsById.has('privacy.refunds')).toBe(false);
@@ -124,5 +121,17 @@ describe('settings screen contract', () => {
     for (const row of rowsById.values()) {
       expect(Boolean(row.onPress || row.toggle)).toBe(true);
     }
+  });
+
+  it('uses one contact entry for problems and suggestions', () => {
+    const onFeedback = jest.fn();
+    const rows = flattenRows(createProps({onFeedback}));
+    const contact = rows.filter(row => row.id === 'privacy.support');
+
+    expect(contact).toHaveLength(1);
+    expect(rows.some(row => row.id === 'privacy.feedback')).toBe(false);
+    expect(contact[0].title).toBe('تواصل معنا');
+    contact[0].onPress?.();
+    expect(onFeedback).toHaveBeenCalledTimes(1);
   });
 });

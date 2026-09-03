@@ -232,11 +232,11 @@ export const useSettingsPreferences = ({
           if (!active) return;
         }
         try {
-          const profile = await getProfile();
+          const remoteProfile = await getProfile();
           assertAccountSessionBoundary(boundary);
           if (!active) return;
           const profileQuality = normalizeStoredQuality(
-            profile.videoQualityPreference,
+            remoteProfile.videoQualityPreference,
           );
           await withSettingsScopeWrite(boundary, async () => {
             assertAccountSessionBoundary(boundary);
@@ -245,10 +245,10 @@ export const useSettingsPreferences = ({
               !privacyDirtyKeys.has(WATCH_HISTORY_ENABLED_KEY) &&
               isUnchanged(WATCH_HISTORY_ENABLED_KEY)
             ) {
-              setWatchHistory(profile.watchHistoryEnabled);
+              setWatchHistory(remoteProfile.watchHistoryEnabled);
               await saveItem(
                 await scopedKey(WATCH_HISTORY_ENABLED_KEY),
-                profile.watchHistoryEnabled,
+                remoteProfile.watchHistoryEnabled,
               );
               assertAccountSessionBoundary(boundary);
             }
@@ -256,10 +256,10 @@ export const useSettingsPreferences = ({
               !privacyDirtyKeys.has(MARKETING_NOTIFICATIONS_KEY) &&
               isUnchanged(MARKETING_NOTIFICATIONS_KEY)
             ) {
-              setMarketingNotifications(profile.marketingNotificationsEnabled);
+              setMarketingNotifications(remoteProfile.marketingNotificationsEnabled);
               await saveItem(
                 await scopedKey(MARKETING_NOTIFICATIONS_KEY),
-                profile.marketingNotificationsEnabled,
+                remoteProfile.marketingNotificationsEnabled,
               );
               assertAccountSessionBoundary(boundary);
             }
@@ -270,7 +270,7 @@ export const useSettingsPreferences = ({
               );
             }
             await scopedKey('VIDEO_PLAYBACK_SPEED').then(key =>
-              saveItem(key, profile.playbackSpeed),
+              saveItem(key, remoteProfile.playbackSpeed),
             );
             assertAccountSessionBoundary(boundary);
           });

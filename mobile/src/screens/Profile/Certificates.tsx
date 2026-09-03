@@ -302,9 +302,15 @@ export default function Certificates({
       }
       const result = await loadCourseLearningData(DEMO_COURSE_ID);
       const course = await applyLocalLearningState(result.course);
-      const finalProject = [...course.modules]
-        .reverse()
-        .find(module => module.project)?.project;
+      const finalProject = course.modules
+        .flatMap(module =>
+          module.projects?.length
+            ? module.projects
+            : module.project
+            ? [module.project]
+            : [],
+        )
+        .at(-1);
       if (isCurrent()) {
         setGrantCourses([]);
         setReadyCourses([]);

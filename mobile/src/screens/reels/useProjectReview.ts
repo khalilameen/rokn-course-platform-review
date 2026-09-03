@@ -52,7 +52,13 @@ export const useProjectReview = ({
           return null;
         }
         const project = refreshed.modules
-          .map(module => module.project)
+          .flatMap(module =>
+            module.projects?.length
+              ? module.projects
+              : module.project
+              ? [module.project]
+              : [],
+          )
           .find(item => item?.id === projectId);
         const refreshedFeed = buildAccessibleFeed(refreshed);
         const projectFeedIndex = refreshedFeed.findIndex(
@@ -108,7 +114,13 @@ export const useProjectReview = ({
   useEffect(() => {
     if (!course || previewMode || !reviewActive) return;
     const reviewingProject = course.modules
-      .map(module => module.project)
+      .flatMap(module =>
+        module.projects?.length
+          ? module.projects
+          : module.project
+          ? [module.project]
+          : [],
+      )
       .find(project => project?.status === 'reviewing');
     if (reviewingProject) watchProjectUntilResolved(reviewingProject.id);
   }, [course, previewMode, reviewActive, watchProjectUntilResolved]);

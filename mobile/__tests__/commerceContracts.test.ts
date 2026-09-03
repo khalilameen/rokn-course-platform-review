@@ -88,6 +88,7 @@ describe('commerce API contracts', () => {
             action_key: 'follow_instagram',
             title_ar: 'افتح الصفحة ثم عد',
             coins_amount: 75,
+            task_state: 'available',
             action_url: 'https://instagram.com/rokn.app',
             requires_external_visit: true,
           },
@@ -96,6 +97,7 @@ describe('commerce API contracts', () => {
             action_key: 'link_whatsapp',
             title_ar: 'أرسل الرسالة الجاهزة',
             coins_amount: 15,
+            task_state: 'available',
             requires_external_visit: true,
           },
         ],
@@ -159,16 +161,32 @@ describe('commerce API contracts', () => {
           id: 64,
           title: 'Course',
           price: 100,
+          is_coming_soon: false,
+          ratings_count: 0,
+          average_rating: null,
+          published_revision: 1,
+          metadata: {students_count: 0, duration_minutes: 1},
+          modules: [
+            {
+              id: 1,
+              title: 'وحدة',
+              sections: [
+                {id: 1, content_id: 1, title: 'درس', type: 'lesson'},
+              ],
+            },
+          ],
           access_type: 'scholarship',
           access_plans: [
             {
               code: 'mentor',
               name_ar: 'متابعة',
               price_coins: 900,
+              minimum_paid_coins: 0,
               chat_enabled: true,
               chat_message_limit: 40,
               project_feedback_level: 'enhanced',
               project_report_enabled: true,
+              project_thread_reply_enabled: true,
               project_output_enabled: true,
               certificate_enabled: true,
             },
@@ -176,17 +194,25 @@ describe('commerce API contracts', () => {
               code: 'basic',
               name_ar: 'تعلم',
               price_coins: 300,
+              minimum_paid_coins: 0,
               chat_enabled: false,
+              project_feedback_level: 'pass_only',
+              project_report_enabled: false,
+              project_thread_reply_enabled: false,
+              project_output_enabled: false,
               certificate_enabled: true,
             },
             {
               code: 'guided',
               name_ar: 'إرشاد',
               price_coins: 600,
+              minimum_paid_coins: 0,
               chat_enabled: true,
               chat_message_limit: 10,
               project_feedback_level: 'report',
               project_report_enabled: true,
+              project_thread_reply_enabled: false,
+              project_output_enabled: true,
               certificate_enabled: true,
             },
           ],
@@ -196,10 +222,14 @@ describe('commerce API contracts', () => {
 
     const details = await getCourseDetails('64');
 
-    expect(mockGet).toHaveBeenCalledWith('courses/64/details', {
-      optionalAuthorization: true,
-      signal: undefined,
-    });
+    expect(mockGet).toHaveBeenCalledWith(
+      'courses/64/details',
+      expect.objectContaining({
+        optionalAuthorization: true,
+        signal: undefined,
+        roknNetworkRetryDeadlineAt: expect.any(Number),
+      }),
+    );
     expect(details.owned).toBe(true);
     expect(details.accessPlans.map(plan => plan.code)).toEqual([
       'basic',

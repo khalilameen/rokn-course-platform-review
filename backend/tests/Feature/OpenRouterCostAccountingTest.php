@@ -89,11 +89,53 @@ final class OpenRouterCostAccountingTest extends TestCase
             return $request->url() === 'https://openrouter.test/chat'
                 && ($payload['max_completion_tokens'] ?? null) === 100
                 && !array_key_exists('max_tokens', $payload)
-                && ($payload['reasoning'] ?? null) === [
-                    'effort' => 'none',
-                    'exclude' => true,
-                ];
+                && ($payload['temperature'] ?? null) === 0.2
+                && ($payload['provider']['require_parameters'] ?? null) === true
+                && !array_key_exists('reasoning', $payload);
         });
+    }
+
+    public function test_gpt_five_request_omits_unsupported_temperature(): void
+    {
+        config()->set('openrouter.allowed_models', ['openai/gpt-5-mini']);
+        Http::fake(['openrouter.test/*' => Http::response([
+            'id' => 'generation-gpt-five',
+            'choices' => [['message' => ['content' => 'answer']]],
+            'usage' => ['total_tokens' => 15, 'cost' => 0.001],
+        ])]);
+
+        app(OpenRouterService::class)->chat(
+            'openai/gpt-5-mini',
+            [['role' => 'user', 'content' => 'question']],
+            0.2,
+            100
+        );
+
+        Http::assertSent(static fn ($request): bool =>
+            !array_key_exists('temperature', $request->data())
+            && ($request['reasoning']['effort'] ?? null) === 'minimal'
+        );
+    }
+
+    public function test_provider_rejection_keeps_safe_diagnostics(): void
+    {
+        Http::fake(['openrouter.test/*' => Http::response([
+            'error' => ['code' => 'unsupported_parameter'],
+        ], 400)]);
+
+        try {
+            app(OpenRouterService::class)->chat(
+                'test/model',
+                [['role' => 'user', 'content' => 'question']],
+                0.2,
+                100
+            );
+            self::fail('The provider rejection should be surfaced.');
+        } catch (\App\Exceptions\AiProviderUnavailableException $exception) {
+            self::assertSame(400, $exception->providerStatus);
+            self::assertSame('unsupported_parameter', $exception->providerCode);
+            self::assertFalse($exception->outcomeUnknown);
+        }
     }
 
     public function test_text_parts_are_joined_without_exposing_reasoning_parts(): void

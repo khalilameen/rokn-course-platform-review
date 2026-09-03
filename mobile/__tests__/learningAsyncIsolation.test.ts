@@ -42,6 +42,12 @@ describe('learning async ownership contracts', () => {
     expect(chat).toMatch(
       /await pollCourseAssistantTurn\(clientRequestId\);[\s\S]*sendGeneration !== sendGenerationRef\.current/,
     );
+    expect(chat).toContain(
+      '? await pollCourseAssistantTurn(retryClientRequestId)',
+    );
+    expect(chat).toContain(
+      'courseChatFailureCanStartFreshTurn(response.code)',
+    );
     const chatOverlay = source(
       'src/components/VideoPlayer/CourseChatOverlay.tsx',
     );

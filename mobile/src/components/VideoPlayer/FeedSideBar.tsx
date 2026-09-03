@@ -178,10 +178,11 @@ const CourseIndexModule = ({
   const [expanded, setExpanded] = useState(!module.isLocked);
   const lastReel = module.reels[module.reels.length - 1];
   const quizzes = module.quizzes || [];
-  const projectUnavailable =
-    module.isLocked ||
-    Boolean(lastReel && !lastReel.isCompleted) ||
-    quizzes.some(quiz => !quiz.passed);
+  const projects = module.projects?.length
+    ? module.projects
+    : module.project
+    ? [module.project]
+    : [];
 
   return (
     <View style={[styles.moduleCard, module.isLocked && styles.lockedModule]}>
@@ -285,38 +286,46 @@ const CourseIndexModule = ({
               </Pressable>
             );
           })}
-          {module.project && (
+          {projects.map(project => {
+            const projectUnavailable =
+              module.isLocked ||
+              project.isLocked ||
+              Boolean(lastReel && !lastReel.isCompleted) ||
+              quizzes.some(quiz => !quiz.passed);
+            return (
             <Pressable
+              key={project.id}
               accessibilityRole="button"
               accessibilityState={{disabled: projectUnavailable}}
               disabled={projectUnavailable}
               style={[
                 styles.projectRow,
                 projectUnavailable && styles.projectRowDisabled,
-                currentFeedKey === `project-${module.project.id}` &&
+                currentFeedKey === `project-${project.id}` &&
                   styles.activeReelRow,
               ]}
-              onPress={() => onSelect(`project-${module.project!.id}`)}>
+              onPress={() => onSelect(`project-${project.id}`)}>
               <View style={styles.projectGlyph}>
                 <Text style={styles.projectGlyphText}>◆</Text>
               </View>
               <View style={styles.projectCopy}>
                 <Text style={styles.projectTitle} numberOfLines={1}>
-                  {formatArabicDisplayText(module.project.title)}
+                  {formatArabicDisplayText(project.title)}
                 </Text>
                 <Text style={styles.projectStatus}>
                   {module.isLocked
                     ? 'يفتح بعد عبور الوحدة السابقة'
-                    : module.project.status === 'passed'
+                    : project.status === 'passed'
                     ? 'تم العبور'
-                    : module.project.status === 'reviewing'
+                    : project.status === 'reviewing'
                     ? 'قيد المراجعة'
                     : 'بعد آخر مقطع في الوحدة'}
                 </Text>
               </View>
               {projectUnavailable && <LockIcon />}
             </Pressable>
-          )}
+            );
+          })}
         </View>
       )}
     </View>

@@ -2,7 +2,6 @@ import React, {useMemo, useState} from 'react';
 import {
   ActivityIndicator,
   Image,
-  LayoutChangeEvent,
   Pressable,
   StyleSheet,
   Text,
@@ -121,7 +120,7 @@ export const LockedOutline = ({
       id: module.id,
       title: module.title,
       reelCount: module.reels.length,
-      projectCount: module.project ? 1 : 0,
+      projectCount: module.projects?.length || (module.project ? 1 : 0),
       previewReelCount: module.reels.filter(reel => reel.isPreview).length,
       items: [
         ...module.reels.map(reel => ({
@@ -132,15 +131,15 @@ export const LockedOutline = ({
           reelNumber: reel.reelNumber,
           reelId: reel.id,
         })),
-        ...(module.project
-          ? [
-              {
-                id: module.project.id,
-                title: module.project.title,
+        ...(module.projects?.length || module.project
+          ? (module.projects?.length ? module.projects : [module.project!]).map(project =>
+              ({
+                id: project.id,
+                title: project.title,
                 type: 'project' as const,
                 isPreview: false,
-              },
-            ]
+              }),
+            )
           : []),
       ],
     }));
@@ -332,7 +331,6 @@ type CourseIntroProps = {
   durationMinutes: number | null;
   hasPreview: boolean;
   onPrimaryAction: () => void;
-  onPrimaryActionLayout: (event: LayoutChangeEvent) => void;
   onPreview: () => void;
   owned: boolean;
   pageReady: boolean;
@@ -348,7 +346,6 @@ export const CourseIntro = ({
   durationMinutes,
   hasPreview,
   onPrimaryAction: handlePrimaryAction,
-  onPrimaryActionLayout,
   onPreview,
   owned,
   pageReady,
@@ -393,7 +390,7 @@ export const CourseIntro = ({
       </View>
     )}
     {!remoteError && (
-      <View onLayout={onPrimaryActionLayout} style={styles.priceAndAction}>
+      <View style={styles.priceAndAction}>
         <Pressable
           accessibilityRole="button"
           disabled={!pageReady}

@@ -374,14 +374,28 @@ export const applyLocalLearningState = async (
       const moduleUnlocked = canAuthoriseLocally
         ? locallyUnlocked
         : !module.isLocked;
-      const projectPassed = module.project
-        ? module.project.status === 'passed' ||
-          (canAuthoriseLocally &&
-            state.passedProjects.includes(module.project.id))
-        : true;
-      const projectProvisional = module.project
-        ? state.provisionalProjects.includes(module.project.id)
-        : false;
+      const projects = module.projects?.length
+        ? module.projects
+        : module.project
+        ? [module.project]
+        : [];
+      const mappedProjects = projects.map(project => {
+        const passed =
+          project.status === 'passed' ||
+          (canAuthoriseLocally && state.passedProjects.includes(project.id));
+        const provisional = state.provisionalProjects.includes(project.id);
+        return {
+          ...project,
+          status: passed
+            ? ('passed' as const)
+            : provisional
+            ? ('reviewing' as const)
+            : project.status,
+        };
+      });
+      const projectPassed = mappedProjects.every(
+        project => project.status === 'passed',
+      );
       let allPreviousReelsCompleted = true;
       const reels = module.reels.map((reel, reelIndex) => {
         const isCompleted =
@@ -401,16 +415,8 @@ export const applyLocalLearningState = async (
         ...module,
         isLocked: !moduleUnlocked,
         reels,
-        project: module.project
-          ? {
-              ...module.project,
-              status: projectPassed
-                ? 'passed'
-                : projectProvisional
-                ? 'reviewing'
-                : module.project.status,
-            }
-          : undefined,
+        projects: mappedProjects,
+        project: mappedProjects[0],
       };
       // Reviewing is a visible saved state, not an entitlement. Only an
       // authoritative pass may expose the following module and its media.

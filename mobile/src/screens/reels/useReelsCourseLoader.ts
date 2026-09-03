@@ -150,6 +150,18 @@ export const useReelsCourseLoader = ({
         {signal: controller.signal},
       );
       if (!isCurrentOwner()) return;
+      // A public details payload contains the free samples plus the outline.
+      // It is not a learning entitlement. If a stale CTA/deep link opens the
+      // player without preview mode, return to the commercial course page
+      // instead of turning the first paid reel into a project-style gate.
+      const accessType = String(result.course.accessType || '')
+        .trim()
+        .toLowerCase();
+      if (!previewMode && (!accessType || accessType === 'none' || accessType === 'preview')) {
+        navigation.replace('CourseDetails', {courseId: requestedCourseId});
+        reloadTarget?.onResult?.(false);
+        return;
+      }
       const [withLocalState, localState, sessionAvailable] = await Promise.all([
         applyLocalLearningState(result.course),
         getLocalLearningState(),
@@ -161,16 +173,28 @@ export const useReelsCourseLoader = ({
         !sessionAvailable && isLocalDemoId(withLocalState.id);
       if (refs.demoRewardsEnabled.current) {
         const passedProjects = withLocalState.modules
-          .map(module => module.project)
+          .flatMap(module =>
+            module.projects?.length
+              ? module.projects
+              : module.project
+              ? [module.project]
+              : [],
+          )
           .filter(project => project?.status === 'passed');
         if (passedProjects[0]) {
           void claimDemoFirstProjectReward(passedProjects[0].id).catch(
             () => undefined,
           );
         }
-        const finalProject = [...withLocalState.modules]
-          .reverse()
-          .find(module => module.project)?.project;
+        const finalProject = withLocalState.modules
+          .flatMap(module =>
+            module.projects?.length
+              ? module.projects
+              : module.project
+              ? [module.project]
+              : [],
+          )
+          .at(-1);
         if (finalProject?.status === 'passed') {
           void claimDemoCourseCompletionReward(withLocalState.id).catch(
             () => undefined,

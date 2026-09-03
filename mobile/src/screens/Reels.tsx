@@ -682,9 +682,15 @@ const Reels = () => {
           if (demoRewardsEnabledRef.current) {
             void claimDemoFirstProjectReward(projectId).catch(() => undefined);
           }
-          const finalProject = [...course.modules]
-            .reverse()
-            .find(module => module.project)?.project;
+          const finalProject = course.modules
+            .flatMap(module =>
+              module.projects?.length
+                ? module.projects
+                : module.project
+                ? [module.project]
+                : [],
+            )
+            .at(-1);
           if (demoRewardsEnabledRef.current && finalProject?.id === projectId) {
             void claimDemoCourseCompletionReward(course.id).catch(
               () => undefined,
