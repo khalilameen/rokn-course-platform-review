@@ -71,6 +71,44 @@ describe('public request session boundary', () => {
     expect(config.headers.has('Authorization')).toBe(false);
   });
 
+  it('gives ordinary reads one bounded logical deadline across retries', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const config = {
+      method: 'get',
+      url: 'wallet',
+      headers: new AxiosHeaders(),
+    } as Parameters<typeof responseConfig>[0];
+
+    await responseConfig(config);
+
+    expect(
+      (config as typeof config & {roknNetworkRetryDeadlineAt: number})
+        .roknNetworkRetryDeadlineAt,
+    ).toBe(1_020_000);
+    expect(config.timeout).toBe(20_000);
+    now.mockRestore();
+  });
+
+  it('preserves a shorter screen-owned read deadline', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const config = {
+      method: 'get',
+      url: 'courses/list',
+      headers: new AxiosHeaders(),
+      timeout: 15_000,
+      roknNetworkRetryDeadlineAt: 1_002_500,
+    } as Parameters<typeof responseConfig>[0];
+
+    await responseConfig(config);
+
+    expect(
+      (config as typeof config & {roknNetworkRetryDeadlineAt: number})
+        .roknNetworkRetryDeadlineAt,
+    ).toBe(1_002_500);
+    expect(config.timeout).toBe(2_500);
+    now.mockRestore();
+  });
+
   it('uses only the ready memory snapshot for optional catalogue auth', async () => {
     mockPeekSession.mockReturnValue({
       ready: true,

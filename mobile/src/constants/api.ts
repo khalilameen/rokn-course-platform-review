@@ -135,6 +135,12 @@ let handledExpiredToken: string | null = null;
 // has already failed. Three short attempts cover a radio hand-off or gateway
 // wake; the screen-owned background refresh handles longer outages.
 export const READ_RECOVERY_DELAYS_MS = [300, 700, 1_500] as const;
+// Axios' timeout is per attempt. Without a journey-wide deadline, an ordinary
+// GET which owns no screen-specific budget can spend 15 seconds four times
+// before the small retry delays above are even counted. Keep public bootstrap,
+// wallet and settings reads within one human-scale wait while still allowing
+// immediate 502/503 origin-wake responses to use the complete retry ladder.
+export const DEFAULT_READ_RECOVERY_BUDGET_MS = 20_000;
 
 const transientReadFailure = ({
   errorCode,
@@ -416,6 +422,14 @@ const clampTimeoutToReadDeadline = (
 
 export const responseConfig = async (config: InternalAxiosRequestConfig) => {
   const requestConfig = config as InternalAxiosRequestConfig & RoknRequestConfig;
+  const method = String(requestConfig.method || 'get').toLowerCase();
+  if (
+    (method === 'get' || method === 'head') &&
+    !Number(requestConfig.roknNetworkRetryDeadlineAt || 0)
+  ) {
+    requestConfig.roknNetworkRetryDeadlineAt =
+      Date.now() + DEFAULT_READ_RECOVERY_BUDGET_MS;
+  }
   // Enforce the logical read's deadline before doing native storage work and
   // again immediately before dispatch. This also covers explicit outer retries
   // such as a course-revision refresh, not only interceptor-owned retries.

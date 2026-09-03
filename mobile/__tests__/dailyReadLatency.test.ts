@@ -10,6 +10,7 @@ describe('daily read latency budget', () => {
     expect(api).toContain(
       'READ_RECOVERY_DELAYS_MS = [300, 700, 1_500] as const',
     );
+    expect(api).toContain('DEFAULT_READ_RECOVERY_BUDGET_MS = 20_000');
     expect(api).not.toContain('4_500, 5_000');
   });
 
