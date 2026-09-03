@@ -36,8 +36,11 @@ return new class extends Migration {
         if (!Schema::hasTable('course_authoring_revision_entities')) {
             Schema::create('course_authoring_revision_entities', function (Blueprint $table): void {
                 $table->id();
-                $table->foreignId('course_authoring_revision_id')
-                    ->constrained('course_authoring_revisions')->cascadeOnDelete();
+                $table->foreignId('course_authoring_revision_id');
+                $table->foreign(
+                    'course_authoring_revision_id',
+                    'course_auth_revision_entity_revision_fk'
+                )->references('id')->on('course_authoring_revisions')->cascadeOnDelete();
                 $table->string('entity_type', 120);
                 $table->unsignedBigInteger('source_entity_id');
                 $table->unsignedBigInteger('revision_entity_id');
