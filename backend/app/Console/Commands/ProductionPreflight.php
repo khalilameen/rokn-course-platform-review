@@ -1064,35 +1064,47 @@ class ProductionPreflight extends Command
         $failures = [];
 
         $publicOrigin = rtrim(trim((string) config('public_links.base_url')), '/');
-        $expectedIdentity = app(AppReleasePolicyService::class)->publicContractIdentity();
-        try {
-            $association = Http::acceptJson()
-                ->connectTimeout(3)
-                ->timeout(6)
-                ->withoutRedirecting()
-                ->get($publicOrigin.'/.well-known/assetlinks.json');
-            if ($association->redirect()) {
-                $redirect = trim((string) $association->header('Location'));
-                $expectedHost = strtolower((string) parse_url($publicOrigin, PHP_URL_HOST));
-                $redirectUrl = str_starts_with($redirect, '/') ? $publicOrigin.$redirect : $redirect;
-                $redirectHost = strtolower((string) parse_url($redirectUrl, PHP_URL_HOST));
-                if ($redirect === '' || $redirectHost !== $expectedHost) {
-                    $failures[] = 'The branded app-link association redirects to a different deployment host.';
-                } else {
-                    $association = Http::acceptJson()
-                        ->connectTimeout(3)
-                        ->timeout(6)
-                        ->withoutRedirecting()
-                        ->get($redirectUrl);
-                    if (!$this->validAndroidAssociation($association, $expectedIdentity)) {
-                        $failures[] = 'The branded app-link redirect does not terminate on the configured Android contract.';
+        $releasePolicy = app(AppReleasePolicyService::class);
+        $releaseChannels = $releasePolicy->launchReadiness()['channels'] ?? [];
+        $androidAssociationRequired = collect([
+            AppReleasePolicyService::CHANNEL_PLAY,
+            AppReleasePolicyService::CHANNEL_DIRECT,
+        ])->contains(fn (string $channel): bool => (bool) ($releaseChannels[$channel]['ready'] ?? false));
+
+        // A public association is a release contract, not a prerequisite for
+        // deploying an API-only revision while no Android release is active.
+        // Once either Android channel is active, keep the strict host check.
+        if ($androidAssociationRequired) {
+            $expectedIdentity = $releasePolicy->publicContractIdentity();
+            try {
+                $association = Http::acceptJson()
+                    ->connectTimeout(3)
+                    ->timeout(6)
+                    ->withoutRedirecting()
+                    ->get($publicOrigin.'/.well-known/assetlinks.json');
+                if ($association->redirect()) {
+                    $redirect = trim((string) $association->header('Location'));
+                    $expectedHost = strtolower((string) parse_url($publicOrigin, PHP_URL_HOST));
+                    $redirectUrl = str_starts_with($redirect, '/') ? $publicOrigin.$redirect : $redirect;
+                    $redirectHost = strtolower((string) parse_url($redirectUrl, PHP_URL_HOST));
+                    if ($redirect === '' || $redirectHost !== $expectedHost) {
+                        $failures[] = 'The branded app-link association redirects to a different deployment host.';
+                    } else {
+                        $association = Http::acceptJson()
+                            ->connectTimeout(3)
+                            ->timeout(6)
+                            ->withoutRedirecting()
+                            ->get($redirectUrl);
+                        if (!$this->validAndroidAssociation($association, $expectedIdentity)) {
+                            $failures[] = 'The branded app-link redirect does not terminate on the configured Android contract.';
+                        }
                     }
+                } elseif (!$this->validAndroidAssociation($association, $expectedIdentity)) {
+                    $failures[] = 'The branded public host does not serve the configured Android app-link contract.';
                 }
-            } elseif (!$this->validAndroidAssociation($association, $expectedIdentity)) {
-                $failures[] = 'The branded public host does not serve the configured Android app-link contract.';
+            } catch (Throwable) {
+                $failures[] = 'The branded public app-link host is unreachable or did not return a stable contract identity.';
             }
-        } catch (Throwable) {
-            $failures[] = 'The branded public app-link host is unreachable or did not return a stable contract identity.';
         }
 
         try {
