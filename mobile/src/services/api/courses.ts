@@ -277,29 +277,6 @@ const courseCategory = (course: CourseDto): DemoCourse['category'] => {
   return 'freelance';
 };
 
-const courseProgress = (course: CourseDto): number | undefined => {
-  if (
-    valueAsBoolean(
-      course?.enrollment?.is_completed,
-      course?.enrollment?.completed,
-      course?.is_completed,
-    )
-  ) {
-    return 100;
-  }
-  const progress = isApiRecord(course.progress) ? course.progress : {};
-  const raw =
-    course?.enrollment?.progress_percentage ??
-    course?.progress_percentage ??
-    progress.progress_percentage ??
-    course?.progress;
-  if (raw === null || raw === undefined || raw === '') return undefined;
-  const numeric = Number(raw);
-  return Number.isFinite(numeric)
-    ? Math.max(0, Math.min(100, numeric))
-    : undefined;
-};
-
 export type CourseProgress = {
   id: string;
   title: string;
@@ -996,7 +973,11 @@ const mapPublishedCourses = (
           Number(item?.metadata?.students_count ?? item?.students_count ?? 0) ||
             0,
         ),
-        progress: learning?.progress ?? courseProgress(item),
+        // Progress and ownership are one entitlement snapshot. The public
+        // catalogue may carry legacy enrollment/progress-shaped fields during
+        // a rolling deploy, but accepting them here makes an unowned preview
+        // look started while the details endpoint correctly asks for payment.
+        progress: learning?.progress,
         category: courseCategory(item),
         owned:
           Boolean(learning),

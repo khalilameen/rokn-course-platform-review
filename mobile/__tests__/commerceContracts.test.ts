@@ -16,6 +16,7 @@ import {purchaseCourse} from '../src/services/api/access';
 import {
   getCourseDetails,
   getLearningCourses,
+  getPublishedCourses,
 } from '../src/services/api/courses';
 import {getCoinTasks, getWallet} from '../src/services/api/economy';
 
@@ -372,6 +373,36 @@ describe('commerce API contracts', () => {
     await expect(getLearningCourses()).rejects.toThrow(
       'LEARNING_COURSES_CONTRACT_INVALID',
     );
+  });
+
+  it('does not derive catalogue progress from public legacy enrollment fields', async () => {
+    mockGet
+      .mockResolvedValueOnce({
+        data: {
+          data: {
+            courses: [
+              {
+                id: 65,
+                title: 'Course',
+                is_coming_soon: false,
+                progress_percentage: 80,
+                progress: {progress_percentage: 80},
+                enrollment: {is_completed: true, progress_percentage: 100},
+              },
+            ],
+            pagination: {current_page: 1, last_page: 1, total: 1},
+            catalogue_revision: 1,
+          },
+        },
+      });
+
+    const catalogue = await getPublishedCourses();
+
+    expect(catalogue[0]).toMatchObject({
+      id: '65',
+      owned: false,
+      progress: undefined,
+    });
   });
 
   it('sends the selected plan and preserves insufficient-balance details', async () => {
