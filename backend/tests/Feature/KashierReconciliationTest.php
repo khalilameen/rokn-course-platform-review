@@ -102,7 +102,7 @@ final class KashierReconciliationTest extends TestCase
         Http::assertSent(static fn ($request): bool =>
             $request->hasHeader(
                 'Authorization',
-                'test-api-key-not-a-secret$test-dashboard-key-not-a-secret'
+                'test-dashboard-key-not-a-secret'
             )
         );
         $this->assertDatabaseHas('orders', [

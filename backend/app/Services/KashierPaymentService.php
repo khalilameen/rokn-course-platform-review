@@ -338,10 +338,10 @@ final readonly class KashierPaymentService
 
         try {
             $response = Http::withHeaders([
-                // Kashier's reconciliation API does not accept either
-                // credential on its own. Its documented merchant
-                // authorization value is "API key$secret key".
-                'Authorization' => $configuration['api_key'] . '$' . $configuration['secret_key'],
+                // Kashier exposes this as one complete dashboard API
+                // Authorization value. The payment API key above is a
+                // different credential used to sign the hosted checkout.
+                'Authorization' => $configuration['secret_key'],
             ])
                 ->connectTimeout(5)
                 ->timeout(10)
