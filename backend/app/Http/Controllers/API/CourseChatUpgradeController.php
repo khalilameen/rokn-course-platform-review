@@ -490,8 +490,7 @@ final class CourseChatUpgradeController extends Controller
         );
         $payload['already_upgraded'] = (bool) $result['already_upgraded'];
         $resultTerms = is_array($result['plan_terms'] ?? null) ? $result['plan_terms'] : [];
-        $payload['chat_available'] = (bool) $result['course']->ai_chat_enabled
-            && (bool) ($resultTerms['chat_enabled'] ?? false);
+        $payload['chat_available'] = (bool) ($resultTerms['chat_enabled'] ?? false);
         $payload['certificate_available'] = (bool) ($resultTerms['certificate_enabled'] ?? true);
         $payload['amount_deducted'] = (int) $result['amount'];
         $payload['order_id'] = $result['order']->id ?? null;
@@ -616,18 +615,23 @@ final class CourseChatUpgradeController extends Controller
         $spendable = $paid + min($reward, $maximumRewardForUpgrade);
         $deficit = max(0, $price - $spendable);
 
+        $targetContract = $targetPlan
+            ? app(CourseAccessPlanService::class)->publicPayload($targetPlan)
+            : [];
+
         return [
             'already_upgraded' => false,
             'chat_available' => false,
             'certificate_available' => false,
-            'ai_included' => (bool) $course->ai_chat_enabled,
+            'ai_included' => (bool) ($targetContract['chat_enabled'] ?? false),
             'course_id' => (int) $course->id,
             'course_revision' => $this->publishedRevision($course),
             'course_title' => (string) $course->name_ar,
             'upgrade_price' => $price,
             'target_plan_code' => $targetPlan?->code,
             'target_plan_name' => $targetPlan?->name_ar,
-            'target_message_limit' => $targetPlan ? (int) $targetPlan->chat_message_limit : null,
+            'target_message_limit' => $targetPlan
+                ? (int) ($targetContract['chat_message_limit'] ?? 0) : null,
             'total_balance' => $total,
             'purchased_balance' => $paid,
             'reward_balance' => $reward,

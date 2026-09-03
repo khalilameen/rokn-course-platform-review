@@ -202,12 +202,11 @@ final class GenerateProjectFeedbackReply implements ShouldQueue, ShouldBeUniqueU
                 'tokens_number' => (int) ($thread->project?->tokens_number ?: 500),
             ];
         $allowed = array_values(array_filter(config('openrouter.allowed_models', [])));
-        $model = trim((string) (($terms['model_override'] ?? null) ?: ($projectPolicy['ai_model_type'] ?? null) ?: config('openrouter.default_model')));
+        $model = trim((string) (($terms['model_override'] ?? null) ?: config('openrouter.default_model')));
         if (!in_array($model, $allowed, true)) $model = (string) config('openrouter.default_model');
         $maxTokens = max(80, min(
             (int) config('openrouter.max_tokens', 500),
-            (int) ($terms['max_output_tokens'] ?? 320),
-            (int) ($projectPolicy['tokens_number'] ?? 500)
+            (int) ($terms['max_output_tokens'] ?? 320)
         ));
         $history = $this->boundedConversationHistory($thread, $terms);
         $requirements = UnicodeText::limit(
@@ -217,10 +216,6 @@ final class GenerateProjectFeedbackReply implements ShouldQueue, ShouldBeUniqueU
         $submission = UnicodeText::limit(
             UnicodeText::clean(strip_tags((string) $thread->submission?->submission_text)),
             6000
-        );
-        $moderatorDirection = UnicodeText::limit(
-            UnicodeText::clean(strip_tags((string) ($projectPolicy['ai_prompt'] ?? ''))),
-            2000
         );
         $courseTitle = UnicodeText::limit(UnicodeText::clean((string) (
             data_get($evaluationSnapshot, 'course.title_ar')
@@ -233,7 +228,6 @@ final class GenerateProjectFeedbackReply implements ShouldQueue, ShouldBeUniqueU
         )), 240);
         $promptVersion = $promptPolicy->version('project-followup', [
             'snapshot' => (string) ($evaluationSnapshot['fingerprint'] ?? ($projectPolicy['updated_at'] ?? 'legacy-current-context')),
-            'moderator_direction' => $moderatorDirection,
             'requirements' => $requirements,
             'feedback_level' => (string) $contract['project_feedback_level'],
             'course_title' => $courseTitle,
@@ -242,7 +236,6 @@ final class GenerateProjectFeedbackReply implements ShouldQueue, ShouldBeUniqueU
         $prompt = [[
             'role' => 'system',
             'content' => $promptPolicy->projectFollowup(
-                $moderatorDirection,
                 $requirements,
                 $submission,
                 $courseTitle,

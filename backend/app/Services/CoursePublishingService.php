@@ -356,21 +356,6 @@ class CoursePublishingService
                 if (trim((string) ($project->requirements_text_ar ?: $project->requirements_text_en)) === '') {
                     $issues[] = "{$moduleLabel}: اكتب المطلوب في المشروع «{$projectTitle}»";
                 }
-                if (trim((string) $project->ai_prompt) === '') {
-                    $issues[] = "{$moduleLabel}: أضف توجيه تقييم المشروع «{$projectTitle}»";
-                }
-                $projectModel = trim((string) $project->ai_model_type);
-                $allowedModels = array_values(array_filter(config('openrouter.allowed_models', [])));
-                if ($projectModel !== '' && !in_array($projectModel, $allowedModels, true)) {
-                    $issues[] = "{$moduleLabel}: نموذج تقييم المشروع «{$projectTitle}» غير متاح";
-                }
-                $projectTokens = (int) ($project->tokens_number ?? 0);
-                if ($projectTokens > 0 && (
-                    $projectTokens < 80
-                    || $projectTokens > max(80, (int) config('openrouter.max_tokens', 500))
-                )) {
-                    $issues[] = "{$moduleLabel}: حد رد تقييم المشروع «{$projectTitle}» غير صالح";
-                }
             }
 
             if ($projects->count() > 1) {
@@ -446,10 +431,6 @@ class CoursePublishingService
             }
         }
 
-        if ($course->ai_chat_enabled && trim((string) $course->chat_ai_prompt) === '') {
-            $warnings[] = 'أضف توجيهًا مختصرًا للشات عن اتجاه الكورس وأفكاره؛ سيستخدم الوصف كبديل حاليًا.';
-        }
-
         return [
             'ready' => $issues === [],
             'issues' => array_values(array_unique($issues)),
@@ -492,7 +473,6 @@ class CoursePublishingService
         }
 
         $previousPrice = null;
-        $chatPlans = 0;
         foreach (CourseAccessPlan::CODES as $code) {
             $plan = $plans->get($code);
             if (!$plan?->is_active) {
@@ -523,7 +503,6 @@ class CoursePublishingService
             }
 
             if ($plan->chat_enabled) {
-                $chatPlans++;
                 if (
                     (int) $plan->chat_message_limit < 1
                     || (int) $plan->chat_token_budget < (int) $plan->max_output_tokens
@@ -534,8 +513,7 @@ class CoursePublishingService
                     $issues[] = "ميزانية المحادثة في الفئة «{$plan->name_ar}» غير صالحة";
                 }
                 if ((bool) $plan->chat_attachments_enabled
-                    && ((int) $plan->chat_attachment_max_files < 1
-                        || !(bool) $course->chat_attachments_enabled)) {
+                    && (int) $plan->chat_attachment_max_files < 1) {
                     $issues[] = "مرفقات المحادثة في الفئة «{$plan->name_ar}» غير مكتملة الإعداد";
                 }
             }
@@ -565,11 +543,6 @@ class CoursePublishingService
             }
         }
 
-        if ($chatPlans > 0 && !$course->ai_chat_enabled) {
-            $issues[] = 'الفئات تتضمن المحادثة لكن شات الكورس غير مفعل.';
-        } elseif ($course->ai_chat_enabled && $chatPlans === 0) {
-            $warnings[] = 'شات الكورس مفعل لكن لا توجد فئة تمنح الوصول إليه.';
-        }
     }
 
     /** @param array<int, mixed> $integrityIssues */

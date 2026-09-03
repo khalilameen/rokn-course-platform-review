@@ -1,103 +1,39 @@
-                <!-- Project Form -->
-                <div class="form-section dynamic-form" id="project-form" data-type="project">
-                    <div class="section-header">
-                        <div class="section-icon">
-                            <i class="fa fa-project-diagram"></i>
-                        </div>
-                        <h3 class="section-title">تفاصيل المشروع</h3>
-                    </div>
-
-                    <div class="alert alert-info">
-                        مشروع العبور اختياري. أضفه فقط للوحدات التي تحتاج تطبيقًا عمليًا؛ عند وجوده يصبح آخر عنصر في الوحدة ولا تفتح الوحدة التالية قبل اجتيازه. يمكن للكورس النظري ألا يحتوي أي مشروع.
-                    </div>
-
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label class="form-label">أقصى عدد لملفات التسليم</label>
-                                <input type="number" name="submission_max_files" class="form-control" value="{{ old('submission_max_files', 3) }}" min="1" max="5">
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label class="form-label">الصيغ المتاحة</label>
-                                <select name="submission_allowed_mime_types[]" class="form-control" multiple>
-                                    @foreach(app(\App\Services\AiInputAttachmentService::class)->allowedMimeTypes() as $mime)
-                                        <option value="{{ $mime }}" selected>{{ $mime }}</option>
-                                    @endforeach
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label class="form-label">متطلبات المشروع (بالعربية) *</label>
-                                <textarea name="project_requirements_ar" class="form-control" rows="5" placeholder="اكتب وصفاً تفصيلياً للمطلوب بالعربية..." data-required="true">{{ old('project_requirements_ar') }}</textarea>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label class="form-label">متطلبات المشروع (بالإنجليزية)</label>
-                                <textarea name="project_requirements_en" class="form-control" rows="5" placeholder="Enter detailed requirements in English...">{{ old('project_requirements_en') }}</textarea>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">معايير تقييم المشروع *</label>
-                        <textarea name="ai_prompt" class="form-control" rows="5" maxlength="2000" placeholder="اكتب ما يجب أن يراجعه التقييم في تسليم الطالب" data-required="true">{{ old('ai_prompt') }}</textarea>
-                        <small class="text-muted">حدد المطلوب ومعايير الجودة بوضوح</small>
-                    </div>
-
-                    @if(strtolower((string) optional(auth()->user())->role) === 'admin')
-                    <div class="row">
-                        <div class="col-md-4">
-                            <div class="form-group">
-                                <label class="form-label">نوع الموديل (AI Model Type)</label>
-                                <input type="text" name="ai_model_type" class="form-control" value="{{ old('ai_model_type') }}" placeholder="مثال: google/gemini-pro-1.5">
-                                <small class="text-muted">OpenRouter Model Slug</small>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="form-group">
-                                <label class="form-label">درجة الحرارة (Temperature)</label>
-                                <input type="number" name="temperature" class="form-control" value="{{ old('temperature', 0.7) }}" step="0.1" min="0" max="2">
-                                <small class="text-muted">القيمة بين 0 و 2</small>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="form-group">
-                                <label class="form-label">عدد التوكنز (Max Tokens)</label>
-                                <input type="number" name="tokens_number" class="form-control" value="{{ old('tokens_number', 1000) }}" min="1">
-                                <small class="text-muted">الحد الأقصى للتوكنز</small>
-                            </div>
-                        </div>
-                    </div>
-                    @endif
-
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label class="form-label">درجة النجاح (%) *</label>
-                                <input type="number" name="passing_score" class="form-control" value="{{ old('passing_score', 50) }}" min="1" max="100" data-required="true">
-                                <small class="form-text text-muted">الطالب لا يرسل الدرجة؛ الخادم وحده يقرر العبور.</small>
-                            </div>
-                            <div class="form-group">
-                                <label>مدة المراجعة الاحتياطية بالثواني</label>
-                                <input type="number" name="fallback_review_delay_seconds" class="form-control" value="{{ old('fallback_review_delay_seconds', 90) }}" min="30" max="300">
-                                <small class="form-text text-muted">بعدها تعبر المحاولة ذات المجهود تلقائيًا إذا تعطل المقيم الخارجي.</small>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="form-group">
-                                <label class="form-label">&nbsp;</label>
-                                <div class="custom-control custom-checkbox mt-2">
-                                    <input type="checkbox" name="is_graduation_project" class="custom-control-input" id="is_graduation_project" {{ old('is_graduation_project') ? 'checked' : '' }}>
-                                    <label class="custom-control-label" for="is_graduation_project">مشروع تخرج (نهاية الكورس)</label>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+<div class="form-section dynamic-form" id="project-form" data-type="project">
+    <div class="section-header">
+        <div class="section-icon"><i class="fa fa-project-diagram"></i></div>
+        <h3 class="section-title">تفاصيل المشروع</h3>
+    </div>
+    <div class="alert alert-info">
+        مشروع العبور اختياري
+        أضفه فقط للوحدات التي تحتاج تطبيقًا عمليًا
+        عند وجوده يصبح آخر عنصر في الوحدة ولا تفتح الوحدة التالية قبل اجتيازه
+    </div>
+    <div class="row">
+        <div class="col-md-6"><div class="form-group">
+            <label class="form-label">أقصى عدد لملفات التسليم</label>
+            <input type="number" name="submission_max_files" class="form-control" value="{{ old('submission_max_files', 3) }}" min="1" max="5">
+        </div></div>
+        <div class="col-md-6"><div class="form-group">
+            <label class="form-label">الصيغ المتاحة</label>
+            <select name="submission_allowed_mime_types[]" class="form-control" multiple>
+                @foreach(app(\App\Services\AiInputAttachmentService::class)->allowedMimeTypes() as $mime)
+                    <option value="{{ $mime }}" selected>{{ $mime }}</option>
+                @endforeach
+            </select>
+        </div></div>
+    </div>
+    <div class="row">
+        <div class="col-md-6"><div class="form-group">
+            <label class="form-label">متطلبات المشروع بالعربية *</label>
+            <textarea name="project_requirements_ar" class="form-control" rows="5" placeholder="اكتب المطلوب من الطالب بوضوح" data-required="true">{{ old('project_requirements_ar') }}</textarea>
+        </div></div>
+        <div class="col-md-6"><div class="form-group">
+            <label class="form-label">متطلبات المشروع بالإنجليزية</label>
+            <textarea name="project_requirements_en" class="form-control" rows="5">{{ old('project_requirements_en') }}</textarea>
+        </div></div>
+    </div>
+    <div class="custom-control custom-checkbox mt-2">
+        <input type="checkbox" name="is_graduation_project" class="custom-control-input" id="is_graduation_project" {{ old('is_graduation_project') ? 'checked' : '' }}>
+        <label class="custom-control-label" for="is_graduation_project">مشروع تخرج في نهاية الكورس</label>
+    </div>
+</div>

@@ -410,7 +410,10 @@ final class ProjectSubmissionService
             );
         });
 
-        if ($result->review_status === ProjectSubmission::STATUS_PASSED) {
+        if (
+            $result->review_status === ProjectSubmission::STATUS_PASSED
+            && $this->submissionIncludesProjectReport($result)
+        ) {
             // Feedback is a paid enhancement, never a gate. Queue/provider
             // failures cannot revoke the already granted progression.
             $this->queueFeedback((int) $result->id);
@@ -482,7 +485,10 @@ final class ProjectSubmissionService
             );
         });
 
-        if ($reviewed->review_status === ProjectSubmission::STATUS_PASSED) {
+        if (
+            $reviewed->review_status === ProjectSubmission::STATUS_PASSED
+            && $this->submissionIncludesProjectReport($reviewed)
+        ) {
             $this->queueFeedback((int) $reviewed->id);
         }
 
@@ -514,6 +520,7 @@ final class ProjectSubmissionService
         $metadata['progression_credit'] = $passed;
         if (
             $passed
+            && $this->submissionIncludesProjectReport($locked)
             && data_get($metadata, 'ai_feedback.status') !== 'ready'
         ) {
             // Persist intent before the queue dispatch so a lost enqueue can
@@ -779,8 +786,31 @@ final class ProjectSubmissionService
         }
 
         return mb_strlen($plainText) >= (int) config('projects.minimum_text_length', 10)
+            && !$this->isObviousGaming($plainText)
             ? ProjectSubmission::EFFORT_VALID
             : ProjectSubmission::EFFORT_INVALID;
+    }
+
+    private function submissionIncludesProjectReport(ProjectSubmission $submission): bool
+    {
+        $snapshot = ProjectSubmissionEvaluationSnapshot::fromSubmission($submission);
+        $terms = $snapshot ? data_get($snapshot, 'access.terms') : null;
+
+        return is_array($terms)
+            && (bool) $this->accessPlans->publicPayloadFromTerms($terms)['project_report_enabled'];
+    }
+
+    private function isObviousGaming(string $text): bool
+    {
+        $normalized = mb_strtolower(trim((string) preg_replace('/[^\p{L}\p{N}]+/u', ' ', $text)));
+        if ($normalized === '') return true;
+
+        $compact = str_replace(' ', '', $normalized);
+        if (preg_match('/^(.)\1{5,}$/u', $compact)) return true;
+        if (preg_match('/^(?:asdf|qwer|zxcv|hjkl|1234|abcd)+$/iu', $compact)) return true;
+
+        $words = array_values(array_filter(preg_split('/\s+/u', $normalized) ?: []));
+        return count($words) >= 3 && count(array_unique($words)) === 1;
     }
 
     private function requestFingerprint(?string $text, array $files): string

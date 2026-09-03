@@ -41,8 +41,6 @@
 
             @include('admin.courses.partials.create.course-settings')
 
-            @include('admin.courses.partials.create.ai-settings')
-
             @include('admin.courses.partials.create.course-image')
 
         </div>

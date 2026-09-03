@@ -77,6 +77,7 @@ class Setting extends Model
         'ai_global_daily_token_budget',
         'ai_global_monthly_token_budget',
         'ai_answer_cache_minutes',
+        'ai_plan_policy',
     ];
 
     /**
@@ -114,6 +115,7 @@ class Setting extends Model
         'ai_global_daily_token_budget' => 'integer',
         'ai_global_monthly_token_budget' => 'integer',
         'ai_answer_cache_minutes' => 'integer',
+        'ai_plan_policy' => 'array',
     ];
 
     protected $hidden = [

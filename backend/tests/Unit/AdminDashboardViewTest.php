@@ -34,7 +34,6 @@ class AdminDashboardViewTest extends TestCase
         $partials = [
             'basic-information',
             'course-settings',
-            'ai-settings',
             'access-plans',
             'course-image',
         ];
@@ -60,10 +59,7 @@ class AdminDashboardViewTest extends TestCase
         foreach ([
             'classification_ids[]',
             'teacher_ids[]',
-            'ai_chat_enabled',
             'access_plans[{{ $code }}][price_coins]',
-            'access_plans[{{ $code }}][ai_budget_usd]',
-            'access_plans[{{ $code }}][project_feedback_level]',
         ] as $fieldName) {
             self::assertStringContainsString($fieldName, $formSource);
         }
@@ -161,7 +157,6 @@ class AdminDashboardViewTest extends TestCase
         $partials = [
             'basic-information',
             'course-settings',
-            'ai-settings',
             'course-image',
             'scripts',
         ];
@@ -187,7 +182,6 @@ class AdminDashboardViewTest extends TestCase
             "Form::text('name_ar'",
             "Form::checkbox('is_main_course'",
             "Form::checkbox('is_coming_soon'",
-            "Form::checkbox('ai_chat_enabled'",
             'name="image"',
         ] as $contract) {
             self::assertStringContainsString($contract, $source);
@@ -203,6 +197,32 @@ class AdminDashboardViewTest extends TestCase
         );
         self::assertNotFalse($stylesheet);
         self::assertStringNotContainsString('-9999px', $stylesheet);
+    }
+
+    public function test_ai_policy_is_owned_by_admin_settings_not_course_authoring(): void
+    {
+        $settings = $this->viewSource('settings/index.blade.php');
+        $create = $this->viewSource('courses/create.blade.php');
+        $edit = $this->viewSource('courses/edit.blade.php');
+        $plans = $this->viewSource('courses/partials/edit/access-plans.blade.php');
+
+        self::assertStringContainsString('ai_plan_policy[{{ $code }}][chat_enabled]', $settings);
+        self::assertStringContainsString('ai_plan_policy[{{ $code }}][project_feedback_level]', $settings);
+        self::assertStringNotContainsString('ai-settings', $create.$edit);
+        self::assertStringNotContainsString('chat_enabled', $plans);
+        self::assertStringNotContainsString('project_feedback_level', $plans);
+    }
+
+    #[DataProvider('courseSectionEditors')]
+    public function test_project_authoring_contains_content_not_ai_policy(string $mode, array $_expectedFields): void
+    {
+        $project = $this->viewSource("course-sections/partials/{$mode}/project-form.blade.php");
+
+        self::assertStringContainsString('project_requirements_ar', $project);
+        self::assertStringContainsString('submission_max_files', $project);
+        foreach (['ai_prompt', 'ai_model_type', 'temperature', 'tokens_number', 'passing_score', 'fallback_review_delay_seconds'] as $field) {
+            self::assertStringNotContainsString($field, $project);
+        }
     }
 
     #[DataProvider('courseScreens')]

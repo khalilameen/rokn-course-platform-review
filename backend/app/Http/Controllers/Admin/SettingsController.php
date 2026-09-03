@@ -10,6 +10,7 @@ use App\Models\Lesson;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\BunnyService;
+use App\Services\CourseAccessPlanService;
 use App\Services\DeviceLoginService;
 use App\Services\PublicAppSettingsService;
 use Illuminate\Http\Request;
@@ -168,7 +169,11 @@ class SettingsController extends Controller
      * @param Request $request
      * @return \Illuminate\Http\RedirectResponse
      */
-    public function update(Request $request, PublicAppSettingsService $publicSettings)
+    public function update(
+        Request $request,
+        PublicAppSettingsService $publicSettings,
+        CourseAccessPlanService $accessPlans
+    )
     {
         try {
             $validated = $request->validate([
@@ -205,11 +210,57 @@ class SettingsController extends Controller
             'ai_global_daily_token_budget' => 'sometimes|required|integer|min:1000|max:1000000000',
             'ai_global_monthly_token_budget' => 'sometimes|required|integer|min:1000|max:10000000000',
             'ai_answer_cache_minutes' => 'sometimes|required|integer|min:5|max:10080',
+            'ai_plan_policy' => 'sometimes|required|array:basic,guided,mentor',
+            'ai_plan_policy.*.chat_enabled' => 'nullable|boolean',
+            'ai_plan_policy.*.chat_message_limit' => 'required|integer|min:0|max:100000',
+            'ai_plan_policy.*.chat_attachments_enabled' => 'nullable|boolean',
+            'ai_plan_policy.*.project_feedback_level' => ['required', Rule::in(['pass_only', 'report', 'enhanced'])],
+            'ai_plan_policy.*.project_followup_message_limit' => 'required|integer|min:0|max:100000',
             'editor_version' => 'required|string|size:64',
             ]);
         } catch (ValidationException $exception) {
             $this->forgetBunnySecretInputs($request);
             throw $exception;
+        }
+
+        if (array_key_exists('ai_plan_policy', $validated)) {
+            $aiPlanPolicy = (array) $validated['ai_plan_policy'];
+            foreach (['basic', 'guided', 'mentor'] as $code) {
+                $tier = (array) $aiPlanPolicy[$code];
+                $chatEnabled = $code !== 'basic' && !empty($tier['chat_enabled']);
+                $chatLimit = max(0, (int) $tier['chat_message_limit']);
+                $feedback = (string) $tier['project_feedback_level'];
+                $followupLimit = max(0, (int) $tier['project_followup_message_limit']);
+
+                if ($chatEnabled && $chatLimit === 0) {
+                    throw ValidationException::withMessages([
+                        "ai_plan_policy.{$code}.chat_message_limit" => 'حدد عدد الرسائل عند تشغيل الشات',
+                    ]);
+                }
+                if ($code === 'basic') {
+                    $feedback = 'pass_only';
+                } elseif ($code === 'guided' && $feedback === 'enhanced') {
+                    throw ValidationException::withMessages([
+                        "ai_plan_policy.{$code}.project_feedback_level" => 'المتابعة المتبادلة مخصصة لفئة التعلّم بمتابعة',
+                    ]);
+                }
+                if ($feedback === 'enhanced' && $followupLimit === 0) {
+                    throw ValidationException::withMessages([
+                        "ai_plan_policy.{$code}.project_followup_message_limit" => 'حدد عدد رسائل المتابعة لهذه الفئة',
+                    ]);
+                }
+
+                $aiPlanPolicy[$code] = [
+                    'chat_enabled' => $chatEnabled,
+                    'chat_message_limit' => $chatEnabled ? $chatLimit : 0,
+                    'chat_attachments_enabled' => $chatEnabled
+                        && !empty($tier['chat_attachments_enabled']),
+                    'project_feedback_level' => $feedback,
+                    'project_followup_message_limit' => $feedback === 'enhanced'
+                        ? $followupLimit : 0,
+                ];
+            }
+            $validated['ai_plan_policy'] = $aiPlanPolicy;
         }
 
         $designFields = [
@@ -271,7 +322,8 @@ class SettingsController extends Controller
             $validated,
             $secretUpdates,
             $designUpdates,
-            $editorVersion
+            $editorVersion,
+            $accessPlans
         ): void {
             AdminSingletonLock::acquire('settings', 'design_settings');
             $settings = Setting::query()->lockForUpdate()->first();
@@ -291,6 +343,10 @@ class SettingsController extends Controller
                 $settings->device_login_policy
             );
             $settings->update($validated + $secretUpdates);
+            $policy = (array) ($validated['ai_plan_policy'] ?? []);
+            if ($policy !== []) {
+                $accessPlans->syncGlobalAiPolicy($policy);
+            }
             if (
                 array_key_exists('device_login_policy', $validated)
                 && $validated['device_login_policy'] === DeviceLoginService::POLICY_MULTIPLE

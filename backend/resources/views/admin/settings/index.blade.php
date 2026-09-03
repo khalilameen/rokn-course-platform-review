@@ -478,6 +478,13 @@
                 </div>
 
                 <div class="tab-pane" id="rokn-ai">
+                    @php
+                        $aiPlanPolicy = old('ai_plan_policy', $settings->ai_plan_policy ?: [
+                            'basic' => ['chat_enabled' => false, 'chat_message_limit' => 0, 'chat_attachments_enabled' => false, 'project_feedback_level' => 'pass_only', 'project_followup_message_limit' => 0],
+                            'guided' => ['chat_enabled' => true, 'chat_message_limit' => 25, 'chat_attachments_enabled' => true, 'project_feedback_level' => 'report', 'project_followup_message_limit' => 0],
+                            'mentor' => ['chat_enabled' => true, 'chat_message_limit' => 80, 'chat_attachments_enabled' => true, 'project_feedback_level' => 'enhanced', 'project_followup_message_limit' => 20],
+                        ]);
+                    @endphp
                     <h2 class="section-title">
                         <i class="fa fa-robot"></i>
                         حدود تشغيل Rokn AI
@@ -512,6 +519,52 @@
                                     'inputmode' => 'numeric',
                                 ]) !!}
                                 @error($field)<small class="text-danger">{{ $message }}</small>@enderror
+                            </div>
+                        @endforeach
+                    </div>
+
+                    <h2 class="section-title settings-section-title--spaced">
+                        <i class="fa fa-layer-group"></i>
+                        مزايا الذكاء الاصطناعي حسب الفئة
+                    </h2>
+                    <div class="helper-text settings-help-panel settings-help-panel--info settings-help-panel--bottom">
+                        هذا هو المصدر الوحيد للفئات في كل الكورسات الجديدة والمشتريات الجديدة
+                        الكورس المجاني والمنحة لا يحصلان على خدمة مدفوعة لم تمنحها الفئة
+                    </div>
+                    <div class="form-row">
+                        @foreach(['basic' => 'التعلّم', 'guided' => 'التعلّم بإرشاد', 'mentor' => 'التعلّم بمتابعة'] as $code => $label)
+                            @php $tier = (array) ($aiPlanPolicy[$code] ?? []); @endphp
+                            <div class="form-group-modern">
+                                <h3>{{ $label }}</h3>
+                                @if($code === 'basic')
+                                    <input type="hidden" name="ai_plan_policy[basic][chat_enabled]" value="0">
+                                    <input type="hidden" name="ai_plan_policy[basic][chat_message_limit]" value="0">
+                                    <input type="hidden" name="ai_plan_policy[basic][chat_attachments_enabled]" value="0">
+                                    <input type="hidden" name="ai_plan_policy[basic][project_feedback_level]" value="pass_only">
+                                    <input type="hidden" name="ai_plan_policy[basic][project_followup_message_limit]" value="0">
+                                    <p class="text-muted mb-0">عبور المشاريع دون تقرير أو شات مدفوع</p>
+                                @else
+                                <input type="hidden" name="ai_plan_policy[{{ $code }}][chat_enabled]" value="0">
+                                <label><input type="checkbox" name="ai_plan_policy[{{ $code }}][chat_enabled]" value="1" @checked(!empty($tier['chat_enabled']))> شات ركن</label>
+                                <label>عدد الرسائل</label>
+                                <input class="form-control-modern" type="number" min="0" name="ai_plan_policy[{{ $code }}][chat_message_limit]" value="{{ (int) ($tier['chat_message_limit'] ?? 0) }}">
+                                <input type="hidden" name="ai_plan_policy[{{ $code }}][chat_attachments_enabled]" value="0">
+                                <label><input type="checkbox" name="ai_plan_policy[{{ $code }}][chat_attachments_enabled]" value="1" @checked(!empty($tier['chat_attachments_enabled']))> مرفقات الشات</label>
+                                <label>تقييم المشروع</label>
+                                <select class="form-control-modern" name="ai_plan_policy[{{ $code }}][project_feedback_level]">
+                                    @foreach(($code === 'mentor'
+                                        ? ['pass_only' => 'عبور فقط', 'report' => 'تقرير', 'enhanced' => 'تقرير ومتابعة']
+                                        : ['pass_only' => 'عبور فقط', 'report' => 'تقرير']) as $value => $text)
+                                        <option value="{{ $value }}" @selected(($tier['project_feedback_level'] ?? 'pass_only') === $value)>{{ $text }}</option>
+                                    @endforeach
+                                </select>
+                                @if($code === 'mentor')
+                                <label>رسائل متابعة المشروع</label>
+                                <input class="form-control-modern" type="number" min="0" name="ai_plan_policy[{{ $code }}][project_followup_message_limit]" value="{{ (int) ($tier['project_followup_message_limit'] ?? 0) }}">
+                                @else
+                                    <input type="hidden" name="ai_plan_policy[guided][project_followup_message_limit]" value="0">
+                                @endif
+                                @endif
                             </div>
                         @endforeach
                     </div>

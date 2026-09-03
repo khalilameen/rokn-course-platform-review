@@ -7,15 +7,29 @@ namespace App\Services;
 use App\Models\Course;
 use App\Models\CourseAccessPlan;
 use App\Models\CourseEnrollment;
+use App\Models\Setting;
 use App\Support\CourseAccessPlanSnapshot;
 use App\Support\DatabaseCapabilities;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 final readonly class CourseAccessPlanService
 {
+    private const AI_RUNTIME_FIELDS = [
+        'chat_enabled', 'chat_message_limit', 'chat_token_budget',
+        'chat_attachments_enabled', 'chat_attachment_max_files',
+        'ai_budget_usd', 'request_reserve_usd', 'max_output_tokens',
+        'model_override', 'project_feedback_level',
+        'project_feedback_token_budget', 'project_feedback_budget_usd',
+        'project_feedback_reserve_usd', 'project_followup_message_limit',
+        'project_followup_token_budget', 'project_followup_budget_usd',
+        'project_followup_reserve_usd', 'project_followup_attachments_enabled',
+        'project_followup_attachment_max_files', 'project_output_enabled',
+    ];
+
     /** @return Collection<int, CourseAccessPlan> */
     public function publicPlans(Course $course, bool $lockForUpdate = false): Collection
     {
@@ -268,10 +282,120 @@ final readonly class CourseAccessPlanService
 
             $base = max(0, (int) ($lockedCourse->price ?? 0));
             $round = static fn (float $value): int => (int) (ceil(max(0, $value) / 50) * 50);
+            $policy = $this->globalAiPolicy();
             foreach ($this->defaultDefinitions($base, $round) as $row) {
+                $tier = (array) ($policy[$row['code']] ?? []);
+                if ($tier !== []) {
+                    $row = $this->applyAiPolicy($row, $tier, $row);
+                }
                 $lockedCourse->accessPlans()->create($row);
             }
         }, 3);
+    }
+
+    /** @param array<string,array<string,mixed>> $policy */
+    public function syncGlobalAiPolicy(array $policy): void
+    {
+        $round = static fn (float $value): int => (int) (ceil(max(0, $value) / 50) * 50);
+        $templates = collect($this->defaultDefinitions(0, $round))->keyBy('code');
+
+        CourseAccessPlan::query()->chunkById(200, function ($plans) use ($policy, $templates): void {
+            foreach ($plans as $plan) {
+                $tier = (array) ($policy[$plan->code] ?? []);
+                $template = (array) $templates->get($plan->code, []);
+                if ($tier === [] || $template === []) continue;
+
+                $values = $this->applyAiPolicy($plan->getAttributes(), $tier, $template);
+                $plan->forceFill(array_intersect_key(
+                    $values,
+                    array_flip(self::AI_RUNTIME_FIELDS)
+                ))->save();
+            }
+        });
+    }
+
+    /** @return array<string,array<string,mixed>> */
+    private function globalAiPolicy(): array
+    {
+        if (!Schema::hasColumn('settings', 'ai_plan_policy')) return [];
+
+        return (array) (Setting::query()->value('ai_plan_policy') ?? []);
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     * @param array<string,mixed> $tier
+     * @param array<string,mixed> $template
+     * @return array<string,mixed>
+     */
+    private function applyAiPolicy(array $row, array $tier, array $template): array
+    {
+        $paid = (int) ($row['price_coins'] ?? 0) > 0
+            && (int) ($row['minimum_paid_coins'] ?? 0) > 0;
+        $chatLimit = max(0, (int) ($tier['chat_message_limit'] ?? 0));
+        $chat = $paid
+            && !empty($tier['chat_enabled'])
+            && $chatLimit > 0
+            && (int) ($template['chat_token_budget'] ?? 0) >= (int) ($template['max_output_tokens'] ?? 0)
+            && (float) ($template['ai_budget_usd'] ?? 0) > 0
+            && (float) ($template['request_reserve_usd'] ?? 0) > 0;
+        $feedback = $paid ? (string) ($tier['project_feedback_level'] ?? 'pass_only') : 'pass_only';
+        if (!in_array($feedback, ['pass_only', 'report', 'enhanced'], true)) {
+            $feedback = 'pass_only';
+        }
+        $followupLimit = max(0, (int) ($tier['project_followup_message_limit'] ?? 0));
+        if ($feedback !== 'pass_only' && (
+            (int) ($template['project_feedback_token_budget'] ?? 0) < (int) ($template['max_output_tokens'] ?? 0)
+            || (float) ($template['project_feedback_budget_usd'] ?? 0) <= 0
+            || (float) ($template['project_feedback_reserve_usd'] ?? 0) <= 0
+        )) {
+            $feedback = 'pass_only';
+        }
+        if ($feedback === 'enhanced' && (
+            $followupLimit === 0
+            || (int) ($template['project_followup_token_budget'] ?? 0) < (int) ($template['max_output_tokens'] ?? 0)
+            || (float) ($template['project_followup_budget_usd'] ?? 0) <= 0
+            || (float) ($template['project_followup_reserve_usd'] ?? 0) <= 0
+        )) {
+            $feedback = 'report';
+        }
+
+        $row['chat_enabled'] = $chat;
+        $row['chat_message_limit'] = $chat ? $chatLimit : 0;
+        $row['chat_token_budget'] = $chat ? (int) $template['chat_token_budget'] : 0;
+        $row['chat_attachments_enabled'] = $chat && !empty($tier['chat_attachments_enabled']);
+        $row['chat_attachment_max_files'] = $row['chat_attachments_enabled']
+            ? (int) $template['chat_attachment_max_files'] : 0;
+        $row['ai_budget_usd'] = $chat ? $template['ai_budget_usd'] : 0;
+        $row['request_reserve_usd'] = $chat ? $template['request_reserve_usd'] : 0;
+        $row['max_output_tokens'] = (int) $template['max_output_tokens'];
+        $row['model_override'] = null;
+
+        $hasReport = in_array($feedback, ['report', 'enhanced'], true);
+        $row['project_feedback_level'] = $feedback;
+        $row['project_feedback_token_budget'] = $hasReport
+            ? (int) $template['project_feedback_token_budget'] : 0;
+        $row['project_feedback_budget_usd'] = $hasReport
+            ? $template['project_feedback_budget_usd'] : 0;
+        $row['project_feedback_reserve_usd'] = $hasReport
+            ? $template['project_feedback_reserve_usd'] : 0;
+
+        $enhanced = $feedback === 'enhanced';
+        $row['project_followup_message_limit'] = $enhanced ? $followupLimit : 0;
+        $row['project_followup_token_budget'] = $enhanced
+            ? (int) $template['project_followup_token_budget'] : 0;
+        $row['project_followup_budget_usd'] = $enhanced
+            ? $template['project_followup_budget_usd'] : 0;
+        $row['project_followup_reserve_usd'] = $enhanced
+            ? $template['project_followup_reserve_usd'] : 0;
+        $row['project_followup_attachments_enabled'] = $enhanced
+            && !empty($template['project_followup_attachments_enabled']);
+        $row['project_followup_attachment_max_files'] = $row['project_followup_attachments_enabled']
+            ? (int) $template['project_followup_attachment_max_files'] : 0;
+        $row['project_output_enabled'] = $enhanced
+            && !empty($template['project_output_enabled']);
+
+        return $row;
     }
 
     /**
@@ -313,8 +437,7 @@ final readonly class CourseAccessPlanService
     /** Plan codes remain stable across dashboard updates. */
     public function syncAdminPlans(
         Course $course,
-        array $input,
-        bool $canManageFinancialLimits = true
+        array $input
     ): void
     {
         if (!DatabaseCapabilities::hasTable('course_access_plans')) {
@@ -323,6 +446,17 @@ final readonly class CourseAccessPlanService
         $allowedCodes = [CourseAccessPlan::BASIC, CourseAccessPlan::GUIDED, CourseAccessPlan::MENTOR];
         $allowedFeedback = ['pass_only', 'report', 'enhanced'];
         $allowedModels = array_values(array_filter(config('openrouter.allowed_models', [])));
+        $base = max(0, (int) ($course->price ?? 0));
+        $round = static fn (float $value): int => (int) (ceil(max(0, $value) / 50) * 50);
+        $globalPolicy = $this->globalAiPolicy();
+        $policyDefaults = collect($this->defaultDefinitions($base, $round))
+            ->map(function (array $definition) use ($globalPolicy): array {
+                $tier = (array) ($globalPolicy[$definition['code']] ?? []);
+                return $tier === []
+                    ? $definition
+                    : $this->applyAiPolicy($definition, $tier, $definition);
+            })
+            ->keyBy('code');
         if (array_diff($allowedCodes, array_keys($input)) !== []) {
             throw ValidationException::withMessages([
                 'access_plans' => ['يجب إرسال المستويات الثلاثة كاملة في عملية حفظ واحدة.'],
@@ -345,7 +479,8 @@ final readonly class CourseAccessPlanService
             $allowedFeedback,
             $allowedModels,
             $prices,
-            $canManageFinancialLimits
+            $policyDefaults,
+            $globalPolicy
         ): void {
             // Plan updates and purchases serialize on the course row.
             $lockedCourse = Course::query()->lockForUpdate()->findOrFail($course->id);
@@ -357,19 +492,22 @@ final readonly class CourseAccessPlanService
                     ->where('code', $code)
                     ->lockForUpdate()
                     ->first();
-                // Dollar budgets are an administrator-only safety boundary.
-                // Moderator forms intentionally omit them; absence must mean
-                // “preserve”, and forged request fields must not cross that
-                // field-level permission boundary.
+                $runtime = $existingPlan
+                    ? $existingPlan->getAttributes()
+                    : (array) $policyDefaults->get($code, []);
+                $tier = (array) ($globalPolicy[$code] ?? []);
+                $template = (array) $policyDefaults->get($code, []);
+                if ($tier !== [] && $template !== []) {
+                    $runtime = $this->applyAiPolicy($runtime, $tier, $template);
+                }
+                foreach (self::AI_RUNTIME_FIELDS as $field) {
+                    $row[$field] = $runtime[$field] ?? null;
+                }
                 $financialValue = static function (
                     string $field,
                     float $fallback = 0.0
-                ) use ($row, $existingPlan, $canManageFinancialLimits): float {
-                    if ($canManageFinancialLimits) {
-                        return max(0, (float) ($row[$field] ?? $fallback));
-                    }
-
-                    return max(0, (float) ($existingPlan?->{$field} ?? $fallback));
+                ) use ($row): float {
+                    return max(0, (float) ($row[$field] ?? $fallback));
                 };
                 $model = trim((string) ($row['model_override'] ?? ''));
                 if ($model !== '' && !in_array($model, $allowedModels, true)) {
@@ -538,8 +676,7 @@ final readonly class CourseAccessPlanService
                         && (bool) ($snapshot['project_followup_attachments_enabled'] ?? false);
                     $chatEnabled = $existingChat || ($grantCourseChat
                         && (bool) ($snapshot['chat_enabled'] ?? false)
-                        && (bool) $plan->chat_attachments_enabled
-                        && (bool) $course->chat_attachments_enabled);
+                        && (bool) $plan->chat_attachments_enabled);
                     $projectEnabled = $existingProject || ($grantProjectFollowup
                         && (string) ($snapshot['project_feedback_level'] ?? '') === 'enhanced'
                         && (bool) $plan->project_followup_attachments_enabled);
@@ -547,8 +684,7 @@ final readonly class CourseAccessPlanService
                     $snapshot['version'] = CourseAccessPlanSnapshot::CURRENT_VERSION;
                     $snapshot['chat_attachments_enabled'] = $chatEnabled;
                     $snapshot['chat_attachment_max_files'] = $chatEnabled ? min(
-                        5, max(1, (int) $course->chat_attachment_max_files),
-                        max(1, (int) $plan->chat_attachment_max_files)
+                        5, max(1, (int) $plan->chat_attachment_max_files)
                     ) : 0;
                     $snapshot['project_followup_attachments_enabled'] = $projectEnabled;
                     $snapshot['project_followup_attachment_max_files'] = $projectEnabled

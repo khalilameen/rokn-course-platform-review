@@ -70,7 +70,7 @@ final class CourseChatController extends Controller
         }
         $enrollment = $access->activeChatEnrollmentFor((int) $user->id, (int) $course->id);
         $terms = $enrollment ? $this->accessPlans->termsForEnrollment($enrollment) : null;
-        $contract = $this->attachmentContract($course, $terms);
+        $contract = $this->attachmentContract($terms);
         if (!$contract['enabled']) {
             return response()->json([
                 'status' => 403,
@@ -391,15 +391,6 @@ final class CourseChatController extends Controller
                 'data' => null,
             ], 403);
         }
-        if (!$course->ai_chat_enabled) {
-            return response()->json([
-                'status' => 403,
-                'success' => false,
-                'code' => 'chat_disabled_for_course',
-                'message' => 'ركن AI غير متاح في هذا الكورس',
-                'data' => null,
-            ], 403);
-        }
         $chatEnrollment = $access->activeChatEnrollmentFor(
             (int) $user->id,
             (int) $course->id
@@ -489,7 +480,7 @@ final class CourseChatController extends Controller
                 'data' => null,
             ], 403);
         }
-        $attachmentContract = $this->attachmentContract($course, $planTerms);
+        $attachmentContract = $this->attachmentContract($planTerms);
         if ($attachmentIds !== [] && (
             !$attachmentContract['enabled']
             || count($attachmentIds) > $attachmentContract['max_files']
@@ -751,7 +742,7 @@ final class CourseChatController extends Controller
                     ))
                 )
                 : [];
-            $model = $this->resolveModel($course, $planTerms['model_override'] ?? null);
+            $model = $this->resolveModel($planTerms['model_override'] ?? null);
         } catch (\Throwable $exception) {
             report($exception);
             $closed = $this->turns->failBeforeDispatch(
@@ -1122,8 +1113,6 @@ final class CourseChatController extends Controller
             sprintf('course-chat:brief:v5:%d:%s', $course->id, $version),
             now()->addHours(12),
             function () use ($course): string {
-                $direction = UnicodeText::clean((string) $course->chat_ai_prompt, false);
-                $direction = UnicodeText::limit(strip_tags($direction), 850);
                 $courseName = UnicodeText::clean(
                     $course->name_ar ?: $course->name_en,
                     false
@@ -1134,7 +1123,6 @@ final class CourseChatController extends Controller
 
                 return $this->promptPolicy->courseChat(
                     $courseName,
-                    $direction,
                     $this->courseOutline($course),
                     $description
                 );
@@ -1179,10 +1167,10 @@ final class CourseChatController extends Controller
         return max(1, (int) ceil($now->diffInSeconds($nextDay, true)));
     }
 
-    private function resolveModel(Course $course, ?string $planOverride = null): string
+    private function resolveModel(?string $planOverride = null): string
     {
         $default = trim((string) config('openrouter.default_model'));
-        $requested = trim((string) ($planOverride ?: $course->ai_model_type));
+        $requested = trim((string) $planOverride);
         $allowed = array_values(array_filter(config('openrouter.allowed_models', [])));
 
         if ($allowed === [] || !in_array($default, $allowed, true)) {
@@ -1214,16 +1202,14 @@ final class CourseChatController extends Controller
     }
 
     /** @param array<string,mixed>|null $terms */
-    private function attachmentContract(Course $course, ?array $terms): array
+    private function attachmentContract(?array $terms): array
     {
         $plan = $terms ? $this->accessPlans->publicPayloadFromTerms($terms) : [];
         $planMax = max(0, (int) ($plan['chat_attachment_max_files'] ?? 0));
-        $courseMax = min(5, max(1, (int) ($course->chat_attachment_max_files ?? 1)));
         return [
-            'enabled' => (bool) $course->chat_attachments_enabled
-                && (bool) ($plan['chat_attachments_enabled'] ?? false)
+            'enabled' => (bool) ($plan['chat_attachments_enabled'] ?? false)
                 && $planMax > 0,
-            'max_files' => min($courseMax, $planMax),
+            'max_files' => min(5, $planMax),
         ];
     }
 
@@ -1245,7 +1231,6 @@ final class CourseChatController extends Controller
         return $this->promptPolicy->version('course-chat', [
             'name_ar' => (string) $course->name_ar,
             'name_en' => (string) $course->name_en,
-            'chat_context' => (string) $course->chat_ai_prompt,
             'description_ar' => (string) $course->description_ar,
             'description_en' => (string) $course->description_en,
             'authoring_version' => (string) $course->authoring_version,

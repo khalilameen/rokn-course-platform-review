@@ -486,7 +486,7 @@
                 <td>{{ number_format($course->active_enrollments_count) }}</td>
                 <td>{{ $course->ratings_count ? number_format((float)$course->ratings_avg_rating, 1).' / ٥' : 'لا يوجد' }}<br><small>{{ number_format($course->ratings_count) }} تقييم</small></td>
                 <td>{{ number_format((int)$course->paid_coins_spent) }} / {{ number_format((int)$course->reward_coins_spent) }}</td>
-                <td>{{ $course->ai_chat_enabled ? 'حسب الفئة' : 'متوقف' }}</td>
+                <td>{{ (int) $course->ai_plans_count > 0 ? 'حسب الفئة' : 'غير مشمول' }}</td>
             </tr>@empty<tr><td colspan="7" class="text-center text-muted py-5">لا توجد كورسات بعد</td></tr>@endforelse</tbody>
         </table></div>
     </div>

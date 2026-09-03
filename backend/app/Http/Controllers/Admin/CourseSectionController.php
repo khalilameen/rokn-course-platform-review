@@ -288,21 +288,9 @@ class CourseSectionController extends Controller
                     break;
 
                 case 'project':
-                    $request->merge($this->projectAiRuntime($request, $course));
                     $request->validate([
                         'project_requirements_ar' => 'required|string',
                         'project_requirements_en' => 'nullable|string',
-                        'ai_prompt' => 'required|string|max:2000',
-                        'ai_model_type' => [
-                            'nullable',
-                            'string',
-                            'max:190',
-                            Rule::in(array_values(array_filter(config('openrouter.allowed_models', [])))),
-                        ],
-                        'temperature' => 'nullable|numeric|min:0|max:2',
-                        'tokens_number' => 'nullable|integer|min:80|max:' . max(80, (int) config('openrouter.max_tokens', 500)),
-                        'passing_score' => 'required|integer|min:0|max:100',
-                        'fallback_review_delay_seconds' => 'nullable|integer|min:30|max:300',
                         'submission_max_files' => 'nullable|integer|min:1|max:5',
                         'submission_allowed_mime_types' => 'nullable|array|min:1',
                         'submission_allowed_mime_types.*' => ['string', Rule::in(app(\App\Services\AiInputAttachmentService::class)->allowedMimeTypes())],
@@ -311,12 +299,11 @@ class CourseSectionController extends Controller
                     $sectionable = Project::create([
                         'requirements_text_ar' => $request->project_requirements_ar,
                         'requirements_text_en' => $request->project_requirements_en,
-                        'ai_prompt' => $request->ai_prompt,
-                        'ai_model_type' => $request->ai_model_type,
-                        'temperature' => $request->temperature,
-                        'tokens_number' => $request->tokens_number,
-                        'passing_score' => $request->passing_score,
-                        'fallback_review_delay_seconds' => $request->fallback_review_delay_seconds,
+                        // Legacy columns remain readable for old rows only
+                        // Runtime evaluation is derived from published content
+                        // and the global plan policy
+                        'ai_prompt' => '',
+                        'passing_score' => 50,
                         'is_graduation_project' => $request->has('is_graduation_project'),
                         'submission_max_files' => (int) ($request->submission_max_files ?: 3),
                         'submission_allowed_mime_types' => array_values((array) $request->submission_allowed_mime_types),
@@ -682,25 +669,9 @@ class CourseSectionController extends Controller
                     break;
 
                 case 'project':
-                    $request->merge($this->projectAiRuntime(
-                        $request,
-                        $course,
-                        $sectionable instanceof Project ? $sectionable : null
-                    ));
                     $request->validate([
                         'project_requirements_ar' => 'required|string',
                         'project_requirements_en' => 'nullable|string',
-                        'ai_prompt' => 'required|string|max:2000',
-                        'ai_model_type' => [
-                            'nullable',
-                            'string',
-                            'max:190',
-                            Rule::in(array_values(array_filter(config('openrouter.allowed_models', [])))),
-                        ],
-                        'temperature' => 'nullable|numeric|min:0|max:2',
-                        'tokens_number' => 'nullable|integer|min:80|max:' . max(80, (int) config('openrouter.max_tokens', 500)),
-                        'passing_score' => 'required|integer|min:0|max:100',
-                        'fallback_review_delay_seconds' => 'nullable|integer|min:30|max:300',
                         'submission_max_files' => 'nullable|integer|min:1|max:5',
                         'submission_allowed_mime_types' => 'nullable|array|min:1',
                         'submission_allowed_mime_types.*' => ['string', Rule::in(app(\App\Services\AiInputAttachmentService::class)->allowedMimeTypes())],
@@ -709,12 +680,6 @@ class CourseSectionController extends Controller
                     $projectData = [
                         'requirements_text_ar' => $request->project_requirements_ar,
                         'requirements_text_en' => $request->project_requirements_en,
-                        'ai_prompt' => $request->ai_prompt,
-                        'ai_model_type' => $request->ai_model_type,
-                        'temperature' => $request->temperature,
-                        'tokens_number' => $request->tokens_number,
-                        'passing_score' => $request->passing_score,
-                        'fallback_review_delay_seconds' => $request->fallback_review_delay_seconds,
                         'is_graduation_project' => $request->has('is_graduation_project'),
                         'submission_max_files' => (int) ($request->submission_max_files ?: 3),
                         'submission_allowed_mime_types' => array_values((array) $request->submission_allowed_mime_types),
@@ -1008,7 +973,7 @@ class CourseSectionController extends Controller
             'lesson_description_ar', 'lesson_description_en',
             'quiz_description_ar', 'quiz_description_en',
             'course_description_ar', 'course_description_en',
-            'project_requirements_ar', 'project_requirements_en', 'ai_prompt',
+            'project_requirements_ar', 'project_requirements_en',
         ];
         $normalized = [];
         foreach ($singleLine as $field) {
@@ -1037,42 +1002,6 @@ class CourseSectionController extends Controller
             $normalized[$field] = $field === 'question' ? ($rows[0] ?? []) : $rows;
         }
         if ($normalized !== []) $request->merge($normalized);
-    }
-
-    /** @return array{ai_model_type:?string,temperature:float,tokens_number:int} */
-    private function projectAiRuntime(
-        Request $request,
-        Course $course,
-        ?Project $existing = null
-    ): array {
-        if (strtolower(trim((string) $request->user()?->role)) === 'admin') {
-            return [
-                'ai_model_type' => $request->filled('ai_model_type')
-                    ? (string) $request->input('ai_model_type')
-                    : null,
-                'temperature' => (float) ($request->input('temperature') ?? .35),
-                'tokens_number' => max(80, (int) (
-                    $request->input('tokens_number')
-                    ?? config('openrouter.max_tokens', 500)
-                )),
-            ];
-        }
-
-        return [
-            'ai_model_type' => $existing?->ai_model_type
-                ?: $course->ai_model_type
-                ?: config('openrouter.default_model'),
-            'temperature' => (float) (
-                $existing?->temperature
-                ?? $course->temperature
-                ?? .35
-            ),
-            'tokens_number' => max(80, (int) (
-                $existing?->tokens_number
-                ?: $course->tokens_number
-                ?: config('openrouter.max_tokens', 500)
-            )),
-        ];
     }
 
     private function validateSectionRequest(Request $request, Course $course): void

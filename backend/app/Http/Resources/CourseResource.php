@@ -309,13 +309,11 @@ class CourseResource extends BaseCourseResource
             'version' => (int) ($userRating?->version ?? 0),
         ];
         $planAttachmentMax = max(0, (int) ($this->projectFeedbackContract['chat_attachment_max_files'] ?? 0));
-        $courseAttachmentMax = min(5, max(1, (int) ($this->chat_attachment_max_files ?? 1)));
         $baseData['chat_attachments_enabled'] = $hasCourseAccess
-            && (bool) $this->chat_attachments_enabled
             && (bool) ($this->projectFeedbackContract['chat_attachments_enabled'] ?? false)
             && $planAttachmentMax > 0;
         $baseData['chat_attachment_max_files'] = $baseData['chat_attachments_enabled']
-            ? min($courseAttachmentMax, $planAttachmentMax)
+            ? min(5, $planAttachmentMax)
             : 0;
 
         // Override sections with full content and lock status

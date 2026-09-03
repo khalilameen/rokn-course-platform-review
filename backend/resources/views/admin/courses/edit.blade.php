@@ -88,8 +88,6 @@
 
             @include('admin.courses.partials.edit.course-settings')
 
-            @include('admin.courses.partials.edit.ai-settings')
-
             @include('admin.courses.partials.edit.access-plans')
 
             @include('admin.courses.partials.edit.course-image')

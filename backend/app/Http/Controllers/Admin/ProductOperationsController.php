@@ -74,7 +74,17 @@ class ProductOperationsController extends Controller
 
         $courses = Course::query()
             ->whereNull('parent_id')
-            ->withCount(['sections', 'modules', 'activeEnrollments', 'ratings'])
+            ->withCount([
+                'sections',
+                'modules',
+                'activeEnrollments',
+                'ratings',
+                'accessPlans as ai_plans_count' => fn ($query) => $query
+                    ->where(function ($plans): void {
+                        $plans->where('chat_enabled', true)
+                            ->orWhereIn('project_feedback_level', ['report', 'enhanced']);
+                    }),
+            ])
             ->withAvg('ratings', 'rating')
             ->withSum(['orders as total_coins_spent' => $courseAllocation], 'total_coins')
             ->withSum(['orders as paid_coins_spent' => $courseAllocation], 'paid_coins')

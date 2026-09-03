@@ -13,8 +13,8 @@ use LogicException;
 /** Immutable project and entitlement facts used by delayed review jobs. */
 final class ProjectSubmissionEvaluationSnapshot
 {
-    public const CURRENT_VERSION = 2;
-    public const SUPPORTED_VERSIONS = [1, self::CURRENT_VERSION];
+    public const CURRENT_VERSION = 3;
+    public const SUPPORTED_VERSIONS = [1, 2, self::CURRENT_VERSION];
 
     /** @param array<string,mixed>|null $accessTerms */
     public static function capture(
@@ -46,11 +46,6 @@ final class ProjectSubmissionEvaluationSnapshot
                 'requirements_text' => (string) $project->requirements_text,
                 'requirements_text_ar' => $project->getRawOriginal('requirements_text_ar'),
                 'requirements_text_en' => $project->getRawOriginal('requirements_text_en'),
-                'ai_prompt' => (string) $project->ai_prompt,
-                'ai_model_type' => $project->ai_model_type,
-                'temperature' => (float) ($project->temperature ?? .35),
-                'tokens_number' => max(1, (int) ($project->tokens_number ?: 500)),
-                'passing_score' => (int) ($project->passing_score ?? 50),
             ],
             'access' => [
                 'enrollment_id' => $enrollment ? (int) $enrollment->id : null,
@@ -97,7 +92,10 @@ final class ProjectSubmissionEvaluationSnapshot
         if (!$hasCompleteContext && !$hasNoContext) {
             return null;
         }
-        foreach (['requirements_text', 'ai_prompt', 'temperature', 'tokens_number', 'passing_score'] as $key) {
+        $requiredProjectKeys = $version >= 3
+            ? ['requirements_text']
+            : ['requirements_text', 'ai_prompt', 'temperature', 'tokens_number', 'passing_score'];
+        foreach ($requiredProjectKeys as $key) {
             if (!array_key_exists($key, (array) ($snapshot['project'] ?? []))) {
                 return null;
             }

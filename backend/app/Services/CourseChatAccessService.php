@@ -79,8 +79,7 @@ final class CourseChatAccessService
             ], 'enrollment' => null];
         }
 
-        $hasChatAccess = (bool) $course->ai_chat_enabled
-            && $eligibleCandidates->contains(
+        $hasChatAccess = $eligibleCandidates->contains(
                 fn (CourseEnrollment $candidate): bool => $this->enrollmentHasChatAccess($candidate)
             );
         $order = $enrollment->order;
@@ -177,7 +176,7 @@ final class CourseChatAccessService
     public function hasChatAccess(int $userId, int $courseId): bool
     {
         $course = Course::query()->withCount('sections')->find($courseId);
-        if (!$course || !$course->isPublishedForLearning() || !(bool) $course->ai_chat_enabled) {
+        if (!$course || !$course->isPublishedForLearning()) {
             return false;
         }
 

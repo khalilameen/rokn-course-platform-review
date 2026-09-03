@@ -10,7 +10,15 @@ use Illuminate\Validation\Rule;
 
 class CourseRequest extends FormRequest
 {
-    private const ADMIN_PLAN_RUNTIME_FIELDS = [
+    private const PROTECTED_PLAN_RUNTIME_FIELDS = [
+        'chat_enabled',
+        'chat_message_limit',
+        'chat_token_budget',
+        'project_feedback_token_budget',
+        'project_followup_message_limit',
+        'project_followup_token_budget',
+        'max_output_tokens',
+        'project_feedback_level',
         'ai_budget_usd',
         'request_reserve_usd',
         'project_feedback_budget_usd',
@@ -18,6 +26,11 @@ class CourseRequest extends FormRequest
         'project_followup_budget_usd',
         'project_followup_reserve_usd',
         'model_override',
+        'chat_attachments_enabled',
+        'chat_attachment_max_files',
+        'project_followup_attachments_enabled',
+        'project_followup_attachment_max_files',
+        'project_output_enabled',
     ];
 
     protected function prepareForValidation(): void
@@ -27,10 +40,7 @@ class CourseRequest extends FormRequest
             'attachment_prompt_button_text', 'catalog_badge_ar',
             'catalog_badge_en', 'search_keywords_ar', 'search_keywords_en',
         ];
-        $multiline = [
-            'description_ar', 'description_en', 'chat_ai_prompt',
-            'attachment_prompt_body',
-        ];
+        $multiline = ['description_ar', 'description_en', 'attachment_prompt_body'];
         $normalized = [];
         foreach ($singleLine as $field) {
             if ($this->has($field)) {
@@ -42,38 +52,23 @@ class CourseRequest extends FormRequest
                 $normalized[$field] = UnicodeText::clean($this->input($field));
             }
         }
-        if (strtolower(trim((string) $this->user()?->role)) === 'moderator') {
-            $course = $this->route('course');
-            $normalized = array_merge($normalized, [
-                'ai_model_type' => $course instanceof Course
-                    ? $course->ai_model_type
-                    : config('openrouter.default_model'),
-                'temperature' => $course instanceof Course
-                    ? $course->temperature
-                    : .35,
-                'tokens_number' => $course instanceof Course
-                    ? $course->tokens_number
-                    : (int) config('openrouter.max_tokens', 420),
-            ]);
-        }
         $plans = $this->input('access_plans');
         if (is_array($plans)) {
-            // Content moderators choose learner-facing tiers and token/message
-            // capabilities. Provider dollar ceilings are an administrator
-            // control: never trust a hidden/crafted moderator field, and never
-            // make an ordinary content save erase the existing ceilings.
-            if (strtolower(trim((string) $this->user()?->role)) === 'moderator') {
-                $course = $this->route('course');
-                if ($course instanceof Course) {
-                    $protectedPlans = app(CourseAccessPlanService::class)
-                        ->plansForEditor($course)
-                        ->keyBy('code');
-                    foreach (['basic', 'guided', 'mentor'] as $code) {
-                        $protected = $protectedPlans->get($code);
-                        if (!$protected || !is_array($plans[$code] ?? null)) continue;
-                        foreach (self::ADMIN_PLAN_RUNTIME_FIELDS as $field) {
-                            $plans[$code][$field] = $protected->getAttribute($field);
-                        }
+            // Course authoring owns names, prices and availability only.
+            // Preserve the global AI policy fields against missing or crafted
+            // values so an ordinary course save cannot rewrite operations policy.
+            $course = $this->route('course');
+            if ($course instanceof Course) {
+                $protectedPlans = app(CourseAccessPlanService::class)
+                    ->plansForEditor($course)
+                    ->keyBy('code');
+                foreach (['basic', 'guided', 'mentor'] as $code) {
+                    $protected = $protectedPlans->get($code);
+                    if (!$protected || !is_array($plans[$code] ?? null)) continue;
+                    foreach (self::PROTECTED_PLAN_RUNTIME_FIELDS as $field) {
+                        // These fields are owned by the global administrator
+                        // policy and cannot be overwritten by course authoring.
+                        $plans[$code][$field] = $protected->getAttribute($field);
                     }
                 }
             }
@@ -118,18 +113,6 @@ class CourseRequest extends FormRequest
             'description_ar' => 'nullable|string|max:6000',
             'description_en' => 'nullable|string|max:6000',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:6144|dimensions:min_width=640,min_height=360,max_width=5000,max_height=5000',
-            'ai_model_type' => [
-                'nullable',
-                'string',
-                'max:190',
-                Rule::in(array_values(array_filter(config('openrouter.allowed_models', [])))),
-            ],
-            'temperature' => 'nullable|numeric|min:0|max:2',
-            'tokens_number' => 'nullable|integer|min:1|max:' . max(1, (int) config('openrouter.max_tokens', 420)),
-            'chat_ai_prompt' => 'nullable|string|max:850',
-            'ai_chat_enabled' => 'nullable|boolean',
-            'chat_attachments_enabled' => 'nullable|boolean',
-            'chat_attachment_max_files' => 'nullable|integer|min:1|max:5',
             'grant_chat_attachments_to_current_enrollments' => 'nullable|boolean',
             'grant_project_followup_attachments_to_current_enrollments' => 'nullable|boolean',
             'attachment_prompt_enabled' => 'nullable|boolean',

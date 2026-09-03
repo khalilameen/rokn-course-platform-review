@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Events\CourseCompleted;
+use App\Jobs\GenerateProjectFeedback;
 use App\Http\Requests\Admin\CourseRequest;
 use App\Http\Resources\BaseCourseResource;
 use App\Http\Middleware\WebsiteVisitorCount;
@@ -41,6 +42,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
@@ -288,7 +290,7 @@ final class BackendHardeningTest extends TestCase
         );
     }
 
-    public function test_project_submission_freezes_the_review_policy_before_later_edits(): void
+    public function test_project_submission_freezes_published_requirements_without_legacy_ai_controls(): void
     {
         $user = $this->user();
         $project = Project::query()->create([
@@ -321,13 +323,22 @@ final class BackendHardeningTest extends TestCase
         $snapshot = ProjectSubmissionEvaluationSnapshot::fromSubmission($submission->fresh());
         self::assertNotNull($snapshot);
         self::assertSame('نفذ النسخة الأصلية', data_get($snapshot, 'project.requirements_text'));
-        self::assertSame('قيّم المتطلبات الأصلية فقط', data_get($snapshot, 'project.ai_prompt'));
-        self::assertSame('openai/original-model', data_get($snapshot, 'project.ai_model_type'));
-        self::assertSame(240, data_get($snapshot, 'project.tokens_number'));
-        self::assertSame(65, data_get($snapshot, 'project.passing_score'));
+        self::assertArrayNotHasKey('ai_prompt', $snapshot['project']);
+        self::assertArrayNotHasKey('ai_model_type', $snapshot['project']);
+        self::assertArrayNotHasKey('tokens_number', $snapshot['project']);
+        self::assertArrayNotHasKey('passing_score', $snapshot['project']);
 
-        $legacySnapshot = $snapshot;
+        $legacySnapshot = ProjectSubmissionEvaluationSnapshot::capture(
+            $project,
+            null,
+            null,
+            null
+        );
         $legacySnapshot['version'] = 1;
+        $legacySnapshot['project']['ai_prompt'] = 'تعليمات قديمة';
+        $legacySnapshot['project']['temperature'] = .2;
+        $legacySnapshot['project']['tokens_number'] = 240;
+        $legacySnapshot['project']['passing_score'] = 65;
         unset(
             $legacySnapshot['course'],
             $legacySnapshot['project']['title'],
@@ -553,6 +564,7 @@ final class BackendHardeningTest extends TestCase
 
     public function test_graceful_project_fallback_grants_progress_without_claiming_a_skill_score(): void
     {
+        Bus::fake();
         $student = $this->user();
         $admin = $this->user(['role' => 'admin']);
         $projectId = DB::table('projects')->insertGetId([
@@ -581,6 +593,8 @@ final class BackendHardeningTest extends TestCase
         self::assertNull($submission->score);
         self::assertSame('participation', data_get($submission->submission_metadata, 'assessment_type'));
         self::assertFalse((bool) data_get($submission->submission_metadata, 'skill_verified'));
+        self::assertNull(data_get($submission->submission_metadata, 'ai_feedback'));
+        Bus::assertNotDispatched(GenerateProjectFeedback::class);
         $this->assertDatabaseHas('user_project_evaluations', [
             'user_id' => $student->id,
             'project_id' => $project->id,
@@ -1061,7 +1075,9 @@ final class BackendHardeningTest extends TestCase
         $course->update(['ai_chat_enabled' => false]);
         $disabledAccess = app(CourseChatAccessService::class)->entitlementFor($user->id, $course->id);
         self::assertSame('paid', $disabledAccess['access_type']);
-        self::assertFalse($disabledAccess['chat_available']);
+        // Legacy per-course switches cannot rewrite an immutable purchased
+        // tier. Variable-cost provenance and the plan receipt are authoritative.
+        self::assertTrue($disabledAccess['chat_available']);
 
         $freeUser = $this->user(['email' => 'free@example.com']);
         $freeCourse = $this->course(['price' => 0]);
@@ -1078,6 +1094,40 @@ final class BackendHardeningTest extends TestCase
         $freeAccess = app(CourseChatAccessService::class)->entitlementFor($freeUser->id, $freeCourse->id);
         self::assertSame('free', $freeAccess['access_type']);
         self::assertFalse($freeAccess['chat_available']);
+    }
+
+    public function test_global_ai_policy_rewrites_the_complete_offer_contract_atomically(): void
+    {
+        $course = $this->course();
+        $plan = CourseAccessPlan::query()
+            ->where('course_id', $course->id)
+            ->where('code', CourseAccessPlan::GUIDED)
+            ->firstOrFail();
+        $originalPrice = (int) $plan->price_coins;
+
+        app(\App\Services\CourseAccessPlanService::class)->syncGlobalAiPolicy([
+            'guided' => [
+                'chat_enabled' => false,
+                'chat_message_limit' => 0,
+                'chat_attachments_enabled' => false,
+                'project_feedback_level' => 'report',
+                'project_followup_message_limit' => 0,
+            ],
+        ]);
+
+        $plan->refresh();
+        self::assertSame($originalPrice, (int) $plan->price_coins);
+        self::assertFalse((bool) $plan->chat_enabled);
+        self::assertSame(0, (int) $plan->chat_message_limit);
+        self::assertSame(0, (int) $plan->chat_token_budget);
+        self::assertSame('0.000000', (string) $plan->ai_budget_usd);
+        self::assertSame(CourseAccessPlan::FEEDBACK_REPORT, $plan->project_feedback_level);
+        self::assertGreaterThan(0, (int) $plan->project_feedback_token_budget);
+        self::assertSame(0, (int) $plan->project_followup_message_limit);
+        self::assertFalse((bool) $plan->project_followup_attachments_enabled);
+
+        $snapshot = app(\App\Services\CourseAccessPlanService::class)->snapshot($plan);
+        CourseAccessPlanSnapshot::assertValidForPlan((int) $plan->id, $snapshot);
     }
 
     public function test_course_chat_daily_cost_limit_is_enforced_before_second_provider_call(): void
@@ -1912,6 +1962,7 @@ final class BackendHardeningTest extends TestCase
         Schema::create('settings', function (Blueprint $table): void {
             $table->id();
             $table->boolean('enforce_course_section_order')->default(true);
+            $table->json('ai_plan_policy')->nullable();
             $table->timestamps();
         });
         Schema::create('course_chat_turns', function (Blueprint $table): void {
@@ -2141,6 +2192,8 @@ final class BackendHardeningTest extends TestCase
             $table->boolean('chat_enabled')->default(false);
             $table->unsignedInteger('chat_message_limit')->default(0);
             $table->unsignedBigInteger('chat_token_budget')->default(0);
+            $table->boolean('chat_attachments_enabled')->default(false);
+            $table->unsignedTinyInteger('chat_attachment_max_files')->default(0);
             $table->decimal('ai_budget_usd', 12, 6)->default(0);
             $table->decimal('request_reserve_usd', 12, 6)->default(0);
             $table->unsignedBigInteger('project_feedback_token_budget')->default(0);
@@ -2150,6 +2203,8 @@ final class BackendHardeningTest extends TestCase
             $table->unsignedBigInteger('project_followup_token_budget')->default(0);
             $table->decimal('project_followup_budget_usd', 12, 6)->default(0);
             $table->decimal('project_followup_reserve_usd', 12, 6)->default(0);
+            $table->boolean('project_followup_attachments_enabled')->default(false);
+            $table->unsignedTinyInteger('project_followup_attachment_max_files')->default(0);
             $table->unsignedInteger('max_output_tokens')->default(320);
             $table->string('model_override')->nullable();
             $table->string('project_feedback_level', 24)->default('pass_only');

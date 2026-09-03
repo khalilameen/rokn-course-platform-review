@@ -634,8 +634,7 @@ class CourseController extends Controller
                 if ($this->canManageCourses() && $request->has('access_plans')) {
                     $accessPlanService->syncAdminPlans(
                         $lockedCourse,
-                        (array) $request->input('access_plans', []),
-                        $this->isAdministrator()
+                        (array) $request->input('access_plans', [])
                     );
                 }
                   if (!$managedDraft && $this->isAdministrator() && (

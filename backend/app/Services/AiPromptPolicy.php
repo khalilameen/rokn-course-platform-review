@@ -6,11 +6,10 @@ namespace App\Services;
 
 final class AiPromptPolicy
 {
-    private const VERSION = 'rokn-ai-voice-v4';
+    private const VERSION = 'rokn-ai-voice-v5-content-derived';
 
     public function courseChat(
         string $courseName,
-        string $courseDirection,
         string $courseOutline = '',
         string $courseDescription = ''
     ): string
@@ -22,8 +21,7 @@ final class AiPromptPolicy
             . "\nأجب عن السؤال العام أيضًا إن كنت تعرفه ولا تنسبه إلى الكورس"
             . $this->reference('COURSE NAME', $courseName)
             . $this->reference('COURSE DESCRIPTION', $courseDescription)
-            . $this->reference('PUBLISHED COURSE OUTLINE', $courseOutline)
-            . $this->reference('MODERATOR COURSE CONTEXT', $courseDirection);
+            . $this->reference('PUBLISHED COURSE OUTLINE', $courseOutline);
     }
 
     public function currentLesson(string $title, string $description = ''): string
@@ -34,7 +32,6 @@ final class AiPromptPolicy
     }
 
     public function projectReport(
-        string $moderatorDirection,
         string $requirements,
         string $courseTitle = '',
         string $projectTitle = ''
@@ -46,12 +43,10 @@ final class AiPromptPolicy
             . "\nاذكر ما نفذه الطالب جيدًا ثم أهم تعديلين عمليين عند الحاجة"
             . $this->reference('COURSE TITLE', $courseTitle)
             . $this->reference('PROJECT TITLE', $projectTitle)
-            . $this->reference('MODERATOR PROJECT CRITERIA', $moderatorDirection)
             . $this->reference('PROJECT REQUIREMENTS', $requirements);
     }
 
     public function projectFollowup(
-        string $moderatorDirection,
         string $requirements,
         string $submission,
         string $courseTitle = '',
@@ -62,7 +57,6 @@ final class AiPromptPolicy
             . "\nلا تغير قرار النجاح ولا تمنح درجة ولا تدع رؤية ملف لم يصلك"
             . $this->reference('COURSE TITLE', $courseTitle)
             . $this->reference('PROJECT TITLE', $projectTitle)
-            . $this->reference('MODERATOR PROJECT CRITERIA', $moderatorDirection)
             . $this->reference('PROJECT REQUIREMENTS', $requirements)
             . $this->reference('LEARNER SUBMISSION', $submission);
     }

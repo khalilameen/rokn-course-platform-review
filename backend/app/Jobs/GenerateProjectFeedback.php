@@ -213,20 +213,15 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
         if (!$claimed) return;
 
         $allowed = array_values(array_filter(config('openrouter.allowed_models', [])));
-        $model = trim((string) (($evaluationTerms['model_override'] ?? null) ?: ($projectPolicy['ai_model_type'] ?? null) ?: config('openrouter.default_model')));
+        $model = trim((string) (($evaluationTerms['model_override'] ?? null) ?: config('openrouter.default_model')));
         if (!in_array($model, $allowed, true)) $model = (string) config('openrouter.default_model');
         $maxTokens = min(
             (int) config('openrouter.max_tokens', 500),
-            (int) (($evaluationTerms['max_output_tokens'] ?? null) ?: 320),
-            (int) ($projectPolicy['tokens_number'] ?? 500)
+            (int) (($evaluationTerms['max_output_tokens'] ?? null) ?: 320)
         );
         $requirements = UnicodeText::limit(
             UnicodeText::clean(strip_tags((string) ($projectPolicy['requirements_text'] ?? ''))),
             6000
-        );
-        $moderatorDirection = UnicodeText::limit(
-            UnicodeText::clean(strip_tags((string) ($projectPolicy['ai_prompt'] ?? ''))),
-            2000
         );
         $courseTitle = UnicodeText::limit(UnicodeText::clean((string) (
             data_get($evaluationSnapshot, 'course.title_ar')
@@ -242,7 +237,6 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
         )), 240);
         $promptVersion = $promptPolicy->version('project-report', [
             'snapshot' => $snapshotFingerprint,
-            'moderator_direction' => $moderatorDirection,
             'requirements' => $requirements,
             'feedback_level' => (string) $contract['project_feedback_level'],
             'course_title' => $courseTitle,
@@ -251,7 +245,6 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
         $messages = [[
             'role' => 'system',
             'content' => $promptPolicy->projectReport(
-                $moderatorDirection,
                 $requirements,
                 $courseTitle,
                 $projectTitle

@@ -48,7 +48,7 @@ return [
             'title' => 'Education grants',
             'points' => [
                 'An education partner may make one course available to an eligible account through a grant code. The grant opens the complete course content and projects at no charge.',
-                'Rokn AI and certificate issuance are not included unless the grant page says otherwise. Adding the full track is optional and does not remove free learning access or saved progress.',
+                'Rokn AI and certificate issuance are not included. Purchasing a tier that includes these features is optional and does not remove free learning access or saved progress.',
                 'A grant is personal and non-transferable. The same account or normalized email may claim only one course grant. Support may correct a proven operational assignment error without creating an additional grant.',
             ],
         ],
