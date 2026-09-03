@@ -3,6 +3,7 @@ const mockLoad = jest.fn();
 const mockSave = jest.fn();
 const mockDelete = jest.fn();
 const mockReplace = jest.fn();
+const mockSaveWelcomeBonus = jest.fn();
 
 jest.mock('react-native', () => ({Platform: {OS: 'android'}}));
 jest.mock('expo-crypto', () => ({
@@ -38,7 +39,8 @@ jest.mock('../src/services/installationIdentity', () => ({
   getInstallationId: jest.fn(async () => null),
 }));
 jest.mock('../src/services/pendingWelcomeBonus', () => ({
-  savePendingWelcomeBonus: jest.fn(async () => undefined),
+  savePendingWelcomeBonus: (...args: unknown[]) =>
+    mockSaveWelcomeBonus(...args),
 }));
 
 import {resumePendingSocialAuth} from '../src/services/socialAuth';
@@ -62,6 +64,7 @@ describe('social auth cold-start recovery', () => {
       return true;
     });
     mockDelete.mockResolvedValue(true);
+    mockSaveWelcomeBonus.mockResolvedValue(true);
   });
 
   it('completes the initial deep link with the durable PKCE verifier', async () => {
@@ -105,6 +108,32 @@ describe('social auth cold-start recovery', () => {
       },
       {timeout: 10_000, skipAuthorization: true},
     );
+    expect(mockDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not report a durable login as failed when the welcome receipt cannot be cached', async () => {
+    mockPost.mockResolvedValue({
+      data: {
+        data: {
+          api_token: 'durable-session-token',
+          welcome_bonus_granted: 20,
+          user: {
+            id: 8,
+            name: 'Rokn Learner',
+            social_provider: 'google',
+          },
+        },
+      },
+    });
+    mockSaveWelcomeBonus.mockRejectedValue(
+      new Error('ACCOUNT_CHANGED_DURING_REQUEST'),
+    );
+
+    await expect(
+      resumePendingSocialAuth(
+        `rokn://auth?code=durable-code&attempt=${pending.challenge}`,
+      ),
+    ).resolves.toMatchObject({api_token: 'durable-session-token'});
     expect(mockDelete).toHaveBeenCalledTimes(1);
   });
 

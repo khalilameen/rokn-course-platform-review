@@ -402,7 +402,14 @@ const persistCompletedLogin = async (
     return extractApiToken(committed) === session.api_token;
   }
   await saveSecureSession(session);
-  await savePendingWelcomeBonus(session.welcome_bonus_granted);
+  // The welcome receipt is a recoverable presentation hint, not part of the
+  // credential commit. A full AsyncStorage database or a rapid account switch
+  // after the secure token/profile pair is durable must not turn a successful
+  // provider login into "could not save login". The wallet and durable inbox
+  // remain the authoritative record of the granted reward.
+  await savePendingWelcomeBonus(session.welcome_bonus_granted).catch(
+    () => false,
+  );
   // Keep the encrypted recovery copy until the normal token/profile pair and
   // welcome receipt are durable, then retire only this exact attempt.
   const afterWrite = await loadPendingSocialAuthAttempt().catch(() => null);
