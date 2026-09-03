@@ -67,6 +67,18 @@ final class ProjectSubmissionService
         // one attachment while the API now supports a batch.
         $files = $files instanceof UploadedFile ? [$files] : ($files ?? []);
         $files = array_values(array_filter($files, static fn ($file): bool => $file instanceof UploadedFile));
+        $allowedMimes = array_map('strtolower', (array) (
+            $project->submission_allowed_mime_types
+            ?: config('projects.allowed_mime_types', [])
+        ));
+        foreach ($files as $file) {
+            $canonicalMime = $this->attachments->canonicalMime($file);
+            if ($canonicalMime === null || !in_array($canonicalMime, $allowedMimes, true)) {
+                throw ValidationException::withMessages([
+                    'submission_files' => ['أحد الملفات بصيغة غير متاحة لهذا المشروع'],
+                ]);
+            }
+        }
         $requestFingerprint = $this->requestFingerprint($text, $files);
         $equivalentProjectIds = $this->stagedAuthoring->equivalentEntityIds(
             Project::class,
@@ -126,9 +138,11 @@ final class ProjectSubmissionService
                 'name' => DownloadFilename::safe(
                     $file->getClientOriginalName(),
                     'project-submission',
-                    $file->guessExtension()
+                    $this->attachments->canonicalExtension(
+                        (string) $this->attachments->canonicalMime($file)
+                    )
                 ),
-                'mime_type' => strtolower((string) $file->getMimeType()),
+                'mime_type' => (string) $this->attachments->canonicalMime($file),
                 'size_bytes' => (int) $file->getSize(),
                 'sha256' => $sha,
                 'storage_disk' => $submissionDisk,
@@ -794,7 +808,7 @@ final class ProjectSubmissionService
 
     private function isMeaningfulFile(UploadedFile $file): bool
     {
-        $mime = strtolower((string) $file->getMimeType());
+        $mime = (string) $this->attachments->canonicalMime($file);
         if (str_starts_with($mime, 'image/')) {
             return !$this->isBlankImage($file);
         }
@@ -917,7 +931,7 @@ final class ProjectSubmissionService
             $fileFacts[] = [
                 'sha256' => $fileHash,
                 'size' => (int) $file->getSize(),
-                'mime_type' => strtolower((string) $file->getMimeType()),
+                'mime_type' => (string) $this->attachments->canonicalMime($file),
             ];
         }
 

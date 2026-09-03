@@ -37,6 +37,49 @@ final class AiInputAttachmentService
         ];
     }
 
+    /** Fileinfo reports valid OOXML packages as application/zip on some hosts. */
+    public function canonicalMime(UploadedFile $file): ?string
+    {
+        $detected = strtolower(trim((string) $file->getMimeType()));
+        $extension = strtolower(trim((string) $file->getClientOriginalExtension()));
+        $officeMime = match ($extension) {
+            'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            default => null,
+        };
+
+        if ($officeMime !== null) {
+            if (!in_array($detected, [
+                $officeMime,
+                'application/zip',
+                'application/x-zip-compressed',
+                'application/octet-stream',
+            ], true)) {
+                return null;
+            }
+
+            return $this->isGenuineOoxml($file, $extension) ? $officeMime : null;
+        }
+
+        return in_array($detected, $this->allowedMimeTypes(), true)
+            ? $detected
+            : null;
+    }
+
+    public function canonicalExtension(string $mime): string
+    {
+        return match (strtolower(trim($mime))) {
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation' => 'pptx',
+            'application/pdf' => 'pdf',
+            'text/plain' => 'txt',
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/webp' => 'webp',
+            default => '',
+        };
+    }
+
     public function store(
         User $user,
         Course $course,
@@ -44,8 +87,8 @@ final class AiInputAttachmentService
         string $purpose,
         string $clientUploadId
     ): AiInputAttachment {
-        $mime = strtolower((string) $file->getMimeType());
-        if (!in_array($mime, $this->allowedMimeTypes(), true)) {
+        $mime = $this->canonicalMime($file);
+        if ($mime === null) {
             throw new UnexpectedValueException('Unsupported AI attachment type.');
         }
         $sha = hash_file('sha256', $file->getRealPath());
@@ -54,7 +97,9 @@ final class AiInputAttachmentService
         }
         $size = (int) $file->getSize();
         $safeName = DownloadFilename::safe(
-            $file->getClientOriginalName(), 'rokn-input', $file->guessExtension()
+            $file->getClientOriginalName(),
+            'rokn-input',
+            $this->canonicalExtension($mime)
         );
         $existing = AiInputAttachment::query()
             ->where('user_id', $user->id)
@@ -134,6 +179,60 @@ final class AiInputAttachmentService
                 ->delete();
             $this->storedFiles->deleteOrQueue($disk, $path);
             throw $exception;
+        }
+    }
+
+    private function isGenuineOoxml(UploadedFile $file, string $extension): bool
+    {
+        if (!class_exists(ZipArchive::class)) return false;
+        $path = $file->getRealPath();
+        if (!is_string($path) || $path === '' || !is_readable($path)) return false;
+        $signature = file_get_contents($path, false, null, 0, 4);
+        if (!is_string($signature) || !in_array($signature, ["PK\x03\x04", "PK\x05\x06"], true)) {
+            return false;
+        }
+
+        $zip = new ZipArchive();
+        if ($zip->open($path, ZipArchive::CHECKCONS) !== true) return false;
+        try {
+            if ($zip->numFiles < 3 || $zip->numFiles > 10000) return false;
+            $main = $extension === 'docx' ? 'word/document.xml' : 'ppt/presentation.xml';
+            if ($zip->locateName('[Content_Types].xml') === false
+                || $zip->locateName('_rels/.rels') === false
+                || $zip->locateName($main) === false) {
+                return false;
+            }
+            $expandedBytes = 0;
+            for ($index = 0; $index < $zip->numFiles; $index++) {
+                $name = (string) $zip->getNameIndex($index);
+                if ($name === '' || str_contains($name, '\\')
+                    || str_starts_with($name, '/')
+                    || preg_match('#(?:^|/)\.\.(?:/|$)#', $name) === 1) {
+                    return false;
+                }
+                $stat = $zip->statIndex($index);
+                $expandedBytes += max(0, (int) ($stat['size'] ?? 0));
+                if ($expandedBytes > 104857600) return false;
+            }
+            $typesStat = $zip->statName('[Content_Types].xml');
+            if (!is_array($typesStat) || (int) ($typesStat['size'] ?? 0) > 1048576) return false;
+            $types = $zip->getFromName('[Content_Types].xml');
+            $marker = $extension === 'docx'
+                ? 'wordprocessingml.document.main+xml'
+                : 'presentationml.presentation.main+xml';
+            $relationships = $zip->getFromName('_rels/.rels');
+            $mainXml = $zip->getFromName($main);
+            $mainRoot = $extension === 'docx' ? '<w:document' : '<p:presentation';
+
+            return is_string($types)
+                && str_contains($types, $marker)
+                && is_string($relationships)
+                && str_contains($relationships, 'officeDocument')
+                && str_contains($relationships, $main)
+                && is_string($mainXml)
+                && str_contains($mainXml, $mainRoot);
+        } finally {
+            $zip->close();
         }
     }
 
@@ -363,10 +462,11 @@ final class AiInputAttachmentService
         if (!is_string($bytes) || $bytes === '') {
             throw new UnexpectedValueException('AI attachment is unreadable.');
         }
-        return $this->estimateSemanticTokens(
-            strtolower((string) $file->getMimeType()),
-            $bytes
-        );
+        $mime = $this->canonicalMime($file);
+        if ($mime === null) {
+            throw new UnexpectedValueException('Unsupported AI attachment type.');
+        }
+        return $this->estimateSemanticTokens($mime, $bytes);
     }
 
     private function estimateSemanticTokens(string $mime, string $bytes): int

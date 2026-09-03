@@ -174,13 +174,19 @@ final class ProjectController extends Controller
                     'file',
                     'min:1',
                     'max:' . (int) config('projects.maximum_file_kilobytes', 25600),
-                    'mimetypes:' . implode(',', (array) config('projects.allowed_mime_types', [])),
+                    'mimetypes:' . implode(',', [
+                        ...(array) config('projects.allowed_mime_types', []),
+                        'application/zip', 'application/x-zip-compressed', 'application/octet-stream',
+                    ]),
                 ],
                 'submission_files' => 'nullable|array|max:5',
                 'submission_files.*' => [
                     'file', 'min:1',
                     'max:' . (int) config('projects.maximum_file_kilobytes', 25600),
-                    'mimetypes:' . implode(',', (array) config('projects.allowed_mime_types', [])),
+                    'mimetypes:' . implode(',', [
+                        ...(array) config('projects.allowed_mime_types', []),
+                        'application/zip', 'application/x-zip-compressed', 'application/octet-stream',
+                    ]),
                 ],
                 'client_submission_id' => 'nullable|string|max:100',
                 'metadata' => 'nullable|array',
@@ -202,7 +208,8 @@ final class ProjectController extends Controller
                 return $this->projectValidationError('submission_files', 'أضف نصًا أو ملفًا واحدًا على الأقل');
             }
             foreach ($files as $file) {
-                if (!in_array(strtolower((string) $file->getMimeType()), $allowedMimeTypes, true)) {
+                $canonicalMime = $this->attachments->canonicalMime($file);
+                if ($canonicalMime === null || !in_array($canonicalMime, $allowedMimeTypes, true)) {
                     return $this->projectValidationError('submission_files', 'أحد الملفات بصيغة غير متاحة لهذا المشروع');
                 }
             }
@@ -436,7 +443,12 @@ final class ProjectController extends Controller
                     (int) config('projects.maximum_file_kilobytes', 25600),
                     (int) floor((int) config('openrouter.attachment_provider_max_bytes', 8388608) / 1024)
                 ),
-                'mimetypes:' . implode(',', $this->attachments->allowedMimeTypes()),
+                'mimetypes:' . implode(',', [
+                    ...$this->attachments->allowedMimeTypes(),
+                    'application/zip',
+                    'application/x-zip-compressed',
+                    'application/octet-stream',
+                ]),
             ],
         ]);
         try {
@@ -448,6 +460,14 @@ final class ProjectController extends Controller
                 (string) $validated['client_upload_id']
             );
         } catch (\UnexpectedValueException $exception) {
+            if ($exception->getMessage() === 'Unsupported AI attachment type.') {
+                return response()->json([
+                    'status' => 422, 'success' => false,
+                    'code' => 'project_attachment_type_unsupported',
+                    'message' => 'صيغة الملف غير مدعومة',
+                    'data' => null,
+                ], 422);
+            }
             return response()->json([
                 'status' => 409, 'success' => false,
                 'code' => 'project_attachment_upload_conflict',

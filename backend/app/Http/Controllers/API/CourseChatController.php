@@ -91,6 +91,7 @@ final class CourseChatController extends Controller
                     ...$this->attachments->allowedMimeTypes(),
                     'application/zip',
                     'application/x-zip-compressed',
+                    'application/octet-stream',
                 ]),
             ],
         ]);
@@ -102,7 +103,15 @@ final class CourseChatController extends Controller
                 AiInputAttachment::PURPOSE_COURSE_CHAT,
                 (string) $validated['client_upload_id']
             );
-        } catch (\UnexpectedValueException) {
+        } catch (\UnexpectedValueException $exception) {
+            if ($exception->getMessage() === 'Unsupported AI attachment type.') {
+                return response()->json([
+                    'status' => 422,
+                    'success' => false,
+                    'code' => 'attachment_type_unsupported',
+                    'message' => 'صيغة الملف غير مدعومة',
+                ], 422);
+            }
             return response()->json([
                 'status' => 409,
                 'success' => false,
