@@ -124,6 +124,22 @@ describe('public request session boundary', () => {
     ).rejects.toThrow('ACCOUNT_CHANGED_DURING_REQUEST');
   });
 
+  it('keeps a public guest response when slow storage settles to the same guest', async () => {
+    mockPeekSession.mockReturnValue({ready: false, session: null, epoch: 10});
+    const config = {
+      method: 'get',
+      url: 'auth-methods',
+      headers: new AxiosHeaders(),
+      skipAuthorization: true,
+    } as Parameters<typeof responseConfig>[0];
+    await responseConfig(config);
+
+    mockPeekSession.mockReturnValue({ready: true, session: null, epoch: 11});
+    await expect(
+      onFulfilledRequest({config, data: {}, headers: {}} as never),
+    ).resolves.toBeDefined();
+  });
+
   it('does not resend a read-only network retry after the account epoch changes', async () => {
     mockPeekSession.mockReturnValue({
       ready: true,

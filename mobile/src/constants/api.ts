@@ -91,16 +91,22 @@ const assertResponseStillBelongsToSession = async (
   config?: Record<string, unknown>,
 ) => {
   const requestEpoch = Number(config?.roknSessionEpoch);
-  if (
-    Number.isSafeInteger(requestEpoch) &&
-    peekSecureSession().epoch !== requestEpoch
-  ) {
-    throw new Error('ACCOUNT_CHANGED_DURING_REQUEST');
-  }
   const requestToken =
     typeof config?.roknSessionToken === 'string'
       ? config.roknSessionToken.trim()
       : '';
+  const activeSnapshot = peekSecureSession();
+  const guestRestoreSettledWithoutAnAccount =
+    !requestToken &&
+    activeSnapshot.ready &&
+    !extractApiToken(activeSnapshot.session);
+  if (
+    Number.isSafeInteger(requestEpoch) &&
+    activeSnapshot.epoch !== requestEpoch &&
+    !guestRestoreSettledWithoutAnAccount
+  ) {
+    throw new Error('ACCOUNT_CHANGED_DURING_REQUEST');
+  }
   if (!requestToken) return;
   const activeToken = extractApiToken(await getItem(AsyncKeys.USER_DATA));
   if (activeToken !== requestToken) {

@@ -210,6 +210,20 @@ export type AccountSessionBoundary = Readonly<{
   scope: string;
 }>;
 
+const accountBoundaryStillMatches = (boundary: AccountSessionBoundary) => {
+  const current = peekSecureSession();
+  if (current.epoch === boundary.epoch) return true;
+  // On a slow physical keychain AppInitializer deliberately opens the guest
+  // shell before restore finishes. Resolving that same empty restore advances
+  // the epoch, but it is not an account switch and must not discard public
+  // catalogue/auth discovery responses already owned by this guest scope.
+  return (
+    boundary.scope.startsWith('guest-') &&
+    current.ready &&
+    !extractApiToken(current.session)
+  );
+};
+
 /**
  * Capture one owner for a complete async read/write operation. The epoch also
  * covers guest-to-user bootstrap where comparing storage keys alone is too
@@ -221,16 +235,17 @@ export const captureAccountSessionBoundary =
     const scope = await accountStorageScopeForSession(
       snapshot.ready ? snapshot.session : null,
     );
-    if (peekSecureSession().epoch !== snapshot.epoch) {
+    const boundary = {epoch: snapshot.epoch, scope};
+    if (!accountBoundaryStillMatches(boundary)) {
       throw new Error('ACCOUNT_CHANGED_DURING_REQUEST');
     }
-    return {epoch: snapshot.epoch, scope};
+    return boundary;
   };
 
 export const assertAccountSessionBoundary = (
   boundary: AccountSessionBoundary,
 ) => {
-  if (peekSecureSession().epoch !== boundary.epoch) {
+  if (!accountBoundaryStillMatches(boundary)) {
     throw new Error('ACCOUNT_CHANGED_DURING_REQUEST');
   }
 };

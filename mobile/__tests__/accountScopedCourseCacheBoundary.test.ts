@@ -20,7 +20,10 @@ jest.mock('../src/services/secureSession', () => {
   return {...actual, peekSecureSession: () => mockSessionSnapshot};
 });
 
-import {getCourseDetails} from '../src/services/api/courses';
+import {
+  getCourseDetails,
+  getPublishedCoursesPage,
+} from '../src/services/api/courses';
 
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;
@@ -67,5 +70,35 @@ describe('account-scoped course cache boundary', () => {
     request.reject(new Error('offline'));
 
     await expect(flight).rejects.toThrow('ACCOUNT_CHANGED_DURING_REQUEST');
+  });
+
+  it('keeps the guest course response when slow session restore settles empty', async () => {
+    mockSessionSnapshot = {ready: false, session: null, epoch: 10};
+    const request = deferred<unknown>();
+    let started!: () => void;
+    const requestStarted = new Promise<void>(resolve => {
+      started = resolve;
+    });
+    mockGet.mockImplementation(() => {
+      started();
+      return request.promise;
+    });
+
+    const flight = getPublishedCoursesPage();
+    await requestStarted;
+    mockSessionSnapshot = {ready: true, session: null, epoch: 11};
+    request.resolve({
+      data: {
+        data: {
+          courses: [{id: 52, title: 'كورس ركن'}],
+          catalogue_revision: 1,
+          pagination: {current_page: 1, last_page: 1, total: 1},
+        },
+      },
+    });
+
+    await expect(flight).resolves.toMatchObject({
+      courses: [expect.objectContaining({id: '52'})],
+    });
   });
 });
