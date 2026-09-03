@@ -46,6 +46,7 @@ final readonly class CourseReadCompatibilityService
             'teachers.photo',
             'sections.sectionable',
             'modules.attachments',
+            'modules.sections.attachments',
             'modules.sections.sectionable',
             'activePdfs',
             'accessPlans' => fn ($plans) => $plans->where('is_active', true),

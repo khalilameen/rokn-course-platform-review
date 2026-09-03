@@ -814,6 +814,7 @@ abstract class ApiTestCase extends TestCase
             $table->unsignedBigInteger('user_id');
             $table->date('activity_date');
             $table->unsignedInteger('qualified_seconds')->default(0);
+            $table->json('reward_contract')->nullable();
             $table->timestamps();
             $table->unique(['user_id', 'activity_date']);
         });
@@ -822,6 +823,9 @@ abstract class ApiTestCase extends TestCase
             $table->id();
             $table->unsignedBigInteger('user_id');
             $table->date('checkin_date');
+            $table->json('daily_rule_snapshot')->nullable();
+            $table->json('streak_rule_snapshot')->nullable();
+            $table->timestamp('rules_snapshotted_at')->nullable();
             $table->timestamps();
             $table->unique(['user_id', 'checkin_date']);
         });

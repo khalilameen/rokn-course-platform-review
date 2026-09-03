@@ -247,12 +247,15 @@ class CourseResource extends BaseCourseResource
         )) {
             $promptFrequency = 'once_per_course';
         }
-        $hasDownloadableAttachments = $this->activePdfs->isNotEmpty()
-            || $this->modules->contains(fn ($module): bool =>
-                $module->attachments->isNotEmpty()
-                || $module->sections->contains(fn ($section): bool =>
-                    $section->attachments->isNotEmpty()
-                )
+        $activePdfs = $this->relationLoaded('activePdfs') ? $this->activePdfs : collect();
+        $modules = $this->relationLoaded('modules') ? $this->modules : collect();
+        $hasDownloadableAttachments = $activePdfs->isNotEmpty()
+            || $modules->contains(fn ($module): bool =>
+                ($module->relationLoaded('attachments') && $module->attachments->isNotEmpty())
+                || ($module->relationLoaded('sections') && $module->sections->contains(
+                    fn ($section): bool => $section->relationLoaded('attachments')
+                        && $section->attachments->isNotEmpty()
+                ))
             );
         $baseData['attachment_prompt'] = [
             'enabled' => $hasCourseAccess
