@@ -65,7 +65,12 @@ const displayText = (value: unknown): string =>
 
 const displayImageUrl = (value: unknown): string | undefined => {
   const candidate = displayText(value);
-  return /^(?:https?:\/\/|file:\/\/|content:\/\/)/i.test(candidate)
+  const path = candidate.split(/[?#]/, 1)[0];
+  // React Native's Image/ImageBackground cannot decode remote SVG files.
+  // Treat those like any other optional artwork so catalogue cards and course
+  // details use their bundled fallback instead of rendering an empty cover.
+  return /^(?:https?:\/\/|file:\/\/|content:\/\/)/i.test(candidate) &&
+    !/\.svg$/i.test(path)
     ? candidate
     : undefined;
 };

@@ -276,7 +276,14 @@ class ProductionPreflight extends Command
                 'saved_folder_lessons',
             ],
             'learner identity artifacts' => ['portfolio_items', 'certificates'],
-            'resumable authoring' => ['bunny_direct_uploads', 'profile_update_receipts'],
+            'resumable authoring' => [
+                'bunny_direct_uploads',
+                'course_authoring_revisions',
+                'course_authoring_revision_entities',
+                'admin_authoring_draft_receipts',
+                'admin_authoring_create_intents',
+                'profile_update_receipts',
+            ],
         ];
 
         $failures = [];
@@ -328,6 +335,18 @@ class ProductionPreflight extends Command
             'courses' => [
                 'authoring_version', 'authoring_request_id', 'deleted_at',
                 'search_title_normalized', 'search_terms_normalized',
+                'attachment_prompt_frequency',
+            ],
+            'course_authoring_revisions' => [
+                'canonical_course_id', 'revision_course_id',
+                'base_authoring_version', 'published_authoring_version',
+                'status', 'active_slot', 'clone_key',
+            ],
+            'course_authoring_revision_entities' => [
+                'course_authoring_revision_id', 'entity_type',
+                'source_entity_id', 'revision_entity_id',
+                'survives_publish', 'carries_learner_state',
+                'learner_root_entity_id',
             ],
             'course_ratings' => ['version'],
             'social_oauth_attempts' => [

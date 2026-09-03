@@ -87,6 +87,11 @@ final class OperationalHealthController extends Controller
         'product_feature_flags',
         'admin_audit_logs',
         'operational_incidents',
+        // Course editing is isolated in a published/draft graph. A deployment
+        // missing either half can still serve the catalogue while every
+        // moderator edit fails, so it is not launch-ready.
+        'course_authoring_revisions',
+        'course_authoring_revision_entities',
     ];
 
     public function live(): JsonResponse
