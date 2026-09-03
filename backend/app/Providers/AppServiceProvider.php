@@ -76,6 +76,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot()
     {
+        $this->hydratePrivateObjectStorageDisks();
+
         // Historical migrations may load a current Eloquent model before a
         // later additive migration creates one of its scoped columns. Reboot
         // models once the migration command ends so the running process sees
@@ -110,5 +112,41 @@ class AppServiceProvider extends ServiceProvider
             'operations.disaster_recovery_mode',
             false
         ));
+    }
+
+    /**
+     * Laravel Cloud injects its managed bucket into the standard s3 disk at
+     * runtime, after a cached config file may already have been built. Private
+     * scoped disks must inherit those final credentials instead of retaining
+     * the empty build-time values.
+     */
+    private function hydratePrivateObjectStorageDisks(): void
+    {
+        $base = config('filesystems.disks.s3');
+        if (!is_array($base) || empty($base['bucket'])) {
+            return;
+        }
+
+        $connectionKeys = [
+            'key',
+            'secret',
+            'region',
+            'bucket',
+            'url',
+            'endpoint',
+            'use_path_style_endpoint',
+        ];
+
+        foreach (['feedback', 'security-quarantine'] as $diskName) {
+            $disk = config("filesystems.disks.{$diskName}");
+            if (!is_array($disk) || strtolower((string) ($disk['driver'] ?? '')) !== 's3') {
+                continue;
+            }
+
+            foreach ($connectionKeys as $key) {
+                $disk[$key] = $base[$key] ?? null;
+            }
+            config(["filesystems.disks.{$diskName}" => $disk]);
+        }
     }
 }
