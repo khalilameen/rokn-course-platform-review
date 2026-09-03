@@ -8,6 +8,7 @@ use App\Jobs\SendUserPushNotification;
 use App\Models\StudentNotification;
 use App\Models\NotificationPushDelivery;
 use App\Services\NotificationDeliveryPolicy;
+use App\Support\DurableJobDispatch;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Schema;
 
@@ -68,8 +69,9 @@ final class RetryStalledNotificationPushes extends Command
                     }
 
                     try {
-                        SendUserPushNotification::dispatch((int) $notification->id)
-                            ->onQueue((string) config('queue.channels.notifications', 'notifications'));
+                        DurableJobDispatch::now(
+                            new SendUserPushNotification((int) $notification->id)
+                        );
                         $queued++;
                     } catch (\Throwable $exception) {
                         $dispatchFailures++;
@@ -238,8 +240,9 @@ SQL);
                 foreach ($notifications as $notification) {
                     if ($remaining-- <= 0) return false;
                     try {
-                        SendUserPushNotification::dispatch((int) $notification->id)
-                            ->onQueue((string) config('queue.channels.notifications', 'notifications'));
+                        DurableJobDispatch::now(
+                            new SendUserPushNotification((int) $notification->id)
+                        );
                         $queued++;
                     } catch (\Throwable $exception) {
                         $dispatchFailures++;

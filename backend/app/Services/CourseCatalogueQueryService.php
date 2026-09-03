@@ -31,7 +31,7 @@ final readonly class CourseCatalogueQueryService
         $perPage = $filters['per_page'] ?? 20;
         $revision = $this->revision();
         $key = 'courses:' . md5((string) json_encode([
-            'catalog_contract' => 6,
+            'catalog_contract' => 7,
             'catalog_revision' => $revision,
             'page' => $page,
             'per_page' => $perPage,
@@ -64,7 +64,7 @@ final readonly class CourseCatalogueQueryService
         $perPage = (int) ($filters['per_page'] ?? 15);
         $revision = $this->revision();
         $key = 'courses:mobile:' . md5((string) json_encode([
-            'catalog_contract' => 7,
+            'catalog_contract' => 8,
             'catalog_revision' => $revision,
             'page' => $page,
             'per_page' => $perPage,
@@ -75,14 +75,11 @@ final readonly class CourseCatalogueQueryService
         ]));
 
         $build = function () use ($filters, $page, $perPage): LengthAwarePaginator {
-            $query = $this->catalogueQuery()->with([
-                    'grade',
-                    'sections' => function ($sections): void {
-                        $sections
-                            ->select('id', 'course_id', 'title', 'sectionable_type', 'order')
-                            ->orderBy('order');
-                    },
-                ]);
+            // Catalogue cards consume aggregate counts only. Loading sections
+            // here made every page serialize the complete curriculum outline
+            // for every card, even though the phone opens that graph only from
+            // course details. Keep the list bounded independently of course size.
+            $query = $this->catalogueQuery();
 
             $courses = $this->orderForDiscovery(
                 $this->applyFilters($query, $filters)
@@ -182,6 +179,9 @@ final readonly class CourseCatalogueQueryService
             ->withCount('activeEnrollments')
             ->withCount('sections')
             ->withCount([
+                'sections as video_reels_count' => function ($sections): void {
+                    $sections->where('sectionable_type', Lesson::class);
+                },
                 'sections as preview_reels_count' => function ($sections): void {
                     $sections
                         ->where('sectionable_type', Lesson::class)

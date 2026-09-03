@@ -9,6 +9,7 @@ use App\Models\Setting;
 use App\Models\RewardRule;
 use App\Models\User;
 use App\Models\WalletTransaction;
+use App\Support\DurableJobDispatch;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Database\QueryException;
@@ -303,7 +304,7 @@ class StudentNotificationService
         // exception out can make a completed purchase or reward look failed.
         DB::afterCommit(static function () use ($notificationId): void {
             try {
-                SendUserPushNotification::dispatch($notificationId);
+                DurableJobDispatch::now(new SendUserPushNotification($notificationId));
             } catch (\Throwable $exception) {
                 // The inbox row is durable and RetryStalledNotificationPushes
                 // will enqueue it after the queue connection returns.

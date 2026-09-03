@@ -70,6 +70,8 @@ export type RoknRequestConfig = AxiosRequestConfig & {
   optionalAuthorization?: boolean;
   /** Internal guard for bounded read recovery after transport/origin wake-up. */
   roknNetworkRetryCount?: number;
+  /** Absolute device time after which this read must stop retrying. */
+  roknNetworkRetryDeadlineAt?: number;
   /** Bearer captured when this request crossed the account boundary. */
   roknSessionToken?: string;
   /** Covers guest and authenticated responses, including account switches. */
@@ -176,6 +178,7 @@ export const onRejectedResponse = async (error: unknown): Promise<never> => {
   const errorCode = String(errorRecord.code || '').toUpperCase();
   const errorMessage = String(errorRecord.message || '').toLowerCase();
   const retryCount = Number(config?.roknNetworkRetryCount || 0);
+  const retryDeadlineAt = Number(config?.roknNetworkRetryDeadlineAt || 0);
   const responseStatus = Number(response?.status || 0);
   const safeTransientReadFailure = transientReadFailure({
     errorCode,
@@ -191,13 +194,37 @@ export const onRejectedResponse = async (error: unknown): Promise<never> => {
     retryCount < READ_RECOVERY_DELAYS_MS.length &&
     (method === 'get' || method === 'head')
   ) {
+    const retryDelay = READ_RECOVERY_DELAYS_MS[retryCount];
+    const remainingRetryBudget = retryDeadlineAt
+      ? retryDeadlineAt - Date.now() - retryDelay
+      : Number.POSITIVE_INFINITY;
+    // A timeout applies to each Axios attempt, not to the logical read. The
+    // catalogue supplies one journey-wide deadline so a weak connection cannot
+    // multiply 15 seconds by every origin-wake retry and strand first launch.
+    if (remainingRetryBudget <= 0) {
+      return Promise.reject(response ?? error);
+    }
+    const configuredTimeout = Number(config?.timeout || 0);
     const retryConfig = {
       ...(config as RoknRequestConfig),
       roknNetworkRetryCount: retryCount + 1,
+      ...(Number.isFinite(remainingRetryBudget)
+        ? {
+            timeout: Math.max(
+              1,
+              Math.floor(
+                configuredTimeout > 0
+                  ? Math.min(configuredTimeout, remainingRetryBudget)
+                  : remainingRetryBudget,
+              ),
+            ),
+          }
+        : {}),
     };
-    await new Promise(resolve =>
-      setTimeout(resolve, READ_RECOVERY_DELAYS_MS[retryCount]),
-    );
+    await new Promise(resolve => setTimeout(resolve, retryDelay));
+    if (retryDeadlineAt && Date.now() >= retryDeadlineAt) {
+      return Promise.reject(response ?? error);
+    }
     return publicRequest.request(retryConfig).then(
       value => value as never,
       retryError => Promise.reject(retryError),
@@ -354,9 +381,35 @@ export const useAPIData = <DataType>(
     }
   }, [response.status, onPending]);
 };
+
+const clampTimeoutToReadDeadline = (
+  config: InternalAxiosRequestConfig & RoknRequestConfig,
+) => {
+  const deadlineAt = Number(config.roknNetworkRetryDeadlineAt || 0);
+  if (!Number.isFinite(deadlineAt) || deadlineAt <= 0) return;
+  const remaining = deadlineAt - Date.now();
+  if (remaining <= 0) {
+    throw Object.assign(new Error('timeout'), {
+      code: 'ETIMEDOUT',
+      config,
+    });
+  }
+  const configuredTimeout = Number(config.timeout || 0);
+  config.timeout = Math.max(
+    1,
+    Math.floor(
+      configuredTimeout > 0 ? Math.min(configuredTimeout, remaining) : remaining,
+    ),
+  );
+};
+
 export const responseConfig = async (config: InternalAxiosRequestConfig) => {
+  const requestConfig = config as InternalAxiosRequestConfig & RoknRequestConfig;
+  // Enforce the logical read's deadline before doing native storage work and
+  // again immediately before dispatch. This also covers explicit outer retries
+  // such as a course-revision refresh, not only interceptor-owned retries.
+  clampTimeoutToReadDeadline(requestConfig);
   const language = await getItem<string>(AsyncKeys.LANGUAGE);
-  const requestConfig = config as RoknRequestConfig;
   const isNetworkRetry = Number(requestConfig.roknNetworkRetryCount || 0) > 0;
   if (isNetworkRetry) {
     // Axios runs request interceptors again for the one read-only network
@@ -365,7 +418,7 @@ export const responseConfig = async (config: InternalAxiosRequestConfig) => {
     // silently resend the old screen's request with the next account's bearer
     // and accept its response as if it belonged to the original journey.
     await assertResponseStillBelongsToSession(
-      requestConfig as Record<string, unknown>,
+      requestConfig as unknown as Record<string, unknown>,
     );
   } else {
     requestConfig.roknSessionEpoch = peekSecureSession().epoch;
@@ -424,6 +477,7 @@ export const responseConfig = async (config: InternalAxiosRequestConfig) => {
     requestConfig.roknSessionToken = apiToken;
   }
 
+  clampTimeoutToReadDeadline(requestConfig);
   return config;
 };
 export const responseError = (error: unknown) => Promise.reject(error);

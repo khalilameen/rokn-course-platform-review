@@ -239,6 +239,11 @@ class CourseController extends Controller
         // reels and crossing projects are created on the following screen.
         $courseData['is_coming_soon'] = true;
         $courseData['is_catalog_visible'] = false;
+        // This is draft intent only. Keeping it on the new course makes the
+        // create form and later studio agree; CourseHeroSelectionService still
+        // applies the one-public-hero invariant only when the draft is saved
+        // and published.
+        $courseData['is_main_course'] = $request->boolean('is_main_course');
         $storedImagePath = null;
         try {
             if ($request->hasFile('image')) {
@@ -619,7 +624,7 @@ class CourseController extends Controller
             ): void {
                 $lockedCourse = $authoring->lock($request, $course);
                 $lockedCourse->update($courseData);
-                if ($managedDraft && $request->has('is_main_course')) {
+                if ($wasDraft && $request->has('is_main_course')) {
                     // This is draft intent only. Global hero ownership changes
                     // atomically when the revision is published.
                     $lockedCourse->updateQuietly([
@@ -817,7 +822,7 @@ class CourseController extends Controller
             ? $request->boolean('is_main_course')
             : (bool) $heroCourse->is_main_course;
         try {
-            if (!($managedDraft && !$publishingRequested)) {
+            if (!($wasDraft && !$publishingRequested)) {
                 $heroSelection->synchronize(
                     $course,
                     (int) $ownedAuthoringVersion,

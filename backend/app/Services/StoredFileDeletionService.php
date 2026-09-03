@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Jobs\DeleteAccountFile;
 use App\Models\AccountFileDeletion;
+use App\Support\DurableJobDispatch;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -59,8 +60,7 @@ final class StoredFileDeletionService
         );
         $dispatch = static function () use ($row): void {
             try {
-                DeleteAccountFile::dispatch((int) $row->id)
-                    ->onQueue((string) config('queue.channels.media', 'media'));
+                DurableJobDispatch::now(new DeleteAccountFile((int) $row->id));
             } catch (Throwable $exception) {
                 // The row is the durable outbox. The scheduler will dispatch
                 // it once the queue connection is healthy again.
@@ -165,9 +165,9 @@ final class StoredFileDeletionService
             ]
         );
         try {
-            DeleteAccountFile::dispatch((int) $row->id)
-                ->delay($row->available_at)
-                ->onQueue((string) config('queue.channels.media', 'media'));
+            DurableJobDispatch::now(
+                (new DeleteAccountFile((int) $row->id))->delay($row->available_at)
+            );
         } catch (Throwable $exception) {
             Log::warning('Potential orphan remains in the durable cleanup ledger.', [
                 'deletion_id' => $row->id,

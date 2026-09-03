@@ -166,7 +166,7 @@ describe('native social transport with browser fallback', () => {
     });
 
     await expect(signInWithSocialProvider('google', methods)).rejects.toThrow(
-      'LOGIN_CANCELLED',
+      'LOGIN_RESUMING',
     );
 
     expect(mockPendingAttempt).toMatchObject({

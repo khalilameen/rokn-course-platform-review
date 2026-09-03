@@ -6,6 +6,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\ProbeLessonMedia;
+use App\Support\DurableJobDispatch;
 use App\Models\Lesson;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -52,7 +53,9 @@ final class BunnyStreamWebhookController extends Controller
             ->where('bunny_video_id', $videoGuid)
             ->whereHas('courseSection')
             ->pluck('id')
-            ->each(fn ($lessonId) => ProbeLessonMedia::dispatch((int) $lessonId, $videoGuid));
+            ->each(fn ($lessonId) => DurableJobDispatch::now(
+                new ProbeLessonMedia((int) $lessonId, $videoGuid)
+            ));
 
         return response()->json(['accepted' => true], 202);
     }

@@ -6,6 +6,7 @@ namespace App\Console\Commands;
 
 use App\Jobs\RecoverPendingCertificate;
 use App\Models\Certificate;
+use App\Support\DurableJobDispatch;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -66,8 +67,7 @@ final class RecoverPendingCertificates extends Command
         $queued = 0;
         foreach ($candidates as $candidate) {
             try {
-                RecoverPendingCertificate::dispatch((int) $candidate->id)
-                    ->onQueue((string) config('queue.channels.media', 'media'));
+                DurableJobDispatch::now(new RecoverPendingCertificate((int) $candidate->id));
                 $queued++;
             } catch (Throwable $exception) {
                 Log::warning('Pending certificate recovery could not be dispatched.', [

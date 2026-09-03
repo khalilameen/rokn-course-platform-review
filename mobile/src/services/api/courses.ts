@@ -834,6 +834,9 @@ type LearningCatalogueSnapshot = {
 };
 const learningCatalogueSnapshots = new Map<string, LearningCatalogueSnapshot>();
 const learningCatalogueFlights = new Map<string, Promise<CourseProgress[]>>();
+// Long enough for Laravel Cloud's short origin wake-up, but one deadline for
+// the whole read rather than a fresh 15-second timeout on every retry.
+const PUBLIC_COURSE_READ_BUDGET_MS = 22_000;
 
 const getLearningCatalogueSnapshot = async (): Promise<CourseProgress[]> => {
   const scope = await accountScopedStorageKey('@rokn/learning-catalogue');
@@ -1109,6 +1112,7 @@ export const getPublishedCoursesPage = async ({
     CATALOGUE_CACHE_KEY,
     accountBoundary,
   );
+  const retryDeadlineAt = Date.now() + PUBLIC_COURSE_READ_BUDGET_MS;
   try {
     const sessionAvailable = await hasSession();
     const [catalogueResponse, learningSnapshot] = await Promise.all([
@@ -1116,6 +1120,7 @@ export const getPublishedCoursesPage = async ({
         normalizedSearch ? 'search/courses' : 'courses/list',
         {
           optionalAuthorization: true,
+          roknNetworkRetryDeadlineAt: retryDeadlineAt,
           signal,
           params: {
             page: safePage,
@@ -1531,6 +1536,7 @@ export const getCourseDetails = async (
     COURSE_DETAILS_CACHE_KEY,
     accountBoundary,
   );
+  const retryDeadlineAt = Date.now() + PUBLIC_COURSE_READ_BUDGET_MS;
   try {
     let data: CourseDto | undefined;
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -1538,6 +1544,7 @@ export const getCourseDetails = async (
         data = payload(
           await publicRequest.get(`courses/${normalizedCourseId}/details`, {
             optionalAuthorization: true,
+            roknNetworkRetryDeadlineAt: retryDeadlineAt,
             signal: options.signal,
           } as RoknRequestConfig),
         );

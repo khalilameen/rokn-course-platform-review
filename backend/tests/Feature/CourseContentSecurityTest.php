@@ -11,6 +11,7 @@ use App\Models\CourseEnrollment;
 use App\Models\CourseModule;
 use App\Models\CourseSection;
 use App\Models\Lesson;
+use App\Models\LessonMediaState;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\CoursePresentationService;
@@ -189,9 +190,9 @@ final class CourseContentSecurityTest extends TestCase
         $sections = collect([$first, $locked, $preview]);
         $course->setRelation('sections', $sections);
 
-        $openModule = $this->module(201, 1, $first, 'private/open', 301);
-        $lockedModule = $this->module(202, 2, $locked, 'private/locked', 302);
-        $previewModule = $this->module(203, 3, $preview, 'private/preview', 303);
+        $openModule = $this->module(201, 1, $first, 'https://files.example.test/open', 301);
+        $lockedModule = $this->module(202, 2, $locked, 'https://files.example.test/locked', 302);
+        $previewModule = $this->module(203, 3, $preview, 'https://files.example.test/preview', 303);
         foreach ([$openModule, $lockedModule, $previewModule] as $module) {
             \Illuminate\Support\Facades\DB::table('course_modules')->insert([
                 'id' => $module->id,
@@ -225,20 +226,20 @@ final class CourseContentSecurityTest extends TestCase
         self::assertTrue($payload['sections'][2]['is_preview']);
         self::assertStringContainsString('preview-guid', $payload['sections'][2]['content']['bunny_video_url']);
 
-        self::assertSame(1, $payload['modules'][1]['attachments_count']);
+        self::assertSame(2, $payload['modules'][1]['attachments_count']);
         self::assertTrue($payload['modules'][1]['is_locked']);
         self::assertArrayNotHasKey('attachments_link', $payload['modules'][1]);
         self::assertArrayNotHasKey('attachments', $payload['modules'][1]);
         self::assertArrayNotHasKey('content', $payload['modules'][1]['sections'][0]);
 
         self::assertFalse($payload['modules'][0]['is_locked']);
-        self::assertSame('private/open', $payload['modules'][0]['attachments_link']);
+        self::assertSame('https://files.example.test/open', $payload['modules'][0]['attachments_link']);
         self::assertCount(1, $payload['modules'][0]['attachments']);
         self::assertArrayHasKey('download_url', $payload['modules'][0]['attachments'][0]);
         self::assertArrayNotHasKey('file_url', $payload['modules'][0]['attachments'][0]);
         self::assertStringContainsString('/attachments/301/download', $payload['modules'][0]['attachments'][0]['download_url']);
         self::assertFalse($payload['modules'][2]['is_locked']);
-        self::assertSame('private/preview', $payload['modules'][2]['attachments_link']);
+        self::assertSame('https://files.example.test/preview', $payload['modules'][2]['attachments_link']);
     }
 
     public function test_first_step_of_later_module_does_not_bypass_previous_module(): void
@@ -277,6 +278,16 @@ final class CourseContentSecurityTest extends TestCase
             'duration_minutes' => 2,
         ]);
         $lesson->exists = true;
+        $mediaState = new LessonMediaState();
+        $mediaState->forceFill([
+            'lesson_id' => $id,
+            'provider_media_id' => $guid,
+            'status' => 'ready',
+            'integrity_status' => 'verified',
+            'duration_seconds' => 120,
+        ]);
+        $mediaState->exists = true;
+        $lesson->setRelation('mediaState', $mediaState);
 
         return $lesson;
     }

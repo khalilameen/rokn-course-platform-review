@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Support\DurableJobDispatch;
 use App\Support\UnicodeText;
 
 use App\Jobs\GenerateProjectFeedbackReply;
@@ -314,7 +315,16 @@ final class ProjectFeedbackThreadService
         // lost after the database commit. The worker atomically claims QUEUED
         // only, so duplicate jobs cannot reach the paid provider twice.
         if ($message->status === ProjectFeedbackMessage::QUEUED) {
-            GenerateProjectFeedbackReply::dispatch((int) $message->id)->afterCommit();
+            try {
+                DurableJobDispatch::afterCommit(
+                    new GenerateProjectFeedbackReply((int) $message->id)
+                );
+            } catch (\Throwable $exception) {
+                // The QUEUED message is the durable handoff. The recovery
+                // command will enqueue it after the broker returns, so the
+                // accepted learner message must not become a false HTTP 500.
+                report($exception);
+            }
         }
 
         return $message;

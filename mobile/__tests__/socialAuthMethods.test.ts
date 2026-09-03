@@ -1,10 +1,12 @@
 const mockGet = jest.fn();
 const mockStorageGet = jest.fn();
 const mockStorageSet = jest.fn();
+const mockStorageRemove = jest.fn();
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
   getItem: (...args: unknown[]) => mockStorageGet(...args),
   setItem: (...args: unknown[]) => mockStorageSet(...args),
+  removeItem: (...args: unknown[]) => mockStorageRemove(...args),
 }));
 
 jest.mock('react-native', () => ({
@@ -47,6 +49,7 @@ describe('social auth discovery', () => {
     jest.clearAllMocks();
     mockStorageGet.mockResolvedValue(null);
     mockStorageSet.mockResolvedValue(undefined);
+    mockStorageRemove.mockResolvedValue(undefined);
   });
 
   it('does not disguise an old mismatched host as a successful active-host configuration', async () => {
@@ -103,11 +106,15 @@ describe('social auth discovery', () => {
     mockStorageGet.mockResolvedValue(
       JSON.stringify({
         savedAt: Date.now() - 60_000,
+        apiUrl:
+          'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/',
         methods: {
           providers: ['google'],
-          authorizationApiUrl: 'https://identity.rokn.app/api/v1',
+          authorizationApiUrl:
+            'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1',
           authorizationUrls: {
-            google: 'https://identity.rokn.app/api/v1/social-auth/google/start',
+            google:
+              'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/social-auth/google/start',
           },
           recommendedProvider: 'google',
           recommendationText: null,
@@ -140,6 +147,8 @@ describe('social auth discovery', () => {
     mockStorageGet.mockResolvedValue(
       JSON.stringify({
         savedAt: Date.now() - 60_000,
+        apiUrl:
+          'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/',
         methods: {
           providers: ['google', 'tiktok'],
           authorizationApiUrl:
@@ -177,6 +186,8 @@ describe('social auth discovery', () => {
     mockStorageGet.mockResolvedValue(
       JSON.stringify({
         savedAt: Date.now() - 60_000,
+        apiUrl:
+          'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/',
         methods: {
           providers: ['google'],
           authorizationApiUrl:
@@ -200,6 +211,8 @@ describe('social auth discovery', () => {
     mockStorageGet.mockResolvedValue(
       JSON.stringify({
         savedAt: Date.now() - 25 * 60 * 60 * 1000,
+        apiUrl:
+          'https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/',
         methods: {
           providers: ['google'],
           authorizationApiUrl: 'https://identity.rokn.app/api/v1',

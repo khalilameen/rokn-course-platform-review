@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Jobs\SendStudentNotification;
 use App\Models\NotificationCampaign;
+use App\Support\DurableJobDispatch;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -61,7 +62,7 @@ final class NotificationCampaignService
         );
 
         if (!Schema::hasTable('notification_campaigns')) {
-            dispatch($job);
+            DurableJobDispatch::now($job);
             return true;
         }
 
@@ -122,7 +123,7 @@ final class NotificationCampaignService
         // while keeping the dashboard request successful and truthful.
         DB::afterCommit(static function () use ($job, $campaign): void {
             try {
-                dispatch($job);
+                DurableJobDispatch::now($job);
             } catch (\Throwable $exception) {
                 NotificationCampaign::query()
                     ->whereKey($campaign->getKey())
@@ -167,7 +168,7 @@ final class NotificationCampaignService
         $job = $this->jobForCampaign($campaign);
 
         try {
-            dispatch($job)->afterCommit();
+            DurableJobDispatch::afterCommit($job);
         } catch (\Throwable $exception) {
             NotificationCampaign::query()
                 ->whereKey($campaign->getKey())

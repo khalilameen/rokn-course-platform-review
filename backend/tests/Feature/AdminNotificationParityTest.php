@@ -54,7 +54,10 @@ final class AdminNotificationParityTest extends ApiTestCase
     public function test_direct_notification_persists_title_and_message_then_queues_push(): void
     {
         Queue::fake([SendUserPushNotification::class]);
-        $this->user->forceFill(['notifications_status' => true]);
+        $this->user->forceFill([
+            'role' => 'client',
+            'notifications_status' => true,
+        ]);
         $this->user->deviceTokens()->create([
             'device_token' => 'test-device-token',
             'device_type' => 'android',

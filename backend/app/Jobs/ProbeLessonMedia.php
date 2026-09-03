@@ -7,6 +7,7 @@ namespace App\Jobs;
 use App\Models\Lesson;
 use App\Services\MediaHealthService;
 use App\Services\MediaReconciliationService;
+use App\Support\DurableJobDispatch;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -57,7 +58,10 @@ final class ProbeLessonMedia implements ShouldQueue, ShouldBeUnique
         if (($this->expectedVideoGuid ?? '') === '') {
             // A pre-deploy payload has no generation. Hand it off instead of
             // letting stale work observe whichever remote object is current.
-            self::dispatch((int) $lesson->id, (string) $lesson->bunny_video_id);
+            DurableJobDispatch::now(new self(
+                (int) $lesson->id,
+                (string) $lesson->bunny_video_id
+            ));
             return;
         }
         if (!hash_equals(

@@ -6,6 +6,7 @@ namespace App\Console\Commands;
 
 use App\Models\NotificationCampaign;
 use App\Services\NotificationCampaignService;
+use App\Support\DurableJobDispatch;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Schema;
 
@@ -81,8 +82,7 @@ final class RetryStalledNotificationCampaigns extends Command
             }
 
             try {
-                dispatch($campaigns->jobForCampaign($campaign))
-                    ->onQueue((string) config('queue.channels.notifications', 'notifications'));
+                DurableJobDispatch::now($campaigns->jobForCampaign($campaign));
                 $queued++;
             } catch (\Throwable $exception) {
                 // A broken queue write for one campaign must not prevent the

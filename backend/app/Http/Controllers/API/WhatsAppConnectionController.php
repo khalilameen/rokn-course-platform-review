@@ -6,6 +6,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\SendWhatsAppMessage;
+use App\Support\DurableJobDispatch;
 use App\Models\CoinEarningMethod;
 use App\Models\User;
 use App\Models\UserWhatsAppConnection;
@@ -141,22 +142,22 @@ final class WhatsAppConnectionController extends Controller
             }
         }
 
-        if (
-            $result['matched']
-            && !$result['already_claimed']
-            && $result['coins'] > 0
-        ) {
-            $this->sendReply(
-                $sender,
-                'تم ربط حسابك وإضافة ' . $result['coins'] . " عملة ركن\nرصيدك الآن "
-                    . $result['balance'] . ' عملة'
-            );
-        } elseif ($result['matched'] && ($result['reward_deferred'] ?? false)) {
+        if ($result['matched'] && ($result['reward_deferred'] ?? false)) {
             $this->sendReply(
                 $sender,
                 "تم ربط حسابك\nافتح التطبيق لاستلام المكافأة"
             );
         } elseif ($result['matched'] && ($result['reward_unavailable'] ?? false)) {
+            $this->sendReply($sender, 'تم ربط حسابك');
+        } elseif ($result['matched'] && $result['earned_coins'] > 0) {
+            // Use the immutable earning amount on both the first webhook and
+            // its replay. The same unique message then repairs a failed queue
+            // write without sending a second, differently-worded receipt.
+            $this->sendReply(
+                $sender,
+                'تم ربط حسابك وإضافة ' . $result['earned_coins'] . ' عملة ركن'
+            );
+        } elseif ($result['matched']) {
             $this->sendReply($sender, 'تم ربط حسابك');
         }
 
@@ -235,14 +236,9 @@ final class WhatsAppConnectionController extends Controller
     {
         // Whatspie requires the webhook to return within five seconds. Never
         // hold its inbound acknowledgement open while a second provider call
-        // connects; a unique queued reply also absorbs webhook retries.
-        try {
-            SendWhatsAppMessage::dispatch($phone, $message);
-        } catch (\Throwable $exception) {
-            // Linking and its wallet receipt are already durable. A temporary
-            // queue outage must not make Whatspie retry a completed financial
-            // event or report the link itself as failed.
-            report($exception);
-        }
+        // connects. If the broker rejects the enqueue, return a server error
+        // so the provider replays the idempotent inbound event; the unique
+        // reply absorbs retries once one enqueue succeeds.
+        DurableJobDispatch::now(new SendWhatsAppMessage($phone, $message));
     }
 }

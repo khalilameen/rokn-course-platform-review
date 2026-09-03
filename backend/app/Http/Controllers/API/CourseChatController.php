@@ -6,6 +6,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\GenerateCourseChatReply;
+use App\Support\DurableJobDispatch;
 use App\Models\AiUsageEvent;
 use App\Models\AiInputAttachment;
 use App\Models\Course;
@@ -890,7 +891,7 @@ final class CourseChatController extends Controller
                     }
 
                     try {
-                        GenerateCourseChatReply::dispatch(
+                        DurableJobDispatch::now(new GenerateCourseChatReply(
                             (int) $this->activeTurn->id,
                             (int) $enrollment->id,
                             $estimatedTokens,
@@ -905,7 +906,7 @@ final class CourseChatController extends Controller
                                 'openrouter.answer_cache_minutes',
                                 360
                             )
-                        );
+                        ));
                     } catch (\Throwable $exception) {
                         if (!$ownsAdmissionQuota) {
                             report($exception);

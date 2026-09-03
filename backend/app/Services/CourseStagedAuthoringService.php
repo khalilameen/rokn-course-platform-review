@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Jobs\GrantCourseAttachmentsToEnrollments;
 use App\Models\Attachment;
 use App\Models\Course;
 use App\Models\CourseAuthoringRevision;
@@ -19,6 +18,7 @@ use App\Models\Photo;
 use App\Models\Project;
 use App\Models\Question;
 use App\Models\User;
+use App\Support\DatabaseCapabilities;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -187,20 +187,29 @@ final class CourseStagedAuthoringService
             ])->save();
 
             $canonicalId = (int) $canonical->id;
+            if ($grantChatAttachments || $grantProjectAttachments) {
+                app(InternalSignalService::class)->record(
+                    'course.attachments.grant',
+                    implode(':', [
+                        'course', $canonicalId,
+                        'revision', $publishedRevision,
+                        'chat', (int) $grantChatAttachments,
+                        'project', (int) $grantProjectAttachments,
+                    ]),
+                    [
+                        'course_id' => $canonicalId,
+                        'published_revision' => $publishedRevision,
+                        'chat' => $grantChatAttachments,
+                        'project' => $grantProjectAttachments,
+                    ],
+                    Course::class,
+                    $canonicalId
+                );
+            }
             DB::afterCommit(function () use (
                 $canonicalId,
-                $publishedRevision,
-                $grantChatAttachments,
-                $grantProjectAttachments
+                $publishedRevision
             ): void {
-                if ($grantChatAttachments || $grantProjectAttachments) {
-                    GrantCourseAttachmentsToEnrollments::dispatch(
-                        $canonicalId,
-                        $publishedRevision,
-                        $grantChatAttachments,
-                        $grantProjectAttachments
-                    );
-                }
                 $publishedCourse = Course::query()->find($canonicalId);
                 if ($publishedCourse) {
                     NotificationService::notifyCourseUpdate(
@@ -685,6 +694,7 @@ final class CourseStagedAuthoringService
         $aliases = array_fill_keys($currentIds, []);
         foreach ($currentIds as $id) $aliases[$id] = [$id];
         if ($currentIds === []) return $aliases;
+        if (!$this->hasLearnerLineageSchema()) return $aliases;
 
         $rootsByCurrent = DB::table('course_authoring_revision_entities as entities')
             ->join('course_authoring_revisions as revisions', 'revisions.id', '=', 'entities.course_authoring_revision_id')
@@ -718,6 +728,8 @@ final class CourseStagedAuthoringService
 
     public function currentEntityId(string $entityType, int $historicalId): ?int
     {
+        if (!$this->hasLearnerLineageSchema()) return null;
+
         $current = $historicalId;
         $visited = [$current => true];
         while (true) {
@@ -744,6 +756,8 @@ final class CourseStagedAuthoringService
             ->filter()->unique()->values()->all();
         $resolved = array_combine($origins, $origins) ?: [];
         if ($origins === []) return $resolved;
+        if (!$this->hasLearnerLineageSchema()) return $resolved;
+
         $rows = DB::table('course_authoring_revision_entities as entities')
             ->join('course_authoring_revisions as revisions', 'revisions.id', '=', 'entities.course_authoring_revision_id')
             ->where('entities.entity_type', $entityType)
@@ -776,6 +790,12 @@ final class CourseStagedAuthoringService
         }
 
         return $resolved;
+    }
+
+    private function hasLearnerLineageSchema(): bool
+    {
+        return DatabaseCapabilities::hasTable('course_authoring_revisions')
+            && DatabaseCapabilities::hasTable('course_authoring_revision_entities');
     }
 
     /** @param array<int,int> $lessonMap */

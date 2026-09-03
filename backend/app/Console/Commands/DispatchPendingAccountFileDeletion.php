@@ -6,6 +6,7 @@ namespace App\Console\Commands;
 
 use App\Jobs\DeleteAccountFile;
 use App\Models\AccountFileDeletion;
+use App\Support\DurableJobDispatch;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
@@ -38,8 +39,7 @@ final class DispatchPendingAccountFileDeletion extends Command
         $dispatched = 0;
         foreach ($rows as $row) {
             try {
-                DeleteAccountFile::dispatch((int) $row->id)
-                    ->onQueue((string) config('queue.channels.media', 'media'));
+                DurableJobDispatch::now(new DeleteAccountFile((int) $row->id));
                 $dispatched++;
             } catch (\Throwable $exception) {
                 Log::warning('Unable to dispatch account-file cleanup.', [

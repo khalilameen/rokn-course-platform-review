@@ -21,6 +21,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use App\Support\DurableJobDispatch;
 
 class SendStudentNotification implements ShouldQueue, ShouldBeUnique
 {
@@ -473,7 +474,7 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
     private function dispatchChunk(array $userIds): void
     {
         if ($userIds === []) return;
-        DeliverStudentNotificationChunk::dispatch(
+        DurableJobDispatch::now(new DeliverStudentNotificationChunk(
             $userIds,
             $this->deliveryKey,
             $this->notificationType,
@@ -487,7 +488,7 @@ class SendStudentNotification implements ShouldQueue, ShouldBeUnique
             $this->imageUrl,
             $this->actionLabelAr,
             $this->actionLabelEn
-        )->onQueue((string) config('queue.channels.notifications', 'notifications'));
+        ));
     }
 
     private function dispatchPendingRecipients(NotificationCampaign $campaign): void

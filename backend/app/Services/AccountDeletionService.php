@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\ProjectSubmission;
 use App\Jobs\CleanupDeletedAccountPortfolioMedia;
 use App\Jobs\DeleteAccountFile;
+use App\Support\DurableJobDispatch;
 use App\Models\AccountFileDeletion;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -495,8 +496,7 @@ final class AccountDeletionService
         $this->afterCommitOrNow(function () use ($cleanupOutboxIds): void {
             foreach ($cleanupOutboxIds as $deletionId) {
                 try {
-                    DeleteAccountFile::dispatch((int) $deletionId)
-                        ->onQueue((string) config('queue.channels.media', 'media'));
+                    DurableJobDispatch::now(new DeleteAccountFile((int) $deletionId));
                 } catch (\Throwable $exception) {
                     Log::warning('Unable to dispatch account-file cleanup.', [
                         'deletion_id' => $deletionId,
@@ -516,8 +516,9 @@ final class AccountDeletionService
         if ($remotePortfolioCleanupPending) {
             $this->afterCommitOrNow(function () use ($user): void {
                 try {
-                    CleanupDeletedAccountPortfolioMedia::dispatch((int) $user->id)
-                        ->onQueue((string) config('queue.channels.media', 'media'));
+                    DurableJobDispatch::now(
+                        new CleanupDeletedAccountPortfolioMedia((int) $user->id)
+                    );
                 } catch (\Throwable $exception) {
                     // The durable private references let scheduled recovery
                     // retry even if the queue is unavailable after commit.

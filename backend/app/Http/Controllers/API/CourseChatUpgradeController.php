@@ -58,19 +58,77 @@ final class CourseChatUpgradeController extends Controller
             return $this->error('course_access_required', 'افتح الكورس أولًا قبل الترقية', 403);
         }
         $enrollment = $access->activeEnrollmentFor((int) $user->id, (int) $course->id);
-        try {
-            $targetPlan = $enrollment
-                ? $this->targetPlan($enrollment->course, $enrollment, $plans, $requestedCode)
-                : null;
-        } catch (\DomainException $exception) {
+        if (!$enrollment) {
             return $this->error(
                 'full_track_upgrade_not_available',
                 'الترقية غير متاحة لهذه الفئة',
                 409
             );
         }
-        if ($entitlement['chat_available'] && !$targetPlan) {
-            $terms = $enrollment ? $plans->termsForEnrollment($enrollment) : null;
+
+        try {
+            $quote = DB::transaction(function () use (
+                $enrollment,
+                $plans,
+                $requestedCode,
+                $entitlement,
+                $user,
+                $wallet
+            ): array {
+                $paidCourse = Course::query()
+                    ->sharedLock()
+                    ->findOrFail($enrollment->course_id);
+                $enrollment->setRelation('course', $paidCourse);
+                $targetPlan = $this->targetPlan(
+                    $paidCourse,
+                    $enrollment,
+                    $plans,
+                    $requestedCode
+                );
+
+                if ($entitlement['chat_available'] && !$targetPlan) {
+                    $terms = $plans->termsForEnrollment($enrollment);
+
+                    return [
+                        'already_upgraded' => true,
+                        'course' => $paidCourse,
+                        'terms' => $terms,
+                    ];
+                }
+
+                $price = $this->upgradePrice($paidCourse, $enrollment, $targetPlan, $plans);
+                if ($price === null) {
+                    throw new \DomainException('full_track_upgrade_not_priced');
+                }
+
+                return [
+                    'already_upgraded' => false,
+                    'payload' => $this->quotePayload(
+                        $user->fresh(),
+                        $paidCourse,
+                        $price,
+                        $wallet,
+                        $targetPlan
+                    ),
+                ];
+            }, 3);
+        } catch (\DomainException $exception) {
+            if ($exception->getMessage() === 'full_track_upgrade_not_priced') {
+                return $this->error(
+                    'full_track_upgrade_not_priced',
+                    'لم يحدد سعر الترقية لهذا الكورس',
+                    409
+                );
+            }
+
+            return $this->error(
+                'full_track_upgrade_not_available',
+                'الترقية غير متاحة لهذه الفئة',
+                409
+            );
+        }
+
+        if ($quote['already_upgraded']) {
             return response()->json([
                 'status' => 200,
                 'success' => true,
@@ -79,36 +137,17 @@ final class CourseChatUpgradeController extends Controller
                 'data' => [
                     'already_upgraded' => true,
                     'chat_available' => (bool) $entitlement['chat_available'],
-                    'certificate_available' => (bool) ($terms['certificate_enabled'] ?? true),
-                    'course_revision' => $enrollment
-                        ? $this->publishedRevision($enrollment->course)
-                        : $this->publishedRevision($course),
+                    'certificate_available' => (bool) ($quote['terms']['certificate_enabled'] ?? true),
+                    'course_revision' => $this->publishedRevision($quote['course']),
                 ],
             ]);
-        }
-
-        if (!$enrollment) {
-            return $this->error(
-                'full_track_upgrade_not_available',
-                'الترقية غير متاحة لهذه الفئة',
-                409
-            );
-        }
-        $paidCourse = $enrollment->course;
-        $price = $this->upgradePrice($paidCourse, $enrollment, $targetPlan, $plans);
-        if ($price === null) {
-            return $this->error(
-                'full_track_upgrade_not_priced',
-                'لم يحدد سعر الترقية لهذا الكورس',
-                409
-            );
         }
 
         return response()->json([
             'status' => 200,
             'success' => true,
             'message' => 'تم تحميل فرق الترقية',
-            'data' => $this->quotePayload($user->fresh(), $paidCourse, $price, $wallet, $targetPlan),
+            'data' => $quote['payload'],
         ]);
     }
 

@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Models\Course;
 use App\Models\FinancialEntitlementHold;
 use App\Services\NotificationDeliveryPolicy;
+use App\Support\DurableJobDispatch;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -200,8 +201,9 @@ final class DeliverStudentNotificationChunk implements ShouldQueue, ShouldBeUniq
                 // crash between inbox creation and queue dispatch without sending
                 // the same push twice.
                 try {
-                    SendUserPushNotification::dispatch((int) $notification->id)
-                        ->afterCommit();
+                    DurableJobDispatch::afterCommit(
+                        new SendUserPushNotification((int) $notification->id)
+                    );
                 } catch (\Throwable $exception) {
                     // The inbox is the durable delivery. The scheduler will pick
                     // up this unattempted push after the queue connection recovers.

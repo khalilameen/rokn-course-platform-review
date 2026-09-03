@@ -12,6 +12,7 @@ use App\Models\Course;
 use App\Models\Project;
 use App\Services\CertificateEligibilityService;
 use App\Services\CertificateService;
+use App\Support\DurableJobDispatch;
 use App\Support\UnicodeText;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -281,7 +282,9 @@ final class CertificateController extends Controller
     private function queueGeneration(Certificate $certificate): void
     {
         try {
-            RecoverPendingCertificate::dispatch((int) $certificate->id)->afterCommit();
+            DurableJobDispatch::afterCommit(
+                new RecoverPendingCertificate((int) $certificate->id)
+            );
         } catch (\Throwable $exception) {
             // The pending row is the durable recovery marker. The scheduled
             // recovery command will enqueue it after a transient queue outage,

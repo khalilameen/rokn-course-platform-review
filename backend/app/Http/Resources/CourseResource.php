@@ -337,12 +337,28 @@ class CourseResource extends BaseCourseResource
         // Override modules with full content and lock status for sections
         $baseData['modules'] = $this->whenLoaded('modules', function() use ($hasCourseAccess, $moduleAccess, $user) {
             $coursePdfs = $this->relationLoaded('activePdfs') ? $this->activePdfs : collect();
-            return $this->modules->sortBy([
+            $orderedModules = $this->modules->sortBy([
                 ['order', 'asc'],
                 ['id', 'asc'],
-            ])->values()->map(function($module) use ($hasCourseAccess, $moduleAccess, $user, $coursePdfs) {
+            ])->values();
+            // Course-wide PDFs have one stable home in the player. Repeating
+            // them in every module made "once per module with attachments"
+            // reopen the same course files throughout playback, while the
+            // publishing audit already schedules that prompt on module one.
+            $coursePdfModuleId = $orderedModules->first()?->id;
+
+            return $orderedModules->map(function($module) use (
+                $hasCourseAccess,
+                $moduleAccess,
+                $user,
+                $coursePdfs,
+                $coursePdfModuleId
+            ) {
                 $moduleSections = $module->sections
                     ? $module->sections->sortBy('order')->values()
+                    : collect();
+                $moduleCoursePdfs = (int) $module->id === (int) $coursePdfModuleId
+                    ? $coursePdfs
                     : collect();
                 $firstSection = $moduleSections->first();
                 $moduleIsLocked = !$firstSection || (
@@ -361,7 +377,7 @@ class CourseResource extends BaseCourseResource
                     'is_locked' => $moduleIsLocked,
                     'attachments_count' => $module->attachments->count()
                         + $moduleSections->sum(fn ($section) => $section->attachments->count())
-                        + $coursePdfs->count()
+                        + $moduleCoursePdfs->count()
                         + (SafeExternalUrl::sanitize($module->attachments_link) !== null ? 1 : 0),
                     'sections' => $moduleSections->map(function($section) use ($hasCourseAccess, $moduleAccess, $user, $module) {
                         $isLocked = $this->isSectionLockedFromState($section);
@@ -405,7 +421,7 @@ class CourseResource extends BaseCourseResource
                             $module
                         )
                     );
-                    $pdfAttachments = $coursePdfs->map(function($pdf) use ($moduleAccess, $user) {
+                    $pdfAttachments = $moduleCoursePdfs->map(function($pdf) use ($moduleAccess, $user) {
                         $expiresInSeconds = max(300, min(3600, (int) config('course_attachments.signed_url_minutes', 30) * 60));
                         return [
                             'id' => 'pdf-' . $pdf->id,

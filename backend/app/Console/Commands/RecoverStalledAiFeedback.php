@@ -8,6 +8,7 @@ use App\Jobs\GenerateProjectFeedbackReply;
 use App\Jobs\GenerateProjectFeedback;
 use App\Models\ProjectFeedbackMessage;
 use App\Models\ProjectSubmission;
+use App\Support\DurableJobDispatch;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
@@ -41,8 +42,7 @@ final class RecoverStalledAiFeedback extends Command
             ->pluck('id');
         foreach ($reportIds as $submissionId) {
             try {
-                GenerateProjectFeedback::dispatch((int) $submissionId)
-                    ->onQueue((string) config('queue.channels.ai_feedback', 'ai-feedback'));
+                DurableJobDispatch::now(new GenerateProjectFeedback((int) $submissionId));
                 $reportsQueued++;
             } catch (\Throwable $exception) {
                 Log::warning('Stalled initial project report could not be requeued.', [
@@ -67,8 +67,7 @@ final class RecoverStalledAiFeedback extends Command
                 ->update(['updated_at' => now()]);
             if ($claimed !== 1) continue;
             try {
-                GenerateProjectFeedbackReply::dispatch((int) $message->id)
-                    ->onQueue((string) config('queue.channels.ai_feedback', 'ai-feedback'));
+                DurableJobDispatch::now(new GenerateProjectFeedbackReply((int) $message->id));
                 $queued++;
             } catch (\Throwable $exception) {
                 ProjectFeedbackMessage::query()->whereKey($message->id)->update([
@@ -98,8 +97,7 @@ final class RecoverStalledAiFeedback extends Command
                 // refresh updated_at here: that timestamp is the durable SENT
                 // processing lease used by workers to distinguish a live
                 // claim from an abandoned one.
-                GenerateProjectFeedbackReply::dispatch((int) $message->id)
-                    ->onQueue((string) config('queue.channels.ai_feedback', 'ai-feedback'));
+                DurableJobDispatch::now(new GenerateProjectFeedbackReply((int) $message->id));
                 $sentReconciliationsQueued++;
             } catch (\Throwable $exception) {
                 Log::warning('Stalled sent AI feedback could not be reconciled.', [

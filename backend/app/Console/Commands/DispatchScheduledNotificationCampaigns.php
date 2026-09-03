@@ -6,6 +6,7 @@ namespace App\Console\Commands;
 
 use App\Models\NotificationCampaign;
 use App\Services\NotificationCampaignService;
+use App\Support\DurableJobDispatch;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Schema;
 
@@ -45,8 +46,7 @@ final class DispatchScheduledNotificationCampaigns extends Command
             if ($claimed !== 1) continue;
 
             try {
-                dispatch($campaigns->jobForCampaign($campaign))
-                    ->onQueue((string) config('queue.channels.notifications', 'notifications'));
+                DurableJobDispatch::now($campaigns->jobForCampaign($campaign));
                 $queued++;
             } catch (\Throwable $exception) {
                 NotificationCampaign::query()->whereKey($campaign->id)->update([

@@ -57,7 +57,6 @@ describe('guest catalogue session boundary', () => {
         success: true,
         data: {
           courses: [
-            null,
             {
               id: 7,
               title: 'كورس صالح',

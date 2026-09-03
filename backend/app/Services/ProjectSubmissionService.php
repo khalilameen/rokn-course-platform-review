@@ -24,6 +24,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use App\Support\DownloadFilename;
+use App\Support\DurableJobDispatch;
 use App\Support\ProjectSubmissionEvaluationSnapshot;
 use App\Support\UnicodeText;
 
@@ -405,7 +406,7 @@ final class ProjectSubmissionService
         if ($result->review_status === ProjectSubmission::STATUS_PASSED) {
             // Feedback is a paid enhancement, never a gate. Queue/provider
             // failures cannot revoke the already granted progression.
-            GenerateProjectFeedback::dispatch((int) $result->id)->afterCommit();
+            $this->queueFeedback((int) $result->id);
         }
 
         return $result;
@@ -475,7 +476,7 @@ final class ProjectSubmissionService
         });
 
         if ($reviewed->review_status === ProjectSubmission::STATUS_PASSED) {
-            GenerateProjectFeedback::dispatch((int) $reviewed->id)->afterCommit();
+            $this->queueFeedback((int) $reviewed->id);
         }
 
         return $reviewed;
@@ -670,6 +671,18 @@ final class ProjectSubmissionService
         );
 
         return $locked->fresh();
+    }
+
+    private function queueFeedback(int $submissionId): void
+    {
+        try {
+            DurableJobDispatch::afterCommit(new GenerateProjectFeedback($submissionId));
+        } catch (\Throwable $exception) {
+            // The committed queued marker is the durable handoff. Recovery
+            // will enqueue it when the broker returns, so a passed project
+            // must not look failed merely because that first enqueue failed.
+            report($exception);
+        }
     }
 
     /**

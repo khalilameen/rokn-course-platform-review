@@ -11,6 +11,7 @@ use App\Listeners\AwardCourseCompletionReward;
 use App\Listeners\AwardLevelBadge;
 use App\Listeners\GenerateCourseCertificate;
 use App\Models\InternalSignal;
+use App\Models\Course;
 use App\Models\Project;
 use App\Models\User;
 
@@ -22,6 +23,7 @@ final readonly class InternalSignalHandler
         private AwardCourseCompletionReward $rewards,
         private LearningRewardService $learningRewards,
         private AiPlatformUsageMonitor $aiUsage,
+        private CourseAccessPlanService $accessPlans,
         private InternalSignalService $internalSignals,
         private CurriculumCompletionService $curriculumCompletion
     ) {
@@ -70,6 +72,9 @@ final readonly class InternalSignalHandler
                     max(0, (int) ($payload['threshold'] ?? 0)),
                     (int) ($payload['admin_id'] ?? 0)
                 ))->handle();
+                return;
+            case 'course.attachments.grant':
+                $this->grantCourseAttachments($payload);
                 return;
             default:
                 throw new \UnexpectedValueException(
@@ -143,6 +148,22 @@ final readonly class InternalSignalHandler
                 $anomalyId
             );
         }
+    }
+
+    private function grantCourseAttachments(array $payload): void
+    {
+        $course = Course::query()->find((int) ($payload['course_id'] ?? 0));
+        $revision = max(0, (int) ($payload['published_revision'] ?? 0));
+        if (!$course || $revision === 0
+            || (int) $course->last_published_authoring_version < $revision) {
+            return;
+        }
+
+        $this->accessPlans->grantAttachmentsToCurrentEnrollments(
+            $course,
+            (bool) ($payload['chat'] ?? false),
+            (bool) ($payload['project'] ?? false)
+        );
     }
 
     private function projectPassedReward(array $payload): void

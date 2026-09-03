@@ -6,6 +6,7 @@ namespace App\Console\Commands;
 
 use App\Jobs\CleanupDeletedAccountPortfolioMedia;
 use App\Models\User;
+use App\Support\DurableJobDispatch;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
@@ -30,8 +31,9 @@ final class DispatchPendingPortfolioCleanup extends Command
                     }
 
                     try {
-                        CleanupDeletedAccountPortfolioMedia::dispatch((int) $user->id)
-                            ->onQueue((string) config('queue.channels.media', 'media'));
+                        DurableJobDispatch::now(
+                            new CleanupDeletedAccountPortfolioMedia((int) $user->id)
+                        );
                         $dispatched++;
                     } catch (\Throwable $exception) {
                         // A sync queue or unavailable broker must not lose the

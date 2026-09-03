@@ -20,6 +20,7 @@ use App\Models\ProjectSubmission;
 use App\Models\StudentSectionProgress;
 use App\Models\WatchingLog;
 use App\Jobs\ProbeLessonMedia;
+use App\Support\DurableJobDispatch;
 use App\Services\BunnyService;
 use App\Services\BunnyDirectUploadService;
 use App\Services\CoursePublishingService;
@@ -1134,7 +1135,7 @@ class CourseSectionController extends Controller
     private function dispatchMediaProbe(Lesson $lesson): void
     {
         try {
-            ProbeLessonMedia::dispatch((int) $lesson->id)->afterCommit();
+            DurableJobDispatch::afterCommit(new ProbeLessonMedia((int) $lesson->id));
         } catch (Throwable $exception) {
             // The durable processing row remains visible in the dashboard and
             // the scheduled reconciliation will recover it if queue dispatch

@@ -67,7 +67,7 @@ final class CourseHeroSelectionConcurrencyTest extends TestCase
             $source
         );
         self::assertStringContainsString(
-            "            (int) \$ownedAuthoringVersion,\n            \$heroRequestedMain",
+            "(int) \$ownedAuthoringVersion,\n                    \$heroRequestedMain",
             $source
         );
         self::assertStringNotContainsString(
