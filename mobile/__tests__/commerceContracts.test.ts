@@ -13,7 +13,10 @@ jest.mock('../src/constants/api', () => ({
 
 import {publicRequest} from '../src/constants/api';
 import {purchaseCourse} from '../src/services/api/access';
-import {getCourseDetails} from '../src/services/api/courses';
+import {
+  getCourseDetails,
+  getLearningCourses,
+} from '../src/services/api/courses';
 import {getCoinTasks, getWallet} from '../src/services/api/economy';
 
 const mockGet = publicRequest.get as jest.Mock;
@@ -253,6 +256,110 @@ describe('commerce API contracts', () => {
           projectOutputEnabled: true,
         }),
       ]),
+    );
+  });
+
+  it('never treats a public preview as course ownership', async () => {
+    mockGet.mockResolvedValue({
+      data: {
+        data: {
+          id: 65,
+          title: 'Course',
+          is_coming_soon: false,
+          ratings_count: 0,
+          average_rating: null,
+          published_revision: 1,
+          metadata: {students_count: 0, duration_minutes: 1},
+          access_type: 'preview',
+          enrollment: {is_active: false},
+          access_plans: [
+            {
+              code: 'basic',
+              name_ar: 'تعلم',
+              price_coins: 300,
+              minimum_paid_coins: 0,
+              chat_enabled: false,
+              project_feedback_level: 'pass_only',
+              project_report_enabled: false,
+              project_thread_reply_enabled: false,
+              project_output_enabled: false,
+              certificate_enabled: true,
+            },
+            {
+              code: 'guided',
+              name_ar: 'إرشاد',
+              price_coins: 600,
+              minimum_paid_coins: 0,
+              chat_enabled: true,
+              chat_message_limit: 10,
+              project_feedback_level: 'report',
+              project_report_enabled: true,
+              project_thread_reply_enabled: false,
+              project_output_enabled: true,
+              certificate_enabled: true,
+            },
+            {
+              code: 'mentor',
+              name_ar: 'متابعة',
+              price_coins: 900,
+              minimum_paid_coins: 0,
+              chat_enabled: true,
+              chat_message_limit: 40,
+              project_feedback_level: 'enhanced',
+              project_report_enabled: true,
+              project_thread_reply_enabled: true,
+              project_output_enabled: true,
+              certificate_enabled: true,
+            },
+          ],
+          modules: [
+            {
+              id: 1,
+              title: 'وحدة',
+              sections: [
+                {
+                  id: 1,
+                  content_id: 1,
+                  title: 'درس',
+                  type: 'lesson',
+                  is_preview: true,
+                },
+              ],
+            },
+          ],
+        },
+      },
+    });
+
+    await expect(getCourseDetails('65')).resolves.toMatchObject({
+      owned: false,
+    });
+  });
+
+  it('rejects preview rows from the owned learning dashboard', async () => {
+    mockGet.mockResolvedValue({
+      data: {
+        data: {
+          items: [
+            {
+              course_id: 65,
+              title: 'Course',
+              progress_percentage: 0,
+              completed_sections: 0,
+              total_sections: 1,
+              access_type: 'preview',
+              chat_available: false,
+              certificate_available: false,
+              resume: {available: false},
+              next_section: null,
+            },
+          ],
+        },
+      },
+    });
+
+    await expect(getLearningCourses()).rejects.toThrow(
+      'LEARNING_COURSES_CONTRACT_INVALID',
     );
   });
 

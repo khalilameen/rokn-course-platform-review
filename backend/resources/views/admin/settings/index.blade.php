@@ -80,30 +80,6 @@
                         </div>
                     </div>
 
-                    <div class="form-row">
-                        <div class="form-group-modern">
-                            <label for="currency_code">
-                                <i class="fa fa-money"></i> رمز العملة
-                            </label>
-                            {!! Form::text('currency_code', null, ['class' => 'form-control-modern', 'id' => 'currency_code', 'placeholder' => 'EGP']) !!}
-                        </div>
-                        <div class="form-group-modern">
-                            <label for="google_maps_key">
-                                <i class="fa fa-map-marker"></i> مفتاح خرائط جوجل
-                            </label>
-                            {!! Form::text('google_maps_key', null, ['class' => 'form-control-modern', 'id' => 'google_maps_key', 'placeholder' => 'Google Maps API Key']) !!}
-                        </div>
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group-modern settings-grid-full">
-                            <label for="contact">
-                                <i class="fa fa-info-circle"></i> معلومات الاتصال التفصيلية
-                            </label>
-                            {!! Form::textarea('contact', null, ['class' => 'form-control-modern', 'id' => 'contact', 'rows' => 4, 'placeholder' => 'أضف معلومات إضافية عن طرق التواصل...']) !!}
-                        </div>
-                    </div>
-
                     <div class="checkbox-modern">
                         {!! Form::hidden('english_translation', 0) !!}
                         {!! Form::checkbox('english_translation', 1, null, ['id' => 'english_translation']) !!}
@@ -441,10 +417,15 @@
                             'tiktok_url' => ['تيك توك', 'https://tiktok.com/@...'],
                             'youtube_url' => ['يوتيوب', 'https://youtube.com/@...'],
                             'telegram_url' => ['تليجرام', 'https://t.me/...'],
+                            'whatsapp_url' => ['واتساب المنصة', '+201001234567 أو https://wa.me/201001234567'],
                         ] as $field => [$label, $placeholder])
                             <div class="form-group-modern">
                                 <label for="{{ $field }}">{{ $label }}</label>
-                                {!! Form::url($field, old($field, $designSettings->{$field}), ['class' => 'form-control-modern', 'id' => $field, 'placeholder' => $placeholder]) !!}
+                                @if($field === 'whatsapp_url')
+                                    {!! Form::text($field, old($field, $designSettings->{$field}), ['class' => 'form-control-modern', 'id' => $field, 'placeholder' => $placeholder]) !!}
+                                @else
+                                    {!! Form::url($field, old($field, $designSettings->{$field}), ['class' => 'form-control-modern', 'id' => $field, 'placeholder' => $placeholder]) !!}
+                                @endif
                                 @error($field)<small class="text-danger">{{ $message }}</small>@enderror
                             </div>
                         @endforeach

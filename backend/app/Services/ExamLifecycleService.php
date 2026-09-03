@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Models\CourseEnrollment;
 use App\Models\CourseSection;
 use App\Models\ExamAnswer;
 use App\Models\ExamAttempt;
@@ -17,7 +16,8 @@ final readonly class ExamLifecycleService
 {
     public function __construct(
         private CourseCompletionService $courseCompletion,
-        private CourseStagedAuthoringService $stagedAuthoring
+        private CourseStagedAuthoringService $stagedAuthoring,
+        private CourseChatAccessService $courseAccess
     ) {}
 
     /**
@@ -327,13 +327,10 @@ final readonly class ExamLifecycleService
             return true;
         }
 
-        $enrollment = CourseEnrollment::query()
-            ->where('user_id', $user->getKey())
-            ->where('course_id', $courseId)
-            ->where('is_active', true)
-            ->first();
-
-        return $enrollment?->isActive() === true;
+        return $this->courseAccess->hasLearningAccess(
+            (int) $user->getKey(),
+            $courseId
+        );
     }
 
     private function quizCanStart(ItemList $quiz): bool

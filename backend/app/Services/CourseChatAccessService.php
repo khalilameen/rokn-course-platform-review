@@ -80,7 +80,7 @@ final class CourseChatAccessService
         }
 
         $hasChatAccess = (bool) $course->ai_chat_enabled
-            && $candidates->contains(
+            && $eligibleCandidates->contains(
                 fn (CourseEnrollment $candidate): bool => $this->enrollmentHasChatAccess($candidate)
             );
         $order = $enrollment->order;

@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Models\CourseEnrollment;
 use App\Models\CourseSection;
+use App\Models\FinancialEntitlementHold;
 use App\Models\StudentSectionProgress;
 use App\Models\User;
 use App\Models\WatchingLog;
@@ -36,6 +37,10 @@ final readonly class LearningDashboardService
             ->where('is_active', true)
             ->where(function (Builder $active): void {
                 $active->whereNull('expires_at')->orWhere('expires_at', '>', now());
+            })
+            ->whereDoesntHave('financialHolds', static function (Builder $holds): void {
+                $holds->where('status', FinancialEntitlementHold::STATUS_ACTIVE)
+                    ->where('entitlement_scope', 'course');
             })
             // Filter before applying the bounded window. Otherwise an
             // unpublished or nested enrollment can consume one of the first

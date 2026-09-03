@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
-use App\Models\CourseEnrollment;
 use App\Models\Course;
 use App\Models\AiInputAttachment;
 use App\Models\AiEntitlementUsage;
@@ -695,35 +694,11 @@ final class ProjectController extends Controller
 
     private function checkCourseAccess(int $userId, int $courseId): bool
     {
-        $course = \App\Models\Course::query()->find($courseId);
-        if (!$course || !$course->isPublishedForLearning()) {
-            return false;
-        }
-
-        $enrollment = CourseEnrollment::where('user_id', $userId)
-            ->where('course_id', $courseId)
-            ->where('is_active', true)
-            ->first();
-        if ($enrollment && $enrollment->isActive()) {
-            return true;
-        }
-
-        $parentCourseIds = CourseSection::where('sectionable_type', 'App\\Models\\Course')
-            ->where('sectionable_id', $courseId)
-            ->pluck('course_id');
-        if ($parentCourseIds->isEmpty()) {
-            return false;
-        }
-
-        $parentEnrollment = CourseEnrollment::where('user_id', $userId)
-            ->whereIn('course_id', $parentCourseIds)
-            ->where('is_active', true)
-            ->where(function ($query) {
-                $query->whereNull('expires_at')->orWhere('expires_at', '>', now());
-            })
-            ->first();
-
-        return (bool) ($parentEnrollment && $parentEnrollment->isActive());
+        // Project reads, submissions and evaluation history must share the
+        // exact entitlement boundary used by playback and course details.
+        // The old local query ignored financial holds and could keep project
+        // access alive after the same enrollment was suspended elsewhere.
+        return $this->courseAccess->hasLearningAccess($userId, $courseId);
     }
 
     private function submissionPayload(ProjectSubmission $submission): array

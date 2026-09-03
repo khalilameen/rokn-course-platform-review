@@ -104,16 +104,24 @@ final class CourseModuleAccessService
         }
 
         if ((int) $previous->module_id !== (int) $module->id && $previous->module_id) {
-            $project = $sections->first(fn (CourseSection $section) =>
+            $projects = $sections->filter(fn (CourseSection $section) =>
                 (int) $section->module_id === (int) $previous->module_id
                 && $section->getSectionType() === 'project'
             );
 
-            if ($project && !$this->revisionReads->passedProjectIds(
-                (int) $user->id,
-                [(int) $project->sectionable_id]
-            )->contains((int) $project->sectionable_id)) {
-                return false;
+            if ($projects->isNotEmpty()) {
+                $projectIds = $projects->pluck('sectionable_id')->map(
+                    static fn ($id): int => (int) $id
+                )->values();
+                $passedProjectIds = $this->revisionReads->passedProjectIds(
+                    (int) $user->id,
+                    $projectIds
+                );
+                if ($projectIds->contains(
+                    fn (int $projectId): bool => !$passedProjectIds->contains($projectId)
+                )) {
+                    return false;
+                }
             }
         }
 

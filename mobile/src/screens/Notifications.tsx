@@ -450,12 +450,18 @@ export default function Notifications() {
           }
         },
       );
+      let reconnectAttempts = 0;
       const reconnectTimer = setInterval(() => {
         if (
           notificationErrorRef.current &&
           !refreshControllerRef.current &&
           AppState.currentState === 'active'
         ) {
+          if (reconnectAttempts >= 3) {
+            clearInterval(reconnectTimer);
+            return;
+          }
+          reconnectAttempts += 1;
           void refreshNotifications();
         }
       }, 20_000);

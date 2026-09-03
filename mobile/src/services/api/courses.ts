@@ -91,6 +91,25 @@ const courseUserRating = (value: unknown): number | null => {
   return rating >= 1 && rating <= 5 ? rating : null;
 };
 
+const LEARNING_ACCESS_TYPES = new Set([
+  'paid',
+  'scholarship',
+  'course_code',
+  'free',
+]);
+
+const hasLearningAccess = (course: CourseDto): boolean => {
+  const accessType = String(course.access_type || 'none')
+    .trim()
+    .toLowerCase();
+  // A public preview is not ownership. Unknown future values also fail closed
+  // until this client knows their entitlement semantics.
+  return (
+    LEARNING_ACCESS_TYPES.has(accessType) ||
+    valueAsBoolean(course.enrollment?.is_active)
+  );
+};
+
 type CourseTagDto = {
   id?: unknown;
   name_ar?: unknown;
@@ -343,7 +362,11 @@ export const getLearningCourses = async (
           !Number.isSafeInteger(total) ||
           total < 1 ||
           completed > total ||
-          !String(item.access_type || '').trim() ||
+          !LEARNING_ACCESS_TYPES.has(
+            String(item.access_type || '')
+              .trim()
+              .toLowerCase(),
+          ) ||
           firstBoolean(item.chat_available) === undefined ||
           firstBoolean(item.certificate_available) === undefined ||
           !resume ||
@@ -795,9 +818,7 @@ const mapCourseDetails = (course: CourseDto): CourseDetails => {
     instructorBio:
       displayText(teacher?.bio) || displayText(teacher?.job_title),
     instructorImage: displayImageUrl(teacher?.image),
-    owned:
-      String(course?.access_type || 'none').toLowerCase() !== 'none' ||
-      valueAsBoolean(course?.enrollment?.is_active),
+    owned: hasLearningAccess(course),
     modules,
     reelCount: modules.reduce((sum, module) => sum + module.reelCount, 0),
     projectCount: modules.reduce((sum, module) => sum + module.projectCount, 0),

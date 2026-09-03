@@ -200,7 +200,13 @@ final class ProjectSubmissionService
                             ->where('user_id', $user->id)
                             ->lockForUpdate()
                             ->first();
-                        if ($enrollment?->isActive()) {
+                        if (
+                            $enrollment?->isActive()
+                            && $this->courseAccess->hasLearningAccess(
+                                (int) $user->id,
+                                (int) $projectSection->course_id
+                            )
+                        ) {
                             $accessTerms = $this->accessPlans->termsForEnrollment($enrollment);
                         } else {
                             $enrollment = null;

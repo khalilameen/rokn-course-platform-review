@@ -176,10 +176,7 @@ class SettingsController extends Controller
             'site_name_en' => 'nullable|string|max:255',
             'email' => 'nullable|email|max:255',
             'phone' => 'nullable|string|max:20',
-            'currency_code' => 'nullable|string|max:10',
             'direct_checkout_discount_percent' => 'required|numeric|min:0|max:50',
-            'google_maps_key' => 'nullable|string',
-            'contact' => 'nullable|string',
             'seo_meta_title_ar' => 'nullable|string|max:255',
             'seo_meta_description_ar' => 'nullable|string|max:500',
             'seo_meta_title_en' => 'nullable|string|max:255',
@@ -202,6 +199,7 @@ class SettingsController extends Controller
             'instagram_url' => 'nullable|url|starts_with:https://|max:2048',
             'tiktok_url' => 'nullable|url|starts_with:https://|max:2048',
             'telegram_url' => 'nullable|url|starts_with:https://|max:2048',
+            'whatsapp_url' => 'nullable|string|max:2048',
             'ai_daily_user_limit' => 'sometimes|required|integer|min:1|max:1000',
             'ai_global_daily_request_limit' => 'sometimes|required|integer|min:1|max:10000000',
             'ai_global_daily_token_budget' => 'sometimes|required|integer|min:1000|max:1000000000',
@@ -220,6 +218,7 @@ class SettingsController extends Controller
             'instagram_url',
             'tiktok_url',
             'telegram_url',
+            'whatsapp_url',
         ];
         $designUpdates = Arr::only($validated, $designFields);
         $validated = Arr::except($validated, $designFields);
@@ -232,10 +231,14 @@ class SettingsController extends Controller
                 continue;
             }
             $channel = str_replace('_url', '', $field);
-            $normalized = $publicSettings->socialUrl($channel, $url);
+            $normalized = $channel === 'whatsapp'
+                ? $publicSettings->whatsAppUrl($url)
+                : $publicSettings->socialUrl($channel, $url);
             if ($normalized === null) {
                 throw ValidationException::withMessages([
-                    $field => ['أدخل رابط الحساب الصحيح لهذه المنصة يبدأ بـ https'],
+                    $field => [$channel === 'whatsapp'
+                        ? 'أدخل رقمًا دوليًا أو رابطًا صحيحًا يبدأ بـ https://wa.me/'
+                        : 'أدخل رابط الحساب الصحيح لهذه المنصة يبدأ بـ https'],
                 ]);
             }
             $designUpdates[$field] = $normalized;

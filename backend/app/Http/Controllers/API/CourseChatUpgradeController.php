@@ -11,7 +11,6 @@ use App\Models\Bill;
 use App\Models\Course;
 use App\Models\CourseAccessPlan;
 use App\Models\CourseEnrollment;
-use App\Models\CourseSection;
 use App\Models\Order;
 use App\Models\Package;
 use App\Models\Setting;
@@ -22,7 +21,6 @@ use App\Services\FinancialAnomalyService;
 use App\Services\FinancialProvenanceService;
 use App\Services\PackageChannelPricingService;
 use App\Services\WalletService;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -211,8 +209,25 @@ final class CourseChatUpgradeController extends Controller
                 if (!$entitlement['has_learning_access']) {
                     throw new \DomainException('course_access_required');
                 }
-                $enrollment = $this->upgradeableEnrollment((int) $user->id, $course, true);
-                if (!$enrollment) {
+                $eligibleEnrollment = $access->activeEnrollmentFor(
+                    (int) $user->id,
+                    (int) $course->id
+                );
+                $enrollment = $eligibleEnrollment
+                    ? CourseEnrollment::query()
+                        ->with(['course', 'order.courseCode', 'accessPlan'])
+                        ->whereKey($eligibleEnrollment->id)
+                        ->lockForUpdate()
+                        ->first()
+                    : null;
+                if (
+                    !$enrollment
+                    || !$access->activeCapturedEnrollmentFor(
+                        (int) $user->id,
+                        (int) $course->id,
+                        (int) $enrollment->id
+                    )
+                ) {
                     throw new \DomainException('full_track_upgrade_not_available');
                 }
                 // A section can route to an enrollment on its parent course.
@@ -429,8 +444,10 @@ final class CourseChatUpgradeController extends Controller
                 ];
             }, 3);
         } catch (InsufficientWalletBalanceException $exception) {
-            $paidCourse = $this->upgradeableEnrollment((int) $user->id, $course)?->course ?: $course;
             $enrollment = $access->activeEnrollmentFor((int) $user->id, (int) $course->id);
+            $paidCourse = $enrollment
+                ? ($enrollment->loadMissing('course')->course ?: $course)
+                : $course;
             $targetPlan = $enrollment
                 ? $this->targetPlan($paidCourse, $enrollment, $plans, $requestedCode)
                 : null;
@@ -500,32 +517,6 @@ final class CourseChatUpgradeController extends Controller
             'message' => 'تم تفعيل الفئة المختارة',
             'data' => $payload,
         ]);
-    }
-
-    private function upgradeableEnrollment(int $userId, Course $course, bool $lock = false): ?CourseEnrollment
-    {
-        $parentIds = CourseSection::query()
-            ->where('sectionable_type', Course::class)
-            ->where('sectionable_id', $course->id)
-            ->pluck('course_id')
-            ->map(static fn ($id): int => (int) $id)
-            ->all();
-
-        $query = CourseEnrollment::query()
-            ->with(['course', 'order.courseCode', 'accessPlan'])
-            ->where('user_id', $userId)
-            ->whereIn('course_id', array_values(array_unique([(int) $course->id, ...$parentIds])))
-            ->where('is_active', true)
-            ->where(function (Builder $active): void {
-                $active->whereNull('expires_at')->orWhere('expires_at', '>', now());
-            })
-            ->orderByRaw('course_id = ? desc', [(int) $course->id]);
-
-        if ($lock) {
-            $query->lockForUpdate();
-        }
-
-        return $query->first();
     }
 
     private function targetPlan(

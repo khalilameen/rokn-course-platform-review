@@ -11,6 +11,15 @@ const portfolioBaseUrl = /^https:\/\/(?:www\.)?rokn\.app$/i.test(
 )
   ? configuredPublicBase
   : 'https://rokn.app';
+const trustedPublicHosts = new Set(['rokn.app', 'www.rokn.app']);
+try {
+  // Test deployments legitimately issue unlisted links on the exact API
+  // origin until the canonical domain is attached. Trust that one configured
+  // origin as a unit; never widen this to arbitrary Laravel Cloud hosts.
+  trustedPublicHosts.add(new URL(publicWebBaseUrl).hostname.toLowerCase());
+} catch {
+  // Release configuration validation reports a malformed API URL separately.
+}
 
 export const accountDeletionUrl =
   process.env.EXPO_PUBLIC_ACCOUNT_DELETION_URL?.trim() ||
@@ -37,7 +46,7 @@ export const trustedPortfolioShareUrl = (value: unknown) => {
       url.port ||
       url.search ||
       url.hash ||
-      !['rokn.app', 'www.rokn.app'].includes(hostname) ||
+      !trustedPublicHosts.has(hostname) ||
       !url.pathname.startsWith('/@') ||
       !/^rokn-(?:[a-z0-9]{24}|[a-f0-9]{32})$/.test(token) ||
       url.pathname !== `/@${encodeURIComponent(token)}`
@@ -69,7 +78,7 @@ export const trustedCertificateVerificationUrl = (
       url.username ||
       url.password ||
       url.port ||
-      !['rokn.app', 'www.rokn.app'].includes(hostname) ||
+      !trustedPublicHosts.has(hostname) ||
       url.pathname !== `/c/${encodeURIComponent(credential)}`
     ) {
       return null;

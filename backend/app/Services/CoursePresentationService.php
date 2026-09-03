@@ -228,16 +228,18 @@ final readonly class CoursePresentationService
         if ($userId) {
             $projectsByModule = $sections
                 ->filter(fn ($section): bool => $section->module_id && $section->getSectionType() === 'project')
-                ->keyBy('module_id');
-            $projectIds = $projectsByModule->pluck('sectionable_id')->filter();
+                ->groupBy('module_id');
+            $projectIds = $projectsByModule->flatten(1)->pluck('sectionable_id')->filter();
             $passedProjectIds = $projectIds->isEmpty()
                 ? collect()
                 : $this->revisionReads->passedProjectIds($userId, $projectIds);
 
             foreach ($sections->pluck('module_id')->filter()->unique() as $moduleId) {
-                $projectSection = $projectsByModule->get($moduleId);
-                $moduleProjectStatus[$moduleId] = !$projectSection
-                    || $passedProjectIds->contains($projectSection->sectionable_id);
+                $projectSections = $projectsByModule->get($moduleId, collect());
+                $moduleProjectStatus[$moduleId] = $projectSections->isEmpty()
+                    || $projectSections->every(
+                        fn ($projectSection): bool => $passedProjectIds->contains($projectSection->sectionable_id)
+                    );
             }
         }
 

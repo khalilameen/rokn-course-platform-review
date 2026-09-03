@@ -264,6 +264,54 @@ final class CourseContentSecurityTest extends TestCase
         self::assertSame('previous_section_incomplete', $states[102]['lock_reason']);
     }
 
+    public function test_every_project_in_previous_module_must_pass_before_next_module(): void
+    {
+        Setting::create(['enforce_course_section_order' => true]);
+        $firstProject = new CourseSection();
+        $firstProject->forceFill([
+            'id' => 201,
+            'course_id' => 77,
+            'module_id' => 301,
+            'section_type' => 'project',
+            'sectionable_type' => \App\Models\Project::class,
+            'sectionable_id' => 401,
+            'order' => 1,
+        ]);
+        $secondProject = new CourseSection();
+        $secondProject->forceFill([
+            'id' => 202,
+            'course_id' => 77,
+            'module_id' => 301,
+            'section_type' => 'project',
+            'sectionable_type' => \App\Models\Project::class,
+            'sectionable_id' => 402,
+            'order' => 2,
+        ]);
+        $nextLesson = $this->section(
+            203,
+            1,
+            302,
+            $this->lesson(21, false, 'next-module'),
+            'الوحدة التالية'
+        );
+        \Illuminate\Support\Facades\DB::table('user_project_evaluations')->insert([
+            'user_id' => 42,
+            'project_id' => 401,
+            'passed' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $states = app(CoursePresentationService::class)->sectionLockStatus(
+            collect([$nextLesson, $secondProject, $firstProject]),
+            collect([201, 202]),
+            42
+        )->keyBy('section_id');
+
+        self::assertTrue($states[203]['is_locked']);
+        self::assertSame('module_project_not_passed', $states[203]['lock_reason']);
+    }
+
     private function lesson(int $id, bool $isPreview, string $guid): Lesson
     {
         $lesson = new Lesson();

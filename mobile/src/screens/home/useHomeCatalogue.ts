@@ -344,8 +344,14 @@ export const useHomeCatalogue = ({
     // visible, retry only its read-only catalogue at a restrained cadence so
     // a restored connection replaces the last-known-good snapshot without
     // asking the learner to leave and reopen the app.
+    let reconnectAttempts = 0;
     const timer = setInterval(() => {
       if (requestController.current) return;
+      if (reconnectAttempts >= 3) {
+        clearInterval(timer);
+        return;
+      }
+      reconnectAttempts += 1;
       void load({
         query: activeQuery.current,
         page: 1,
