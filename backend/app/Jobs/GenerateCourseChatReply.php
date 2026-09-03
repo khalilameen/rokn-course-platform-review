@@ -304,7 +304,8 @@ final class GenerateCourseChatReply implements ShouldQueue, ShouldBeUnique
                 },
                 function (string $partial) use ($streamCheckpoints, $turn): void {
                     $streamCheckpoints->courseChat($turn, $partial);
-                }
+                },
+                true
             );
             $result['request_context'] = $this->requestContext;
             $providerResultKnown = true;

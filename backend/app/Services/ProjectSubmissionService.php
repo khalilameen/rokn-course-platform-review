@@ -186,6 +186,7 @@ final class ProjectSubmissionService
                 $projectSection = CourseSection::query()
                     ->where('sectionable_type', Project::class)
                     ->where('sectionable_id', $projectSnapshot->id)
+                    ->with('course:id,name_ar,name_en')
                     ->first();
                 $enrollment = null;
                 $accessTerms = null;

@@ -25,7 +25,8 @@ final class OpenRouterService
         int $maxTokens,
         ?string $requestIdentity = null,
         ?callable $landImmediately = null,
-        ?callable $onPartial = null
+        ?callable $onPartial = null,
+        bool $allowWebSearch = false
     ): array {
         $apiKey = (string) config('openrouter.api_key');
         if ($apiKey === '' || $model === '') {
@@ -47,8 +48,15 @@ final class OpenRouterService
             throw new AiProviderUnavailableException(true);
         }
 
+        $models = array_values(array_unique(array_filter([
+            $model,
+            ...array_values(array_filter(
+                (array) config('openrouter.fallback_models', []),
+                static fn (mixed $fallback): bool => is_string($fallback)
+                    && in_array($fallback, $allowed, true)
+            )),
+        ])));
         $payload = [
-            'model' => $model,
             'messages' => $messages,
             'max_completion_tokens' => max(
                 80,
@@ -58,8 +66,21 @@ final class OpenRouterService
                 'require_parameters' => true,
                 'data_collection' => 'deny',
                 'zdr' => true,
+                'sort' => in_array(
+                    config('openrouter.provider_sort'),
+                    ['latency', 'throughput', 'price'],
+                    true
+                ) ? config('openrouter.provider_sort') : 'latency',
             ],
         ];
+        if (count($models) > 1) {
+            // OpenRouter owns failover inside one billable request. Retrying a
+            // second model from our queue after an uncertain response could
+            // charge twice and deliver two different answers.
+            $payload['models'] = $models;
+        } else {
+            $payload['model'] = $model;
+        }
         $reasoningEffort = $this->reasoningEffort($model);
         if ($reasoningEffort !== null) {
             $payload['reasoning'] = [
@@ -71,7 +92,9 @@ final class OpenRouterService
         // anyway can make an otherwise healthy provider reject the request
         // before generation starts. Keep sampling control for models that
         // support it instead of weakening every model to the same payload.
-        if ($this->supportsTemperature($model)) {
+        if (collect($models)->every(fn (string $candidate): bool =>
+            $this->supportsTemperature($candidate)
+        )) {
             $payload['temperature'] = max(0, min(1.2, $temperature));
         }
         if (trim((string) $requestIdentity) !== '') {
@@ -88,6 +111,26 @@ final class OpenRouterService
             $payload['plugins'] = [[
                 'id' => 'file-parser',
                 'pdf' => ['engine' => (string) config('openrouter.pdf_parser_engine', 'cloudflare-ai')],
+            ]];
+        }
+        if ($allowWebSearch && (bool) config('openrouter.web_search_enabled', true)) {
+            // The model decides whether current information is required. A
+            // bounded server tool avoids paying for a search on ordinary
+            // teaching questions while keeping time-sensitive answers honest.
+            $payload['tools'] = [[
+                'type' => 'openrouter:web_search',
+                'parameters' => [
+                    'engine' => 'auto',
+                    'max_results' => max(1, min(
+                        5,
+                        (int) config('openrouter.web_search_max_results', 3)
+                    )),
+                    'max_total_results' => max(1, min(
+                        8,
+                        (int) config('openrouter.web_search_max_total_results', 5)
+                    )),
+                    'search_context_size' => 'low',
+                ],
             ]];
         }
         if ($onPartial !== null) {
@@ -213,6 +256,8 @@ final class OpenRouterService
         }
 
         $providerCost = data_get($body, 'usage.cost');
+        $annotations = data_get($body, 'choices.0.message.annotations');
+        $annotations = is_array($annotations) ? array_values($annotations) : [];
 
         $result = [
             'message' => $content,
@@ -230,9 +275,19 @@ final class OpenRouterService
                 // model). Keep it distinct from an omitted usage cost.
                 'cost_reported' => is_numeric($providerCost),
             ],
-            'file_annotations' => is_array(data_get($body, 'choices.0.message.annotations'))
-                ? data_get($body, 'choices.0.message.annotations')
-                : [],
+            // URL citations belong to the generated answer rather than to an
+            // uploaded learner file. Keeping them separate prevents web-search
+            // metadata from being written onto attachment records.
+            'response_annotations' => array_values(array_filter(
+                $annotations,
+                static fn (mixed $annotation): bool => is_array($annotation)
+                    && strtolower((string) ($annotation['type'] ?? '')) === 'url_citation'
+            )),
+            'file_annotations' => array_values(array_filter(
+                $annotations,
+                static fn (mixed $annotation): bool => !is_array($annotation)
+                    || strtolower((string) ($annotation['type'] ?? '')) !== 'url_citation'
+            )),
             'provider_transport' => [
                 'generation_id' => substr(
                     (string) ($response->header('X-Generation-Id') ?: data_get($body, 'id', '')),

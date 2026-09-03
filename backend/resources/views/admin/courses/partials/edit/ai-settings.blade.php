@@ -23,6 +23,7 @@
                     </div>
                 </div>
 
+                @if(strtolower((string) optional(auth()->user())->role) === 'admin')
                 <div class="form-row">
                     <div class="form-group-modern">
                         <label for="ai_model_type" class="form-label-modern">
@@ -66,7 +67,6 @@
                         <div class="form-help">القيمة بين 0 و 2 (الافتراضي 0.7)</div>
                     </div>
                 </div>
-
                 <div class="form-row">
                     <div class="form-group-modern">
                         <label for="tokens_number" class="form-label-modern">
@@ -88,6 +88,7 @@
                         <div class="form-help">الحد الأقصى للتوكنز في الرد الواحد</div>
                     </div>
                 </div>
+                @endif
 
                 <div class="form-row">
                     <div class="form-group-modern form-group-full">
@@ -105,14 +106,14 @@
                     <div class="form-group-modern form-group-full">
                         <label for="chat_ai_prompt" class="form-label-modern">
                             <i class="fa fa-comment-dots label-icon"></i>
-                            البرومبت الخاص بالشات (System Prompt)
+                            سياق الشات وحدوده
                         </label>
                         {!! Form::textarea('chat_ai_prompt', null, [
                             'class' => 'form-control-modern' . ($errors->has('chat_ai_prompt') ? ' is-invalid' : ''),
                             'id' => 'chat_ai_prompt',
-                            'placeholder' => 'أدخل التعليمات الخاصة بالبوت هنا...',
+                            'placeholder' => 'اكتب ما يميز محتوى الكورس وأسلوب شرحه...',
                             'rows' => 4,
-                            'maxlength' => 1200
+                            'maxlength' => 850
                         ]) !!}
                         @if ($errors->has('chat_ai_prompt'))
                             <div class="invalid-feedback">

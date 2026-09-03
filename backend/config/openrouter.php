@@ -3,7 +3,11 @@
 return [
     'api_key' => env('OPENROUTER_API_KEY'),
     'endpoint' => env('OPENROUTER_ENDPOINT', 'https://openrouter.ai/api/v1/chat/completions'),
-    'default_model' => env('OPENROUTER_DEFAULT_MODEL'),
+    'default_model' => env('OPENROUTER_DEFAULT_MODEL', 'openai/gpt-5.6-terra'),
+    'fallback_models' => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('OPENROUTER_FALLBACK_MODELS', 'anthropic/claude-sonnet-5'))
+    ))),
     // Course chat is deliberately short and immediate. OpenRouterService
     // raises this to `minimal` only for model families that require reasoning,
     // preserving room for learner-visible text in the completion budget.
@@ -11,6 +15,13 @@ return [
     'max_tokens' => (int) env('OPENROUTER_MAX_TOKENS', 420),
     'timeout_seconds' => (int) env('OPENROUTER_TIMEOUT_SECONDS', 45),
     'connect_timeout_seconds' => (int) env('OPENROUTER_CONNECT_TIMEOUT_SECONDS', 5),
+    'provider_sort' => env('OPENROUTER_PROVIDER_SORT', 'latency'),
+    'web_search_enabled' => filter_var(
+        env('OPENROUTER_WEB_SEARCH_ENABLED', true),
+        FILTER_VALIDATE_BOOL
+    ),
+    'web_search_max_results' => (int) env('OPENROUTER_WEB_SEARCH_MAX_RESULTS', 3),
+    'web_search_max_total_results' => (int) env('OPENROUTER_WEB_SEARCH_MAX_TOTAL_RESULTS', 5),
     'circuit_failure_threshold' => (int) env('OPENROUTER_CIRCUIT_FAILURE_THRESHOLD', 3),
     'circuit_open_seconds' => (int) env('OPENROUTER_CIRCUIT_OPEN_SECONDS', 30),
     'billing_circuit_open_seconds' => (int) env('OPENROUTER_BILLING_CIRCUIT_OPEN_SECONDS', 900),

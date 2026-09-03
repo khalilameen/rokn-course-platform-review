@@ -160,4 +160,49 @@ final class OpenRouterCostAccountingTest extends TestCase
         self::assertSame("السطر الأول\nالسطر الثاني", $result['message']);
         self::assertStringNotContainsString('private chain of thought', $result['message']);
     }
+
+    public function test_course_chat_uses_bounded_web_search_and_provider_fallbacks(): void
+    {
+        config()->set('openrouter.allowed_models', ['test/model', 'test/fallback']);
+        config()->set('openrouter.fallback_models', ['test/fallback']);
+        config()->set('openrouter.provider_sort', 'latency');
+        config()->set('openrouter.web_search_enabled', true);
+        config()->set('openrouter.web_search_max_results', 99);
+        config()->set('openrouter.web_search_max_total_results', 99);
+        Http::fake(['openrouter.test/*' => Http::response([
+            'id' => 'generation-with-search',
+            'choices' => [['message' => [
+                'content' => 'answer',
+                'annotations' => [
+                    ['type' => 'url_citation', 'url' => 'https://example.test/source'],
+                    ['type' => 'file_citation', 'index' => 0],
+                ],
+            ]]],
+            'usage' => ['total_tokens' => 15, 'cost' => 0.001],
+        ])]);
+
+        $result = app(OpenRouterService::class)->chat(
+            'test/model',
+            [['role' => 'user', 'content' => 'question']],
+            0.2,
+            100,
+            null,
+            null,
+            null,
+            true
+        );
+
+        self::assertSame('url_citation', $result['response_annotations'][0]['type']);
+        self::assertSame('file_citation', $result['file_annotations'][0]['type']);
+        Http::assertSent(static function ($request): bool {
+            $payload = $request->data();
+
+            return ($payload['models'] ?? null) === ['test/model', 'test/fallback']
+                && !array_key_exists('model', $payload)
+                && ($payload['provider']['sort'] ?? null) === 'latency'
+                && ($payload['tools'][0]['type'] ?? null) === 'openrouter:web_search'
+                && ($payload['tools'][0]['parameters']['max_results'] ?? null) === 5
+                && ($payload['tools'][0]['parameters']['max_total_results'] ?? null) === 8;
+        });
+    }
 }

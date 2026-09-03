@@ -10,13 +10,14 @@ use Illuminate\Validation\Rule;
 
 class CourseRequest extends FormRequest
 {
-    private const ADMIN_PLAN_COST_FIELDS = [
+    private const ADMIN_PLAN_RUNTIME_FIELDS = [
         'ai_budget_usd',
         'request_reserve_usd',
         'project_feedback_budget_usd',
         'project_feedback_reserve_usd',
         'project_followup_budget_usd',
         'project_followup_reserve_usd',
+        'model_override',
     ];
 
     protected function prepareForValidation(): void
@@ -41,6 +42,20 @@ class CourseRequest extends FormRequest
                 $normalized[$field] = UnicodeText::clean($this->input($field));
             }
         }
+        if (strtolower(trim((string) $this->user()?->role)) === 'moderator') {
+            $course = $this->route('course');
+            $normalized = array_merge($normalized, [
+                'ai_model_type' => $course instanceof Course
+                    ? $course->ai_model_type
+                    : config('openrouter.default_model'),
+                'temperature' => $course instanceof Course
+                    ? $course->temperature
+                    : .35,
+                'tokens_number' => $course instanceof Course
+                    ? $course->tokens_number
+                    : (int) config('openrouter.max_tokens', 420),
+            ]);
+        }
         $plans = $this->input('access_plans');
         if (is_array($plans)) {
             // Content moderators choose learner-facing tiers and token/message
@@ -56,7 +71,7 @@ class CourseRequest extends FormRequest
                     foreach (['basic', 'guided', 'mentor'] as $code) {
                         $protected = $protectedPlans->get($code);
                         if (!$protected || !is_array($plans[$code] ?? null)) continue;
-                        foreach (self::ADMIN_PLAN_COST_FIELDS as $field) {
+                        foreach (self::ADMIN_PLAN_RUNTIME_FIELDS as $field) {
                             $plans[$code][$field] = $protected->getAttribute($field);
                         }
                     }
@@ -111,7 +126,7 @@ class CourseRequest extends FormRequest
             ],
             'temperature' => 'nullable|numeric|min:0|max:2',
             'tokens_number' => 'nullable|integer|min:1|max:' . max(1, (int) config('openrouter.max_tokens', 420)),
-            'chat_ai_prompt' => 'nullable|string|max:1200',
+            'chat_ai_prompt' => 'nullable|string|max:850',
             'ai_chat_enabled' => 'nullable|boolean',
             'chat_attachments_enabled' => 'nullable|boolean',
             'chat_attachment_max_files' => 'nullable|integer|min:1|max:5',

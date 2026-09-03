@@ -13,7 +13,8 @@ use LogicException;
 /** Immutable project and entitlement facts used by delayed review jobs. */
 final class ProjectSubmissionEvaluationSnapshot
 {
-    public const CURRENT_VERSION = 1;
+    public const CURRENT_VERSION = 2;
+    public const SUPPORTED_VERSIONS = [1, self::CURRENT_VERSION];
 
     /** @param array<string,mixed>|null $accessTerms */
     public static function capture(
@@ -22,13 +23,25 @@ final class ProjectSubmissionEvaluationSnapshot
         ?CourseEnrollment $enrollment,
         ?array $accessTerms
     ): array {
+        $course = $section?->course;
         $snapshot = [
             'version' => self::CURRENT_VERSION,
             'captured_at' => now()->toIso8601String(),
             'course_id' => $section ? (int) $section->course_id : null,
             'section_id' => $section ? (int) $section->id : null,
+            'course' => [
+                'id' => $course ? (int) $course->id : null,
+                'title_ar' => $course?->getRawOriginal('name_ar'),
+                'title_en' => $course?->getRawOriginal('name_en'),
+            ],
             'project' => [
                 'id' => (int) $project->id,
+                // A project's learner-visible title belongs to its section.
+                // Freeze every stored locale instead of resolving it using
+                // the queue worker's request locale later.
+                'title' => $section?->getRawOriginal('title'),
+                'title_ar' => $section?->getRawOriginal('title_ar'),
+                'title_en' => $section?->getRawOriginal('title_en'),
                 'updated_at' => $project->updated_at?->toIso8601String(),
                 'requirements_text' => (string) $project->requirements_text,
                 'requirements_text_ar' => $project->getRawOriginal('requirements_text_ar'),
@@ -56,7 +69,11 @@ final class ProjectSubmissionEvaluationSnapshot
     public static function fromSubmission(ProjectSubmission $submission): ?array
     {
         $snapshot = $submission->evaluation_snapshot;
-        if (!is_array($snapshot) || (int) ($snapshot['version'] ?? 0) !== self::CURRENT_VERSION) {
+        if (!is_array($snapshot)) {
+            return null;
+        }
+        $version = (int) ($snapshot['version'] ?? 0);
+        if (!in_array($version, self::SUPPORTED_VERSIONS, true)) {
             return null;
         }
         if ((int) data_get($snapshot, 'project.id') !== (int) $submission->project_id) {
@@ -82,6 +99,21 @@ final class ProjectSubmissionEvaluationSnapshot
         }
         foreach (['requirements_text', 'ai_prompt', 'temperature', 'tokens_number', 'passing_score'] as $key) {
             if (!array_key_exists($key, (array) ($snapshot['project'] ?? []))) {
+                return null;
+            }
+        }
+        if ($version >= 2) {
+            foreach (['id', 'title_ar', 'title_en'] as $key) {
+                if (!array_key_exists($key, (array) ($snapshot['course'] ?? []))) {
+                    return null;
+                }
+            }
+            foreach (['title', 'title_ar', 'title_en'] as $key) {
+                if (!array_key_exists($key, (array) ($snapshot['project'] ?? []))) {
+                    return null;
+                }
+            }
+            if ((int) data_get($snapshot, 'course.id') !== (int) ($snapshot['course_id'] ?? 0)) {
                 return null;
             }
         }

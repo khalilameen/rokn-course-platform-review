@@ -288,10 +288,11 @@ class CourseSectionController extends Controller
                     break;
 
                 case 'project':
+                    $request->merge($this->projectAiRuntime($request, $course));
                     $request->validate([
                         'project_requirements_ar' => 'required|string',
                         'project_requirements_en' => 'nullable|string',
-                        'ai_prompt' => 'required|string|max:12000',
+                        'ai_prompt' => 'required|string|max:2000',
                         'ai_model_type' => [
                             'nullable',
                             'string',
@@ -681,10 +682,15 @@ class CourseSectionController extends Controller
                     break;
 
                 case 'project':
+                    $request->merge($this->projectAiRuntime(
+                        $request,
+                        $course,
+                        $sectionable instanceof Project ? $sectionable : null
+                    ));
                     $request->validate([
                         'project_requirements_ar' => 'required|string',
                         'project_requirements_en' => 'nullable|string',
-                        'ai_prompt' => 'required|string|max:12000',
+                        'ai_prompt' => 'required|string|max:2000',
                         'ai_model_type' => [
                             'nullable',
                             'string',
@@ -1031,6 +1037,42 @@ class CourseSectionController extends Controller
             $normalized[$field] = $field === 'question' ? ($rows[0] ?? []) : $rows;
         }
         if ($normalized !== []) $request->merge($normalized);
+    }
+
+    /** @return array{ai_model_type:?string,temperature:float,tokens_number:int} */
+    private function projectAiRuntime(
+        Request $request,
+        Course $course,
+        ?Project $existing = null
+    ): array {
+        if (strtolower(trim((string) $request->user()?->role)) === 'admin') {
+            return [
+                'ai_model_type' => $request->filled('ai_model_type')
+                    ? (string) $request->input('ai_model_type')
+                    : null,
+                'temperature' => (float) ($request->input('temperature') ?? .35),
+                'tokens_number' => max(80, (int) (
+                    $request->input('tokens_number')
+                    ?? config('openrouter.max_tokens', 500)
+                )),
+            ];
+        }
+
+        return [
+            'ai_model_type' => $existing?->ai_model_type
+                ?: $course->ai_model_type
+                ?: config('openrouter.default_model'),
+            'temperature' => (float) (
+                $existing?->temperature
+                ?? $course->temperature
+                ?? .35
+            ),
+            'tokens_number' => max(80, (int) (
+                $existing?->tokens_number
+                ?: $course->tokens_number
+                ?: config('openrouter.max_tokens', 500)
+            )),
+        ];
     }
 
     private function validateSectionRequest(Request $request, Course $course): void

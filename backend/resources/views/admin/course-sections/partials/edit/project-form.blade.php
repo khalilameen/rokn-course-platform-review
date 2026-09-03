@@ -50,11 +50,12 @@
                     </div>
 
                     <div class="form-group">
-                        <label class="form-label">موجه الذكاء الاصطناعي (AI Prompt) *</label>
-                        <textarea name="ai_prompt" class="form-control" rows="5" placeholder="اكتب التعليمات للذكاء الاصطناعي لتقييم المشروع (مثال: قيم الكود بناء على المعايير التالية...)" data-required="true">{{ old('ai_prompt', $project->ai_prompt ?? '') }}</textarea>
-                        <small class="text-muted">هذا النص لن يظهر للطالب، بل سيستخدم لتوجيه عملية التصحيح الآلي.</small>
+                        <label class="form-label">معايير تقييم المشروع *</label>
+                        <textarea name="ai_prompt" class="form-control" rows="5" maxlength="2000" placeholder="اكتب ما يجب أن يراجعه التقييم في تسليم الطالب" data-required="true">{{ old('ai_prompt', $project->ai_prompt ?? '') }}</textarea>
+                        <small class="text-muted">حدد المطلوب ومعايير الجودة بوضوح</small>
                     </div>
 
+                    @if(strtolower((string) optional(auth()->user())->role) === 'admin')
                     <div class="row">
                         <div class="col-md-4">
                             <div class="form-group">
@@ -78,6 +79,7 @@
                             </div>
                         </div>
                     </div>
+                    @endif
 
                     <div class="row">
                         <div class="col-md-6">

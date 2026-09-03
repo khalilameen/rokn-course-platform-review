@@ -325,6 +325,22 @@ final class BackendHardeningTest extends TestCase
         self::assertSame('openai/original-model', data_get($snapshot, 'project.ai_model_type'));
         self::assertSame(240, data_get($snapshot, 'project.tokens_number'));
         self::assertSame(65, data_get($snapshot, 'project.passing_score'));
+
+        $legacySnapshot = $snapshot;
+        $legacySnapshot['version'] = 1;
+        unset(
+            $legacySnapshot['course'],
+            $legacySnapshot['project']['title'],
+            $legacySnapshot['project']['title_ar'],
+            $legacySnapshot['project']['title_en'],
+            $legacySnapshot['fingerprint']
+        );
+        $legacySnapshot['fingerprint'] = hash('sha256', json_encode(
+            $legacySnapshot,
+            JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        ));
+        $submission->forceFill(['evaluation_snapshot' => $legacySnapshot]);
+        self::assertNotNull(ProjectSubmissionEvaluationSnapshot::fromSubmission($submission));
     }
 
     public function test_project_submission_service_rechecks_course_access_inside_its_transaction(): void
@@ -433,6 +449,8 @@ final class BackendHardeningTest extends TestCase
         self::assertNotNull($snapshot);
         self::assertSame($course->id, data_get($snapshot, 'course_id'));
         self::assertSame($sectionId, data_get($snapshot, 'section_id'));
+        self::assertSame($course->name_ar, data_get($snapshot, 'course.title_ar'));
+        self::assertSame('مشروع التطبيق', data_get($snapshot, 'project.title_ar'));
         self::assertSame($enrollment->id, data_get($snapshot, 'access.enrollment_id'));
         self::assertSame($plan['id'], data_get($snapshot, 'access.access_plan_id'));
         self::assertSame(

@@ -759,14 +759,44 @@ class ProductionPreflight extends Command
 
         $require($this->configured('openrouter.api_key'), 'OPENROUTER_API_KEY is required while Rokn AI is enabled.');
         $require($this->configured('openrouter.default_model'), 'OPENROUTER_DEFAULT_MODEL is required while Rokn AI is enabled.');
+        $allowedOpenRouterModels = array_values(array_filter(
+            (array) config('openrouter.allowed_models', [])
+        ));
         $require(
             in_array(
                 (string) config('openrouter.default_model'),
-                array_values(array_filter((array) config('openrouter.allowed_models', []))),
+                $allowedOpenRouterModels,
                 true
             ),
             'OPENROUTER_DEFAULT_MODEL must be present in OPENROUTER_ALLOWED_MODELS.'
         );
+        foreach ((array) config('openrouter.fallback_models', []) as $fallbackModel) {
+            $require(
+                is_string($fallbackModel)
+                    && in_array($fallbackModel, $allowedOpenRouterModels, true),
+                'Every OPENROUTER_FALLBACK_MODELS entry must be present in OPENROUTER_ALLOWED_MODELS.'
+            );
+        }
+        $require(
+            in_array(
+                (string) config('openrouter.provider_sort'),
+                ['latency', 'throughput', 'price'],
+                true
+            ),
+            'OPENROUTER_PROVIDER_SORT must be latency, throughput, or price.'
+        );
+        if ((bool) config('openrouter.web_search_enabled')) {
+            $require(
+                (int) config('openrouter.web_search_max_results') >= 1
+                    && (int) config('openrouter.web_search_max_results') <= 5,
+                'OPENROUTER_WEB_SEARCH_MAX_RESULTS must be between 1 and 5.'
+            );
+            $require(
+                (int) config('openrouter.web_search_max_total_results') >= 1
+                    && (int) config('openrouter.web_search_max_total_results') <= 8,
+                'OPENROUTER_WEB_SEARCH_MAX_TOTAL_RESULTS must be between 1 and 8.'
+            );
+        }
         $require((int) config('openrouter.global_daily_request_limit') > 0, 'OpenRouter daily request budget must be positive.');
         $require((int) config('openrouter.global_daily_token_budget') > 0, 'OpenRouter daily token budget must be positive.');
         $require((int) config('openrouter.global_monthly_token_budget') > 0, 'OpenRouter monthly token budget must be positive.');
