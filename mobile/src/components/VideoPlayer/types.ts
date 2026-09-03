@@ -98,6 +98,7 @@ export interface CourseProject {
   isLocked?: boolean;
   lockReason?: string;
   feedbackLevel?: 'pass_only' | 'report' | 'enhanced';
+  outputEnabled?: boolean;
   reportEnabled?: boolean;
   feedbackThread?: ProjectFeedbackThread;
   submissionMaxFiles?: number;
@@ -124,6 +125,8 @@ export interface CourseLearningModule {
   description?: string;
   order: number;
   isLocked: boolean;
+  /** Server-owned reason for the module gate when supplied. */
+  lockReason?: string;
   attachments: CourseAttachment[];
   reels: CourseReel[];
   quizzes?: CourseQuiz[];

@@ -513,7 +513,11 @@ const Module = ({
         <View style={styles.content}>
           {module.isLocked && (
             <Text style={styles.lockedHint}>
-              أكمل مشروع الوحدة السابقة لفتح مقاطعها
+              {module.lockReason === 'course_purchase_required'
+                ? 'اختر فئة الكورس لفتح مقاطعها'
+                : module.lockReason === 'passed_quiz_required'
+                ? 'اجتز اختبار الوحدة السابقة لفتح مقاطعها'
+                : 'أكمل متطلبات الوحدة السابقة لفتح مقاطعها'}
             </Text>
           )}
 
@@ -550,7 +554,7 @@ const Module = ({
             <Text style={styles.sectionLabel}>مقاطع الوحدة</Text>
             {module.reels.map(reel => {
               const unavailable =
-                module.isLocked || reel.isLocked || !reel.videoUrl.trim();
+                module.isLocked || reel.isLocked;
               return (
                 <Pressable
                   key={reel.id}
@@ -580,6 +584,8 @@ const Module = ({
                     <Text style={styles.reelMeta}>
                       {unavailable
                         ? 'تفتح مع تقدّمك'
+                        : !reel.videoUrl.trim()
+                        ? 'جاهز للتشغيل'
                         : reel.isCompleted
                         ? 'شوهدت'
                         : 'مقطع قصير'}

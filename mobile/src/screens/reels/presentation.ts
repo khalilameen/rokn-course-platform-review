@@ -25,7 +25,7 @@ export const buildAccessibleFeed = (
 
     let reachedLockedReel = false;
     for (const reel of module.reels) {
-      if (reel.isLocked || !reel.videoUrl.trim()) {
+      if (reel.isLocked) {
         reachedLockedReel = true;
         break;
       }

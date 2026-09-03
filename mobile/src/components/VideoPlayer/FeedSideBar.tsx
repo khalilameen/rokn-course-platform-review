@@ -209,7 +209,7 @@ const CourseIndexModule = ({
           {module.reels.map(reel => {
             const key = `reel-${reel.id}`;
             const unavailable =
-              module.isLocked || reel.isLocked || !reel.videoUrl.trim();
+              module.isLocked || reel.isLocked;
             const active = !unavailable && currentFeedKey === key;
             return (
               <Pressable

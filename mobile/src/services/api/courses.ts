@@ -1641,6 +1641,15 @@ export const getCourseDetails = async (
       }
       throw error;
     }
+    if (!accountBoundary.scope.startsWith('guest-')) {
+      // An authenticated course response contains mutable entitlement,
+      // progress and gated section content. Replaying yesterday's snapshot
+      // after a transport failure can turn a revoked/unfinished purchase into
+      // "continue course" and can expose signed learner content as if access
+      // were still current. Public guest details are cacheable; ownership is
+      // always an online server decision.
+      throw error;
+    }
     const cached = await readCourseDetailsCache(
       normalizedCourseId,
       scopedDetailsCacheKey,

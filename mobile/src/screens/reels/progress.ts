@@ -77,7 +77,7 @@ export const markReelCompleted = (
             item.id === reel.id
               ? {...item, isCompleted: true}
               : itemIndex === reelIndex + 1
-              ? {...item, isLocked: !item.videoUrl.trim()}
+              ? {...item, isLocked: false, lockReason: undefined}
               : item,
           ),
           projects:
@@ -101,7 +101,9 @@ export const markReelCompleted = (
           ...module,
           isLocked: false,
           reels: module.reels.map((item, itemIndex) =>
-            itemIndex === 0 ? {...item, isLocked: !item.videoUrl.trim()} : item,
+            itemIndex === 0
+              ? {...item, isLocked: false, lockReason: undefined}
+              : item,
           ),
         };
       }

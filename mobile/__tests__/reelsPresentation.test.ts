@@ -16,12 +16,14 @@ import type {
 } from '../src/components/VideoPlayer/types';
 
 describe('reels presentation policy', () => {
-  it('stops the accessible feed at withheld media and unresolved projects', () => {
+  it('keeps entitled source-less reels reachable so their manifest can load', () => {
     const course = fixture();
     course.modules[0].reels[1].videoUrl = '';
 
     expect(buildAccessibleFeed(course).map(item => item.key)).toEqual([
       'reel-reel-1',
+      'reel-reel-2',
+      'project-project-1',
     ]);
 
     course.modules[0].reels[1].videoUrl = 'https://cdn.example/2.m3u8';

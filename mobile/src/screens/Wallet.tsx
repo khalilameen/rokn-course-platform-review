@@ -1196,11 +1196,12 @@ export default function Wallet() {
                     <RoknCoin size={58} style={styles.coinSpacing} />
                     <View style={styles.breakdownHeroCopy}>
                       <Text style={styles.breakdownCaption}>إجمالي الرصيد</Text>
-                      <CoinAmount
-                        size={24}
-                        textStyle={styles.breakdownTotal}
-                        value={displayedBalance ?? 0}
-                      />
+                      <Text
+                        maxFontSizeMultiplier={2}
+                        numberOfLines={1}
+                        style={styles.breakdownTotal}>
+                        {formatArabicNumber(displayedBalance ?? 0)}
+                      </Text>
                     </View>
                   </View>
 

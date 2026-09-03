@@ -382,6 +382,7 @@ const mapProject = (
     feedbackLevel: ['report', 'enhanced'].includes(projectFeedbackLevel)
       ? (projectFeedbackLevel as 'report' | 'enhanced')
       : 'pass_only',
+    outputEnabled: valueAsBoolean(rawProjectFeedback.output_enabled),
     reportEnabled: valueAsBoolean(rawProjectFeedback.report_enabled),
     feedbackThread,
     submissionMaxFiles: Math.min(5, Math.max(1, Number(content?.submission_max_files) || 3)),
@@ -657,6 +658,9 @@ export const mapCoursePayload = (
         isLocked:
           valueAsBoolean(module?.is_locked) ||
           Boolean(reels.length && reels.every(reel => reel.isLocked)),
+        lockReason:
+          valueAsString(module?.lock_reason).trim() ||
+          reels.find(reel => reel.isLocked)?.lockReason,
         attachments: availableAttachments,
         reels,
         quizzes,

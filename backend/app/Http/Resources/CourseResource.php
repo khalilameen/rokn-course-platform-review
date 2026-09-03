@@ -658,6 +658,9 @@ class CourseResource extends BaseCourseResource
                     ] : null;
                     $content['project_feedback'] = [
                         'level' => $this->projectFeedbackLevel,
+                        'output_enabled' => (bool) (
+                            $this->projectFeedbackContract['project_output_enabled'] ?? false
+                        ),
                         'report_enabled' => (bool) (
                             $this->projectFeedbackContract['project_report_enabled'] ?? false
                         ) && $this->projectFeedbackLevel !== 'pass_only',

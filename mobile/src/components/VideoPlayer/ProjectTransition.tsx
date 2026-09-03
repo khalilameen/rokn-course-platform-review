@@ -1025,6 +1025,14 @@ const ProjectTransition = ({
                   <Text style={styles.primaryButtonText}>أكمل الكورس</Text>
                 </Pressable>
               )}
+              {project.outputEnabled && (
+                <Pressable
+                  accessibilityRole="button"
+                  style={styles.portfolioButton}
+                  onPress={() => navigation.navigate('Profile', {tab: 'portfolio'})}>
+                  <Text style={styles.portfolioButtonText}>أضف مشروعك إلى البورتفوليو</Text>
+                </Pressable>
+              )}
               {!!feedbackThread && (
                 <View style={styles.feedbackThread}>
                   <View style={styles.feedbackHeader}>
@@ -1501,6 +1509,22 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontFamily: Fonts.bold,
     fontSize: 14,
+  },
+  portfolioButton: {
+    width: '100%',
+    minHeight: 48,
+    borderRadius: 17,
+    paddingHorizontal: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(118,169,255,.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(118,169,255,.24)',
+  },
+  portfolioButtonText: {
+    color: '#AFCBFF',
+    fontFamily: Fonts.semiBold,
+    fontSize: 13,
   },
   reviewState: {
     minHeight: 190,
