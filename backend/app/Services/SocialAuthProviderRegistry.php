@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Support\FacebookGraphVersion;
 use Illuminate\Support\Collection;
 
 final class SocialAuthProviderRegistry
@@ -41,8 +42,7 @@ final class SocialAuthProviderRegistry
                 && filled(config('services.google.client_secret')),
             'facebook' => filled(config('services.facebook.client_id'))
                 && filled(config('services.facebook.client_secret'))
-                && preg_match('/\Av\d+\.\d+\z/', trim((string) config('services.facebook.graph_version'))) === 1
-                && trim((string) config('services.facebook.graph_version')) !== 'v19.0',
+                && FacebookGraphVersion::normalize(config('services.facebook.graph_version')) !== null,
             'tiktok' => filled(config('services.tiktok.client_key'))
                 && filled(config('services.tiktok.client_secret')),
             'apple' => $this->appleClientIdsAreValid(),

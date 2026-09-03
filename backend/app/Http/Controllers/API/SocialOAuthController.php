@@ -10,6 +10,7 @@ use App\Models\SocialOAuthAttempt;
 use App\Models\User;
 use App\Services\SocialAuthProviderRegistry;
 use App\Services\SocialOAuthAttemptService;
+use App\Support\FacebookGraphVersion;
 use App\Support\RoknLocale;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -523,8 +524,8 @@ final class SocialOAuthController extends Controller
 
     private function facebookGraphVersion(): string
     {
-        $version = trim((string) config('services.facebook.graph_version', ''));
-        if (!preg_match('/^v\d+\.\d+$/', $version) || $version === 'v19.0') {
+        $version = FacebookGraphVersion::normalize(config('services.facebook.graph_version'));
+        if ($version === null) {
             throw new RuntimeException('Invalid Facebook Graph API version.');
         }
 

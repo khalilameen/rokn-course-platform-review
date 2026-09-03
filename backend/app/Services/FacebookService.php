@@ -2,14 +2,13 @@
 
 namespace App\Services;
 
+use App\Support\FacebookGraphVersion;
 use Exception;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class FacebookService
 {
-    private const DEBUG_TOKEN_URL = 'https://graph.facebook.com/debug_token';
-
     /**
      * Verify Facebook access token and retrieve user data
      *
@@ -33,7 +32,7 @@ class FacebookService
 
             $debugData = Http::acceptJson()
                 ->timeout($timeout)
-                ->get(self::DEBUG_TOKEN_URL, [
+                ->get('https://graph.facebook.com/' . $graphVersion . '/debug_token', [
                     'input_token' => $accessToken,
                     'access_token' => $appId . '|' . $appSecret,
                 ])
@@ -90,8 +89,8 @@ class FacebookService
 
     private function graphVersion(): string
     {
-        $version = trim((string) config('services.facebook.graph_version', ''));
-        if (!preg_match('/^v\d+\.\d+$/', $version) || $version === 'v19.0') {
+        $version = FacebookGraphVersion::normalize(config('services.facebook.graph_version'));
+        if ($version === null) {
             throw new Exception('Invalid Facebook Graph API version.');
         }
 

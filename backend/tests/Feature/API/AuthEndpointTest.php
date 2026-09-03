@@ -110,11 +110,17 @@ class AuthEndpointTest extends ApiTestCase
             ->assertOk()
             ->assertJsonPath('data.providers', ['google']);
 
-        config()->set('services.facebook.graph_version', 'v999.0');
+        config()->set('services.facebook.graph_version', 'v26.0');
 
         $this->getJson('/api/v1/auth-methods')
             ->assertOk()
             ->assertJsonPath('data.providers', ['facebook', 'google']);
+
+        config()->set('services.facebook.graph_version', 'v999.0');
+
+        $this->getJson('/api/v1/auth-methods')
+            ->assertOk()
+            ->assertJsonPath('data.providers', ['google']);
     }
 
     public function test_legacy_phone_password_and_otp_routes_are_retired_consistently(): void
