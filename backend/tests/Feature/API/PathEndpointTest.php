@@ -82,7 +82,7 @@ class PathEndpointTest extends ApiTestCase
             ->assertJsonPath('data.0.levels.0.name_en', 'Beginner');
     }
 
-    public function test_path_lists_global_progression_levels_without_placeholder_courses(): void
+    public function test_path_lists_only_levels_backed_by_reachable_public_courses(): void
     {
         $beginnerId = DB::table('levels')->insertGetId([
             'name_ar' => 'مبتدئ',
@@ -106,7 +106,7 @@ class PathEndpointTest extends ApiTestCase
         $response = $this->getJson('/api/v1/paths')->assertOk();
 
         self::assertSame(
-            [$beginnerId, $expertId],
+            [$beginnerId],
             collect($response->json('data.0.levels'))->pluck('id')->all()
         );
     }
@@ -140,6 +140,23 @@ class PathEndpointTest extends ApiTestCase
         DB::table('courses')->where('id', $this->courseId)->update([
             'path_id' => $this->pathId,
             'level_id' => $currentLevelId,
+        ]);
+        $nextCourse = (array) DB::table('courses')->where('id', $this->courseId)->first();
+        unset($nextCourse['id']);
+        $nextCourse['name_ar'] = 'كورس المستوى التالي';
+        $nextCourse['name_en'] = 'Next level course';
+        $nextCourse['level_id'] = $nextLevelId;
+        $nextCourse['created_at'] = now();
+        $nextCourse['updated_at'] = now();
+        $nextCourseId = DB::table('courses')->insertGetId($nextCourse);
+        DB::table('course_sections')->insert([
+            'course_id' => $nextCourseId,
+            'title_ar' => 'محتوى المستوى التالي',
+            'title_en' => 'Next level content',
+            'sort_order' => 1,
+            'is_free' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
         $secondSectionId = DB::table('course_sections')->insertGetId([
             'course_id' => $this->courseId,

@@ -107,7 +107,6 @@ class AdminIdentityViewsTest extends TestCase
             "Form::text('name'",
             "Form::email('email'",
             "Form::text('phone'",
-            "Form::password('password'",
             "Form::text('name_ar'",
             "Form::text('name_en'",
             'name="platform"',

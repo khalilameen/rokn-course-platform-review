@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\CourseAccessPlanService;
 use App\Services\CourseAuthoringConcurrencyService;
 use App\Services\CoursePublishingService;
+use App\Services\CourseStagedAuthoringService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\View\View;
 use Tests\TestCase;
@@ -97,7 +98,8 @@ final class CourseAccessPlanEditorContractTest extends TestCase
             $course,
             app(CoursePublishingService::class),
             app(CourseAccessPlanService::class),
-            app(CourseAuthoringConcurrencyService::class)
+            app(CourseAuthoringConcurrencyService::class),
+            app(CourseStagedAuthoringService::class)
         );
 
         self::assertInstanceOf(View::class, $response);

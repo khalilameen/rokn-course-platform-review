@@ -50,6 +50,7 @@ final class RepositorySecretScanner
         'UPLOAD_STORE_PASSWORD',
         'ROKN_SMOKE_FIXTURE_TOKEN',
         'ROKN_SMOKE_PASSWORD',
+        'NIGHTWATCH_TOKEN',
     ];
 
     /** @var list<string> */

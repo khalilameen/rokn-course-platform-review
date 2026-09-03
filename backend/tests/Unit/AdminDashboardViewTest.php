@@ -322,7 +322,7 @@ class AdminDashboardViewTest extends TestCase
             'course details' => [
                 'show',
                 ['statistics', 'commercial-report', 'scripts'],
-                ['courseStudio', 'publishingAudit', 'studentPreviewToggle', 'admin.courses.sections.reorder'],
+                ['courseStudio', 'publishingAudit', 'course-studio__preview-toggle', 'admin.courses.sections.reorder'],
             ],
         ];
     }

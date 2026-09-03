@@ -532,9 +532,11 @@ class AuthEndpointTest extends ApiTestCase
             'user_id' => $this->user->id,
             'device_token' => $token,
         ]);
+        // Registering one installation proves that this device can receive a
+        // token; it must not silently opt the account into notifications.
         $this->assertDatabaseHas('users', [
             'id' => $this->user->id,
-            'notifications_status' => true,
+            'notifications_status' => false,
         ]);
 
         $this->actingAs($this->user, 'api')->deleteJson('/api/v1/user/device-token', [

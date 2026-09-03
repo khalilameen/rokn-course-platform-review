@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Models\ExamAttempt;
+use App\Services\CourseChatAccessService;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Str;
 
@@ -275,6 +276,7 @@ class StudentProfileResource extends JsonResource
      */
     protected function getAuthorizedCourses()
     {
+        $courseAccess = app(CourseChatAccessService::class);
         $enrollments = $this->relationLoaded('enrollments')
             ? $this->enrollments
             : $this->enrollments()
@@ -282,10 +284,13 @@ class StudentProfileResource extends JsonResource
                 ->get();
 
         $courses = $enrollments
-            ->filter(fn ($enrollment) => $enrollment->isActive())
             ->pluck('course')
             ->filter()
             ->unique('id')
+            ->filter(fn ($course) => $courseAccess->hasLearningAccess(
+                (int) $this->id,
+                (int) $course->id
+            ))
             ->values();
 
         app(\App\Services\CourseDurationService::class)->attachMany($courses);
@@ -300,19 +305,25 @@ class StudentProfileResource extends JsonResource
      */
     protected function getEnrolledCourses()
     {
+        $courseAccess = app(CourseChatAccessService::class);
         $enrollments = $this->relationLoaded('enrollments')
             ? $this->enrollments
             : $this->enrollments()->with('course')->get();
-        
-        return $enrollments->map(function ($enrollment) {
+
+        return $enrollments
+            ->filter(fn ($enrollment) => $enrollment->course !== null)
+            ->sortByDesc('created_at')
+            ->unique('course_id')
+            ->map(function ($enrollment) use ($courseAccess) {
             return [
                 'id' => $enrollment->course->id ?? null,
                 'title' => $enrollment->course->title ?? null,
                 'enrolled_at' => $enrollment->created_at,
-                'status' => $enrollment->status ?? 'active',
+                'status' => $courseAccess->hasLearningAccess(
+                    (int) $this->id,
+                    (int) $enrollment->course_id
+                ) ? 'active' : 'inactive',
             ];
-        })->filter(function ($course) {
-            return $course['id'] !== null;
         })->values();
     }
 }

@@ -36,6 +36,7 @@ final class SocialAuthConfigurationSecurityTest extends TestCase
             'social_auth.allow_legacy_pkce' => false,
             'social_auth.return_urls' => ['rokn://auth'],
             'services.google.client_id' => 'test-client-id',
+            'services.google.client_secret' => 'test-client-secret',
         ]);
         $challenge = str_repeat('B', 43);
 
@@ -58,6 +59,7 @@ final class SocialAuthConfigurationSecurityTest extends TestCase
             'social_auth.allow_legacy_pkce' => false,
             'social_auth.return_urls' => ['rokn://auth'],
             'services.google.client_id' => 'test-client-id',
+            'services.google.client_secret' => 'test-client-secret',
         ]);
         $challenge = str_repeat('C', 43);
         $start = $this->get('/api/v1/social-auth/google/start?' . http_build_query([

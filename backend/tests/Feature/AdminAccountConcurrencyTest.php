@@ -164,7 +164,7 @@ final class AdminAccountConcurrencyTest extends TestCase
     private function studentEditorVersion(User $student): string
     {
         return AdminEditorVersion::for($student, [
-            'name', 'email', 'phone', 'password', 'profile_revision', 'email_verified_at',
+            'name', 'email', 'phone', 'profile_revision', 'email_verified_at',
         ]);
     }
 

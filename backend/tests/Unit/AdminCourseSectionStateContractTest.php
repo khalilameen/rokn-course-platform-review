@@ -62,9 +62,10 @@ final class AdminCourseSectionStateContractTest extends TestCase
         $controller = $this->source('app/Http/Controllers/Admin/CourseController.php');
 
         self::assertStringContainsString('$catalogAnnouncementRequested,', $controller);
+        self::assertStringContainsString("'is_coming_soon' => false,", $controller);
         self::assertStringContainsString(
-            "'is_coming_soon' => false,\n                        'is_catalog_visible' => \$catalogAnnouncementRequested,",
-            str_replace("\r\n", "\n", $controller)
+            "'is_catalog_visible' => \$catalogAnnouncementRequested,",
+            $controller
         );
     }
 

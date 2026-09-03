@@ -20,6 +20,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use App\Support\UnicodeText;
+use App\Support\DatabaseCapabilities;
 
 final class AttachmentController extends Controller
 {
@@ -275,7 +276,8 @@ final class AttachmentController extends Controller
         // left open across a publish. The old working graph becomes a
         // read-only playback archive; accepting this request would mutate the
         // exact files an already-started learner session is finishing.
-        if (CourseAuthoringRevision::query()
+        if (DatabaseCapabilities::hasTable('course_authoring_revisions')
+            && CourseAuthoringRevision::query()
             ->where('revision_course_id', $course->id)
             ->where('status', CourseAuthoringRevision::ARCHIVED)
             ->exists()) {

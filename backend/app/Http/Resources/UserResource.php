@@ -69,6 +69,7 @@ class UserResource extends UsersResource
      */
     private function getAuthorizedCourses()
     {
+        $courseAccess = app(\App\Services\CourseChatAccessService::class);
         // Get active course enrollments for this user
         $enrollments = \App\Models\CourseEnrollment::where('user_id', $this->id)
             ->where('is_active', true)
@@ -80,9 +81,12 @@ class UserResource extends UsersResource
             ->get();
 
         // Extract courses from enrollments
-        $courses = $enrollments->map(function($enrollment) {
+        $courses = $enrollments->map(function($enrollment) use ($courseAccess) {
             return $enrollment->course;
-        })->filter(); // Remove null courses
+        })->filter(fn ($course) => $course !== null && $courseAccess->hasLearningAccess(
+            (int) $this->id,
+            (int) $course->id
+        ))->unique('id')->values();
 
         app(\App\Services\CourseDurationService::class)->attachMany($courses);
 

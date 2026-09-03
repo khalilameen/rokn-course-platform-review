@@ -40,6 +40,9 @@ final class ModeratorCourseCommercialPrivacyTest extends TestCase
             ->assertDontSee('حد تكلفة الخطة بالدولار')
             ->assertDontSee('احتياطي AI المقترح');
 
+        // A dashboard session is deliberately pinned to one identity. Start a
+        // fresh browser session before checking the administrator view.
+        $this->flushSession();
         $this->actingAs($administrator)
             ->get(route('admin.courses.edit', $course))
             ->assertOk()

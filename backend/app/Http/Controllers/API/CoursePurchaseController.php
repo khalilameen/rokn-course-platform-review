@@ -201,6 +201,9 @@ final class CoursePurchaseController extends Controller
                         if (!$existingEnrollment) {
                             throw new \LogicException('Committed course order has no enrollment.');
                         }
+                        if (!$replayedOrder->isFinanciallyEffective()) {
+                            throw new \DomainException('course_purchase_not_effective');
+                        }
 
                         return [
                             'enrollment' => $existingEnrollment,
@@ -217,6 +220,9 @@ final class CoursePurchaseController extends Controller
                 }
 
                 if ($existingEnrollment && $existingEnrollment->isActive()) {
+                    if ($provenance->enrollmentHasActiveHold($existingEnrollment, ['course'])) {
+                        throw new \DomainException('course_access_under_review');
+                    }
                     return [
                         'enrollment' => $existingEnrollment,
                         'order' => $existingEnrollment->order,
@@ -506,6 +512,8 @@ final class CoursePurchaseController extends Controller
                     'coupon_invalid' => 'الكود غير صحيح أو انتهت صلاحيته',
                     'course_price_changed' => 'تغير السعر\nراجع الإجمالي قبل الشراء',
                     'course_terms_changed' => "تغيّرت تفاصيل الفئة\nراجعها قبل الشراء",
+                    'course_purchase_not_effective', 'course_access_under_review' =>
+                        "هذه العملية قيد المراجعة\nلم يُخصم رصيد جديد",
                     default => 'هذا الكورس غير متاح للشراء الآن',
                 },
                 'data' => null,

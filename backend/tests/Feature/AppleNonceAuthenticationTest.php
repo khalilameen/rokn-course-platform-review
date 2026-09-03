@@ -23,6 +23,10 @@ final class AppleNonceAuthenticationTest extends TestCase
 
     public function test_nonce_remains_optional_for_google_social_login(): void
     {
+        config([
+            'social_auth.providers' => ['google'],
+            'services.google.client_id' => 'test-client-id',
+        ]);
         $this->mock(GoogleService::class, function (MockInterface $mock): void {
             $mock->shouldReceive('verify')
                 ->once()
@@ -40,6 +44,10 @@ final class AppleNonceAuthenticationTest extends TestCase
 
     public function test_provider_outage_is_retryable_and_not_reported_as_a_bad_account(): void
     {
+        config([
+            'social_auth.providers' => ['google'],
+            'services.google.client_id' => 'test-client-id',
+        ]);
         $this->mock(GoogleService::class, function (MockInterface $mock): void {
             $mock->shouldReceive('verify')
                 ->once()

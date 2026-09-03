@@ -30,6 +30,10 @@ import {
   revokeOtherDeviceSessions,
   type DeviceSession,
 } from '../services/deviceSessions';
+import {
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+} from '../constants/helpers';
 
 const dateLabel = (value?: string | null) => {
   if (!value) return 'غير معروف';
@@ -62,11 +66,20 @@ export default function DeviceSessions() {
     refresh ? setRefreshing(true) : setLoading(true);
     setError('');
     try {
+      const boundary = await captureAccountSessionBoundary();
       const nextSessions = await getDeviceSessions();
+      assertAccountSessionBoundary(boundary);
       if (generation !== loadGenerationRef.current) return;
       setSessions(nextSessions);
-    } catch {
+    } catch (requestError) {
       if (generation !== loadGenerationRef.current) return;
+      if (
+        requestError instanceof Error &&
+        requestError.message === 'ACCOUNT_CHANGED_DURING_REQUEST'
+      ) {
+        setSessions([]);
+        return;
+      }
       setError('تعذّر تحميل الأجهزة الآن');
     } finally {
       if (generation === loadGenerationRef.current) {
@@ -104,15 +117,24 @@ export default function DeviceSessions() {
             loadGenerationRef.current += 1;
             setRemoving(session.id);
             try {
+              const boundary = await captureAccountSessionBoundary();
               await revokeDeviceSession(session.id);
+              assertAccountSessionBoundary(boundary);
               if (screenActiveRef.current) {
                 setSessions(current =>
                   current.filter(item => item.id !== session.id),
                 );
               }
-            } catch {
+            } catch (requestError) {
               if (screenActiveRef.current) {
-                Alert.alert('لم يتم تسجيل الخروج', 'حاول مرة أخرى بعد قليل');
+                if (
+                  requestError instanceof Error &&
+                  requestError.message === 'ACCOUNT_CHANGED_DURING_REQUEST'
+                ) {
+                  setSessions([]);
+                } else {
+                  Alert.alert('لم يتم تسجيل الخروج', 'حاول مرة أخرى بعد قليل');
+                }
               }
             } finally {
               mutationFlightRef.current = false;
@@ -145,15 +167,24 @@ export default function DeviceSessions() {
             loadGenerationRef.current += 1;
             setRemoving('all');
             try {
+              const boundary = await captureAccountSessionBoundary();
               await revokeOtherDeviceSessions();
+              assertAccountSessionBoundary(boundary);
               if (screenActiveRef.current) {
                 setSessions(current =>
                   current.filter(session => session.current),
                 );
               }
-            } catch {
+            } catch (requestError) {
               if (screenActiveRef.current) {
-                Alert.alert('لم يتم تسجيل الخروج', 'حاول مرة أخرى بعد قليل');
+                if (
+                  requestError instanceof Error &&
+                  requestError.message === 'ACCOUNT_CHANGED_DURING_REQUEST'
+                ) {
+                  setSessions([]);
+                } else {
+                  Alert.alert('لم يتم تسجيل الخروج', 'حاول مرة أخرى بعد قليل');
+                }
               }
             } finally {
               mutationFlightRef.current = false;

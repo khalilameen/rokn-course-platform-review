@@ -6,8 +6,6 @@ namespace App\Services;
 
 use App\Models\Course;
 use App\Models\CourseAuthoringRevision;
-use App\Models\CourseEnrollment;
-use App\Models\Order;
 use App\Models\Project;
 use App\Models\RewardRule;
 use App\Models\Setting;
@@ -25,7 +23,8 @@ final class LearningRewardService
     private const DEFAULT_REWARD_CONTRIBUTION_PER_COURSE = 1200;
 
     public function __construct(
-        private readonly WalletService $wallet
+        private readonly WalletService $wallet,
+        private readonly CourseChatAccessService $courseAccess
     ) {
     }
 
@@ -86,6 +85,11 @@ final class LearningRewardService
             $dailyRule,
             $streakRule
         ): array {
+            $supportsSnapshots = DatabaseCapabilities::hasColumns('user_reward_checkins', [
+                'daily_rule_snapshot',
+                'streak_rule_snapshot',
+                'rules_snapshotted_at',
+            ]);
             DB::table('user_reward_checkins')->insertOrIgnore([
                 'user_id' => $user->id,
                 'checkin_date' => $today,
@@ -97,7 +101,7 @@ final class LearningRewardService
                 ->where('checkin_date', $today)
                 ->lockForUpdate()
                 ->first();
-            if (!$checkin->rules_snapshotted_at) {
+            if ($supportsSnapshots && !$checkin->rules_snapshotted_at) {
                 DB::table('user_reward_checkins')->where('id', $checkin->id)->update([
                     'daily_rule_snapshot' => $this->encodeRuleSnapshot($dailyRule),
                     'streak_rule_snapshot' => $this->encodeRuleSnapshot($streakRule),
@@ -108,8 +112,12 @@ final class LearningRewardService
             }
 
             return [
-                'daily' => $this->decodeRuleSnapshot($checkin->daily_rule_snapshot),
-                'streak' => $this->decodeRuleSnapshot($checkin->streak_rule_snapshot),
+                'daily' => $supportsSnapshots
+                    ? $this->decodeRuleSnapshot($checkin->daily_rule_snapshot)
+                    : $this->decodeRuleSnapshot($this->encodeRuleSnapshot($dailyRule)),
+                'streak' => $supportsSnapshots
+                    ? $this->decodeRuleSnapshot($checkin->streak_rule_snapshot)
+                    : $this->decodeRuleSnapshot($this->encodeRuleSnapshot($streakRule)),
             ];
         }, 3);
 
@@ -501,19 +509,10 @@ final class LearningRewardService
     {
         $course = $this->canonicalRewardCourse($course);
 
-        return CourseEnrollment::query()
-            ->where('user_id', $user->id)
-            ->where('course_id', $course->id)
-            ->where('is_active', true)
-            ->with('order.courseCode')
-            ->get()
-            ->contains(function (CourseEnrollment $enrollment): bool {
-                $order = $enrollment->order;
-                return $order
-                    && $order->status === Order::STATUS_APPROVED
-                    && $order->payment_method === Order::PAYMENT_METHOD_COURSE_CODE
-                    && (bool) $order->courseCode?->isInstitutionalGrant();
-            });
+        return $this->courseAccess->entitlementFor(
+            (int) $user->id,
+            (int) $course->id
+        )['access_type'] === 'scholarship';
     }
 
     private function canonicalRewardCourse(Course $course): Course

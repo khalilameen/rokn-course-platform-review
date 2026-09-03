@@ -3167,6 +3167,36 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
+  - RNSentry (7.11.0):
+    - boost
+    - DoubleConversion
+    - fast_float
+    - fmt
+    - glog
+    - hermes-engine
+    - RCT-Folly
+    - RCT-Folly/Fabric
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-hermes
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - Sentry/HybridSDK (= 8.58.0)
+    - SocketRocket
+    - Yoga
   - RNShare (12.2.2):
     - boost
     - DoubleConversion
@@ -3341,6 +3371,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
+  - Sentry/HybridSDK (8.58.0)
   - SocketRocket (0.7.1)
   - Yoga (0.0.0)
 
@@ -3456,6 +3487,7 @@ DEPENDENCIES:
   - "RNGoogleSignin (from `../node_modules/@react-native-google-signin/google-signin`)"
   - RNReanimated (from `../node_modules/react-native-reanimated`)
   - RNScreens (from `../node_modules/react-native-screens`)
+  - "RNSentry (from `../node_modules/@sentry/react-native`)"
   - RNShare (from `../node_modules/react-native-share`)
   - RNSVG (from `../node_modules/react-native-svg`)
   - RNWorklets (from `../node_modules/react-native-worklets`)
@@ -3474,6 +3506,7 @@ SPEC REPOS:
     - PromisesObjC
     - PromisesSwift
     - RecaptchaInterop
+    - Sentry
     - SocketRocket
 
 EXTERNAL SOURCES:
@@ -3698,6 +3731,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-reanimated"
   RNScreens:
     :path: "../node_modules/react-native-screens"
+  RNSentry:
+    :path: "../node_modules/@sentry/react-native"
   RNShare:
     :path: "../node_modules/react-native-share"
   RNSVG:
@@ -3828,9 +3863,11 @@ SPEC CHECKSUMS:
   RNGoogleSignin: ca05a4eb8b125c8a7bf93e1679f008faa0e5090c
   RNReanimated: 0a23a0a9721f450580f0fdf04b9ae928cd22915a
   RNScreens: 32d204189c8c164da3aef640b6d1d8721c25a86f
+  RNSentry: ce98ae2e5496ce41a9b9f8a4e1c16d045592788d
   RNShare: 6b9b50b92c088364edbeb9e5fb805aaef67653e8
   RNSVG: 4d484ec4a8cb484c1c0e33972670724e194dba09
   RNWorklets: 79252e2fa12db14970f4e881168ce82a4d1fe823
+  Sentry: d587a8fe91ca13503ecd69a1905f3e8a0fcf61be
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
   Yoga: 36c8d57a563ad609c1f7342857de6e23fa1edd5a
 

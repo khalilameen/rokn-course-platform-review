@@ -8,6 +8,7 @@ use App\Http\Middleware\RequireAdminMfa;
 use App\Models\AdminAuditLog;
 use App\Models\PaymentReconciliationFinding;
 use App\Models\User;
+use App\Support\AdminEditorVersion;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -167,7 +168,10 @@ final class PaymentReconciliationDashboardTest extends TestCase
 
         $this->actingAs($admin)->patch(
             route('admin.payment-reconciliation-findings.resolve', $finding),
-            ['note' => 'راجعت إثبات البوابة وربط المعاملة يدويًا.']
+            [
+                'note' => 'راجعت إثبات البوابة وربط المعاملة يدويًا.',
+                'editor_version' => $this->findingEditorVersion($finding),
+            ]
         )->assertRedirect();
         $finding->refresh();
         self::assertSame(PaymentReconciliationFinding::STATE_RESOLVED, $finding->state);
@@ -176,7 +180,10 @@ final class PaymentReconciliationDashboardTest extends TestCase
 
         $this->patch(
             route('admin.payment-reconciliation-findings.reopen', $finding),
-            ['note' => 'ظهر دليل جديد ويجب إعادة الفحص.']
+            [
+                'note' => 'ظهر دليل جديد ويجب إعادة الفحص.',
+                'editor_version' => $this->findingEditorVersion($finding),
+            ]
         )->assertRedirect();
         $finding->refresh();
         self::assertSame(PaymentReconciliationFinding::STATE_OPEN, $finding->state);
@@ -185,7 +192,10 @@ final class PaymentReconciliationDashboardTest extends TestCase
 
         $this->patch(
             route('admin.payment-reconciliation-findings.ignore', $finding),
-            ['note' => 'اختلاف معروف لا يحتاج تعديلًا ماليًا.']
+            [
+                'note' => 'اختلاف معروف لا يحتاج تعديلًا ماليًا.',
+                'editor_version' => $this->findingEditorVersion($finding),
+            ]
         )->assertRedirect();
         $finding->refresh();
         self::assertSame(PaymentReconciliationFinding::STATE_IGNORED, $finding->state);
@@ -216,13 +226,18 @@ final class PaymentReconciliationDashboardTest extends TestCase
         $finding = $this->finding('ORDER-VALIDATE-500', 'provider_unavailable');
 
         $this->actingAs($admin)
-            ->patch(route('admin.payment-reconciliation-findings.resolve', $finding))
+            ->patch(route('admin.payment-reconciliation-findings.resolve', $finding), [
+                'editor_version' => $this->findingEditorVersion($finding),
+            ])
             ->assertSessionHasErrors('note');
         self::assertSame(PaymentReconciliationFinding::STATE_OPEN, $finding->fresh()->state);
 
         $this->patch(
             route('admin.payment-reconciliation-findings.reopen', $finding),
-            ['note' => 'محاولة انتقال قديم']
+            [
+                'note' => 'محاولة انتقال قديم',
+                'editor_version' => $this->findingEditorVersion($finding),
+            ]
         )->assertSessionHasErrors('finding');
         self::assertSame(PaymentReconciliationFinding::STATE_OPEN, $finding->fresh()->state);
     }
@@ -244,6 +259,20 @@ final class PaymentReconciliationDashboardTest extends TestCase
             'password' => Hash::make('password'),
             'role' => $role,
             'active' => true,
+        ]);
+    }
+
+    private function findingEditorVersion(PaymentReconciliationFinding $finding): string
+    {
+        return AdminEditorVersion::for($finding, [
+            'state',
+            'attempts',
+            'last_seen_at',
+            'local_status',
+            'local_financial_status',
+            'provider_status',
+            'provider_transaction_id',
+            'evidence',
         ]);
     }
 

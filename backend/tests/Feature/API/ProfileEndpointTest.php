@@ -33,21 +33,23 @@ class ProfileEndpointTest extends ApiTestCase
             'portfolio_slug' => 'rokn-learner-' . $this->user->id,
             'portfolio_headline' => 'Product Designer',
         ]);
+        $serverOwnedSlug = (string) $response->json('data.portfolio_slug');
 
         $response
             ->assertOk()
             ->assertJsonPath('data.name', 'Rokn Learner')
-            ->assertJsonPath('data.portfolio_slug', 'rokn-learner-' . $this->user->id)
-            ->assertJsonPath(
-                'data.portfolio_url',
-                \App\Support\RoknPublicUrl::portfolio('rokn-learner-' . $this->user->id)
-            )
+            ->assertJson(fn ($json) => $json
+                ->whereType('data.portfolio_slug', 'string')
+                ->where('data.portfolio_url', \App\Support\RoknPublicUrl::portfolio(
+                    $serverOwnedSlug
+                ))
+                ->etc())
             ->assertJsonPath('data.portfolio_headline', 'Product Designer');
 
         $this->assertDatabaseHas('users', [
             'id' => $this->user->id,
             'name' => 'Rokn Learner',
-            'portfolio_slug' => 'rokn-learner-' . $this->user->id,
+            'portfolio_slug' => $serverOwnedSlug,
             'portfolio_headline' => 'Product Designer',
         ]);
     }

@@ -87,7 +87,7 @@ class SavedFolderEndpointTest extends ApiTestCase
         $this->actingAs($this->user, 'api')
             ->getJson('/api/v1/saved-folders')
             ->assertOk()
-            ->assertJsonPath('data.0.image', 'lesson-cover.jpg')
+            ->assertJsonPath('data.0.image', url('lesson-cover.jpg'))
             ->assertJsonPath('data.0.lessons_count', 1);
     }
 

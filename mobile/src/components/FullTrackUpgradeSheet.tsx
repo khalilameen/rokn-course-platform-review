@@ -28,6 +28,10 @@ import {
 import {Fonts} from '../constants/styleConstants';
 import {CoinAmount} from './ui/RoknCoin';
 import {useReducedMotion} from '../hooks/useReducedMotion';
+import {
+  assertAccountSessionBoundary,
+  captureAccountSessionBoundary,
+} from '../constants/helpers';
 
 type Props = {
   visible: boolean;
@@ -68,7 +72,9 @@ export default function FullTrackUpgradeSheet({
     setLoading(true);
     setError('');
     try {
+      const boundary = await captureAccountSessionBoundary();
       const next = await getFullTrackUpgradeQuote(courseId);
+      assertAccountSessionBoundary(boundary);
       if (
         operationFlightRef.current !== flight ||
         activeCourseIdRef.current !== courseId
@@ -76,6 +82,7 @@ export default function FullTrackUpgradeSheet({
         return;
       if (next.alreadyUpgraded || next.certificateAvailable) {
         await onUpgradedRef.current?.();
+        assertAccountSessionBoundary(boundary);
         if (
           operationFlightRef.current !== flight ||
           activeCourseIdRef.current !== courseId
@@ -91,6 +98,14 @@ export default function FullTrackUpgradeSheet({
         activeCourseIdRef.current !== courseId
       )
         return;
+      if (
+        requestError instanceof Error &&
+        requestError.message === 'ACCOUNT_CHANGED_DURING_REQUEST'
+      ) {
+        setQuote(null);
+        onCloseRef.current();
+        return;
+      }
       const code = errorCode(requestError);
       setError(
         code.includes('not_priced')
@@ -140,13 +155,18 @@ export default function FullTrackUpgradeSheet({
     setLoading(true);
     setPurchasing(true);
     setError('');
+    let boundary: Awaited<
+      ReturnType<typeof captureAccountSessionBoundary>
+    > | null = null;
     try {
+      boundary = await captureAccountSessionBoundary();
       const result = await purchaseFullTrackUpgrade(
         courseId,
         quote.targetPlanCode,
         quote.price,
         quote.courseRevision,
       );
+      assertAccountSessionBoundary(boundary);
       if (
         operationFlightRef.current !== flight ||
         activeCourseIdRef.current !== courseId
@@ -154,6 +174,7 @@ export default function FullTrackUpgradeSheet({
         return;
       if (result.certificateAvailable || result.alreadyUpgraded) {
         await onUpgradedRef.current?.();
+        assertAccountSessionBoundary(boundary);
         if (
           operationFlightRef.current !== flight ||
           activeCourseIdRef.current !== courseId
@@ -169,6 +190,15 @@ export default function FullTrackUpgradeSheet({
         activeCourseIdRef.current !== courseId
       )
         return;
+      if (
+        !boundary ||
+        (requestError instanceof Error &&
+          requestError.message === 'ACCOUNT_CHANGED_DURING_REQUEST')
+      ) {
+        setQuote(null);
+        onCloseRef.current();
+        return;
+      }
       const code = errorCode(requestError);
       const reconciledError =
         code === 'course_price_changed' || code === 'course_terms_changed'
@@ -179,6 +209,7 @@ export default function FullTrackUpgradeSheet({
       setError(reconciledError);
       try {
         const refreshedQuote = await getFullTrackUpgradeQuote(courseId);
+        assertAccountSessionBoundary(boundary);
         if (
           operationFlightRef.current !== flight ||
           activeCourseIdRef.current !== courseId
@@ -190,6 +221,7 @@ export default function FullTrackUpgradeSheet({
         ) {
           setError('');
           await onUpgradedRef.current?.();
+          assertAccountSessionBoundary(boundary);
           if (
             operationFlightRef.current === flight &&
             activeCourseIdRef.current === courseId

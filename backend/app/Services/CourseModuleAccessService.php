@@ -6,7 +6,6 @@ namespace App\Services;
 
 use App\Models\Attachment;
 use App\Models\Course;
-use App\Models\CourseEnrollment;
 use App\Models\CourseModule;
 use App\Models\CoursePdf;
 use App\Models\CourseSection;
@@ -22,7 +21,7 @@ use Illuminate\Support\Facades\URL;
 final class CourseModuleAccessService
 {
     public function __construct(
-        private FinancialProvenanceService $provenance,
+        private CourseChatAccessService $courseAccess,
         private CourseSectionSequenceService $sectionSequence,
         private CourseRevisionLearnerReadService $revisionReads
     )
@@ -40,36 +39,10 @@ final class CourseModuleAccessService
             return false;
         }
 
-        $active = static fn ($query) => $query
-            ->where('user_id', $user->id)
-            ->where('is_active', true)
-            ->where(function ($query): void {
-                $query->whereNull('expires_at')->orWhere('expires_at', '>', now());
-            });
-
-        $direct = $active(CourseEnrollment::query()->where('course_id', $course->id))->get();
-        foreach ($direct as $enrollment) {
-            if (!$this->provenance->enrollmentHasActiveHold($enrollment, ['course'])) {
-                return true;
-            }
-        }
-
-        $parentIds = CourseSection::query()
-            ->where('sectionable_type', Course::class)
-            ->where('sectionable_id', $course->id)
-            ->pluck('course_id');
-
-        if ($parentIds->isEmpty()) {
-            return false;
-        }
-
-        foreach ($active(CourseEnrollment::query()->whereIn('course_id', $parentIds))->get() as $enrollment) {
-            if (!$this->provenance->enrollmentHasActiveHold($enrollment, ['course'])) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->courseAccess->hasLearningAccess(
+            (int) $user->id,
+            (int) $course->id
+        );
     }
 
     public function canAccessModule(User $user, Course $course, CourseModule $module): bool

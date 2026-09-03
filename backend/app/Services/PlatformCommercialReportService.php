@@ -8,6 +8,7 @@ use App\Models\Course;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use App\Support\DatabaseCapabilities;
 
 /** Platform-wide unit economics assembled from the same auditable course ledger. */
 final readonly class PlatformCommercialReportService
@@ -21,8 +22,11 @@ final readonly class PlatformCommercialReportService
     {
         // Retiring a course removes it from the catalogue, not from lifetime
         // revenue and cost history.
-        $courseModels = Course::withTrashed()
-            ->whereNull('parent_id')
+        $courseQuery = Course::query();
+        if (DatabaseCapabilities::hasColumn('courses', 'deleted_at')) {
+            $courseQuery->withTrashed();
+        }
+        $courseModels = $courseQuery->whereNull('parent_id')
             ->whereHas('enrollments')
             ->when($filters['course_id'] ?? null, fn ($query, $courseId) =>
                 $query->whereKey((int) $courseId)
@@ -39,7 +43,8 @@ final readonly class PlatformCommercialReportService
                 $courseReport['rows']->map(function (array $row) use ($course): array {
                     $row['course_id'] = (int) $course->id;
                     $row['course_name'] = (string) $course->title;
-                    $row['course_archived'] = $course->trashed();
+                    $row['course_archived'] = DatabaseCapabilities::hasColumn('courses', 'deleted_at')
+                        && $course->trashed();
 
                     return $row;
                 })

@@ -105,7 +105,8 @@ final class ProductionCapabilityTest extends TestCase
             'payment_reconciliation_checkpoints', 'payment_reconciliation_findings',
             'financial_anomalies', 'coupon_redemptions', 'store_notification_events',
             'user_whatsapp_connections', 'whatsapp_link_tokens', 'product_feature_flags',
-            'admin_audit_logs', 'operational_incidents',
+            'admin_audit_logs', 'operational_incidents', 'course_authoring_revisions',
+            'course_authoring_revision_entities',
         ] as $launchTable) {
             Schema::create($launchTable, fn (Blueprint $table) => $table->id());
         }
@@ -248,6 +249,7 @@ final class ProductionCapabilityTest extends TestCase
         $this->clearQueueHeartbeats();
         foreach ([
             'recovery_markers', 'app_versions', 'operational_incidents', 'admin_audit_logs',
+            'course_authoring_revision_entities', 'course_authoring_revisions',
             'product_feature_flags', 'whatsapp_link_tokens', 'user_whatsapp_connections',
             'store_notification_events', 'coupon_redemptions', 'financial_anomalies',
             'payment_reconciliation_findings', 'payment_reconciliation_checkpoints',
@@ -638,7 +640,7 @@ final class ProductionCapabilityTest extends TestCase
         }
     }
 
-    public function test_heartbeat_dispatch_is_a_non_blocking_scheduled_command(): void
+    public function test_heartbeat_dispatch_is_serialized_on_the_single_scheduler(): void
     {
         $schedule = app(ConsoleKernel::class)->resolveConsoleSchedule();
         $event = collect($schedule->events())->first(
@@ -649,7 +651,10 @@ final class ProductionCapabilityTest extends TestCase
         );
 
         self::assertInstanceOf(Event::class, $event);
-        self::assertTrue($event->runInBackground);
+        // Flex keeps a small memory budget. Running due commands in separate
+        // background shells can exhaust the web container, so the scheduler
+        // deliberately executes maintenance commands sequentially.
+        self::assertFalse($event->runInBackground);
         self::assertTrue($event->withoutOverlapping);
         self::assertTrue($event->onOneServer);
     }
