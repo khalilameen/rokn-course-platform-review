@@ -924,9 +924,10 @@ export const SettingsPortfolioIcon = (props?: SvgProps) => (
 
 export const SettingsDevicesIcon = (props?: SvgProps) => (
   <Svg width={24} height={24} viewBox="0 0 24 24" fill="none" {...props}>
-    <Rect x={3} y={4} width={12} height={14} rx={2} {...settingsIconProps} />
-    <Rect x={16.5} y={8} width={4.5} height={11} rx={1.3} {...settingsIconProps} />
-    <Path d="M7 21h8M9 18v3M18.75 16.5h.01" {...settingsIconProps} />
+    <Rect x={3} y={3} width={11.5} height={18} rx={2.3} {...settingsIconProps} />
+    <Path d="M7.5 6h2.5M8.7 18h.1" {...settingsIconProps} />
+    <Rect x={16.5} y={7} width={4.5} height={12} rx={1.3} {...settingsIconProps} />
+    <Path d="M18.7 16.5h.1" {...settingsIconProps} />
   </Svg>
 );
 

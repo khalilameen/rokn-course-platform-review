@@ -35,6 +35,9 @@ import {removeLearnerDraftFile} from '../../../services/learnerDraftFiles';
 
 export type AssistantPresence = 'online' | 'working';
 const MAX_IN_MEMORY_MESSAGES = 37;
+// Keep the foreground wait short. Slow accepted turns remain pending and are
+// resumed with the same request id when the chat stays open or is reopened.
+const FOREGROUND_TURN_POLL_ATTEMPTS = 8;
 
 const welcomeMessage = (courseId: string): ChatMessage => ({
   id: `welcome-${courseId}`,
@@ -512,7 +515,7 @@ export const useCourseChat = ({
       let observedPartialLength = 0;
       while (
         response.code === 'chat_answer_in_progress' &&
-        recoveryAttempts < 20 &&
+        recoveryAttempts < FOREGROUND_TURN_POLL_ATTEMPTS &&
         visibleRef.current &&
         sendGeneration === sendGenerationRef.current &&
         conversationGeneration === conversationGenerationRef.current
@@ -531,7 +534,7 @@ export const useCourseChat = ({
           (response.retryAfterSeconds || 3) * 1000,
         );
         const backoffMs = Math.min(
-          12000,
+          6000,
           baseWaitMs * Math.pow(1.45, recoveryAttempts),
         );
         const jitterSeed = Array.from(clientRequestId).reduce(

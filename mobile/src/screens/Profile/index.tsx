@@ -49,7 +49,10 @@ import {
   Profile as ProfileDto,
 } from '../../services/roknApi';
 import type {RootState} from '../../store/store';
-import {trustedPortfolioShareUrl} from '../../services/publicLinks';
+import {
+  portfolioUrlFor,
+  trustedPortfolioShareUrl,
+} from '../../services/publicLinks';
 import {isolateBidirectionalText} from '../../constants/arabicFormatting';
 
 type ProfileTab = 'portfolio' | 'certificates' | 'saved';
@@ -87,11 +90,13 @@ export default function Profile() {
     '';
   const username =
     visiblePortfolioProfile?.slug ||
+    visibleRemoteProfile?.portfolioSlug ||
     (authenticatedIdentity ? user.portfolio_slug || user.username : '') ||
     '';
   const publicPortfolioUrl =
     trustedPortfolioShareUrl(visiblePortfolioProfile?.publicUrl) ||
     trustedPortfolioShareUrl(visibleRemoteProfile?.portfolioUrl) ||
+    trustedPortfolioShareUrl(username ? portfolioUrlFor(username) : '') ||
     '';
   const canSharePortfolio = Boolean(publicPortfolioUrl);
   const portfolioLinkLabel = publicPortfolioUrl

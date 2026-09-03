@@ -123,6 +123,10 @@ describe('commerce API contracts', () => {
       path.resolve(__dirname, '../src/components/ui/RoknCoin.tsx'),
       'utf8',
     );
+    const packageCard = fs.readFileSync(
+      path.resolve(__dirname, '../src/components/view/Package.tsx'),
+      'utf8',
+    );
 
     expect(wallet).toContain('width={packageCardWidth}');
     expect(wallet).toContain('snapToInterval={packageCardWidth + Spacing.sm}');
@@ -130,6 +134,22 @@ describe('commerce API contracts', () => {
     expect(wallet).not.toContain('packageColumns');
     expect(coin).toContain('id="coinMark"');
     expect(coin).not.toContain('#FFF1A9');
+    expect(packageCard).not.toContain('<RoknCoin');
+    expect(packageCard.match(/<CoinAmount/g)).toHaveLength(1);
+  });
+
+  it('uses mobile-first devices artwork without a desktop stand', () => {
+    const icons = fs.readFileSync(
+      path.resolve(__dirname, '../src/assets/SVG.tsx'),
+      'utf8',
+    );
+    const devicesIcon = icons.match(
+      /export const SettingsDevicesIcon[\s\S]*?\n\);/,
+    )?.[0];
+
+    expect(devicesIcon).toContain('width={11.5} height={18}');
+    expect(devicesIcon).toContain('width={4.5} height={12}');
+    expect(devicesIcon).not.toContain('M7 21h8');
   });
 
   it('maps the three server plans in product order with their benefits', async () => {

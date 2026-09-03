@@ -11,7 +11,11 @@ import {includesCourseAssistant} from '../courseEntitlements';
 import type {ChatMessage, CourseLearningData, CourseReel} from '../types';
 import {asArray, asRecord, valueAsBoolean, valueAsString} from './shared';
 
-const COURSE_CHAT_REQUEST_TIMEOUT_MS = 60_000;
+// The send endpoint only admits the durable turn; the provider work runs on
+// its own queue.  A slow web response must not keep the composer frozen for a
+// full provider timeout.  After this bound the client reconciles the same
+// immutable request id through the turn endpoint, so there is no second debit.
+const COURSE_CHAT_REQUEST_TIMEOUT_MS = 15_000;
 const assistantAttachmentOpenFlights = new Map<string, Promise<void>>();
 
 const demoAssistantReply = (message: string, reel?: CourseReel) => {
@@ -179,7 +183,7 @@ export const pollCourseAssistantTurn = async (
   try {
     response = await publicRequest.get(
       `course-chat/turns/${encodeURIComponent(clientRequestId)}`,
-      {timeout: 12000},
+      {timeout: 6000},
     );
   } catch (error: unknown) {
     const failure = asRecord(error);

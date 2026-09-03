@@ -35,6 +35,15 @@ describe('profile recovery contracts', () => {
     expect(initializer).toContain('replayPendingPortfolioMediaUploads()');
   });
 
+  it('keeps the share action available when one profile request is stale', () => {
+    const profile = source('src/screens/Profile/index.tsx');
+
+    expect(profile).toContain('visibleRemoteProfile?.portfolioSlug');
+    expect(profile).toContain(
+      "trustedPortfolioShareUrl(username ? portfolioUrlFor(username) : '')",
+    );
+  });
+
   it('owns edit, finalize and media-delete mutations synchronously', () => {
     const gallery = source('src/screens/Profile/Gallery.tsx');
 

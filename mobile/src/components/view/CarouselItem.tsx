@@ -57,7 +57,7 @@ const CarouselItem = ({
                 accessibilityLabel={formatArabicDisplayText(`عرض ${course.title}`)}
                 onPress={onButtonPress}
                 style={styles.button}
-                title={course.owned ? 'استكمل الكورس' : 'عرض الكورس'}
+                title="عرض الكورس"
               />
             </View>
           </View>

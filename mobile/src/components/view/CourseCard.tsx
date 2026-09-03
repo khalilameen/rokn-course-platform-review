@@ -50,7 +50,6 @@ const CourseCard = memo<CourseCardProps>(
     const navigation = useNavigation<RootNavigation>();
     const {largeText, railCardWidth} = useResponsiveLayout();
     const isAvailable = item.published !== false;
-    const opensLearning = isAvailable && item.owned === true;
     const progress = Math.max(0, Math.min(100, Number(item.progress || 0)));
     const accessibilitySummary = [
       item.title,
@@ -63,9 +62,7 @@ const CourseCard = memo<CourseCardProps>(
       <Pressable
         accessibilityHint={
           isAvailable
-            ? opensLearning
-              ? 'يفتح الكورس من آخر مقطع متاح'
-              : 'يفتح تفاصيل الكورس'
+            ? 'يفتح تفاصيل الكورس'
             : item.label === 'قريبًا'
             ? 'بطاقة معاينة لكورس سيتوفر قريبًا'
             : 'بطاقة معاينة للكورس'
@@ -75,17 +72,12 @@ const CourseCard = memo<CourseCardProps>(
         accessibilityState={{disabled: !isAvailable}}
         disabled={!isAvailable}
         onPress={() =>
-          navigation.navigate(
-            opensLearning ? 'Reels' : 'CourseDetails',
-            opensLearning
-              ? {courseId: item.id}
-              : {
-                  courseId: item.id,
-                  coinPrice: item.coinPrice,
-                  title: item.title,
-                  description: item.description,
-                },
-          )
+          navigation.navigate('CourseDetails', {
+            courseId: item.id,
+            coinPrice: item.coinPrice,
+            title: item.title,
+            description: item.description,
+          })
         }
         style={({pressed}) => [
           styles.courseItem,

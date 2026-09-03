@@ -25,4 +25,14 @@ describe('public course metadata placement', () => {
     expect(courseDetails).toContain('ratingsCount={ratingsCount}');
     expect(courseDetails).toContain('studentsCount={studentsCount}');
   });
+
+  it('opens catalogue cards through details even when the course is owned', () => {
+    const courseCard = source('src/components/view/CourseCard.tsx');
+    const carouselCard = source('src/components/view/CarouselItem.tsx');
+
+    expect(courseCard).toContain("navigation.navigate('CourseDetails'");
+    expect(courseCard).not.toMatch(/opensLearning\s*\?\s*'Reels'/);
+    expect(carouselCard).toContain('title="عرض الكورس"');
+    expect(carouselCard).not.toMatch(/course\.owned\s*\?/);
+  });
 });

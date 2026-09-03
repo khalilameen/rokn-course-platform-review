@@ -5,11 +5,10 @@ import {
   Radius,
   Spacing,
   Type,
-  rtlRowStyle,
   textDirection,
   useResponsiveLayout,
 } from '../../constants/designSystem';
-import RoknCoin, {CoinAmount} from '../ui/RoknCoin';
+import {CoinAmount} from '../ui/RoknCoin';
 import {
   formatArabicDisplayText,
   formatArabicNumber,
@@ -64,9 +63,6 @@ const Package = React.memo<PackageProps>(
           disabled && styles.disabled,
           pressed && styles.pressed,
         ]}>
-        <View style={styles.topRow}>
-          <RoknCoin size={24} />
-        </View>
         {!!title && (
           <Text style={styles.title}>
             {formatArabicDisplayText(title)}
@@ -101,7 +97,6 @@ const styles = StyleSheet.create({
     borderColor: Palette.lineSoft,
     backgroundColor: Palette.surface,
   },
-  topRow: {minHeight: 32, ...rtlRowStyle, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.xs},
   title: {...Type.caption, ...textDirection, color: Palette.textMuted, marginTop: Spacing.md, flexShrink: 1},
   coins: {marginTop: Spacing.xxs},
   coinsText: {...Type.title, color: Palette.text},

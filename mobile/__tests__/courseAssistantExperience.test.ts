@@ -45,7 +45,7 @@ describe('course assistant waiting experience', () => {
     expect(publicRequest.post).toHaveBeenCalledWith(
       'courses/52/chat',
       expect.objectContaining({message: 'اشرح الخطوة'}),
-      {timeout: 60_000},
+      {timeout: 15_000},
     );
     expect(onRequestStart.mock.invocationCallOrder[0]).toBeLessThan(
       jest.mocked(publicRequest.post).mock.invocationCallOrder[0],
@@ -66,7 +66,7 @@ describe('course assistant waiting experience', () => {
     expect(publicRequest.post).toHaveBeenCalledWith(
       'courses/52/chat',
       expect.not.objectContaining({history: expect.anything()}),
-      {timeout: 60_000},
+      {timeout: 15_000},
     );
   });
 
@@ -103,7 +103,7 @@ describe('course assistant waiting experience', () => {
     expect(overlay).toContain('accessibilityLabel="نسخ الرسالة"');
     expect(overlay).toContain("hardwareAccelerated={Platform.OS === 'android'}");
     expect(reels).toMatch(
-      /scrollEnabled=\{\s*!chatVisible\s*&&\s*!reminderNudgeVisible\s*&&\s*!previewGateVisible\s*&&\s*!contentOverlayVisible\s*\}/,
+      /scrollEnabled=\{\s*!chatVisible\s*&&\s*!reminderNudgeVisible\s*&&\s*!previewGateVisible\s*&&\s*!contentOverlayVisible\s*&&\s*!courseRevisionRefreshing\s*\}/,
     );
   });
 });
