@@ -524,7 +524,9 @@ const assertCourseDetailsContract = (course: unknown): CourseDto => {
   const ratingsCount = Number(course.ratings_count);
   const ratingAverageRaw = course.average_rating ?? course.ratings_avg_rating;
   const ratingAverage =
-    ratingAverageRaw === null ? null : Number(ratingAverageRaw);
+    ratingAverageRaw === null || ratingAverageRaw === undefined
+      ? null
+      : Number(ratingAverageRaw);
   const studentsCount = Number(
     isApiRecord(course.metadata)
       ? course.metadata.students_count

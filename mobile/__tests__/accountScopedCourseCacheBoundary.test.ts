@@ -101,4 +101,56 @@ describe('account-scoped course cache boundary', () => {
       courses: [expect.objectContaining({id: '52'})],
     });
   });
+
+  it('accepts a null average for an unrated published course', async () => {
+    mockSessionSnapshot = {ready: true, session: null, epoch: 20};
+    const plan = (
+      code: string,
+      feedback: 'pass_only' | 'report' | 'enhanced',
+    ) => ({
+      code,
+      name: code,
+      price_coins: 20,
+      minimum_paid_coins: 0,
+      chat_enabled: false,
+      project_report_enabled: false,
+      project_thread_reply_enabled: false,
+      project_output_enabled: false,
+      certificate_enabled: true,
+      project_feedback_level: feedback,
+    });
+    mockGet.mockResolvedValue({
+      data: {
+        data: {
+          id: 1,
+          title: 'من الصفر لأول عميل فريلانس',
+          is_coming_soon: false,
+          ratings_count: 0,
+          average_rating: null,
+          published_revision: 1,
+          metadata: {students_count: 2, duration_minutes: 1},
+          access_plans: [
+            plan('basic', 'pass_only'),
+            plan('guided', 'report'),
+            plan('mentor', 'enhanced'),
+          ],
+          modules: [
+            {
+              id: 1,
+              title: 'وحدة',
+              sections: [
+                {id: 1, content_id: 1, title: 'درس', type: 'lesson'},
+              ],
+            },
+          ],
+        },
+      },
+    });
+    await expect(getCourseDetails('1')).resolves.toMatchObject({
+      id: '1',
+      title: 'من الصفر لأول عميل فريلانس',
+      ratingAverage: null,
+      ratingsCount: 0,
+    });
+  });
 });
