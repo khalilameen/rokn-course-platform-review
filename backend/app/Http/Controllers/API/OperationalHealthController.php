@@ -94,6 +94,14 @@ final class OperationalHealthController extends Controller
         'course_authoring_revision_entities',
     ];
 
+    private const LAUNCH_COLUMNS = [
+        'exam_attempts' => [
+            'quiz_title',
+            'quiz_description',
+            'quiz_image',
+        ],
+    ];
+
     public function live(): JsonResponse
     {
         $time = now()->toIso8601String();
@@ -276,7 +284,11 @@ final class OperationalHealthController extends Controller
     {
         try {
             return (bool) Cache::remember(
-                'health:critical-schema:v3',
+                $this->schemaCacheKey(
+                    'critical',
+                    self::CRITICAL_TABLES,
+                    self::CRITICAL_COLUMNS
+                ),
                 60,
                 fn (): bool => $this->scanCriticalSchema()
             );
@@ -312,7 +324,11 @@ final class OperationalHealthController extends Controller
     {
         try {
             return (bool) Cache::remember(
-                'health:launch-schema:v3',
+                $this->schemaCacheKey(
+                    'launch',
+                    self::LAUNCH_TABLES,
+                    self::LAUNCH_COLUMNS
+                ),
                 60,
                 fn (): bool => $this->scanLaunchSchema()
             );
@@ -329,14 +345,21 @@ final class OperationalHealthController extends Controller
             }
         }
 
+        foreach (self::LAUNCH_COLUMNS as $table => $columns) {
+            foreach ($columns as $column) {
+                try {
+                    if (!Schema::hasColumn($table, $column)) {
+                        return false;
+                    }
+                } catch (Throwable) {
+                    return false;
+                }
+            }
+        }
+
         try {
             if (
-                Schema::hasColumns('exam_attempts', [
-                    'quiz_title',
-                    'quiz_description',
-                    'quiz_image',
-                ])
-                && DB::table('exam_attempts as attempt')
+                DB::table('exam_attempts as attempt')
                     ->join('lists as quiz', 'quiz.id', '=', 'attempt.quiz_id')
                     ->whereNull('attempt.quiz_title')
                     ->exists()
@@ -348,6 +371,23 @@ final class OperationalHealthController extends Controller
         }
 
         return true;
+    }
+
+    /**
+     * Schema readiness is cached in shared Redis. Derive the key from the
+     * contract carried by this release so a candidate can never inherit a
+     * positive result written by an older release with fewer requirements.
+     *
+     * @param list<string> $tables
+     * @param array<string, list<string>> $columns
+     */
+    private function schemaCacheKey(string $scope, array $tables, array $columns): string
+    {
+        return sprintf(
+            'health:%s-schema:%s',
+            $scope,
+            substr(hash('sha256', json_encode([$tables, $columns], JSON_THROW_ON_ERROR)), 0, 16)
+        );
     }
 
 }

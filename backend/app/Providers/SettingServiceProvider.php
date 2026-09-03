@@ -6,6 +6,7 @@ use App\Models\Setting;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
+use Throwable;
 
 class SettingServiceProvider extends ServiceProvider
 {
@@ -30,13 +31,36 @@ class SettingServiceProvider extends ServiceProvider
      */
     public function boot()
     {
-        if (!\App::runningInConsole() && count(Schema::getColumnListing('settings'))) {
+        if (\App::runningInConsole()) {
+            return;
+        }
+
+        // Liveness must prove that the PHP process can answer without first
+        // depending on MySQL. Otherwise a database restart or a release
+        // migration prevents the platform from distinguishing a live process
+        // from one that failed to boot and can amplify a short dependency
+        // interruption into repeated instance replacement.
+        if (request()->is('api/health/live')) {
+            return;
+        }
+
+        try {
+            if (!Schema::hasTable('settings')) {
+                return;
+            }
+
             $setting = Setting::first();
             if ($setting) {
                 foreach ($setting->toArray() as $key => $value) {
                     Config::set('settings.'.$key, $value);
                 }
             }
+        } catch (Throwable $exception) {
+            // Readiness performs its own database check and will return a
+            // structured 503. Do not turn service-provider bootstrap into an
+            // earlier unobservable 500, especially while a candidate release
+            // is being probed before it receives traffic.
+            report($exception);
         }
     }
 }
