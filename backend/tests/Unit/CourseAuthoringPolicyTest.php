@@ -70,4 +70,27 @@ final class CourseAuthoringPolicyTest extends TestCase
             self::assertStringNotContainsString('tokens_number', $project);
         }
     }
+
+    public function test_ai_runtime_never_reads_legacy_moderator_model_fields(): void
+    {
+        $sources = [
+            file_get_contents(dirname(__DIR__, 2).'/app/Http/Controllers/API/CourseChatController.php'),
+            file_get_contents(dirname(__DIR__, 2).'/app/Jobs/GenerateProjectFeedback.php'),
+            file_get_contents(dirname(__DIR__, 2).'/app/Jobs/GenerateProjectFeedbackReply.php'),
+        ];
+
+        foreach ($sources as $source) {
+            self::assertNotFalse($source);
+            self::assertStringNotContainsString("['model_override']", $source);
+        }
+
+        self::assertStringContainsString(
+            'currentLearnerEntityMap(',
+            (string) $sources[1]
+        );
+        self::assertStringContainsString(
+            'currentLearnerEntityMap(',
+            (string) $sources[2]
+        );
+    }
 }

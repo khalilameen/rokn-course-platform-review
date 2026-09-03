@@ -19,6 +19,7 @@ use App\Models\AiInputAttachment;
 use App\Models\User;
 use App\Services\CourseAccessPlanService;
 use App\Services\CourseChatAccessService;
+use App\Services\CourseStagedAuthoringService;
 use App\Services\OpenRouterService;
 use App\Services\ProjectFeedbackThreadService;
 use App\Services\PaidAiCallExecutionService;
@@ -70,7 +71,8 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
         AiInputAttachmentService $attachments,
         PaidAiCallExecutionService $paidCalls,
         AiStreamCheckpointService $streamCheckpoints,
-        AiPromptPolicy $promptPolicy
+        AiPromptPolicy $promptPolicy,
+        CourseStagedAuthoringService $stagedAuthoring
     ): void {
         $submission = ProjectSubmission::with('project')->find($this->submissionId);
         if (!$submission || $submission->review_status !== ProjectSubmission::STATUS_PASSED) return;
@@ -82,10 +84,16 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
         }
 
         $evaluationSnapshot = ProjectSubmissionEvaluationSnapshot::fromSubmission($submission);
+        $publishedProjectId = $evaluationSnapshot
+            ? null
+            : ($stagedAuthoring->currentLearnerEntityMap(
+                Project::class,
+                [(int) $submission->project_id]
+            )[(int) $submission->project_id] ?? (int) $submission->project_id);
         $section = $evaluationSnapshot ? null : CourseSection::query()
                 ->where('sectionable_type', Project::class)
-                ->where('sectionable_id', $submission->project_id)
-                ->with('course')
+                ->where('sectionable_id', $publishedProjectId)
+                ->with(['course', 'sectionable'])
                 ->first();
         $courseId = $evaluationSnapshot
             ? (int) $evaluationSnapshot['course_id']
@@ -93,7 +101,7 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
         $course = $evaluationSnapshot
             ? Course::query()->find($courseId)
             : $section?->course;
-        if (!$course || $courseId <= 0) {
+        if (!$course || $courseId <= 0 || (!$evaluationSnapshot && !$section?->sectionable)) {
             $this->markUnavailable($submission->id, 'project_context_missing');
             return;
         }
@@ -125,15 +133,17 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
         }
         // Rows created before evaluation snapshots keep their old behavior,
         // but every new row reads only the immutable project policy below.
-        $projectPolicy = $evaluationSnapshot
-            ? (array) $evaluationSnapshot['project']
-            : (array) ProjectSubmissionEvaluationSnapshot::capture(
-                $submission->project,
+        $legacySnapshot = $evaluationSnapshot ? null : ProjectSubmissionEvaluationSnapshot::capture(
+                $section?->sectionable,
                 $section,
                 $enrollment,
                 $currentTerms
-            )['project'];
-        $snapshotFingerprint = (string) ($evaluationSnapshot['fingerprint'] ?? 'legacy-current-context');
+            );
+        $projectPolicy = (array) ($evaluationSnapshot['project'] ?? $legacySnapshot['project']);
+        $snapshotFingerprint = (string) (
+            $evaluationSnapshot['fingerprint']
+            ?? $legacySnapshot['fingerprint']
+        );
 
         $metadata = is_array($submission->submission_metadata) ? $submission->submission_metadata : [];
         // A worker may die after marking the submission as processing. Let the
@@ -213,7 +223,7 @@ final class GenerateProjectFeedback implements ShouldQueue, ShouldBeUnique
         if (!$claimed) return;
 
         $allowed = array_values(array_filter(config('openrouter.allowed_models', [])));
-        $model = trim((string) (($evaluationTerms['model_override'] ?? null) ?: config('openrouter.default_model')));
+        $model = trim((string) config('openrouter.default_model'));
         if (!in_array($model, $allowed, true)) $model = (string) config('openrouter.default_model');
         $maxTokens = min(
             (int) config('openrouter.max_tokens', 500),

@@ -742,7 +742,10 @@ final class CourseChatController extends Controller
                     ))
                 )
                 : [];
-            $model = $this->resolveModel($planTerms['model_override'] ?? null);
+            // Provider routing is an operations policy. An immutable purchase
+            // receipt may grant chat capacity, but must never carry an old
+            // moderator-selected model into a learner request.
+            $model = $this->resolveModel();
         } catch (\Throwable $exception) {
             report($exception);
             $closed = $this->turns->failBeforeDispatch(
@@ -1166,18 +1169,13 @@ final class CourseChatController extends Controller
         return max(1, (int) ceil($now->diffInSeconds($nextDay, true)));
     }
 
-    private function resolveModel(?string $planOverride = null): string
+    private function resolveModel(): string
     {
         $default = trim((string) config('openrouter.default_model'));
-        $requested = trim((string) $planOverride);
         $allowed = array_values(array_filter(config('openrouter.allowed_models', [])));
 
         if ($allowed === [] || !in_array($default, $allowed, true)) {
             throw new \RuntimeException('AI model allowlist is not configured safely.');
-        }
-
-        if ($requested !== '' && in_array($requested, $allowed, true)) {
-            return $requested;
         }
 
         return $default;

@@ -9,9 +9,12 @@ use App\Exceptions\AiProviderUnavailableException;
 use App\Models\AiUsageEvent;
 use App\Models\ProjectFeedbackMessage;
 use App\Models\ProjectFeedbackThread;
+use App\Models\CourseSection;
+use App\Models\Project;
 use App\Services\AiEntitlementBudgetService;
 use App\Services\CourseAccessPlanService;
 use App\Services\CourseChatAccessService;
+use App\Services\CourseStagedAuthoringService;
 use App\Services\OpenRouterService;
 use App\Services\PaidAiCallExecutionService;
 use App\Services\AiInputAttachmentService;
@@ -66,7 +69,8 @@ final class GenerateProjectFeedbackReply implements ShouldQueue, ShouldBeUniqueU
         PaidAiCallExecutionService $paidCalls,
         AiInputAttachmentService $attachments,
         AiStreamCheckpointService $streamCheckpoints,
-        AiPromptPolicy $promptPolicy
+        AiPromptPolicy $promptPolicy,
+        CourseStagedAuthoringService $stagedAuthoring
     ): void {
         $message = ProjectFeedbackMessage::query()
             ->with(['thread.enrollment', 'thread.project', 'thread.submission'])
@@ -192,14 +196,32 @@ final class GenerateProjectFeedbackReply implements ShouldQueue, ShouldBeUniqueU
         // draft a moderator happens to be editing when the queue runs. New
         // submissions carry an immutable project policy; current project data
         // is retained only for rows created before snapshots existed.
-        $projectPolicy = $evaluationSnapshot
-            ? (array) $evaluationSnapshot['project']
-            : [
-                'updated_at' => $thread->project?->updated_at?->toIso8601String(),
-                'requirements_text' => (string) $thread->project?->requirements_text,
-            ];
+        $publishedSection = null;
+        if (!$evaluationSnapshot) {
+            $historicalProjectId = (int) $thread->project_id;
+            $publishedProjectId = $stagedAuthoring->currentLearnerEntityMap(
+                Project::class,
+                [$historicalProjectId]
+            )[$historicalProjectId] ?? $historicalProjectId;
+            $publishedSection = CourseSection::query()
+                ->where('sectionable_type', Project::class)
+                ->where('sectionable_id', $publishedProjectId)
+                ->with(['course', 'sectionable'])
+                ->first();
+            if (!$publishedSection?->sectionable || !$publishedSection?->course) {
+                $this->markFailed($this->messageId, 'project_context_missing');
+                return;
+            }
+        }
+        $legacySnapshot = $evaluationSnapshot ? null : ProjectSubmissionEvaluationSnapshot::capture(
+                $publishedSection->sectionable,
+                $publishedSection,
+                $enrollment,
+                $terms
+            );
+        $projectPolicy = (array) ($evaluationSnapshot['project'] ?? $legacySnapshot['project']);
         $allowed = array_values(array_filter(config('openrouter.allowed_models', [])));
-        $model = trim((string) (($terms['model_override'] ?? null) ?: config('openrouter.default_model')));
+        $model = trim((string) config('openrouter.default_model'));
         if (!in_array($model, $allowed, true)) $model = (string) config('openrouter.default_model');
         $maxTokens = max(80, min(
             (int) config('openrouter.max_tokens', 500),
@@ -217,14 +239,20 @@ final class GenerateProjectFeedbackReply implements ShouldQueue, ShouldBeUniqueU
         $courseTitle = UnicodeText::limit(UnicodeText::clean((string) (
             data_get($evaluationSnapshot, 'course.title_ar')
             ?: data_get($evaluationSnapshot, 'course.title_en')
+            ?: $publishedSection?->course?->name_ar
+            ?: $publishedSection?->course?->name_en
         )), 240);
         $projectTitle = UnicodeText::limit(UnicodeText::clean((string) (
             ($projectPolicy['title_ar'] ?? null)
             ?: ($projectPolicy['title_en'] ?? null)
             ?: ($projectPolicy['title'] ?? null)
+            ?: $publishedSection?->title
         )), 240);
         $promptVersion = $promptPolicy->version('project-followup', [
-            'snapshot' => (string) ($evaluationSnapshot['fingerprint'] ?? ($projectPolicy['updated_at'] ?? 'legacy-current-context')),
+            'snapshot' => (string) (
+                $evaluationSnapshot['fingerprint']
+                ?? $legacySnapshot['fingerprint']
+            ),
             'requirements' => $requirements,
             'feedback_level' => (string) $contract['project_feedback_level'],
             'course_title' => $courseTitle,
