@@ -154,7 +154,14 @@ final class OpenRouterService
                     ),
                 ])
                 ->connectTimeout(max(1, (int) config('openrouter.connect_timeout_seconds', 5)))
-                ->timeout((int) config('openrouter.timeout_seconds', 20));
+                // The ai-chat job owns the slow call and still needs a full
+                // landing window after the stream closes. Cap accidental env
+                // overrides so the HTTP client can never outlive that worker
+                // contract and strand a paid answer between provider and DB.
+                ->timeout(max(5, min(
+                    50,
+                    (int) config('openrouter.timeout_seconds', 45)
+                )));
             if ($onPartial !== null) {
                 // Guzzle returns after the response headers and exposes the
                 // provider body as a PSR stream. The API key never crosses the

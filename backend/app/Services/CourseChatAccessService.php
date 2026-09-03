@@ -114,7 +114,13 @@ final class CourseChatAccessService
                     : !$hasPlanReference),
             'plan_code' => $terms['code'] ?? $plan?->code,
             'plan_name' => $terms['name_ar'] ?? $plan?->name_ar,
-            'chat_message_limit' => $terms ? (int) ($terms['chat_message_limit'] ?? 0) : null,
+            // A scholarship/free enrollment may retain the same immutable
+            // plan-shaped receipt for audit purposes, but it has no variable-
+            // cost entitlement. Never expose a paid message allowance beside
+            // chat_available=false.
+            'chat_message_limit' => $hasChatAccess && $variableCostAllowed
+                ? (int) ($publicTerms['chat_message_limit'] ?? 0)
+                : 0,
             'project_feedback_level' => $variableCostAllowed
                 ? ($publicTerms['project_feedback_level'] ?? 'pass_only')
                 : 'pass_only',

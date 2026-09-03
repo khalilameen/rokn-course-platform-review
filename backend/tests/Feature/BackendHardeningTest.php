@@ -1059,6 +1059,7 @@ final class BackendHardeningTest extends TestCase
         self::assertSame('scholarship', $grantPayload['access_type']);
         self::assertFalse($grantPayload['chat_available']);
         self::assertFalse($grantPayload['metadata']['chat_available']);
+        self::assertSame(0, $access['chat_message_limit']);
 
         $paidOrder = $this->order($user, $course, Order::PAYMENT_METHOD_WALLET_COINS, 4000, 4000);
         $plan = $this->paidPlanTerms($course);
@@ -1071,6 +1072,7 @@ final class BackendHardeningTest extends TestCase
         $paidAccess = app(CourseChatAccessService::class)->entitlementFor($user->id, $course->id);
         self::assertSame('paid', $paidAccess['access_type']);
         self::assertTrue($paidAccess['chat_available']);
+        self::assertSame(25, $paidAccess['chat_message_limit']);
 
         $course->update(['ai_chat_enabled' => false]);
         $disabledAccess = app(CourseChatAccessService::class)->entitlementFor($user->id, $course->id);
@@ -1094,6 +1096,7 @@ final class BackendHardeningTest extends TestCase
         $freeAccess = app(CourseChatAccessService::class)->entitlementFor($freeUser->id, $freeCourse->id);
         self::assertSame('free', $freeAccess['access_type']);
         self::assertFalse($freeAccess['chat_available']);
+        self::assertSame(0, $freeAccess['chat_message_limit']);
     }
 
     public function test_global_ai_policy_rewrites_the_complete_offer_contract_atomically(): void

@@ -42,7 +42,11 @@ final class GenerateCourseChatReply implements ShouldQueue, ShouldBeUnique
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
-    public int $timeout = 55;
+    // Provider streaming may consume the configured 45-second HTTP budget.
+    // Keep real headroom for attachment preparation and durable landing after
+    // the last byte; otherwise the worker can kill a valid paid answer before
+    // it is presented and leave the client polling an unknown outcome.
+    public int $timeout = 80;
     public int $uniqueFor = 1200;
     public bool $failOnTimeout = true;
     public string $executionId;

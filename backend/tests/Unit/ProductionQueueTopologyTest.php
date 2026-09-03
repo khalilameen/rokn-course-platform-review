@@ -5,11 +5,41 @@ declare(strict_types=1);
 namespace Tests\Unit;
 
 use App\Jobs\DeliverOutboxEvent;
+use App\Jobs\GenerateCourseChatReply;
 use Dotenv\Dotenv;
 use Tests\TestCase;
 
 final class ProductionQueueTopologyTest extends TestCase
 {
+    public function test_ai_chat_worker_keeps_landing_headroom_after_provider_timeout(): void
+    {
+        config()->set('openrouter.timeout_seconds', 45);
+        $job = new GenerateCourseChatReply(
+            1,
+            1,
+            500,
+            'answer-key',
+            'openai/gpt-5-mini',
+            [['role' => 'user', 'content' => 'question']],
+            .3,
+            420,
+            [],
+            60
+        );
+
+        self::assertGreaterThanOrEqual(
+            (int) config('openrouter.timeout_seconds', 45) + 30,
+            $job->timeout
+        );
+
+        $runbook = file_get_contents(base_path('PRODUCTION_RUNBOOK.md'));
+        self::assertIsString($runbook);
+        self::assertStringContainsString(
+            '--queue=ai-chat --sleep=1 --tries=3 --timeout=90',
+            $runbook
+        );
+    }
+
     public function test_outbox_queue_has_a_dedicated_worker_contract(): void
     {
         self::assertSame('webhooks', config('webhooks.queue'));
