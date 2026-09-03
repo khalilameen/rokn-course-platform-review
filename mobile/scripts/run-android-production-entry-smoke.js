@@ -10,6 +10,7 @@ const {existsSync, mkdtempSync, rmSync} = require('fs');
 const {execFileSync, spawnSync} = require('child_process');
 const {tmpdir} = require('os');
 const path = require('path');
+const {isCourseDuration} = require('./production-entry-contract');
 
 const appId = process.env.ROKN_SMOKE_APP_ID || 'com.rokn';
 const serial = process.env.ANDROID_SERIAL || 'emulator-5554';
@@ -159,7 +160,7 @@ const verifyGuestJourney = async () => {
       node.class === 'android.widget.TextView',
   );
   assertNoPublicBlocker(details.nodes);
-  if (!details.nodes.some(node => /^[٠-٩0-9]+\s+دقيقة$/.test(node.text || ''))) {
+  if (!details.nodes.some(node => isCourseDuration(node.text))) {
     fail('Guest course details did not expose the course duration.');
   }
   if (!details.nodes.some(node => node['content-desc'] === 'خريطة الكورس')) {

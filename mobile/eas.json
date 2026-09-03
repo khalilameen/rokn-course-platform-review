@@ -10,6 +10,8 @@
       "channel": "production",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://8e943a4df919328a657323a1e94a0a1c@o4512022507356160.ingest.de.sentry.io/4512022513582160",
+        "EXPO_PUBLIC_SENTRY_ENVIRONMENT": "production",
         "EXPO_PUBLIC_DISTRIBUTION_CHANNEL": "play",
         "EXPO_PUBLIC_BUILD_PROFILE": "production",
         "EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS": "1",
@@ -32,6 +34,8 @@
       "channel": "production",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://8e943a4df919328a657323a1e94a0a1c@o4512022507356160.ingest.de.sentry.io/4512022513582160",
+        "EXPO_PUBLIC_SENTRY_ENVIRONMENT": "production",
         "EXPO_PUBLIC_DISTRIBUTION_CHANNEL": "appstore",
         "EXPO_PUBLIC_BUILD_PROFILE": "production",
         "EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS": "1",
@@ -46,6 +50,8 @@
       "channel": "production",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://8e943a4df919328a657323a1e94a0a1c@o4512022507356160.ingest.de.sentry.io/4512022513582160",
+        "EXPO_PUBLIC_SENTRY_ENVIRONMENT": "production",
         "EXPO_PUBLIC_DISTRIBUTION_CHANNEL": "direct",
         "EXPO_PUBLIC_BUILD_PROFILE": "production",
         "EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS": "1",
@@ -67,6 +73,8 @@
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://rokn-course-platform-review-production-b7gpy1.laravel.cloud/api/v1/",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://8e943a4df919328a657323a1e94a0a1c@o4512022507356160.ingest.de.sentry.io/4512022513582160",
+        "EXPO_PUBLIC_SENTRY_ENVIRONMENT": "production",
         "EXPO_PUBLIC_DISTRIBUTION_CHANNEL": "direct",
         "EXPO_PUBLIC_BUILD_PROFILE": "test",
         "EXPO_PUBLIC_REQUIRE_FEATURE_FLAGS": "1",
