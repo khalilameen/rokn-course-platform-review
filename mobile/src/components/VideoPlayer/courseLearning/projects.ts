@@ -243,11 +243,10 @@ const openProjectInputAttachmentInternal = async ({
   projectId: string;
   threadId?: string;
   file: import('../types').ChatAttachmentDraft;
-}) => {
+}, boundary: AccountSessionBoundary) => {
   let candidate = file;
   const expiresAt = Date.parse(String(candidate.downloadExpiresAt || ''));
   if (!candidate.downloadUrl || !Number.isFinite(expiresAt) || expiresAt <= Date.now() + 15000) {
-    const boundary = await captureAccountSessionBoundary();
     if (!candidate.serverId) throw new Error('PROJECT_ATTACHMENT_UNAVAILABLE');
     const response = await publicRequest.get(
       `ai-input-attachments/${publicRouteId(candidate.serverId, 'ATTACHMENT')}`,
@@ -261,6 +260,7 @@ const openProjectInputAttachmentInternal = async ({
     };
   }
   if (!candidate.downloadUrl) throw new Error('PROJECT_ATTACHMENT_UNAVAILABLE');
+  assertAccountSessionBoundary(boundary);
   await openExternalUrlOnce(
     candidate.downloadUrl,
     undefined,
@@ -274,22 +274,33 @@ export const openProjectInputAttachment = (input: {
   projectId: string;
   threadId?: string;
   file: import('../types').ChatAttachmentDraft;
-}) => {
+}) => (async () => {
+  const boundary = await captureAccountSessionBoundary();
+  const attachmentIdentity = String(
+    input.file.serverId ||
+      input.file.uploadId ||
+      input.file.downloadUrl ||
+      '',
+  ).trim();
+  if (!attachmentIdentity) {
+    throw new Error('PROJECT_ATTACHMENT_UNAVAILABLE');
+  }
   const key = [
+    boundary.scope,
     input.projectId,
     input.threadId || 'submission',
-    input.file.serverId || input.file.uploadId || input.file.downloadUrl || '',
+    attachmentIdentity,
   ].join(':');
   const existing = projectAttachmentOpenFlights.get(key);
   if (existing) return existing;
-  const flight = openProjectInputAttachmentInternal(input).finally(() => {
+  const flight = openProjectInputAttachmentInternal(input, boundary).finally(() => {
     if (projectAttachmentOpenFlights.get(key) === flight) {
       projectAttachmentOpenFlights.delete(key);
     }
   });
   projectAttachmentOpenFlights.set(key, flight);
   return flight;
-};
+})();
 
 export const sendProjectFeedbackMessage = async (
   threadId: string,

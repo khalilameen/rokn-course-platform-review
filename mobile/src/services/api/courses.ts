@@ -104,10 +104,7 @@ const hasLearningAccess = (course: CourseDto): boolean => {
     .toLowerCase();
   // A public preview is not ownership. Unknown future values also fail closed
   // until this client knows their entitlement semantics.
-  return (
-    LEARNING_ACCESS_TYPES.has(accessType) ||
-    valueAsBoolean(course.enrollment?.is_active)
-  );
+  return LEARNING_ACCESS_TYPES.has(accessType);
 };
 
 type CourseTagDto = {
@@ -1005,8 +1002,7 @@ const mapPublishedCourses = (
         progress: learning?.progress ?? courseProgress(item),
         category: courseCategory(item),
         owned:
-          Boolean(learning) ||
-          (firstBoolean(item.enrollment?.is_active) ?? false),
+          Boolean(learning),
         published: !(firstBoolean(item.is_coming_soon) ?? false),
       };
     });

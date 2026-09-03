@@ -119,6 +119,58 @@ describe('course progression boundaries', () => {
     expect(course?.modules[0].project?.title).toBe('Crossing project');
   });
 
+  it('shows progression projects but never turns a purchase boundary into one', () => {
+    const course = mapCoursePayload({
+      data: {
+        course: {
+          id: 'course-project-boundaries',
+          title: 'Course',
+          modules: [
+            {
+              id: 'module-1',
+              title: 'Module',
+              sections: [
+                {
+                  id: 'lesson-section',
+                  type: 'lesson',
+                  content: {
+                    id: 'lesson-1',
+                    video_url: 'https://cdn.example/lesson.m3u8',
+                  },
+                },
+                {
+                  id: 'progression-project',
+                  content_id: 'project-1',
+                  type: 'project',
+                  title: 'مشروع العبور',
+                  is_locked: true,
+                  lock_reason: 'previous_section_incomplete',
+                },
+                {
+                  id: 'purchase-project',
+                  content_id: 'project-2',
+                  type: 'project',
+                  title: 'ليس مشروعًا متاحًا بعد',
+                  is_locked: true,
+                  lock_reason: 'course_purchase_required',
+                },
+              ],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(course?.modules[0].projects).toEqual([
+      expect.objectContaining({
+        sectionId: 'progression-project',
+        title: 'مشروع العبور',
+        isLocked: true,
+        lockReason: 'previous_section_incomplete',
+      }),
+    ]);
+  });
+
   it('maps course quizzes as visible progression gates', () => {
     const course = mapCoursePayload({
       data: {

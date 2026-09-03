@@ -271,7 +271,9 @@ describe('commerce API contracts', () => {
           published_revision: 1,
           metadata: {students_count: 0, duration_minutes: 1},
           access_type: 'preview',
-          enrollment: {is_active: false},
+          // A stale compatibility enrollment must never override the
+          // authoritative access snapshot returned by the course read API.
+          enrollment: {is_active: true},
           access_plans: [
             {
               code: 'basic',

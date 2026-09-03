@@ -234,8 +234,13 @@ const mapProject = (
   const lockReason = valueAsString(section?.lock_reason).trim();
   const isLocked = valueAsBoolean(section?.is_locked);
   // Public outlines deliberately omit project content. Keeping a fabricated
-  // project here turned the purchase boundary into a submission gate.
-  if (lockReason === 'course_purchase_required' || (!Object.keys(content).length && !isLocked)) {
+  // project there turns the purchase boundary into a submission gate. A real
+  // progression-locked project remains visible in the course map, however;
+  // its requirements arrive only after the preceding step is complete.
+  if (
+    lockReason === 'course_purchase_required' ||
+    (!Object.keys(content).length && !isLocked)
+  ) {
     return undefined;
   }
   const evaluation =

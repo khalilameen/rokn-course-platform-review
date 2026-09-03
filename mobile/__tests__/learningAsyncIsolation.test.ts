@@ -96,6 +96,10 @@ describe('learning async ownership contracts', () => {
     expect(projects).toContain(
       'projectSubmissionFlights.get(flightKey) === flight',
     );
+    expect(projects).toContain('boundary.scope,');
+    expect(projects).toMatch(
+      /openProjectInputAttachmentInternal\(input, boundary\)/,
+    );
 
     expect(playback).toContain('updatePlayerStateForScope(');
     expect(playback).toContain('assertCompletionOwner(generation, boundary);');
@@ -105,6 +109,25 @@ describe('learning async ownership contracts', () => {
     expect(playback).toContain('assertPlaybackRuntime(generation);');
     expect(playback).toContain(
       'sectionCompletionFlights.get(flightKey) === flight',
+    );
+  });
+
+  it('bounds a slow streaming chat without abandoning its immutable turn', () => {
+    const chat = source(
+      'src/components/VideoPlayer/courseChat/useCourseChat.ts',
+    );
+
+    expect(chat).toContain('FOREGROUND_TURN_TOTAL_POLL_ATTEMPTS');
+    expect(chat).toContain(
+      'totalRecoveryAttempts < FOREGROUND_TURN_TOTAL_POLL_ATTEMPTS',
+    );
+    expect(chat).toContain('totalRecoveryAttempts += 1');
+    expect(chat).toContain('resumeInterruptedTurnRef.current = true');
+
+    const project = source('src/components/VideoPlayer/ProjectTransition.tsx');
+    expect(project).toContain('const maximumPollingAttempts = 30');
+    expect(project).toContain(
+      'pollingAttempts < maximumPollingAttempts',
     );
   });
 

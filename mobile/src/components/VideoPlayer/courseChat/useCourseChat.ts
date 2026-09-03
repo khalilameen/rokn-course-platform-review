@@ -42,6 +42,9 @@ const MAX_IN_MEMORY_MESSAGES = 37;
 // Keep the foreground wait short. Slow accepted turns remain pending and are
 // resumed with the same request id when the chat stays open or is reopened.
 const FOREGROUND_TURN_POLL_ATTEMPTS = 8;
+// Streaming progress may reset the backoff, but it must not keep one screen
+// awake forever when a provider trickles partial text without completing.
+const FOREGROUND_TURN_TOTAL_POLL_ATTEMPTS = 16;
 
 const welcomeMessage = (courseId: string): ChatMessage => ({
   id: `welcome-${courseId}`,
@@ -545,10 +548,12 @@ export const useCourseChat = ({
       }
 
       let recoveryAttempts = 0;
+      let totalRecoveryAttempts = 0;
       let observedPartialLength = 0;
       while (
         response.code === 'chat_answer_in_progress' &&
         recoveryAttempts < FOREGROUND_TURN_POLL_ATTEMPTS &&
+        totalRecoveryAttempts < FOREGROUND_TURN_TOTAL_POLL_ATTEMPTS &&
         visibleRef.current &&
         sendGeneration === sendGenerationRef.current &&
         conversationGeneration === conversationGenerationRef.current
@@ -577,6 +582,7 @@ export const useCourseChat = ({
         const waitMs = Math.round(backoffMs * (0.85 + (jitterSeed % 31) / 100));
         await new Promise<void>(resolve => setTimeout(resolve, waitMs));
         recoveryAttempts += 1;
+        totalRecoveryAttempts += 1;
         if (
           !visibleRef.current ||
           sendGeneration !== sendGenerationRef.current ||

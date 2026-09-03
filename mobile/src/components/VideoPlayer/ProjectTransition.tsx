@@ -397,6 +397,7 @@ const ProjectTransition = ({
     let timer: ReturnType<typeof setTimeout> | undefined;
     let missingAttempts = 0;
     let pollingAttempts = 0;
+    const maximumPollingAttempts = 30;
     const scheduleRefresh = (minimumMs: number) => {
       pollingAttempts += 1;
       const backoffMs = Math.min(
@@ -430,11 +431,18 @@ const ProjectTransition = ({
         const waiting = next?.messages.some(message =>
           ['queued', 'sent', 'streaming'].includes(message.status),
         );
-        if (waiting || (!next && missingAttempts < 30)) {
+        if (
+          pollingAttempts < maximumPollingAttempts &&
+          (waiting || (!next && missingAttempts < maximumPollingAttempts))
+        ) {
           scheduleRefresh(2200);
         }
       } catch {
-        if (!cancelled && feedbackThread?.id) {
+        if (
+          !cancelled &&
+          feedbackThread?.id &&
+          pollingAttempts < maximumPollingAttempts
+        ) {
           scheduleRefresh(3500);
         }
       }
