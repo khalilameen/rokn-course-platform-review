@@ -74,6 +74,7 @@ import {
 } from '../constants/helpers';
 import {useSelector} from 'react-redux';
 import type {RootState} from '../store/store';
+import {includesCourseAssistant} from '../components/VideoPlayer/courseEntitlements';
 
 const Reels = () => {
   const route = useRoute();
@@ -147,9 +148,13 @@ const Reels = () => {
 
   useEffect(() => {
     if (!isScreenFocused || !course || params.openCourseChatUpgrade !== true) return;
-    setChatVisible(true);
+    if (includesCourseAssistant(course)) setChatVisible(true);
     navigation.setParams({openCourseChatUpgrade: false});
   }, [course, isScreenFocused, navigation, params.openCourseChatUpgrade]);
+
+  useEffect(() => {
+    if (course && !includesCourseAssistant(course)) setChatVisible(false);
+  }, [course]);
   const [contentOverlayVisible, setContentOverlayVisible] = useState(false);
   const contentOverlayScopesRef = useRef(new Set<string>());
   const handleContentOverlayVisibility = useCallback(
@@ -1048,12 +1053,14 @@ const Reels = () => {
               topInset={insets.top}
             />
           )}
-          <CourseChatOverlay
-            visible={chatVisible}
-            course={course}
-            reel={currentReel}
-            onClose={() => setChatVisible(false)}
-          />
+          {includesCourseAssistant(course) && (
+            <CourseChatOverlay
+              visible={chatVisible}
+              course={course}
+              reel={currentReel}
+              onClose={() => setChatVisible(false)}
+            />
+          )}
           <NotificationPermissionPrimer
             onClose={closeReminderNudge}
             onEnable={enableRemindersFromNudge}

@@ -38,6 +38,7 @@ import {
 } from './attachmentPrompt';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {useReducedMotion} from '../../hooks/useReducedMotion';
+import {includesCourseAssistant} from './courseEntitlements';
 
 interface FeedSideBarProps {
   course: CourseLearningData;
@@ -544,9 +545,11 @@ const FeedSideBar = ({
           compact && styles.containerCompact,
           {bottom: (compact ? 42 : 56) + bottomInset},
         ]}>
-        <ActionButton label="اسأل" compact={compact} onPress={onOpenChat}>
-          <ChatIcon />
-        </ActionButton>
+        {includesCourseAssistant(course) && (
+          <ActionButton label="اسأل" compact={compact} onPress={onOpenChat}>
+            <ChatIcon />
+          </ActionButton>
+        )}
         <ActionButton
           label={savePending ? 'جارٍ الحفظ' : isSaved ? 'محفوظ' : 'احفظ'}
           active={isSaved}

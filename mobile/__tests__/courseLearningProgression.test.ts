@@ -323,6 +323,56 @@ describe('course progression boundaries', () => {
     expect(buildAccessibleFeed(course!)).toHaveLength(2);
   });
 
+  it('does not expose project AI output when the enrolled plan did not grant it', () => {
+    const course = mapCoursePayload({
+      data: {
+        access_type: 'free',
+        chat_available: false,
+        course: {
+          id: 'free-course',
+          title: 'Free course',
+          modules: [{
+            id: 'module-1',
+            title: 'Module',
+            sections: [
+              {
+                id: 'lesson-section',
+                type: 'lesson',
+                content: {id: 'lesson-1', video_url: 'https://cdn.example/1.m3u8'},
+              },
+              {
+                id: 'project-section',
+                type: 'project',
+                content: {
+                  id: 'project-1',
+                  project_feedback: {
+                    level: 'pass_only',
+                    report_enabled: false,
+                    output_enabled: false,
+                  },
+                  feedback_thread: {
+                    id: 'thread-that-must-not-leak',
+                    feedback_level: 'report',
+                    can_reply: true,
+                    messages: [],
+                  },
+                },
+              },
+            ],
+          }],
+        },
+      },
+    });
+
+    expect(course?.chatAvailable).toBe(false);
+    expect(course?.modules[0].project).toMatchObject({
+      feedbackLevel: 'pass_only',
+      outputEnabled: false,
+      reportEnabled: false,
+      feedbackThread: undefined,
+    });
+  });
+
   it('never unlocks the next module for a reviewing project', () => {
     const course = progressionFixture();
     const next = unlockAfterProject(course, 'project-1', 'reviewing');

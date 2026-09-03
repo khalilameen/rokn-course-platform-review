@@ -297,8 +297,12 @@ const mapProject = (
     rawProjectFeedback.level,
     'pass_only',
   );
+  const reportEnabled = valueAsBoolean(rawProjectFeedback.report_enabled);
   const feedbackThread =
-    rawThread.id && ['report', 'enhanced'].includes(feedbackLevel)
+    reportEnabled &&
+    ['report', 'enhanced'].includes(projectFeedbackLevel) &&
+    rawThread.id &&
+    ['report', 'enhanced'].includes(feedbackLevel)
       ? {
           id: valueAsString(rawThread.id),
           feedbackLevel: feedbackLevel as 'report' | 'enhanced',
@@ -383,7 +387,7 @@ const mapProject = (
       ? (projectFeedbackLevel as 'report' | 'enhanced')
       : 'pass_only',
     outputEnabled: valueAsBoolean(rawProjectFeedback.output_enabled),
-    reportEnabled: valueAsBoolean(rawProjectFeedback.report_enabled),
+    reportEnabled,
     feedbackThread,
     submissionMaxFiles: Math.min(5, Math.max(1, Number(content?.submission_max_files) || 3)),
     submissionAllowedMimeTypes: asArray<string>(content?.submission_allowed_mime_types)
