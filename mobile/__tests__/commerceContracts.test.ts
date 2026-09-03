@@ -175,6 +175,8 @@ describe('commerce API contracts', () => {
               title: 'وحدة',
               sections: [
                 {id: 1, content_id: 1, title: 'درس', type: 'lesson'},
+                {id: 2, project_id: 20, title: 'مشروع أول', type: 'project'},
+                {id: 3, project_id: 21, title: 'مشروع ثان', type: 'project'},
               ],
             },
           ],
@@ -234,6 +236,13 @@ describe('commerce API contracts', () => {
       }),
     );
     expect(details.owned).toBe(true);
+    expect(details.modules[0]).toMatchObject({
+      projectCount: 2,
+      items: expect.arrayContaining([
+        expect.objectContaining({id: '2', type: 'project'}),
+        expect.objectContaining({id: '3', type: 'project'}),
+      ]),
+    });
     expect(details.accessPlans.map(plan => plan.code)).toEqual([
       'basic',
       'guided',

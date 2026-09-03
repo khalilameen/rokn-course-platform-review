@@ -497,7 +497,6 @@ const hasValidCourseModuleContract = (rawModules: unknown): boolean => {
       return false;
     }
 
-    let projectCount = 0;
     return rawModule.sections.every(rawSection => {
       if (!isApiRecord(rawSection)) return false;
       const type = String(
@@ -506,8 +505,6 @@ const hasValidCourseModuleContract = (rawModules: unknown): boolean => {
       if (!['lesson', 'video', 'reel', 'quiz', 'project'].includes(type)) {
         return false;
       }
-      if (type === 'project' && ++projectCount > 1) return false;
-
       const sectionId = stableCourseContentId(rawSection.id);
       if (
         !sectionId ||
