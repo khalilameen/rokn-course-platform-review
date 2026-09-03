@@ -23,6 +23,9 @@ final class EngagementExperienceTest extends TestCase
     {
         parent::setUp();
         Queue::fake([SendUserPushNotification::class, SendWhatsAppMessage::class]);
+        // The production task is intentionally hidden when its integration is
+        // disabled. This suite exercises the enabled integration contract.
+        config()->set('whatsapp.enabled', true);
         config()->set('whatsapp.linking.bot_phone', '201001234567');
         config()->set('whatsapp.linking.webhook_secret', 'engagement-test-webhook-secret');
         config()->set('whatsapp.whatspie.api_key', '');

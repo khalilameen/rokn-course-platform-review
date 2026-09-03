@@ -458,7 +458,7 @@ final class NotificationCertificateWorkflowTest extends TestCase
         config()->set('certificate.font_bold', resource_path('fonts/Cairo.ttf'));
 
         $user = $this->user('certificate@example.com');
-        $user->forceFill(['portfolio_slug' => 'certificate-student'])->save();
+        $portfolioSlug = app(\App\Services\PortfolioShareIdentityService::class)->ensure($user);
         $course = $this->course();
         $course->forceFill(['certificate_text_template_key' => 'projects'])->save();
         DB::table('course_enrollments')->insert([
@@ -498,7 +498,7 @@ final class NotificationCertificateWorkflowTest extends TestCase
         );
 
         $verification = app(PublicPortfolioService::class)->find(
-            'certificate-student',
+            $portfolioSlug,
             (string) $certificate->public_id
         );
         self::assertNotNull($verification);

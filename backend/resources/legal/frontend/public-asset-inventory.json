@@ -120,6 +120,11 @@
       "classification": "first_party"
     },
     {
+      "path": "public/admin/assets/css/course-student-preview.css",
+      "sha256": "66d598de10b821c2c9f3e64dd920184464c9152a93de8b14269cc02df0527282",
+      "classification": "first_party"
+    },
+    {
       "path": "public/admin/assets/css/course-studio.css",
       "sha256": "ce00ceeba583b50a90bca0e9c313e16d3b0c49e9824347bd5e0a46b8179c6e62",
       "classification": "first_party"

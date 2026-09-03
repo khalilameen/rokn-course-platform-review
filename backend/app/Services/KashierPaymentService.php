@@ -1042,20 +1042,6 @@ final readonly class KashierPaymentService
                 return $order->fresh(['user', 'package']);
             }
 
-            $this->assertGatewayPaymentMatchesOrder($order, $gatewayResponse);
-
-            if (
-                $transactionId
-                && Order::query()
-                    ->where('transaction_id', $transactionId)
-                    ->whereKeyNot($order->id)
-                    ->exists()
-            ) {
-                throw new \RuntimeException('Kashier transaction was already assigned to another order.');
-            }
-
-            $lateCapture = $order->status !== Order::STATUS_PENDING
-                || $order->isCheckoutExpired();
             if (!in_array($order->status, [
                 Order::STATUS_PENDING,
                 Order::STATUS_CANCELLED,
@@ -1064,6 +1050,10 @@ final readonly class KashierPaymentService
                 throw new \RuntimeException('Kashier capture targets an unsupported order state.');
             }
 
+            // A capture without a provider transaction identifier can never
+            // be fulfilled. Quarantine it before parsing optional amount and
+            // currency fields: sparse provider/webhook responses are valid
+            // evidence for reconciliation, but never evidence for crediting.
             if ($transactionId === null) {
                 $order->update([
                     'financial_status' => Order::FINANCIAL_REVIEW_REQUIRED,
@@ -1079,6 +1069,21 @@ final readonly class KashierPaymentService
 
                 return $order->fresh(['user', 'package']);
             }
+
+            $this->assertGatewayPaymentMatchesOrder($order, $gatewayResponse);
+
+            if (
+                $transactionId
+                && Order::query()
+                    ->where('transaction_id', $transactionId)
+                    ->whereKeyNot($order->id)
+                    ->exists()
+            ) {
+                throw new \RuntimeException('Kashier transaction was already assigned to another order.');
+            }
+
+            $lateCapture = $order->status !== Order::STATUS_PENDING
+                || $order->isCheckoutExpired();
 
             if ($lockedUser->trashed()) {
                 $order->update(array_merge([

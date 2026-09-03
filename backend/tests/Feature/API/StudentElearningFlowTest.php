@@ -6,11 +6,13 @@ namespace Tests\Feature\API;
 
 use App\Models\User;
 use App\Models\Lesson;
+use App\Models\PlaybackSession;
 use App\Services\LearningEvidenceService;
 use App\Services\InternalSignalService;
 use App\Services\InternalSignalHandler;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 
 /**
  * End-to-end Feature flow test simulating a realistic student journey in the Rokn e-learning platform.
@@ -244,10 +246,23 @@ class StudentElearningFlowTest extends ApiTestCase
             'sectionable_id' => 10,
             'section_type' => 'lesson',
         ]);
+        $playbackSession = PlaybackSession::query()->create([
+            'id' => (string) Str::uuid(),
+            'user_id' => $student->id,
+            'lesson_id' => 10,
+            'course_section_id' => $this->sectionId,
+            'started_at' => now(),
+            'event_type' => 'play',
+            'source_protocol' => 'hls',
+            'source_host' => 'video.test',
+        ]);
         $this->actingAs($student, 'api')->postJson('/api/v1/user/watch-history', [
             'lesson_id' => 10,
             'position_seconds' => 0,
             'duration_seconds' => 60,
+            'playback_session_id' => $playbackSession->id,
+            'sequence' => 1,
+            'event_type' => 'start',
         ])->assertOk();
         // Production heartbeats are intentionally bounded to short gaps.
         // Reproduce a real player cadence instead of one synthetic 48-second
@@ -257,12 +272,18 @@ class StudentElearningFlowTest extends ApiTestCase
             'lesson_id' => 10,
             'position_seconds' => 24,
             'duration_seconds' => 60,
+            'playback_session_id' => $playbackSession->id,
+            'sequence' => 2,
+            'event_type' => 'heartbeat',
         ])->assertOk();
         $this->travel(24)->seconds();
         $this->actingAs($student, 'api')->postJson('/api/v1/user/watch-history', [
             'lesson_id' => 10,
             'position_seconds' => 48,
             'duration_seconds' => 60,
+            'playback_session_id' => $playbackSession->id,
+            'sequence' => 3,
+            'event_type' => 'heartbeat',
         ])->assertOk();
 
         // The completion endpoint now validates that evidence rather than a

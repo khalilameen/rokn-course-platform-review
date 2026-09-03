@@ -43,10 +43,17 @@ final readonly class LatestWatchResumeService
             Lesson::class,
             $currentLessonSections->pluck('sectionable_id')
         );
-        $lessonAliasToCurrent = collect($lessonAliases)->flatMap(
-            fn (array $aliases, int $currentId) => collect($aliases)
-                ->mapWithKeys(fn (int $alias): array => [$alias => $currentId])
-        );
+        // Collection::flatMap() reindexes numeric keys while collapsing its
+        // children. Lesson IDs are numeric, so using it here silently turned
+        // {historical lesson id => current lesson id} into {0,1,... => id}
+        // and could resume the neighbouring reel. Build the identity map
+        // explicitly so database IDs remain keys.
+        $lessonAliasToCurrent = collect();
+        foreach ($lessonAliases as $currentId => $aliases) {
+            foreach ($aliases as $alias) {
+                $lessonAliasToCurrent->put((int) $alias, (int) $currentId);
+            }
+        }
         if ($lessonAliasToCurrent->isEmpty()) return collect();
         $currentSectionByLesson = $currentLessonSections->pluck('id', 'sectionable_id');
 

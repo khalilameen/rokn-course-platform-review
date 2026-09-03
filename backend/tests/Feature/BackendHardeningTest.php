@@ -12,6 +12,7 @@ use App\Listeners\AwardLevelBadge;
 use App\Models\Course;
 use App\Models\CourseAccessPlan;
 use App\Models\CourseCode;
+use App\Models\CourseChatTurn;
 use App\Models\AiUsageEvent;
 use App\Models\AiInputAttachment;
 use App\Models\Contact;
@@ -29,6 +30,7 @@ use App\Services\CourseChatTurnService;
 use App\Services\PaidAiCallExecutionService;
 use App\Services\WalletService;
 use App\Support\ProjectSubmissionEvaluationSnapshot;
+use App\Support\AdminEditorVersion;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\UploadedFile;
@@ -848,7 +850,10 @@ final class BackendHardeningTest extends TestCase
         ])->save();
 
         $this->actingAs($admin)
-            ->delete(route('admin.contacts.destroy', $contact))
+            ->from(route('admin.contacts.show', $contact))
+            ->delete(route('admin.contacts.destroy', $contact), [
+                'editor_version' => $this->contactEditorVersion($contact),
+            ])
             ->assertRedirect(route('admin.contacts.show', $contact));
 
         $this->assertDatabaseHas('contacts', [
@@ -873,12 +878,17 @@ final class BackendHardeningTest extends TestCase
         ])->save();
 
         $this->actingAs($admin)
-            ->post(route('admin.contacts.processing', $contact))
+            ->from(route('admin.contacts.show', $contact))
+            ->post(route('admin.contacts.processing', $contact), [
+                'editor_version' => $this->contactEditorVersion($contact),
+            ])
             ->assertRedirect(route('admin.contacts.show', $contact));
         self::assertSame(Contact::RESOLUTION_PROCESSING, $contact->fresh()->resolution_status);
 
         $this->actingAs($admin)
+            ->from(route('admin.contacts.show', $contact))
             ->post(route('admin.contacts.close-deletion-request', $contact), [
+                'editor_version' => $this->contactEditorVersion($contact->fresh()),
                 'outcome' => 'duplicate',
                 'resolution_note' => 'تم ربطه بالطلب الأصلي.',
                 'confirm_close' => '1',
@@ -910,7 +920,9 @@ final class BackendHardeningTest extends TestCase
         ])->save();
 
         $this->actingAs($admin)
+            ->from(route('admin.contacts.show', $contact))
             ->post(route('admin.contacts.close-deletion-request', $contact), [
+                'editor_version' => $this->contactEditorVersion($contact),
                 'outcome' => 'self_service_completed',
                 'confirm_close' => '1',
             ])
@@ -1695,6 +1707,14 @@ final class BackendHardeningTest extends TestCase
         ], $overrides));
 
         return User::query()->findOrFail($id);
+    }
+
+    private function contactEditorVersion(Contact $contact): string
+    {
+        return AdminEditorVersion::for($contact, [
+            'request_type', 'email', 'read', 'resolution_status', 'resolved_at',
+            'resolved_by', 'resolved_user_id', 'resolution_metadata', 'updated_at',
+        ]);
     }
 
     private function course(array $overrides = []): Course

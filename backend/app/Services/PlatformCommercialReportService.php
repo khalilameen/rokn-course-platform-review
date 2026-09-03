@@ -5,10 +5,11 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\Course;
+use App\Support\DatabaseCapabilities;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use App\Support\DatabaseCapabilities;
 
 /** Platform-wide unit economics assembled from the same auditable course ledger. */
 final readonly class PlatformCommercialReportService
@@ -24,7 +25,11 @@ final readonly class PlatformCommercialReportService
         // revenue and cost history.
         $courseQuery = Course::query();
         if (DatabaseCapabilities::hasColumn('courses', 'deleted_at')) {
-            $courseQuery->withTrashed();
+            // Course may have been booted before a dynamically-created test or
+            // tenant table gained deleted_at. Removing the scope is safe in
+            // both states; withTrashed() is only registered when that scope
+            // was present during model boot.
+            $courseQuery->withoutGlobalScope(SoftDeletingScope::class);
         }
         $courseModels = $courseQuery->whereNull('parent_id')
             ->whereHas('enrollments')
