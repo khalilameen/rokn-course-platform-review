@@ -73,6 +73,7 @@ export default function Profile() {
   const [loadedIdentity, setLoadedIdentity] = useState('');
   const [profileError, setProfileError] = useState('');
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const [hasShareablePortfolio, setHasShareablePortfolio] = useState(false);
   const [reloadProfile, setReloadProfile] = useState(0);
   const authenticatedIdentity =
     serverSession === true || (serverSession === null && hasStoredToken);
@@ -98,7 +99,9 @@ export default function Profile() {
     trustedPortfolioShareUrl(visibleRemoteProfile?.portfolioUrl) ||
     trustedPortfolioShareUrl(username ? portfolioUrlFor(username) : '') ||
     '';
-  const canSharePortfolio = Boolean(publicPortfolioUrl);
+  const canSharePortfolio = Boolean(
+    authenticatedIdentity && hasShareablePortfolio && publicPortfolioUrl,
+  );
   const portfolioLinkLabel = publicPortfolioUrl
     ? publicPortfolioUrl.replace(/^https:\/\/(?:www\.)?/i, '').replace(/\/$/, '')
     : '';
@@ -115,6 +118,12 @@ export default function Profile() {
   );
 
   useEffect(() => setAvatarFailed(false), [avatarUri]);
+
+  useEffect(() => {
+    // A shareable item belongs to one authenticated account. Never keep the
+    // previous account's button visible while the next portfolio hydrates.
+    setHasShareablePortfolio(false);
+  }, [identityKey]);
 
   useEffect(() => {
     if (route.params?.tab) setActiveTab(route.params.tab);
@@ -306,7 +315,12 @@ export default function Profile() {
             })}
           </View>
 
-          {activeTab === 'portfolio' && <Gallery key={`portfolio:${identityKey}`} />}
+          {activeTab === 'portfolio' && (
+            <Gallery
+              key={`portfolio:${identityKey}`}
+              onShareablePortfolioChange={setHasShareablePortfolio}
+            />
+          )}
           {activeTab === 'certificates' && (
             <Certificates
               key={`certificates:${identityKey}`}

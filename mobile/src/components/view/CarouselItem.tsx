@@ -13,6 +13,7 @@ import {
 } from '../../constants/designSystem';
 import Button from '../touchables/Button';
 import {MetaPill} from '../ui/PremiumUI';
+import {CoinAmount} from '../ui/RoknCoin';
 
 const CarouselItem = ({
   course,
@@ -24,6 +25,7 @@ const CarouselItem = ({
   onButtonPress: () => void;
 }) => {
   const {isTablet} = useResponsiveLayout();
+  const owned = course.owned === true;
 
   return (
     <View style={styles.outer}>
@@ -47,6 +49,24 @@ const CarouselItem = ({
             <Text numberOfLines={2} style={styles.title}>
               {formatArabicDisplayText(course.title)}
             </Text>
+            {course.published === false ? (
+              <Text style={styles.courseState}>قريبًا</Text>
+            ) : owned ? (
+              <Text style={styles.courseState}>
+                {Number(course.progress || 0) > 0
+                  ? 'استكمل من مكانك'
+                  : 'ابدأ التعلّم الآن'}
+              </Text>
+            ) : course.coinPrice === 0 ? (
+              <Text style={styles.courseState}>مجاني</Text>
+            ) : typeof course.coinPrice === 'number' ? (
+              <CoinAmount
+                size={16}
+                value={course.coinPrice}
+                style={styles.price}
+                textStyle={styles.priceText}
+              />
+            ) : null}
             {isTablet && (
               <Text numberOfLines={2} style={styles.description}>
                 {formatArabicDisplayText(course.description)}
@@ -105,6 +125,14 @@ const styles = StyleSheet.create({
     marginLeft: 'auto',
     marginTop: Spacing.xs,
   },
+  courseState: {
+    ...Type.caption,
+    ...textDirection,
+    color: Palette.textMuted,
+    marginTop: Spacing.xs,
+  },
+  price: {alignSelf: 'flex-end', marginTop: Spacing.xs},
+  priceText: {...Type.caption, color: Palette.textMuted},
   weekPill: {alignSelf: 'flex-start'},
   ctaRow: {width: '100%', alignItems: 'center', marginTop: Spacing.xs},
   button: {minWidth: 184, marginTop: 0},

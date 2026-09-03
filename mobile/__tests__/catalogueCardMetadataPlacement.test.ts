@@ -17,6 +17,16 @@ describe('public course metadata placement', () => {
     );
   });
 
+  it('keeps the catalogue decision surface to price or access state', () => {
+    const courseCard = source('src/components/view/CourseCard.tsx');
+    const carouselCard = source('src/components/view/CarouselItem.tsx');
+
+    expect(courseCard).toContain('value={item.coinPrice!}');
+    expect(carouselCard).toContain('value={course.coinPrice}');
+    expect(courseCard).toContain('استكمل من مكانك');
+    expect(carouselCard).toContain('استكمل من مكانك');
+  });
+
   it('keeps those decision metrics on the course details surface', () => {
     const courseDetails = source('src/screens/CourseDetails/index.tsx');
 

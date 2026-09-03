@@ -158,7 +158,13 @@ const initialProjects: Project[] = [
   },
 ];
 
-export default function Gallery() {
+type GalleryProps = {
+  onShareablePortfolioChange?: (available: boolean) => void;
+};
+
+export default function Gallery({
+  onShareablePortfolioChange,
+}: GalleryProps = {}) {
   const reducedMotion = useReducedMotion();
   const appActive = useAppActiveState();
   const navigation = useNavigation<RootNavigation>();
@@ -225,6 +231,14 @@ export default function Gallery() {
   projectsRef.current = projects;
   selectedRef.current = selected;
   previewMediaRef.current = previewMedia;
+
+  useEffect(() => {
+    onShareablePortfolioChange?.(
+      projects.some(
+        project => project.source === 'remote' && project.uploadState === 'ready',
+      ),
+    );
+  }, [onShareablePortfolioChange, projects]);
   const draftSnapshotRef = useRef({
     clientRequestId,
     cover: draftCoverAsset,
@@ -927,9 +941,27 @@ export default function Gallery() {
     uploaded: PortfolioMedia,
   ): Project => {
     if (project.media.some(media => media.id === uploaded.id)) return project;
-    const next = {...project, media: [...project.media, uploaded]};
+    const media = [...project.media, uploaded];
+    const uploadedMediaCount = Math.max(
+      media.length,
+      (project.uploadedMediaCount || 0) + 1,
+    );
+    const expectedMediaCount = project.expectedMediaCount || 0;
+    const next = {
+      ...project,
+      media,
+      uploadedMediaCount,
+      // The append endpoint publishes the item atomically when its final
+      // expected file lands. Mirror that authoritative transition locally so
+      // the portfolio share action appears immediately instead of requiring
+      // a screen reopen or a second list request.
+      uploadState:
+        expectedMediaCount > 0 && uploadedMediaCount >= expectedMediaCount
+          ? ('ready' as const)
+          : project.uploadState,
+    };
     const firstImage = next.media.find(
-      media => media.type === 'image' && media.uri,
+      candidate => candidate.type === 'image' && candidate.uri,
     );
     if (firstImage?.uri) next.cover = {uri: firstImage.uri};
     return next;

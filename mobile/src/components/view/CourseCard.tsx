@@ -20,6 +20,7 @@ import {
 } from '../../constants/designSystem';
 import {MetaPill} from '../ui/PremiumUI';
 import {CourseArtwork} from '../ui/CourseArtwork';
+import {CoinAmount} from '../ui/RoknCoin';
 
 export interface Course {
   id: string;
@@ -116,11 +117,11 @@ const CourseCard = memo<CourseCardProps>(
             {formatArabicDisplayText(item.instructor)}
           </Text>
         )}
-        {(item.published === false || item.owned) && (
+        {(item.published === false || item.owned || item.coinPrice !== undefined) && (
           <View style={styles.metaRow}>
             {item.published === false ? (
               <Text style={styles.upcomingLabel}>قريبًا</Text>
-            ) : (
+            ) : item.owned ? (
               <Text style={styles.ownedLabel}>
                 {progress >= 100
                   ? 'راجع الكورس'
@@ -128,6 +129,15 @@ const CourseCard = memo<CourseCardProps>(
                   ? 'استكمل من مكانك'
                   : 'ابدأ التعلّم الآن'}
               </Text>
+            ) : item.coinPrice === 0 ? (
+              <Text style={styles.ownedLabel}>مجاني</Text>
+            ) : (
+              <CoinAmount
+                size={15}
+                value={item.coinPrice!}
+                style={styles.price}
+                textStyle={styles.priceText}
+              />
             )}
           </View>
         )}
@@ -189,6 +199,12 @@ const styles = StyleSheet.create({
     ...Type.caption,
     ...textDirection,
     color: '#8BB5FF',
+    fontFamily: Fonts.semiBold,
+  },
+  price: {alignSelf: 'flex-end'},
+  priceText: {
+    ...Type.caption,
+    color: Palette.textMuted,
     fontFamily: Fonts.semiBold,
   },
   upcomingLabel: {
