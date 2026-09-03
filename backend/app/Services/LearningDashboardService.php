@@ -133,9 +133,11 @@ final readonly class LearningDashboardService
             $completed = min($total, (int) $completedByCourse->get($courseId, 0));
             $percentage = $total > 0 ? round(($completed / $total) * 100, 2) : 0.0;
             $entitlement = $this->courseAccess->entitlementFor((int) $user->id, $courseId);
+            // Current progress may legitimately fall below 100% after a new
+            // course revision. The eligibility service also knows the durable
+            // revision already earned by this enrollment, so it must own the
+            // verdict shown in "My learning" as well as the issue endpoint.
             $certificateStatus = (bool) $entitlement['certificate_available']
-                && $total > 0
-                && $completed === $total
                 ? $this->certificateEligibility->for($user, $course)
                 : [
                     'included' => (bool) $entitlement['certificate_available'],

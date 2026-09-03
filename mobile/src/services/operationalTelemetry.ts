@@ -9,7 +9,11 @@ import {
   readDurableOutbox,
 } from './durableOutbox';
 import {sha256Hex} from '../utils/sha256';
-import {captureSentryDiagnostic} from './sentryTelemetry';
+import {
+  captureSentryDiagnostic,
+  requestCorrelationFor,
+} from './sentryTelemetry';
+import {extractApiToken, peekSecureSession} from './secureSession';
 
 const endpoint = `${roknApiUrl}client-events`;
 const TELEMETRY_OUTBOX_KEY = '@rokn/client-events-outbox/v1';
@@ -23,6 +27,8 @@ type ErrorContext = {
   componentStack?: string | null;
   source?: string;
   fatal?: boolean;
+  endpoint?: string;
+  requestId?: string;
 };
 
 type ClientEventPayload = {
@@ -37,6 +43,8 @@ type ClientEventPayload = {
   screen_key: string;
   error_code: string;
   error_fingerprint?: string;
+  endpoint?: string;
+  request_id?: string;
   occurred_at: string;
 };
 
@@ -183,6 +191,7 @@ export const reportClientError = (error: Error, context: ErrorContext = {}) => {
       ? Number(appConfig.expo.ios?.buildNumber)
       : Number(appConfig.expo.android?.versionCode);
   const eventId = Crypto.randomUUID();
+  const correlation = requestCorrelationFor(error, context);
   const payload: ClientEventPayload = {
     client_event_id: eventId,
     event_name: eventNameFor(source),
@@ -199,6 +208,8 @@ export const reportClientError = (error: Error, context: ErrorContext = {}) => {
       .replace(/[^a-z0-9._-]+/g, '_')
       .slice(0, 64),
     error_code: errorCodeFor(error, source),
+    ...(correlation.endpoint ? {endpoint: correlation.endpoint} : {}),
+    ...(correlation.requestId ? {request_id: correlation.requestId} : {}),
     occurred_at: new Date(now).toISOString(),
   };
 
@@ -208,6 +219,8 @@ export const reportClientError = (error: Error, context: ErrorContext = {}) => {
     errorCode: payload.error_code,
     source,
     fatal: Boolean(context.fatal),
+    endpoint: correlation.endpoint,
+    requestId: correlation.requestId,
   });
 
   const task = (async () => {
@@ -237,9 +250,14 @@ const deliverClientEvent = async (
     TELEMETRY_REQUEST_TIMEOUT_MS,
   );
   try {
+    const token = extractApiToken(peekSecureSession().session);
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...(token ? {Authorization: `Bearer ${token}`} : {}),
+      },
       body: JSON.stringify(payload),
       signal: controller.signal,
     });

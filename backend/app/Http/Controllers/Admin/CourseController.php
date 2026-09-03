@@ -1053,12 +1053,19 @@ class CourseController extends Controller
             'sqlite' => "json_extract(metadata, '$.cost_usage_source')",
             default => "''",
         };
+        $usageSource = match ($driver) {
+            'mysql', 'mariadb' => "JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.usage_source'))",
+            'pgsql' => "metadata->>'usage_source'",
+            'sqlite' => "json_extract(metadata, '$.usage_source')",
+            default => "''",
+        };
         $deliverySource = match ($driver) {
             'mysql', 'mariadb' => "JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.entitlement_delivered'))",
             'pgsql' => "metadata->>'entitlement_delivered'",
             'sqlite' => "CAST(json_extract(metadata, '$.entitlement_delivered') AS TEXT)",
             default => "'true'",
         };
+        $estimatedCost = "COALESCE({$costSource}, '') NOT IN ('provider', 'cache_zero_cost') AND COALESCE({$usageSource}, '') NOT IN ('cached_answer', 'cache_zero_cost')";
         $usage = DB::table('ai_usage_events')
             ->leftJoin(
                 'course_access_plans as usage_plan',
@@ -1069,7 +1076,7 @@ class CourseController extends Controller
             ->where('ai_usage_events.course_id', $course->id)
             ->where('ai_usage_events.status', 'completed')
             ->whereNotNull('ai_usage_events.access_plan_id')
-            ->selectRaw("usage_plan.code as plan_code, ai_usage_events.feature, SUM(CASE WHEN COALESCE({$deliverySource}, 'true') NOT IN ('false', '0') THEN 1 ELSE 0 END) as ai_requests, SUM(CASE WHEN COALESCE({$deliverySource}, 'true') IN ('false', '0') THEN 1 ELSE 0 END) as unanswered_requests, SUM(CASE WHEN COALESCE({$costSource}, '') <> 'provider' THEN 1 ELSE 0 END) as estimated_requests, COALESCE(SUM(ai_usage_events.total_tokens),0) as total_tokens, COALESCE(SUM(ai_usage_events.cost_usd),0) as cost_usd")
+            ->selectRaw("usage_plan.code as plan_code, ai_usage_events.feature, SUM(CASE WHEN COALESCE({$deliverySource}, 'true') NOT IN ('false', '0') THEN 1 ELSE 0 END) as ai_requests, SUM(CASE WHEN COALESCE({$deliverySource}, 'true') IN ('false', '0') THEN 1 ELSE 0 END) as unanswered_requests, SUM(CASE WHEN {$estimatedCost} THEN 1 ELSE 0 END) as estimated_requests, COALESCE(SUM(ai_usage_events.total_tokens),0) as total_tokens, COALESCE(SUM(ai_usage_events.cost_usd),0) as cost_usd")
             ->groupBy('usage_plan.code', 'ai_usage_events.feature')
             ->get()
             ->keyBy(fn ($row) => $row->plan_code . ':' . $row->feature);

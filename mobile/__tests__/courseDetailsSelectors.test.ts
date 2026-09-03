@@ -19,6 +19,7 @@ const plan = (code: string, priceCoins: number): CourseAccessPlan => ({
 
 const course: CourseDetails = {
   id: '42',
+  publishedRevision: 1,
   title: 'كورس الإنتاج',
   description: 'وصف الكورس',
   price: 300,

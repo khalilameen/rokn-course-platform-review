@@ -272,6 +272,24 @@ export const onRejectedResponse = async (error: unknown): Promise<never> => {
     }
   }
 
+  // Record only terminal availability failures. Validation, permissions and
+  // expected not-found responses are product outcomes, not operational
+  // incidents. Import lazily so diagnostics never become an HTTP dependency.
+  if (safeTransientReadFailure || responseStatus >= 500) {
+    const diagnosticError =
+      error instanceof Error
+        ? error
+        : Object.assign(
+            new Error(responseStatus ? `HTTP_${responseStatus}` : 'NETWORK_ERROR'),
+            errorRecord,
+          );
+    void import('../services/operationalTelemetry')
+      .then(({reportClientError}) =>
+        reportClientError(diagnosticError, {source: 'api_transport'}),
+      )
+      .catch(() => undefined);
+  }
+
   //   return Promise.reject(InternalError);
   return Promise.reject(response ?? error);
 };

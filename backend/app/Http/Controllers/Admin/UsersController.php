@@ -16,6 +16,7 @@ use App\Services\StoredFileDeletionService;
 use App\Services\AdminAuthoringCreateIntentService;
 use App\Services\StudentAccountStateService;
 use App\Services\PaymentChannelReportService;
+use App\Services\WalletQueryService;
 use App\Support\AdminEditorVersion;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -158,7 +159,8 @@ class UsersController extends Controller
         Request $request,
         DeviceLoginService $deviceLogin,
         StudentAccountStateService $accounts,
-        PaymentChannelReportService $paymentChannels
+        PaymentChannelReportService $paymentChannels,
+        WalletQueryService $wallet
     )
     {
         $this->assertStudent($user);
@@ -184,6 +186,10 @@ class UsersController extends Controller
             ->paginate(10, ['*'], 'bills_page');
 
         $paymentReport = $paymentChannels->summary(null, null, clone $orderScope);
+        // Keep the dashboard on the same wallet contract as the mobile app.
+        // Rebuilding the split from orders would miss rewards, compensation
+        // and unspent package credits.
+        $walletSummary = $wallet->summary($user);
         $orderStats = [
             'approved' => (clone $orderScope)->where('status', Order::STATUS_APPROVED)->count(),
             'pending' => (clone $orderScope)->where('status', Order::STATUS_PENDING)->count(),
@@ -253,7 +259,7 @@ class UsersController extends Controller
         return view('admin.users.show', compact(
             'user', 'orders', 'bills', 'notes', 'examResults', 'examStats',
             'deviceLoginPolicy', 'designSettings', 'accountStateVersion',
-            'deviceStateVersion', 'orderStats', 'billStats'
+            'deviceStateVersion', 'orderStats', 'billStats', 'walletSummary'
         ));
     }
 

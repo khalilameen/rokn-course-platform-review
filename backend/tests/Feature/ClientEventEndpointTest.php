@@ -20,6 +20,7 @@ class ClientEventEndpointTest extends TestCase
         Schema::create('client_events', function (Blueprint $table): void {
             $table->id();
             $table->uuid('client_event_id')->unique();
+            $table->unsignedBigInteger('user_id')->nullable();
             $table->string('event_name', 48);
             $table->string('severity', 12)->default('info');
             $table->string('app_version', 32)->nullable();
@@ -31,6 +32,8 @@ class ClientEventEndpointTest extends TestCase
             $table->string('screen_key', 64)->nullable();
             $table->string('error_code', 64)->nullable();
             $table->char('error_fingerprint', 64)->nullable();
+            $table->string('endpoint', 160)->nullable();
+            $table->string('request_id', 128)->nullable();
             $table->timestamp('occurred_at');
             $table->timestamp('received_at')->useCurrent();
         });
@@ -63,6 +66,8 @@ class ClientEventEndpointTest extends TestCase
             'client_event_id' => $eventId,
             'event_name' => 'video_failure',
             'error_code' => 'BUNNY_TIMEOUT',
+            'endpoint' => '/api/v1/courses/:value/details',
+            'request_id' => 'req_01JTESTCLIENTEVENT',
         ]);
 
         $this->postJson('/api/v1/client-events', [
@@ -129,6 +134,8 @@ class ClientEventEndpointTest extends TestCase
             'screen_key' => 'course.player',
             'error_code' => 'BUNNY_TIMEOUT',
             'error_fingerprint' => hash('sha256', 'stable-video-failure'),
+            'endpoint' => '/api/v1/courses/:value/details',
+            'request_id' => 'req_01JTESTCLIENTEVENT',
             'occurred_at' => now()->subMinute()->toIso8601String(),
         ];
     }

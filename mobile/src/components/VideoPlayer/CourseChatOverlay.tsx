@@ -143,6 +143,7 @@ const CourseChatOverlay = ({
   const navigation = useNavigation<CourseChatNavigation>();
   const [copiedMessageId, setCopiedMessageId] = useState<string>();
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stickMessagesToEndRef = useRef(true);
   const attachmentPickerFlightRef = useRef(false);
   const attachmentPickerGenerationRef = useRef(0);
   const activeAttachmentCourseRef = useRef(String(course.id));
@@ -177,6 +178,10 @@ const CourseChatOverlay = ({
     course,
     reel,
     onOpenWallet: () => {
+      // A native Modal belongs to this screen even after another route is
+      // pushed. Close it before navigation so its backdrop/keyboard cannot
+      // remain above Wallet and consume taps meant for the new screen.
+      onClose();
       navigation.navigate('Wallet', {
         returnTo: {
           name: 'Reels',
@@ -197,6 +202,7 @@ const CourseChatOverlay = ({
   useEffect(() => {
     attachmentPickerGenerationRef.current += 1;
     attachmentPickerFlightRef.current = false;
+    stickMessagesToEndRef.current = true;
     setCopiedMessageId(undefined);
     if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
     return () => {
@@ -508,9 +514,23 @@ const CourseChatOverlay = ({
                 contentContainerStyle={styles.messagesContent}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
-                onContentSizeChange={() =>
-                  scrollRef.current?.scrollToEnd({animated: true})
-                }>
+                scrollEventThrottle={32}
+                onScroll={event => {
+                  const {contentOffset, contentSize, layoutMeasurement} =
+                    event.nativeEvent;
+                  stickMessagesToEndRef.current =
+                    contentOffset.y + layoutMeasurement.height >=
+                    contentSize.height - 48;
+                }}
+                onContentSizeChange={() => {
+                  // Streaming text follows the answer only while the learner
+                  // is already at the end. Copy feedback or reading older
+                  // messages must not animate the whole sheet underneath a
+                  // tap, which previously looked like a shaking reels page.
+                  if (stickMessagesToEndRef.current) {
+                    scrollRef.current?.scrollToEnd({animated: false});
+                  }
+                }}>
                 {messages.map(message => (
                   <View
                     key={message.id}
@@ -819,6 +839,8 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.medium,
     fontSize: 11,
     marginTop: 7,
+    width: 34,
+    textAlign: 'center',
   },
   messageAttachment: {
     color: 'rgba(255,255,255,.78)',

@@ -22,6 +22,8 @@ import {
 } from './common';
 
 type CourseAuthorizationDto = {
+  course_revision?: unknown;
+  access_plan_code?: unknown;
   total_balance?: unknown;
   remaining_balance?: unknown;
   spendable_balance?: unknown;
@@ -399,6 +401,7 @@ export type CoursePurchaseResult =
     };
 
 export type CoursePurchaseQuote = {
+  courseRevision: number;
   accessPlanCode?: string;
   originalPrice: number;
   discountAmount: number;
@@ -411,6 +414,7 @@ export const quoteCoursePurchase = async (
   courseId: string,
   accessPlanCode: string | undefined,
   couponCode: string,
+  expectedCourseRevision?: number,
 ): Promise<CoursePurchaseQuote> => {
   const normalizedCoupon = normalizeHumanIdentifier(couponCode);
   const courseIdValue = numericCourseId(courseId);
@@ -419,6 +423,10 @@ export const quoteCoursePurchase = async (
       course_id: courseIdValue,
       ...(accessPlanCode ? {access_plan_code: accessPlanCode} : {}),
       coupon_code: normalizedCoupon,
+      ...(Number.isSafeInteger(expectedCourseRevision) &&
+      Number(expectedCourseRevision) > 0
+        ? {expected_course_revision: expectedCourseRevision}
+        : {}),
     }),
   );
   const originalPrice = requireNonNegativeNumber(
@@ -437,15 +445,23 @@ export const quoteCoursePurchase = async (
     data.coupon?.discount_percentage ?? 0,
     'COURSE_QUOTE_DISCOUNT_PERCENTAGE',
   );
+  const courseRevision = Number(data.course_revision);
+  const returnedPlanCode = String(data.access_plan_code || '')
+    .trim()
+    .toLowerCase();
   if (
     discountAmount > originalPrice ||
     finalPrice + discountAmount !== originalPrice ||
-    discountPercentage > 100
+    discountPercentage > 100 ||
+    !Number.isSafeInteger(courseRevision) ||
+    courseRevision < 1 ||
+    (accessPlanCode !== undefined && returnedPlanCode !== accessPlanCode)
   ) {
     throw new Error('API_CONTRACT_INVALID_COURSE_QUOTE');
   }
   return {
-    accessPlanCode: accessPlanCode || undefined,
+    courseRevision,
+    accessPlanCode: returnedPlanCode || undefined,
     originalPrice,
     discountAmount,
     finalPrice,
@@ -459,6 +475,7 @@ export const purchaseCourse = async (
   accessPlanCode?: string,
   couponCode?: string,
   expectedPrice?: number,
+  expectedCourseRevision?: number,
 ): Promise<CoursePurchaseResult> => {
   const boundary = await captureAccountSessionBoundary();
   const courseIdValue = numericCourseId(courseId);
@@ -481,6 +498,10 @@ export const purchaseCourse = async (
         ...(normalizedCouponCode ? {coupon_code: normalizedCouponCode} : {}),
         ...(Number.isFinite(expectedPrice)
           ? {expected_price: Math.max(0, Math.trunc(expectedPrice as number))}
+          : {}),
+        ...(Number.isSafeInteger(expectedCourseRevision) &&
+        Number(expectedCourseRevision) > 0
+          ? {expected_course_revision: expectedCourseRevision}
           : {}),
         idempotency_key: idempotencyKey,
       }),
@@ -581,6 +602,7 @@ export const redeemCourseCode = async (
 };
 
 export type CourseChatUpgradeQuote = {
+  courseRevision: number;
   alreadyUpgraded: boolean;
   chatAvailable: boolean;
   certificateAvailable: boolean;
@@ -601,9 +623,14 @@ export type CourseChatUpgradeQuote = {
 const mapCourseChatUpgradeQuote = (
   data: CourseUpgradeQuoteDto,
 ): CourseChatUpgradeQuote => {
+  const courseRevision = Number(data.course_revision);
+  if (!Number.isSafeInteger(courseRevision) || courseRevision < 1) {
+    throw new Error('API_CONTRACT_INVALID_COURSE_UPGRADE_REVISION');
+  }
   const alreadyUpgraded = firstBoolean(data.already_upgraded) ?? false;
   if (alreadyUpgraded) {
     return {
+      courseRevision,
       alreadyUpgraded: true,
       chatAvailable: firstBoolean(data.chat_available) ?? true,
       certificateAvailable:
@@ -661,6 +688,7 @@ const mapCourseChatUpgradeQuote = (
         );
 
   return {
+    courseRevision,
     alreadyUpgraded: false,
     chatAvailable: firstBoolean(data.chat_available) ?? false,
     certificateAvailable: firstBoolean(data.certificate_available) ?? false,
@@ -698,6 +726,7 @@ export const purchaseCourseChatUpgrade = async (
   courseId: string,
   targetPlanCode?: string,
   expectedPrice?: number,
+  expectedCourseRevision?: number,
 ): Promise<CourseChatUpgradeQuote> => {
   const boundary = await captureAccountSessionBoundary();
   const courseIdValue = numericCourseId(courseId);
@@ -707,7 +736,9 @@ export const purchaseCourseChatUpgrade = async (
   if (
     !['guided', 'mentor'].includes(normalizedTargetPlan) ||
     !Number.isSafeInteger(expectedPrice) ||
-    Number(expectedPrice) < 0
+    Number(expectedPrice) < 0 ||
+    !Number.isSafeInteger(expectedCourseRevision) ||
+    Number(expectedCourseRevision) < 1
   ) {
     throw new Error('COURSE_UPGRADE_INTENT_INVALID');
   }
@@ -726,6 +757,7 @@ export const purchaseCourseChatUpgrade = async (
         {
           target_plan_code: normalizedTargetPlan,
           expected_price: normalizedExpectedPrice,
+          expected_course_revision: expectedCourseRevision,
           idempotency_key: idempotencyKey,
         },
         {headers: {'Idempotency-Key': idempotencyKey}},

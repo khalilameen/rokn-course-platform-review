@@ -80,6 +80,9 @@ final class CourseChatUpgradeController extends Controller
                     'already_upgraded' => true,
                     'chat_available' => (bool) $entitlement['chat_available'],
                     'certificate_available' => (bool) ($terms['certificate_enabled'] ?? true),
+                    'course_revision' => $enrollment
+                        ? $this->publishedRevision($enrollment->course)
+                        : $this->publishedRevision($course),
                 ],
             ]);
         }
@@ -131,6 +134,7 @@ final class CourseChatUpgradeController extends Controller
             // moderator price edit between quote and tap must never result in
             // a silent higher (or different) wallet debit.
             'expected_price' => 'required|integer|min:0|max:100000000',
+            'expected_course_revision' => 'nullable|integer|min:1',
             'idempotency_key' => [
                 'nullable',
                 'string',
@@ -146,6 +150,9 @@ final class CourseChatUpgradeController extends Controller
             ? (string) $validated['idempotency_key']
             : null;
         $expectedPrice = (int) $validated['expected_price'];
+        $expectedCourseRevision = isset($validated['expected_course_revision'])
+            ? (int) $validated['expected_course_revision']
+            : null;
 
         try {
             $result = DB::transaction(function () use (
@@ -157,10 +164,10 @@ final class CourseChatUpgradeController extends Controller
                 $plans,
                 $requestedCode,
                 $clientIdempotencyKey,
-                $expectedPrice
+                $expectedPrice,
+                $expectedCourseRevision
             ): array {
                 User::query()->lockForUpdate()->findOrFail($user->id);
-                Course::query()->findOrFail($course->id);
                 $entitlement = $access->entitlementFor((int) $user->id, (int) $course->id);
                 if (!$entitlement['has_learning_access']) {
                     throw new \DomainException('course_access_required');
@@ -170,10 +177,11 @@ final class CourseChatUpgradeController extends Controller
                     throw new \DomainException('full_track_upgrade_not_available');
                 }
                 // A section can route to an enrollment on its parent course.
-                // The selected terms are copied into the immutable purchase
-                // snapshot. The learner row is the financial lock; locking a
-                // shared course row here would serialize unrelated buyers.
+                // Buyers share the paid-course lock, while authoring takes it
+                // exclusively. The selected capabilities therefore stay tied
+                // to the published revision the learner reviewed.
                 $paidCourse = Course::query()
+                    ->sharedLock()
                     ->findOrFail($enrollment->course_id);
                 $enrollment->setRelation('course', $paidCourse);
                 $currentPlan = $plans->planForEnrollment($enrollment);
@@ -216,6 +224,10 @@ final class CourseChatUpgradeController extends Controller
                         'plan' => $currentPlan,
                         'plan_terms' => $currentTerms,
                     ];
+                }
+                if ($expectedCourseRevision !== null
+                    && $expectedCourseRevision !== $this->publishedRevision($paidCourse)) {
+                    throw new \DomainException('course_terms_changed');
                 }
                 $targetPlan = $this->targetPlan(
                     $paidCourse,
@@ -404,9 +416,11 @@ final class CourseChatUpgradeController extends Controller
             $code = $exception->getMessage();
             return $this->error(
                 $code,
-                $code === 'course_price_changed'
-                    ? "تغيّر السعر\nراجع الإجمالي قبل الشراء"
-                    : 'الترقية غير متاحة لهذه الفئة',
+                match ($code) {
+                    'course_price_changed' => "تغيّر السعر\nراجع الإجمالي قبل الشراء",
+                    'course_terms_changed' => "تغيّرت تفاصيل الفئة\nراجعها قبل الترقية",
+                    default => 'الترقية غير متاحة لهذه الفئة',
+                },
                 $code === 'course_access_required' ? 403 : 409
             );
         }
@@ -578,6 +592,7 @@ final class CourseChatUpgradeController extends Controller
             'certificate_available' => false,
             'ai_included' => (bool) $course->ai_chat_enabled,
             'course_id' => (int) $course->id,
+            'course_revision' => $this->publishedRevision($course),
             'course_title' => (string) $course->name_ar,
             'upgrade_price' => $price,
             'target_plan_code' => $targetPlan?->code,
@@ -652,6 +667,13 @@ final class CourseChatUpgradeController extends Controller
             'mentor' => 30,
             default => max(0, $storedSortOrder),
         };
+    }
+
+    private function publishedRevision(Course $course): int
+    {
+        return max(1, (int) (
+            $course->last_published_authoring_version ?: $course->authoring_version
+        ));
     }
 
     private function error(string $code, string $message, int $status): JsonResponse

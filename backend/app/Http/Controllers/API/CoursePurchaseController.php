@@ -40,35 +40,55 @@ final class CoursePurchaseController extends Controller
         CourseCouponService $coupons
     ): JsonResponse {
         $user = auth('api')->user();
-        $course = Course::findOrFail($request->course_id);
-        if (!$this->isAvailableForNewPurchase($course)) {
-            return response()->json([
-                'status' => 409,
-                'success' => false,
-                'code' => 'course_not_available',
-                'message' => 'هذا الكورس غير متاح للشراء الآن',
-                'data' => null,
-            ], 409);
-        }
+        $expectedCourseRevision = $request->filled('expected_course_revision')
+            ? $request->integer('expected_course_revision')
+            : null;
 
         try {
-            $plan = $planService->selectedPlan(
-                $course,
-                $request->filled('access_plan_code')
-                    ? strtolower(trim((string) $request->input('access_plan_code')))
-                    : null
-            );
-            $price = $plan
-                ? max(0, (int) $plan->price_coins)
-                : max(0, (int) ($course->price ?? 0));
-            $minimumPaid = max(0, (int) ($plan?->minimum_paid_coins ?? 0));
-            $quote = $coupons->quote(
-                (int) $user->id,
-                (int) $course->id,
-                $price,
-                $minimumPaid,
-                $request->input('coupon_code')
-            );
+            $quoteData = DB::transaction(function () use (
+                $request,
+                $user,
+                $planService,
+                $coupons,
+                $expectedCourseRevision
+            ): array {
+                // Shared course locks let many learners quote concurrently but
+                // serialize them against the exclusive lock used by authoring.
+                // Plan capabilities therefore cannot change between checking
+                // the published revision and reading the selected plan.
+                $course = Course::query()->sharedLock()->findOrFail($request->course_id);
+                if (!$this->isAvailableForNewPurchase($course)) {
+                    throw new \DomainException('course_not_available');
+                }
+                if ($expectedCourseRevision !== null
+                    && $expectedCourseRevision !== $this->publishedRevision($course)) {
+                    throw new \DomainException('course_terms_changed');
+                }
+
+                $plan = $planService->selectedPlan(
+                    $course,
+                    $request->filled('access_plan_code')
+                        ? strtolower(trim((string) $request->input('access_plan_code')))
+                        : null
+                );
+                $price = $plan
+                    ? max(0, (int) $plan->price_coins)
+                    : max(0, (int) ($course->price ?? 0));
+                $minimumPaid = max(0, (int) ($plan?->minimum_paid_coins ?? 0));
+                $quote = $coupons->quote(
+                    (int) $user->id,
+                    (int) $course->id,
+                    $price,
+                    $minimumPaid,
+                    $request->input('coupon_code')
+                );
+
+                return compact('course', 'plan', 'price', 'quote');
+            }, 3);
+            $course = $quoteData['course'];
+            $plan = $quoteData['plan'];
+            $price = $quoteData['price'];
+            $quote = $quoteData['quote'];
 
             return response()->json([
                 'status' => 200,
@@ -76,6 +96,7 @@ final class CoursePurchaseController extends Controller
                 'message' => 'تم حساب الإجمالي',
                 'data' => [
                     'course_id' => (int) $course->id,
+                    'course_revision' => $this->publishedRevision($course),
                     'access_plan_code' => $plan?->code,
                     'original_price' => $price,
                     'discount_amount' => (int) $quote['discount'],
@@ -90,17 +111,19 @@ final class CoursePurchaseController extends Controller
             $code = $exception->getMessage();
 
             return response()->json([
-                'status' => 422,
+                'status' => in_array($code, ['course_not_available', 'course_terms_changed'], true) ? 409 : 422,
                 'success' => false,
                 'code' => $code,
                 'message' => match ($code) {
+                    'course_not_available' => 'هذا الكورس غير متاح للشراء الآن',
+                    'course_terms_changed' => "تغيّرت تفاصيل الفئة\nراجعها قبل الشراء",
                     'coupon_already_used' => 'استخدمت هذا الكود من قبل',
                     'coupon_not_applicable' => 'لا ينطبق الخصم على هذه الفئة',
                     'coupon_quota_reached' => 'اكتمل عدد مرات استخدام هذا الكود',
                     default => 'الكود غير صحيح أو انتهت صلاحيته',
                 },
                 'data' => null,
-            ], 422);
+            ], in_array($code, ['course_not_available', 'course_terms_changed'], true) ? 409 : 422);
         }
     }
 
@@ -126,6 +149,9 @@ final class CoursePurchaseController extends Controller
         $expectedPrice = $request->filled('expected_price')
             ? $request->integer('expected_price')
             : null;
+        $expectedCourseRevision = $request->filled('expected_course_revision')
+            ? $request->integer('expected_course_revision')
+            : null;
         try {
             $result = DB::transaction(function () use (
                 $user,
@@ -138,15 +164,16 @@ final class CoursePurchaseController extends Controller
                 $requestedPlanCode,
                 $requestedCouponCode,
                 $clientIdempotencyKey,
-                $expectedPrice
+                $expectedPrice,
+                $expectedCourseRevision
             ): array {
                 // The learner is the financial aggregate: wallet balance,
-                // enrollment and idempotency all serialize there. Course and
-                // plan rows are catalogue facts copied into the order
-                // snapshot; locking them would queue every buyer of the same
-                // popular course behind one shared row.
+                // enrollment and idempotency serialize there. Buyers take a
+                // shared course lock, so they still run concurrently while an
+                // exclusive authoring publish cannot replace the selected plan
+                // between revision validation and receipt creation.
                 \App\Models\User::query()->lockForUpdate()->findOrFail($user->id);
-                $lockedCourse = Course::query()->findOrFail($course->id);
+                $lockedCourse = Course::query()->sharedLock()->findOrFail($course->id);
 
                 $existingEnrollment = CourseEnrollment::query()
                     ->where('user_id', $user->id)
@@ -203,6 +230,10 @@ final class CoursePurchaseController extends Controller
 
                 if (!$this->isAvailableForNewPurchase($lockedCourse)) {
                     throw new \DomainException('course_not_available');
+                }
+                if ($expectedCourseRevision !== null
+                    && $expectedCourseRevision !== $this->publishedRevision($lockedCourse)) {
+                    throw new \DomainException('course_terms_changed');
                 }
 
                 $selectedPlan = $planService->selectedPlan($lockedCourse, $requestedPlanCode);
@@ -474,6 +505,7 @@ final class CoursePurchaseController extends Controller
                     'coupon_quota_reached' => 'اكتمل عدد مرات استخدام هذا الكود',
                     'coupon_invalid' => 'الكود غير صحيح أو انتهت صلاحيته',
                     'course_price_changed' => 'تغير السعر\nراجع الإجمالي قبل الشراء',
+                    'course_terms_changed' => "تغيّرت تفاصيل الفئة\nراجعها قبل الشراء",
                     default => 'هذا الكورس غير متاح للشراء الآن',
                 },
                 'data' => null,
@@ -587,6 +619,13 @@ final class CoursePurchaseController extends Controller
         return $course->parent_id === null
             && (bool) $course->is_catalog_visible
             && $course->isPublishedForLearning();
+    }
+
+    private function publishedRevision(Course $course): int
+    {
+        return max(1, (int) (
+            $course->last_published_authoring_version ?: $course->authoring_version
+        ));
     }
 
     private function isSamePurchaseReplay(

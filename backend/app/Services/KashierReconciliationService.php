@@ -306,7 +306,9 @@ final readonly class KashierReconciliationService
 
     private function isProviderFailure(string $status): bool
     {
-        return in_array($status, ['FAILED', 'DECLINED', 'CANCELLED', 'CANCELED', 'VOIDED', 'EXPIRED'], true);
+        return in_array($status, [
+            'UNPAID', 'FAILED', 'DECLINED', 'CANCELLED', 'CANCELED', 'VOIDED', 'EXPIRED',
+        ], true);
     }
 
     private function isProviderPending(string $status): bool

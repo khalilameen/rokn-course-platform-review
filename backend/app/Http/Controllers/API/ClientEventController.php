@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 final class ClientEventController extends Controller
 {
@@ -38,6 +39,8 @@ final class ClientEventController extends Controller
         'screen_key',
         'error_code',
         'error_fingerprint',
+        'endpoint',
+        'request_id',
         'occurred_at',
     ];
 
@@ -64,8 +67,19 @@ final class ClientEventController extends Controller
             'screen_key' => ['nullable', 'string', 'max:64', 'regex:/^[a-z0-9._-]+$/'],
             'error_code' => ['nullable', 'string', 'max:64', 'regex:/^[A-Z0-9._-]+$/'],
             'error_fingerprint' => ['nullable', 'string', 'size:64', 'regex:/^[a-f0-9]{64}$/'],
+            'endpoint' => ['nullable', 'string', 'max:160', 'regex:/^\/[a-z0-9._:\/-]+$/'],
+            'request_id' => ['nullable', 'string', 'max:128', 'regex:/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/'],
             'occurred_at' => ['required', 'date', 'after_or_equal:-7 days', 'before_or_equal:+10 minutes'],
         ]);
+
+        $userId = null;
+        if (trim((string) $request->bearerToken()) !== '') {
+            try {
+                $userId = auth('api')->id();
+            } catch (Throwable) {
+                // An expired login may itself be the failure being reported.
+            }
+        }
 
         try {
             ClientEvent::query()->firstOrCreate(
@@ -82,6 +96,9 @@ final class ClientEventController extends Controller
                     'screen_key' => $data['screen_key'] ?? null,
                     'error_code' => $data['error_code'] ?? null,
                     'error_fingerprint' => $data['error_fingerprint'] ?? null,
+                    'endpoint' => $data['endpoint'] ?? null,
+                    'request_id' => $data['request_id'] ?? null,
+                    'user_id' => $userId,
                     'occurred_at' => $data['occurred_at'],
                     'received_at' => now(),
                 ]

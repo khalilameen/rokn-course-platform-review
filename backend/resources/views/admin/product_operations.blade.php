@@ -138,6 +138,39 @@
                     @endforeach</tbody>
                 </table></div>
             @endif
+
+            <div class="border-top mt-3 pt-3">
+                <div class="d-flex flex-wrap justify-content-between align-items-center mb-2 admin-gap">
+                    <div>
+                        <h3 class="h6 mb-1">أعطال التطبيق الفعلية</h3>
+                        <small class="text-muted">المستخدم والإصدار والمسار والسبب كما وصل من هاتفه</small>
+                    </div>
+                    <span class="badge {{ $clientFailuresLastDay > 0 ? 'badge-warning' : 'badge-success' }} p-2">آخر 24 ساعة {{ number_format($clientFailuresLastDay) }}</span>
+                </div>
+                @if($recentClientFailures->isEmpty())
+                    <div class="alert alert-success mb-0">لم يصل عطل من التطبيق</div>
+                @else
+                    <div class="table-responsive"><table class="table table-sm admin-table mb-0">
+                        <thead><tr><th>المستخدم</th><th>الإصدار</th><th>المكان</th><th>السبب</th><th>الوقت</th></tr></thead>
+                        <tbody>@foreach($recentClientFailures as $failure)
+                            <tr>
+                                <td>
+                                    @if($failure->user)
+                                        <a href="{{ route('admin.users.show', $failure->user_id) }}">{{ $failure->user->name ?: '#'.$failure->user_id }}</a>
+                                        <br><small>{{ $failure->user->email }}</small>
+                                    @else
+                                        زائر
+                                    @endif
+                                </td>
+                                <td>{{ $failure->app_version ?: '—' }}<br><small>build {{ $failure->build_number ?: '—' }}</small></td>
+                                <td><code>{{ $failure->endpoint ?: $failure->screen_key ?: '—' }}</code></td>
+                                <td><strong>{{ $failure->error_code ?: 'UNKNOWN_ERROR' }}</strong><br><small>{{ $failure->request_id ?: '' }}</small></td>
+                                <td>{{ \App\Support\BusinessClock::relative($failure->occurred_at) ?: '—' }}</td>
+                            </tr>
+                        @endforeach</tbody>
+                    </table></div>
+                @endif
+            </div>
         </div>
     </div>
 
@@ -356,6 +389,7 @@
                 'packages' => 'باقات قابلة للشراء', 'reward_tasks' => 'مهام ربح فعالة',
                 'support' => 'دعم واتساب',
                 'private_attachments' => 'المرفقات الداخلية خارج المسار العام',
+                'external_monitoring' => 'Sentry وNightwatch مربوطان',
             ] as $key => $label)
                 <div class="col-md-6 mb-2"><span class="badge {{ $readiness[$key] ? 'badge-success' : 'badge-danger' }} ml-2">{{ $readiness[$key] ? 'جاهز' : 'ناقص' }}</span>{{ $label }}</div>
             @endforeach

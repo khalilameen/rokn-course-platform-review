@@ -93,9 +93,8 @@ const parsePersistedSnapshot = (value: string | null) => {
 
 const loadSnapshot = async () => {
   if (memorySnapshot) return memorySnapshot;
-  memorySnapshot = parsePersistedSnapshot(
-    await AsyncStorage.getItem(SNAPSHOT_KEY),
-  );
+  const stored = await AsyncStorage.getItem(SNAPSHOT_KEY).catch(() => null);
+  memorySnapshot = parsePersistedSnapshot(stored);
   return memorySnapshot;
 };
 

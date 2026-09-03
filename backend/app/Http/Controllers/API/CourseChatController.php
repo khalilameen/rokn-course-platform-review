@@ -1274,7 +1274,14 @@ final class CourseChatController extends Controller
                 'total_tokens' => 0,
                 'cost_usd' => 0,
                 'metadata' => [
-                    'usage_source' => 'cached_answer',
+                    // A cache hit is a delivered learner turn but not a paid
+                    // provider request. Keep that distinction explicit so
+                    // finance reports do not classify a known zero cost as a
+                    // missing provider settlement.
+                    'token_usage_source' => 'cache_zero_cost',
+                    'cost_usage_source' => 'cache_zero_cost',
+                    'usage_source' => 'cache_zero_cost',
+                    'entitlement_delivered' => true,
                     'accepted_response' => mb_substr(trim($answer), 0, 12000),
                     'request_context' => array_filter($requestContext),
                 ],

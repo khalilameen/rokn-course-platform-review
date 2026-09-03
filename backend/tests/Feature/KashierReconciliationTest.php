@@ -162,6 +162,32 @@ final class KashierReconciliationTest extends TestCase
         self::assertSame(0, PaymentReconciliationFinding::query()->count());
     }
 
+    public function test_reconciliation_uses_payment_status_before_the_success_envelope(): void
+    {
+        $order = $this->pendingOrder('PKG-RECON-UNPAID');
+        Http::fake([
+            'https://test-api.kashier.io/*' => Http::response([
+                'response' => [
+                    'status' => 'SUCCESS',
+                    'paymentStatus' => 'unpaid',
+                    'merchantOrderId' => $order->order_ref,
+                ],
+            ]),
+        ]);
+
+        $result = app(KashierReconciliationService::class)->reconcile(100);
+
+        self::assertSame(1, $result['consistent']);
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'status' => Order::STATUS_CANCELLED,
+            'financial_status' => Order::FINANCIAL_CANCELLED,
+            'transaction_id' => null,
+        ]);
+        self::assertSame(0, (int) $this->user->fresh()->wallet_coins);
+        self::assertSame(0, DB::table('wallet_transactions')->count());
+    }
+
     public function test_provider_pending_checkout_remains_open_after_local_expiry(): void
     {
         $order = $this->pendingOrder('PKG-RECON-PROVIDER-PENDING');

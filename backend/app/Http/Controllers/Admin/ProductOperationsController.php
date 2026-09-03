@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Certificate;
+use App\Models\ClientEvent;
 use App\Models\Attachment;
 use App\Models\CoinEarningMethod;
 use App\Models\Course;
@@ -119,6 +120,9 @@ class ProductOperationsController extends Controller
             'reward_tasks' => CoinEarningMethod::query()->active()->exists(),
             'support' => filled($settings->support_whatsapp_url),
             'private_attachments' => $legacyPublicAttachments === 0,
+            'external_monitoring' => filled(config('sentry.dsn'))
+                && (bool) config('nightwatch.enabled')
+                && filled(config('nightwatch.token')),
         ];
 
         $grantUpgradeOrders = Order::query()
@@ -283,7 +287,8 @@ class ProductOperationsController extends Controller
             $runtimeHeartbeatFailures->prepend('scheduler');
         }
         $launchReady = (bool) data_get($capabilityReport, 'ready')
-            && (bool) ($mobileRelease['ready'] ?? false);
+            && (bool) ($mobileRelease['ready'] ?? false)
+            && $readiness['external_monitoring'];
         $operationalIncidents = Schema::hasTable('operational_incidents')
             ? OperationalIncident::query()
                 ->where('status', OperationalIncident::STATUS_OPEN)
@@ -292,13 +297,27 @@ class ProductOperationsController extends Controller
                 ->limit(50)
                 ->get()
             : collect();
+        $recentClientFailures = Schema::hasTable('client_events')
+            ? ClientEvent::query()
+                ->with('user:id,name,email')
+                ->whereIn('severity', ['error', 'fatal'])
+                ->latest('occurred_at')
+                ->limit(20)
+                ->get()
+            : collect();
+        $clientFailuresLastDay = Schema::hasTable('client_events')
+            ? ClientEvent::query()
+                ->whereIn('severity', ['error', 'fatal'])
+                ->where('occurred_at', '>=', now()->subDay())
+                ->count()
+            : 0;
 
         return view('admin.product_operations', compact(
             'courses', 'settings', 'readiness', 'counts', 'finance', 'capabilityReport', 'mediaAttention',
             'playbackOperations', 'mediaReconcileStatus', 'backupReadiness', 'featureFlags',
             'financialAnomalies', 'paymentChannelReport', 'storeNotificationReviews', 'providerEvidence',
             'runtime', 'operationalIncidents', 'runtimeHeartbeatFailures', 'launchReady',
-            'mobileReleaseCapability'
+            'mobileReleaseCapability', 'recentClientFailures', 'clientFailuresLastDay'
         ));
     }
 

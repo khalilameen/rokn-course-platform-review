@@ -18,6 +18,7 @@ import {
   removeItem,
   saveItem,
 } from '../constants/helpers';
+import {peekSecureSession} from './secureSession';
 import {
   cancelLearningReminders,
   getSmartRemindersEnabled,
@@ -76,6 +77,28 @@ Notifications.setNotificationHandler({
 
 const currentSessionToken = async () =>
   extractApiToken(await getItem(AsyncKeys.USER_DATA));
+
+type SessionAvailability =
+  | {state: 'authenticated'; token: string}
+  | {state: 'guest'}
+  | {state: 'pending'};
+
+/**
+ * A locked or temporarily unavailable keychain is not an authenticated
+ * logout. Cold-start notification responses must stay owned by the native
+ * response until bootstrap can prove either the account or a real guest
+ * session; otherwise a slow restore permanently loses the user's tap.
+ */
+const currentSessionAvailability = async (): Promise<SessionAvailability> => {
+  const before = peekSecureSession();
+  const cachedToken = extractApiToken(before.session);
+  if (cachedToken) return {state: 'authenticated', token: cachedToken};
+  if (before.ready) return {state: 'guest'};
+
+  const loadedToken = await currentSessionToken();
+  if (loadedToken) return {state: 'authenticated', token: loadedToken};
+  return peekSecureSession().ready ? {state: 'guest'} : {state: 'pending'};
+};
 
 const sessionStillCurrent = async (token: string, accountScope: string) =>
   (await currentSessionToken()) === token &&
@@ -458,7 +481,13 @@ export const openNotificationLink = async (
       return false;
     }
     const notificationId = notificationIdFromResponse(response);
-    if (notificationId && !(await currentSessionToken())) {
+    const sessionAvailability = notificationId
+      ? await currentSessionAvailability()
+      : null;
+    if (notificationId && sessionAvailability?.state === 'pending') {
+      return false;
+    }
+    if (notificationId && sessionAvailability?.state === 'guest') {
       // A tap can outlive the account that received it. Its durable inbox row
       // must never open under a guest or a later account from the old payload.
       pendingNotificationResponse = null;
@@ -508,7 +537,14 @@ const deliverNotificationResponse = async (
   clearNativeResponse: boolean,
 ) => {
   const notificationId = notificationIdFromResponse(response);
-  if (notificationId && !(await currentSessionToken())) {
+  const sessionAvailability = notificationId
+    ? await currentSessionAvailability()
+    : null;
+  if (notificationId && sessionAvailability?.state === 'pending') {
+    pendingNotificationResponse = {response, clearNativeResponse};
+    return false;
+  }
+  if (notificationId && sessionAvailability?.state === 'guest') {
     pendingNotificationResponse = null;
     await removeItem(await pendingNotificationStorageKey());
     await Notifications.clearLastNotificationResponseAsync();

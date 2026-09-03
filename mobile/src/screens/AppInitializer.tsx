@@ -351,6 +351,10 @@ const AppInitializer: FC = () => {
     // Token refresh/retry happens only for an authenticated, already opted-in
     // learner. This bootstrap path never opens the notification permission UI.
     void reconcilePushRegistration();
+    // A cold-start push tap may have arrived while SecureStore was still
+    // unresolved. Once Redux adopts the durable owner, deliver that same
+    // native response instead of waiting for another foreground transition.
+    void flushPendingNotificationNavigation().catch(() => undefined);
     void flushPendingAccountWrites().catch(() => undefined);
   }, [storedUser]);
 

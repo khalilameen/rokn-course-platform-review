@@ -33,7 +33,7 @@ const numericRouteId = (value: string, field: string) => {
 const CATALOGUE_CACHE_KEY = '@rokn/catalogue-page/v4';
 const CATALOGUE_CACHE_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 const CATALOGUE_CACHE_PAGE_LIMIT = 4;
-const COURSE_DETAILS_CACHE_KEY = '@rokn/course-details/v4';
+const COURSE_DETAILS_CACHE_KEY = '@rokn/course-details/v5';
 const COURSE_DETAILS_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const COURSE_DETAILS_CACHE_LIMIT = 8;
 const COURSE_COVER_FALLBACK = require('../../assets/images/courseSlider.jpg');
@@ -213,6 +213,7 @@ export type CourseAccessPlan = {
 
 export type CourseDetails = {
   id: string;
+  publishedRevision: number;
   title: string;
   description: string;
   imageUrl?: string;
@@ -238,7 +239,7 @@ export type CourseDetails = {
 };
 
 type CourseDetailsCacheRecord = {
-  version: 4;
+  version: 5;
   savedAt: number;
   course: CourseDetails;
 };
@@ -529,6 +530,7 @@ const assertCourseDetailsContract = (course: unknown): CourseDto => {
       ? course.metadata.students_count
       : course.students_count,
   );
+  const publishedRevision = Number(course.published_revision);
   if (
     !id ||
     !title ||
@@ -542,7 +544,9 @@ const assertCourseDetailsContract = (course: unknown): CourseDto => {
         ratingAverage < 1 ||
         ratingAverage > 5)) ||
     !Number.isSafeInteger(studentsCount) ||
-    studentsCount < 0
+    studentsCount < 0 ||
+    (!comingSoon &&
+      (!Number.isSafeInteger(publishedRevision) || publishedRevision < 1))
   ) {
     throw new Error('API_CONTRACT_INVALID_COURSE_DETAILS');
   }
@@ -770,6 +774,7 @@ const mapCourseDetails = (course: CourseDto): CourseDetails => {
     );
   return {
     id: String(course.id ?? '').trim(),
+    publishedRevision: Math.max(0, Number(course.published_revision) || 0),
     title: displayText(course.title) || 'كورس ركن',
     description: displayText(course.description),
     imageUrl: displayImageUrl(course.image),
@@ -1077,12 +1082,15 @@ export const getPublishedCoursesPage = async ({
   search = '',
   revision,
   signal,
+  revisionConflictRetry = true,
 }: {
   page?: number;
   perPage?: number;
   search?: string;
   revision?: number;
   signal?: AbortSignal;
+  /** Internal single-flight recovery when publish changes the read generation. */
+  revisionConflictRetry?: boolean;
 } = {}): Promise<PublishedCoursesPage> => {
   const safePage = Math.max(1, Math.floor(page));
   const normalizedSearch = truncateGraphemes(normalizeText(search), 120);
@@ -1267,15 +1275,22 @@ export const getPublishedCoursesPage = async ({
     const catalogueChanged =
       candidate?.code === 'catalogue_changed' ||
       (responseStatus === 409 && responseCode === 'catalogue_changed');
-    if (catalogueChanged && safePage > 1) {
+    if (catalogueChanged && revisionConflictRetry) {
       const replacement = await getPublishedCoursesPage({
-        page: 1,
+        page: safePage > 1 ? 1 : safePage,
         perPage: safePerPage,
         search: normalizedSearch,
         signal,
+        revisionConflictRetry: false,
       });
       assertAccountSessionBoundary(accountBoundary);
-      return {...replacement, reset: true};
+      return safePage > 1 ? {...replacement, reset: true} : replacement;
+    }
+    if (catalogueChanged) {
+      // A revision conflict is positive evidence that the cached page is old,
+      // not an offline failure. Keep it out of the fallback path after the one
+      // bounded retry so publish can never revive a removed catalogue row.
+      throw error;
     }
     if (!normalizedSearch) {
       const cached = await readCatalogueCache(
@@ -1431,7 +1446,7 @@ const readCourseDetailsCache = async (
     if (!raw) return null;
     const cached = JSON.parse(raw) as CourseDetailsCacheRecord;
     if (
-      cached.version !== 4 ||
+      cached.version !== 5 ||
       !isServerTimestampFresh(cached.savedAt, Number.MAX_SAFE_INTEGER) ||
       (!allowStale &&
         !isServerTimestampFresh(
@@ -1440,6 +1455,8 @@ const readCourseDetailsCache = async (
         )) ||
       !cached.course ||
       cached.course.id !== courseId ||
+      !Number.isInteger(cached.course.publishedRevision) ||
+      cached.course.publishedRevision < 1 ||
       typeof cached.course.title !== 'string' ||
       !Array.isArray(cached.course.accessPlans)
     ) {
@@ -1479,6 +1496,28 @@ const errorStatus = (error: unknown): number => {
   return Number(candidate?.status ?? candidate?.response?.status ?? 0) || 0;
 };
 
+const errorCode = (error: unknown): string => {
+  const candidate = error as {
+    code?: unknown;
+    data?: {code?: unknown; data?: {code?: unknown}};
+    response?: {data?: {code?: unknown; data?: {code?: unknown}}};
+  };
+
+  return String(
+    candidate?.data?.code ??
+      candidate?.data?.data?.code ??
+      candidate?.response?.data?.code ??
+      candidate?.response?.data?.data?.code ??
+      candidate?.code ??
+      '',
+  )
+    .trim()
+    .toLowerCase();
+};
+
+const isCourseRevisionChangedError = (error: unknown): boolean =>
+  errorStatus(error) === 409 && errorCode(error) === 'course_revision_changed';
+
 export const isCourseUnavailableError = (error: unknown): boolean =>
   [403, 404, 410].includes(errorStatus(error));
 
@@ -1493,19 +1532,32 @@ export const getCourseDetails = async (
     accountBoundary,
   );
   try {
-    const data = payload(
-      await publicRequest.get(`courses/${normalizedCourseId}/details`, {
-        optionalAuthorization: true,
-        signal: options.signal,
-      } as RoknRequestConfig),
-    );
+    let data: CourseDto | undefined;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        data = payload(
+          await publicRequest.get(`courses/${normalizedCourseId}/details`, {
+            optionalAuthorization: true,
+            signal: options.signal,
+          } as RoknRequestConfig),
+        );
+        break;
+      } catch (error) {
+        // A publish swaps the whole course graph atomically. If it lands while
+        // the backend is serialising details, retry once so the learner gets
+        // the new graph rather than falling back to an old device snapshot.
+        if (attempt === 0 && isCourseRevisionChangedError(error)) continue;
+        throw error;
+      }
+    }
+    if (!data) throw new Error('API_CONTRACT_INVALID_COURSE_DETAILS');
     assertAccountSessionBoundary(accountBoundary);
     const course = {...mapCourseDetails(data), fromCache: false};
     if (!course.id || course.id !== normalizedCourseId) {
       throw new Error('API_CONTRACT_INVALID_COURSE_DETAILS_ID');
     }
     const record: CourseDetailsCacheRecord = {
-      version: 4,
+      version: 5,
       savedAt: serverNowMs(),
       course,
     };
@@ -1518,6 +1570,16 @@ export const getCourseDetails = async (
     return course;
   } catch (error) {
     assertAccountSessionBoundary(accountBoundary);
+    if (isCourseRevisionChangedError(error)) {
+      // The server has positively told us that this graph is obsolete. An
+      // offline cache is useful for transport failures, never as an answer to
+      // a revision conflict that may contain removed paid content.
+      await removeCourseDetailsCache(
+        normalizedCourseId,
+        scopedDetailsCacheKey,
+      ).catch(() => undefined);
+      throw error;
+    }
     if (isCourseUnavailableError(error)) {
       await removeCourseDetailsCache(
         normalizedCourseId,

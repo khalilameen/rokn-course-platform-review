@@ -284,6 +284,7 @@ export default function CourseDetails() {
   const appliedCoupon = Boolean(
     couponQuote &&
       couponQuote.accessPlanCode === selectedPlan?.code &&
+      couponQuote.courseRevision === remoteCourse?.publishedRevision &&
       couponQuote.originalPrice === purchasePrice &&
       couponQuote.couponCode === normalizeHumanIdentifier(purchaseCouponCode),
   );
@@ -781,6 +782,7 @@ export default function CourseDetails() {
       selectedPlan?.code,
       appliedCoupon ? couponQuote?.couponCode : undefined,
       effectivePurchasePrice,
+      remoteCourse?.publishedRevision,
     );
     if (!ownsCourseOperation(operationCourseId, operationGeneration)) {
       return false;
@@ -829,6 +831,7 @@ export default function CourseDetails() {
         courseId,
         operationPlanCode,
         normalized,
+        remoteCourse?.publishedRevision,
       );
       if (
         !ownsCourseOperation(operationCourseId, operationGeneration) ||
@@ -887,7 +890,12 @@ export default function CourseDetails() {
     setPurchaseRestoreState({key: purchaseRestoreKey, status: 'quoting'});
     setPurchaseCouponCode(resumedCoupon);
     setCouponBusy(true);
-    void quoteCoursePurchase(courseId, operationPlanCode, resumedCoupon)
+    void quoteCoursePurchase(
+      courseId,
+      operationPlanCode,
+      resumedCoupon,
+      remoteCourse?.publishedRevision,
+    )
       .then(quote => {
         if (
           purchaseRestoreRequestRef.current !== requestKey ||
@@ -921,6 +929,7 @@ export default function CourseDetails() {
   }, [
     courseId,
     pageReady,
+    remoteCourse?.publishedRevision,
     remoteSession,
     purchaseRestoreKey,
     purchaseRestoreStatus,
@@ -997,6 +1006,7 @@ export default function CourseDetails() {
                 courseId,
                 selectedPlan?.code,
                 appliedCoupon ? couponQuote?.couponCode || '' : '',
+                remoteCourse?.publishedRevision,
               ),
             ]);
             if (!ownsCourseOperation(operationCourseId, operationGeneration))
@@ -1072,6 +1082,7 @@ export default function CourseDetails() {
               operationCourseId,
               operationPlanCode,
               operationCouponCode,
+              remoteCourse?.publishedRevision,
             ),
           ]);
           if (!ownsCourseOperation(operationCourseId, operationGeneration)) {
@@ -1126,10 +1137,20 @@ export default function CourseDetails() {
     setNotice('');
     try {
       await activateSelectedCourse(operationCourseId, operationGeneration);
-    } catch {
+    } catch (error) {
       if (!ownsCourseOperation(operationCourseId, operationGeneration)) return;
       reloadRemote();
-      setNotice('تعذّر تأكيد فتح الكورس\nحدّث الصفحة قبل المحاولة مرة أخرى');
+      if (
+        ['course_terms_changed', 'course_plan_unavailable'].includes(
+          errorCode(error),
+        )
+      ) {
+        setCouponQuote(null);
+        setDialogStep('plans');
+        setNotice('تغيّرت تفاصيل الفئة\nراجعها قبل الشراء');
+      } else {
+        setNotice('تعذّر تأكيد فتح الكورس\nحدّث الصفحة قبل المحاولة مرة أخرى');
+      }
     } finally {
       if (ownsCourseOperation(operationCourseId, operationGeneration)) {
         commerceInFlightRef.current = false;

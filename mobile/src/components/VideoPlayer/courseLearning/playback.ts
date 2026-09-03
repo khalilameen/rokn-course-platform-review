@@ -139,10 +139,12 @@ const mergePendingWatchHistory = (
     ? previous
     : {
         ...next,
-        positionSeconds: Math.max(
-          previous?.positionSeconds || 0,
-          next.positionSeconds,
-        ),
+        // Resume means the latest observed position, not the furthest point
+        // reached. A learner can rewind and leave before the 30-second flush;
+        // keeping max(position) would make the next launch jump forward again
+        // and also disagrees with WatchHistoryController's ordered-session
+        // contract.
+        positionSeconds: next.positionSeconds,
         durationSeconds:
           Math.max(
             previous?.durationSeconds || 0,

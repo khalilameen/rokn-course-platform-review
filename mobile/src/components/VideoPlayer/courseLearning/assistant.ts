@@ -103,6 +103,7 @@ export const loadCourseAssistantHistory = async (
 
 const openCourseAssistantAttachmentInternal = async (
   file: import('../types').ChatAttachmentDraft,
+  boundary: Awaited<ReturnType<typeof captureAccountSessionBoundary>>,
 ) => {
   let candidate = file;
   const expiresAt = Date.parse(String(candidate.downloadExpiresAt || ''));
@@ -112,7 +113,6 @@ const openCourseAssistantAttachmentInternal = async (
     expiresAt <= Date.now() + 15000
   ) {
     if (!candidate.serverId) throw new Error('CHAT_ATTACHMENT_UNAVAILABLE');
-    const boundary = await captureAccountSessionBoundary();
     const response = await publicRequest.get(
       `ai-input-attachments/${encodeURIComponent(candidate.serverId)}`,
     );
@@ -126,6 +126,7 @@ const openCourseAssistantAttachmentInternal = async (
     };
   }
   if (!candidate.downloadUrl) throw new Error('CHAT_ATTACHMENT_UNAVAILABLE');
+  assertAccountSessionBoundary(boundary);
   await openExternalUrlOnce(
     candidate.downloadUrl,
     undefined,
@@ -137,21 +138,29 @@ const openCourseAssistantAttachmentInternal = async (
 
 export const openCourseAssistantAttachment = (
   file: import('../types').ChatAttachmentDraft,
-) => {
-  const key = String(
-    file.serverId || file.uploadId || file.downloadUrl || '',
-  ).trim();
-  if (!key) return Promise.reject(new Error('CHAT_ATTACHMENT_UNAVAILABLE'));
-  const existing = assistantAttachmentOpenFlights.get(key);
-  if (existing) return existing;
-  const flight = openCourseAssistantAttachmentInternal(file).finally(() => {
-    if (assistantAttachmentOpenFlights.get(key) === flight) {
-      assistantAttachmentOpenFlights.delete(key);
+) =>
+  (async () => {
+    const boundary = await captureAccountSessionBoundary();
+    const attachmentKey = String(
+      file.serverId || file.uploadId || file.downloadUrl || '',
+    ).trim();
+    if (!attachmentKey) {
+      return Promise.reject(new Error('CHAT_ATTACHMENT_UNAVAILABLE'));
     }
-  });
-  assistantAttachmentOpenFlights.set(key, flight);
-  return flight;
-};
+    const key = `${boundary.scope}:${attachmentKey}`;
+    const existing = assistantAttachmentOpenFlights.get(key);
+    if (existing) return existing;
+    const flight = openCourseAssistantAttachmentInternal(
+      file,
+      boundary,
+    ).finally(() => {
+      if (assistantAttachmentOpenFlights.get(key) === flight) {
+        assistantAttachmentOpenFlights.delete(key);
+      }
+    });
+    assistantAttachmentOpenFlights.set(key, flight);
+    return flight;
+  })();
 
 export const pollCourseAssistantTurn = async (
   clientRequestId: string,
@@ -174,8 +183,8 @@ export const pollCourseAssistantTurn = async (
     );
   } catch (error: unknown) {
     const failure = asRecord(error);
-    const response = asRecord(failure.response);
-    const status = Number(response.status || failure.status || 0);
+    const errorResponse = asRecord(failure.response);
+    const status = Number(errorResponse.status || failure.status || 0);
     if (status === 404 || status === 410) {
       return {
         text: 'لم يصل السؤال إلى Rokn AI\nأرسله مرة أخرى',

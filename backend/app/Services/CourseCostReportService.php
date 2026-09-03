@@ -49,6 +49,12 @@ final class CourseCostReportService
                 'sqlite' => "json_extract(metadata, '$.cost_usage_source')",
                 default => "''",
             };
+            $usageSource = match (DB::connection()->getDriverName()) {
+                'mysql', 'mariadb' => "JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.usage_source'))",
+                'pgsql' => "metadata->>'usage_source'",
+                'sqlite' => "json_extract(metadata, '$.usage_source')",
+                default => "''",
+            };
             $deliverySource = match (DB::connection()->getDriverName()) {
                 'mysql', 'mariadb' => "JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.entitlement_delivered'))",
                 'pgsql' => "metadata->>'entitlement_delivered'",
@@ -57,13 +63,16 @@ final class CourseCostReportService
             };
             $delivered = "COALESCE({$deliverySource}, 'true') NOT IN ('false', '0')";
             $unanswered = "COALESCE({$deliverySource}, 'true') IN ('false', '0')";
+            // Older cache hits only carried usage_source=cached_answer. They
+            // are known zero-cost deliveries, not unsettled provider costs.
+            $estimatedCost = "COALESCE({$costSource}, '') NOT IN ('provider', 'cache_zero_cost') AND COALESCE({$usageSource}, '') NOT IN ('cached_answer', 'cache_zero_cost')";
             $egpSelect = $hasEgpSnapshots
-                ? ", SUM(CASE WHEN status = 'completed' AND COALESCE({$costSource}, '') = 'provider' THEN COALESCE(cost_egp, 0) ELSE 0 END) as cost_egp, SUM(CASE WHEN status = 'completed' AND COALESCE({$costSource}, '') = 'provider' AND cost_usd > 0 AND cost_egp IS NULL THEN cost_usd ELSE 0 END) as unsnapped_cost_usd, SUM(CASE WHEN status = 'completed' AND COALESCE({$costSource}, '') <> 'provider' THEN COALESCE(cost_egp, 0) ELSE 0 END) as estimated_cost_egp, SUM(CASE WHEN status = 'completed' AND COALESCE({$costSource}, '') <> 'provider' AND cost_usd > 0 AND cost_egp IS NULL THEN cost_usd ELSE 0 END) as estimated_unsnapped_cost_usd"
-                : ", 0 as cost_egp, SUM(CASE WHEN status = 'completed' AND COALESCE({$costSource}, '') = 'provider' THEN cost_usd ELSE 0 END) as unsnapped_cost_usd, 0 as estimated_cost_egp, SUM(CASE WHEN status = 'completed' AND COALESCE({$costSource}, '') <> 'provider' THEN cost_usd ELSE 0 END) as estimated_unsnapped_cost_usd";
+                ? ", SUM(CASE WHEN status = 'completed' AND COALESCE({$costSource}, '') = 'provider' THEN COALESCE(cost_egp, 0) ELSE 0 END) as cost_egp, SUM(CASE WHEN status = 'completed' AND COALESCE({$costSource}, '') = 'provider' AND cost_usd > 0 AND cost_egp IS NULL THEN cost_usd ELSE 0 END) as unsnapped_cost_usd, SUM(CASE WHEN status = 'completed' AND {$estimatedCost} THEN COALESCE(cost_egp, 0) ELSE 0 END) as estimated_cost_egp, SUM(CASE WHEN status = 'completed' AND {$estimatedCost} AND cost_usd > 0 AND cost_egp IS NULL THEN cost_usd ELSE 0 END) as estimated_unsnapped_cost_usd"
+                : ", 0 as cost_egp, SUM(CASE WHEN status = 'completed' AND COALESCE({$costSource}, '') = 'provider' THEN cost_usd ELSE 0 END) as unsnapped_cost_usd, 0 as estimated_cost_egp, SUM(CASE WHEN status = 'completed' AND {$estimatedCost} THEN cost_usd ELSE 0 END) as estimated_unsnapped_cost_usd";
             $ai = DB::table('ai_usage_events')
                 ->where('course_id', $course->id)
                 ->whereIn('user_id', $userIds)
-                ->selectRaw("user_id, SUM(CASE WHEN status = 'completed' AND {$delivered} THEN 1 ELSE 0 END) as completed_requests, SUM(CASE WHEN status = 'completed' AND {$unanswered} THEN 1 ELSE 0 END) as unanswered_requests, SUM(CASE WHEN status = 'completed' AND COALESCE({$costSource}, '') <> 'provider' THEN 1 ELSE 0 END) as estimated_requests, SUM(CASE WHEN status IN ('failed','cancelled','expired') THEN 1 ELSE 0 END) as failed_requests, SUM(CASE WHEN status = 'completed' THEN total_tokens ELSE 0 END) as total_tokens, SUM(CASE WHEN status = 'completed' THEN cost_usd ELSE 0 END) as cost_usd{$egpSelect}")
+                ->selectRaw("user_id, SUM(CASE WHEN status = 'completed' AND {$delivered} THEN 1 ELSE 0 END) as completed_requests, SUM(CASE WHEN status = 'completed' AND {$unanswered} THEN 1 ELSE 0 END) as unanswered_requests, SUM(CASE WHEN status = 'completed' AND {$estimatedCost} THEN 1 ELSE 0 END) as estimated_requests, SUM(CASE WHEN status IN ('failed','cancelled','expired') THEN 1 ELSE 0 END) as failed_requests, SUM(CASE WHEN status = 'completed' THEN total_tokens ELSE 0 END) as total_tokens, SUM(CASE WHEN status = 'completed' THEN cost_usd ELSE 0 END) as cost_usd{$egpSelect}")
                 ->groupBy('user_id')
                 ->get();
             foreach ($ai as $usage) {

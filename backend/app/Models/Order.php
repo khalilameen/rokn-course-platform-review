@@ -111,6 +111,8 @@ class Order extends Model
     const PAYMENT_METHOD_GOOGLE_PLAY = 'google_play';
     const PAYMENT_METHOD_APP_STORE = 'app_store';
 
+    public const KASHIER_CHECKOUT_TTL_MINUTES = 30;
+
     public function requiresProviderVerification(): bool
     {
         return $this->package_id !== null && in_array($this->payment_method, [
@@ -371,8 +373,20 @@ class Order extends Model
 
     public function isCheckoutExpired(): bool
     {
-        return $this->checkout_expires_at !== null
-            && $this->checkout_expires_at->isPast();
+        if ($this->checkout_expires_at !== null) {
+            return $this->checkout_expires_at->isPast();
+        }
+
+        // Orders issued before checkout expiry was introduced have no stored
+        // deadline. Treat only legacy Kashier package intents as expired from
+        // their immutable creation time; store purchases have a different
+        // provider lifecycle and must not inherit this fallback.
+        return $this->payment_method === self::PAYMENT_METHOD_KASHIER
+            && $this->package_id !== null
+            && $this->created_at !== null
+            && $this->created_at->copy()
+                ->addMinutes(self::KASHIER_CHECKOUT_TTL_MINUTES)
+                ->isPast();
     }
 
     /**

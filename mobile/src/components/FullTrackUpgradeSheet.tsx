@@ -145,6 +145,7 @@ export default function FullTrackUpgradeSheet({
         courseId,
         quote.targetPlanCode,
         quote.price,
+        quote.courseRevision,
       );
       if (
         operationFlightRef.current !== flight ||
@@ -170,8 +171,8 @@ export default function FullTrackUpgradeSheet({
         return;
       const code = errorCode(requestError);
       const reconciledError =
-        code === 'course_price_changed'
-          ? 'تغير السعر\nراجع الإجمالي قبل الشراء'
+        code === 'course_price_changed' || code === 'course_terms_changed'
+          ? 'تغيرت تفاصيل الفئة\nراجعها قبل الشراء'
           : code === 'insufficient_coins'
           ? 'تغير رصيدك\nراجع المبلغ المتبقي وحاول مرة أخرى'
           : 'تعذّر تأكيد النتيجة\nنتحقق منها الآن';

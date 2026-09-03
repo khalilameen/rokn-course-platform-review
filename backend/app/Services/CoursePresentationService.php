@@ -9,9 +9,7 @@ use App\Http\Resources\CourseResource;
 use App\Models\Course;
 use App\Models\CourseEnrollment;
 use App\Models\Setting;
-use App\Models\StudentSectionProgress;
 use App\Models\User;
-use App\Models\UserProjectEvaluation;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -101,14 +99,12 @@ final readonly class CoursePresentationService
                 'certificate_available' => false,
             ];
         $certificateIncludedByPlan = (bool) $entitlement['certificate_available'];
-        $learningSections = $this->sectionSequence->learning($course->sections);
-        $courseStepsComplete = $user
-            && $hasAccess
-            && $certificateIncludedByPlan
-            && $learningSections->isNotEmpty()
-            && $completedSectionIds->intersect($learningSections->pluck('id'))->count()
-                === $learningSections->count();
-        $certificateStatus = $user && $courseStepsComplete
+        // CertificateEligibilityService is the single owner of the earned
+        // completion contract. In particular, an already-earned published
+        // revision remains eligible after a moderator publishes extra steps;
+        // pre-gating on the current map would hide that certificate here while
+        // the issue endpoint correctly continued to allow it.
+        $certificateStatus = $user && $hasAccess && $certificateIncludedByPlan
             ? $this->certificateEligibility->for($user, $course)
             : ['included' => $certificateIncludedByPlan, 'available' => false];
         $certificateIncluded = (bool) $certificateStatus['included'];

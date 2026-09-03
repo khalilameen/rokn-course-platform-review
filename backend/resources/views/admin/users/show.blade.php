@@ -39,7 +39,23 @@
                 </div>
 
                 <div class="profile-body">
-                    
+                    <div class="study-info">
+                        <h6 class="study-info__heading">
+                            <i class="fa fa-database"></i> رصيد العملات
+                        </h6>
+                        <span class="stat-badge stat-badge-primary">
+                            الإجمالي {{ number_format($walletSummary['total_balance']) }}
+                        </span>
+                        <span class="stat-badge stat-badge-success">
+                            مدفوع {{ number_format($walletSummary['purchased_balance']) }}
+                        </span>
+                        <span class="stat-badge stat-badge-info">
+                            مكافآت {{ number_format($walletSummary['reward_balance']) }}
+                        </span>
+                        <span class="stat-badge stat-badge-light">
+                            المتاح لكورس جديد {{ number_format($walletSummary['course_spendable_balance']) }}
+                        </span>
+                    </div>
 
                     @if($user->interests?->count() > 0)
                     <div class="study-info study-info--interests">

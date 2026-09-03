@@ -140,6 +140,12 @@ const Reels = () => {
   const [chatVisible, setChatVisible] = useState(false);
 
   useEffect(() => {
+    // React Navigation keeps the reels screen mounted under pushed routes.
+    // Never leave its native chat Modal interactive above the next screen.
+    if (!isScreenFocused) setChatVisible(false);
+  }, [isScreenFocused]);
+
+  useEffect(() => {
     if (!isScreenFocused || !course || params.openCourseChatUpgrade !== true) return;
     setChatVisible(true);
     navigation.setParams({openCourseChatUpgrade: false});
@@ -602,7 +608,8 @@ const Reels = () => {
     async (reel: CourseReel, folder?: SavedFolderOption | null) => {
       const ownerCourseId = loadedCourseRef.current?.id;
       if (!ownerCourseId) return;
-      const operationKey = `${ownerCourseId}:${reel.lessonId}`;
+      const ownerGeneration = accountViewGenerationRef.current;
+      const operationKey = `${ownerGeneration}:${ownerCourseId}:${reel.lessonId}`;
       if (savePendingRef.current.has(operationKey)) {
         return;
       }
@@ -619,6 +626,7 @@ const Reels = () => {
           assertAccountSessionBoundary(boundary);
           return (
             mountedRef.current &&
+            accountViewGenerationRef.current === ownerGeneration &&
             loadedCourseRef.current?.id === ownerCourseId
           );
         } catch {
@@ -651,6 +659,7 @@ const Reels = () => {
       } finally {
         if (
           mountedRef.current &&
+          accountViewGenerationRef.current === ownerGeneration &&
           loadedCourseRef.current?.id === ownerCourseId
         ) {
           setSavingLessons(current => {

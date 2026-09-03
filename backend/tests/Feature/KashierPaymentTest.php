@@ -577,6 +577,30 @@ class KashierPaymentTest extends TestCase
         self::assertSame(2, Order::query()->where('user_id', $this->user->id)->count());
     }
 
+    public function test_closing_an_unpaid_provider_checkout_never_treats_the_success_envelope_as_payment(): void
+    {
+        $order = $this->createPendingOrder('PKG-ABANDON-UNPAID');
+        Http::fake([
+            'https://test-api.kashier.io/*' => Http::response([
+                'response' => [
+                    'status' => 'SUCCESS',
+                    'paymentStatus' => 'unpaid',
+                    'merchantOrderId' => $order->order_ref,
+                ],
+            ]),
+        ]);
+
+        $this->actingAs($this->user, 'api')
+            ->postJson("/api/v1/payment/abandon/{$order->order_ref}")
+            ->assertOk()
+            ->assertJsonPath('status', Order::STATUS_CANCELLED)
+            ->assertJsonPath('financial_status', Order::FINANCIAL_CANCELLED)
+            ->assertJsonPath('coins_added', 0);
+
+        self::assertSame(0, (int) $this->user->fresh()->wallet_coins);
+        self::assertSame(0, Order::query()->where('status', Order::STATUS_APPROVED)->count());
+    }
+
     public function test_closing_checkout_during_provider_outage_keeps_one_recoverable_intent(): void
     {
         $order = $this->createPendingOrder('PKG-ABANDON-PROVIDER-DOWN');
@@ -801,6 +825,31 @@ class KashierPaymentTest extends TestCase
         self::assertSame(Order::STATUS_CANCELLED, $pending->fresh()->status);
         self::assertNotSame($pending->order_ref, $response->json('order_ref'));
         self::assertSame(2, Order::query()->where('user_id', $this->user->id)->count());
+    }
+
+    public function test_a_legacy_checkout_without_a_stored_expiry_cannot_block_retries_forever(): void
+    {
+        $pending = $this->createPendingOrder('PKG-LEGACY-NO-EXPIRY');
+        $pending->forceFill([
+            'checkout_request_key' => 'server-legacy-checkout-key',
+            'checkout_expires_at' => null,
+            'created_at' => now()->subMinutes(Order::KASHIER_CHECKOUT_TTL_MINUTES + 1),
+        ])->save();
+        Http::fake([
+            'https://test-api.kashier.io/*' => Http::response([], 404),
+        ]);
+
+        $key = '96e07193-d6a9-4b62-9976-b652b4e4f8a7';
+        $response = $this->actingAs($this->user, 'api')
+            ->withHeader('Idempotency-Key', $key)
+            ->postJson('/api/v1/payment/initiate', [
+                'package_id' => $this->package->id,
+                'idempotency_key' => $key,
+            ]);
+
+        $response->assertOk();
+        self::assertSame(Order::STATUS_CANCELLED, $pending->fresh()->status);
+        self::assertNotSame($pending->order_ref, $response->json('order_ref'));
     }
 
     public function test_a_different_package_can_start_while_the_old_package_is_provider_pending(): void

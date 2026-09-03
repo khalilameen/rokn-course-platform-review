@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ClientEvent extends Model
 {
@@ -23,6 +24,9 @@ class ClientEvent extends Model
         'screen_key',
         'error_code',
         'error_fingerprint',
+        'endpoint',
+        'request_id',
+        'user_id',
         'occurred_at',
         'received_at',
     ];
@@ -30,7 +34,13 @@ class ClientEvent extends Model
     protected $casts = [
         'build_number' => 'integer',
         'os_major' => 'integer',
+        'user_id' => 'integer',
         'occurred_at' => 'datetime',
         'received_at' => 'datetime',
     ];
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
 }

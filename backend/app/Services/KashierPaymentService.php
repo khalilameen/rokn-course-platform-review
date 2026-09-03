@@ -18,8 +18,6 @@ use Illuminate\Support\Str;
 
 final readonly class KashierPaymentService
 {
-    private const CHECKOUT_TTL_MINUTES = 30;
-
     public function __construct(
         private readonly OrderLifecycleService $orderLifecycle,
         private readonly WalletService $wallet,
@@ -163,7 +161,7 @@ final readonly class KashierPaymentService
                 'checkout_request_key' => $clientRequestKey !== ''
                     ? $clientRequestKey
                     : 'server-' . (string) Str::uuid(),
-                'checkout_expires_at' => now()->addMinutes(self::CHECKOUT_TTL_MINUTES),
+                'checkout_expires_at' => now()->addMinutes(Order::KASHIER_CHECKOUT_TTL_MINUTES),
                 'amount' => $baseAmount,
                 'discount_amount' => round($baseAmount - $finalAmount, 2),
                 'final_amount' => $finalAmount,
@@ -427,8 +425,21 @@ final readonly class KashierPaymentService
             return $reversalEvents[0]['payment_status'];
         }
 
-        $status = $apiResponse['response']['status']
-            ?? $apiResponse['response']['paymentStatus']
+        // Kashier can return `status=SUCCESS` for the reconciliation request
+        // itself while the order's `paymentStatus` is still `unpaid`. Payment
+        // state is the financial evidence and must win over the transport
+        // envelope or an abandoned HPP could be credited as a capture.
+        $status = $apiResponse['response']['paymentStatus']
+            ?? $apiResponse['response']['payment_status']
+            ?? $apiResponse['response']['order']['paymentStatus']
+            ?? $apiResponse['response']['order']['payment_status']
+            ?? $apiResponse['response']['data'][0]['paymentStatus']
+            ?? $apiResponse['response']['data'][0]['payment_status']
+            ?? $apiResponse['data']['paymentStatus']
+            ?? $apiResponse['data']['payment_status']
+            ?? $apiResponse['paymentStatus']
+            ?? $apiResponse['payment_status']
+            ?? $apiResponse['response']['status']
             ?? $apiResponse['data']['status']
             ?? $apiResponse['status']
             ?? null;
@@ -608,7 +619,7 @@ final readonly class KashierPaymentService
         }
 
         if (in_array($normalized, [
-            'NOT_FOUND', 'PENDING', 'INITIATED', 'FAILED', 'FAILURE', 'DECLINED',
+            'NOT_FOUND', 'UNPAID', 'PENDING', 'INITIATED', 'FAILED', 'FAILURE', 'DECLINED',
             'CANCELLED', 'CANCELED', 'VOIDED', 'EXPIRED',
         ], true)) {
             return false;
@@ -623,7 +634,7 @@ final readonly class KashierPaymentService
     public function isProviderFailureStatus(?string $status): bool
     {
         return in_array($status, [
-            'NOT_FOUND', 'FAILED', 'FAILURE', 'DECLINED', 'CANCELLED', 'CANCELED',
+            'NOT_FOUND', 'UNPAID', 'FAILED', 'FAILURE', 'DECLINED', 'CANCELLED', 'CANCELED',
             'VOIDED', 'EXPIRED',
         ], true);
     }
@@ -1323,7 +1334,8 @@ final readonly class KashierPaymentService
         ]) ?? 'EGP'));
         $providerStatus = strtolower(trim((string) ($this->firstGatewayValue($payload, [
             'settlementStatus', 'settlement_status', 'response.settlement.status',
-            'data.settlementStatus', 'response.status', 'paymentStatus', 'status',
+            'data.settlementStatus', 'response.paymentStatus', 'response.payment_status',
+            'paymentStatus', 'payment_status', 'response.status', 'status',
         ]) ?? 'captured')));
 
         $facts = [];

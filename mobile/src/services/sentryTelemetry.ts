@@ -27,6 +27,14 @@ const safeText = (value: unknown) =>
     .replace(/[A-Za-z0-9_-]{40,}/g, '<token>')
     .slice(0, 240);
 
+const safeStack = (value: unknown) =>
+  String(value || '')
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer <redacted>')
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '<email>')
+    .replace(/(https?:\/\/[^\s?#]+)[?#][^\s]*/gi, '$1')
+    .replace(/[A-Za-z0-9_-]{80,}/g, '<token>')
+    .slice(0, 8_000);
+
 const safeRequestId = (value: unknown) => {
   const candidate = String(value || '').trim();
   return /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(candidate)
@@ -94,15 +102,24 @@ const readHeader = (headers: unknown, name: string): unknown => {
   return exact ? value[exact] : undefined;
 };
 
-const requestCorrelationFor = (error: Error) => {
+export type RequestCorrelation = {
+  endpoint?: string;
+  requestId?: string;
+};
+
+export const requestCorrelationFor = (
+  error: Error,
+  supplied: RequestCorrelation = {},
+) => {
   const shaped = error as Error & {
     config?: {url?: unknown; headers?: unknown};
     response?: {headers?: unknown};
   };
   return {
-    endpoint: safeEndpoint(shaped.config?.url),
+    endpoint: safeEndpoint(supplied.endpoint || shaped.config?.url),
     requestId: safeRequestId(
-      readHeader(shaped.response?.headers, 'x-request-id') ||
+      supplied.requestId ||
+        readHeader(shaped.response?.headers, 'x-request-id') ||
         readHeader(shaped.config?.headers, 'x-request-id'),
     ),
   };
@@ -153,6 +170,8 @@ type SentryDiagnostic = {
   errorCode: string;
   source: string;
   fatal: boolean;
+  endpoint?: string;
+  requestId?: string;
 };
 
 /** The existing operational reporter owns JS error capture and dedupe. */
@@ -161,12 +180,20 @@ export const captureSentryDiagnostic = (
   diagnostic: SentryDiagnostic,
 ) => {
   if (!initialized) return;
-  const correlation = requestCorrelationFor(error);
+  const correlation = requestCorrelationFor(error, diagnostic);
   const safeError = new Error(diagnostic.errorCode);
   safeError.name = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(error.name)
     ? error.name
     : 'Error';
-  safeError.stack = error.stack ? safeText(error.stack) : undefined;
+  // Preserve frames and line numbers for source-map resolution. Truncating a
+  // stack like learner-facing text leaves Sentry with the symptom but not the
+  // failing callsite.
+  const originalFrames = error.stack
+    ? safeStack(error.stack).split('\n').slice(1).join('\n')
+    : '';
+  safeError.stack = originalFrames
+    ? `${safeError.name}: ${diagnostic.errorCode}\n${originalFrames}`
+    : undefined;
   Sentry.withScope(scope => {
     scope.setLevel(diagnostic.fatal ? 'fatal' : 'error');
     scope.setTag('event_name', diagnostic.eventName);

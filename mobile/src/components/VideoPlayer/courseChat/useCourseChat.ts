@@ -884,6 +884,7 @@ export const useCourseChat = ({
         courseId,
         upgradeQuote.targetPlanCode,
         upgradeQuote.price,
+        upgradeQuote.courseRevision,
       );
       if (
         activeCourseIdRef.current !== courseId ||
@@ -906,8 +907,8 @@ export const useCourseChat = ({
         return;
       const code = courseChatErrorCode(error);
       setUpgradeError(
-        code === 'course_price_changed'
-          ? 'تغير السعر\nراجع الإجمالي قبل الترقية'
+        code === 'course_price_changed' || code === 'course_terms_changed'
+          ? 'تغيرت تفاصيل الفئة\nراجعها قبل الترقية'
           : code === 'insufficient_coins'
           ? 'تغيّر الرصيد المتاح\nراجع المبلغ الناقص قبل الترقية'
           : 'تعذّر تأكيد النتيجة\nنتحقق منها الآن',
@@ -929,8 +930,8 @@ export const useCourseChat = ({
         }
         setUpgradeQuote(refreshedQuote);
         setUpgradeError(
-          code === 'course_price_changed'
-            ? 'تغير السعر\nراجع الإجمالي قبل الترقية'
+          code === 'course_price_changed' || code === 'course_terms_changed'
+            ? 'تغيرت تفاصيل الفئة\nراجعها قبل الترقية'
             : code === 'insufficient_coins'
             ? 'تغيّر الرصيد المتاح\nراجع المبلغ الناقص قبل الترقية'
             : 'لم تكتمل العملية\nحاول مرة أخرى',
