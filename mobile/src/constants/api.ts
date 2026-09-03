@@ -68,7 +68,7 @@ export type RoknRequestConfig = AxiosRequestConfig & {
   skipAuthorization?: boolean;
   /** Attach a bearer only when bootstrap has already restored it in memory. */
   optionalAuthorization?: boolean;
-  /** Internal guard for the one safe retry after an adapter/network hand-off. */
+  /** Internal guard for bounded read recovery after transport/origin wake-up. */
   roknNetworkRetryCount?: number;
   /** Bearer captured when this request crossed the account boundary. */
   roknSessionToken?: string;
@@ -116,6 +116,32 @@ export const onFulfilledRequest = async (response: AxiosResponse) => {
 };
 let handledExpiredToken: string | null = null;
 
+// Laravel Cloud may return a short run of 502/503/504 responses while a
+// hibernated origin is waking. Public catalogue and login discovery are the
+// first reads a learner makes, so surfacing that infrastructure transition as
+// two unrelated product errors makes a healthy deployment look broken. Reads
+// are safe to replay; writes keep their endpoint-owned idempotency rules.
+const READ_RECOVERY_DELAYS_MS = [450, 900, 1_800, 3_000, 4_500, 5_000] as const;
+
+const transientReadFailure = ({
+  errorCode,
+  errorMessage,
+  responseStatus,
+}: {
+  errorCode: string;
+  errorMessage: string;
+  responseStatus: number;
+}) =>
+  (!responseStatus &&
+    (errorCode === 'ERR_NETWORK' ||
+      errorCode === 'ENETUNREACH' ||
+      errorCode === 'ECONNRESET' ||
+      errorCode === 'ECONNABORTED' ||
+      errorCode === 'ETIMEDOUT' ||
+      errorMessage.includes('network error') ||
+      errorMessage.includes('timeout'))) ||
+  [408, 425, 502, 503, 504].includes(responseStatus);
+
 const bearerTokenUsedByRequest = (
   config?: Record<string, unknown>,
 ): string | null => {
@@ -150,26 +176,28 @@ export const onRejectedResponse = async (error: unknown): Promise<never> => {
   const errorCode = String(errorRecord.code || '').toUpperCase();
   const errorMessage = String(errorRecord.message || '').toLowerCase();
   const retryCount = Number(config?.roknNetworkRetryCount || 0);
-  const safeNetworkHandoffFailure =
-    !response &&
-    (errorCode === 'ERR_NETWORK' ||
-      errorCode === 'ENETUNREACH' ||
-      errorCode === 'ECONNRESET' ||
-      errorMessage.includes('network error'));
+  const responseStatus = Number(response?.status || 0);
+  const safeTransientReadFailure = transientReadFailure({
+    errorCode,
+    errorMessage,
+    responseStatus,
+  });
 
-  // Wi-Fi/mobile-data hand-offs commonly fail one socket while the device is
-  // already online through the other interface. Retry only read-only requests,
-  // once, and never replay a mutation whose server result may be unknown.
+  // Cover both a socket lost during Wi-Fi/mobile-data hand-off and the brief
+  // gateway responses returned while the origin wakes. Keep the retry budget
+  // finite and never replay a mutation whose server result may be unknown.
   if (
-    safeNetworkHandoffFailure &&
-    retryCount < 1 &&
+    safeTransientReadFailure &&
+    retryCount < READ_RECOVERY_DELAYS_MS.length &&
     (method === 'get' || method === 'head')
   ) {
     const retryConfig = {
       ...(config as RoknRequestConfig),
       roknNetworkRetryCount: retryCount + 1,
     };
-    await new Promise(resolve => setTimeout(resolve, 450));
+    await new Promise(resolve =>
+      setTimeout(resolve, READ_RECOVERY_DELAYS_MS[retryCount]),
+    );
     return publicRequest.request(retryConfig).then(
       value => value as never,
       retryError => Promise.reject(retryError),

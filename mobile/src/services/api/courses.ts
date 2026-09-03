@@ -36,6 +36,7 @@ const CATALOGUE_CACHE_PAGE_LIMIT = 4;
 const COURSE_DETAILS_CACHE_KEY = '@rokn/course-details/v4';
 const COURSE_DETAILS_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const COURSE_DETAILS_CACHE_LIMIT = 8;
+const COURSE_COVER_FALLBACK = require('../../assets/images/courseSlider.jpg');
 let courseDetailsCacheTail: Promise<void> = Promise.resolve();
 const unavailableCourseListeners = new Set<(courseId: string) => void>();
 
@@ -159,7 +160,9 @@ type CourseDto = ApiRecord & {
 type CatalogueCacheRecord = {
   version: 4;
   savedAt: number;
-  courses: DemoCourse[];
+  // Native `require()` image ids are bundle-local numbers. Persisting one
+  // across an APK update can resolve to a different asset in the next bundle.
+  courses: Array<Omit<DemoCourse, 'image'> & {image?: unknown}>;
   page: number;
   hasMore: boolean;
   total: number;
@@ -909,9 +912,7 @@ const mapPublishedCourses = (
           displayText(item.teacher_name) ||
           displayText(item.teachers?.[0]?.name) ||
           'فريق ركن',
-        image: imageUrl
-          ? {uri: imageUrl}
-          : require('../../assets/images/courseSlider.jpg'),
+        image: imageUrl ? {uri: imageUrl} : COURSE_COVER_FALLBACK,
         label:
           badgeLabel ||
           (valueAsBoolean(item.is_coming_soon)
@@ -1001,7 +1002,18 @@ const readCatalogueCache = async (
       return null;
     }
     return {
-      courses: cached.courses,
+      courses: cached.courses.map(course => {
+        const remoteUri = isApiRecord(course.image)
+          ? displayImageUrl(course.image.uri)
+          : undefined;
+        return {
+          ...course,
+          // Repair numeric ids from an older JS bundle and remote SVG/invalid
+          // artwork from an older catalogue response without discarding the
+          // last-known-good cards while this device is offline.
+          image: remoteUri ? {uri: remoteUri} : COURSE_COVER_FALLBACK,
+        } as DemoCourse;
+      }),
       page: cached.page,
       hasMore: cached.hasMore,
       total: cached.total,
@@ -1021,7 +1033,17 @@ const writeCatalogueCache = async (
   const record: CatalogueCacheRecord = {
     version: 4,
     savedAt: serverNowMs(),
-    courses: result.courses,
+    courses: result.courses.map(course => {
+      const remoteUri = isApiRecord(course.image)
+        ? displayImageUrl(course.image.uri)
+        : undefined;
+      return {
+        ...course,
+        // Only URLs are stable across application bundles. A missing value is
+        // deliberately restored to this release's bundled fallback on read.
+        image: remoteUri ? {uri: remoteUri} : undefined,
+      };
+    }),
     page: result.page,
     hasMore: result.hasMore,
     total: result.total,

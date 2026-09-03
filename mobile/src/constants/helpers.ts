@@ -80,7 +80,9 @@ const getGuestStorageIdentity = (): Promise<string> => {
   if (!guestStorageIdentityPromise) {
     const flight = (async () => {
       const stored = String(
-        (await AsyncStorage.getItem(GUEST_STORAGE_ID_KEY)) || '',
+        (await AsyncStorage.getItem(GUEST_STORAGE_ID_KEY).catch(
+          () => null,
+        )) || '',
       ).trim();
       if (/^[0-9a-f-]{32,64}$/i.test(stored)) return stored;
       const created = Crypto.randomUUID();
