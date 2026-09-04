@@ -8,6 +8,7 @@ use App\Models\Order;
 use App\Models\Package;
 use App\Models\User;
 use App\Services\PaymentChannelReportService;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -70,6 +71,40 @@ final class PaymentChannelReportTest extends TestCase
         self::assertSame(1, $report['egp']['pending_settlement_count']);
         self::assertSame(1, $rows[Order::PAYMENT_METHOD_APP_STORE]['test_count']);
         self::assertSame(0.0, $rows[Order::PAYMENT_METHOD_APP_STORE]['gross_amount']);
+    }
+
+    public function test_it_groups_monthly_gross_without_breaking_the_dashboard(): void
+    {
+        $user = User::query()->forceCreate([
+            'name' => 'Monthly Finance Student',
+            'name_ar' => 'طالب التقرير الشهري',
+            'name_en' => 'Monthly Finance Student',
+            'email' => 'monthly-finance-report@rokn.test',
+            'phone' => '01000000008',
+            'role' => 'client',
+            'active' => true,
+        ]);
+        $package = Package::query()->create([
+            'name_ar' => 'باقة شهرية',
+            'name_en' => 'Monthly package',
+            'price' => 400,
+            'coins' => 500,
+        ]);
+        $approvedAt = CarbonImmutable::parse('2026-08-18 12:00:00', 'UTC');
+
+        $this->approvedPackageOrder($user, $package, [
+            'order_ref' => 'REPORT-MONTHLY',
+            'gateway_gross_amount' => 400,
+            'gateway_settlement_status' => 'settled',
+            'approved_at' => $approvedAt,
+        ]);
+
+        $totals = app(PaymentChannelReportService::class)->monthlyEgpGross(
+            $approvedAt->startOfMonth(),
+            $approvedAt->addMonth()->startOfMonth(),
+        );
+
+        self::assertSame(400.0, $totals->get('2026-08'));
     }
 
     /** @param array<string, mixed> $overrides */

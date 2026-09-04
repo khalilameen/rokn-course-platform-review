@@ -143,20 +143,18 @@ final class PaymentChannelReportService
                     ->orWhereNotIn('gateway_settlement_status', ['test_purchase', 'catalog_estimate']);
             })
             ->select(['id', 'approved_at', 'gateway_gross_amount'])
-            ->eachById(500, function ($orders) use ($totals): void {
-                foreach ($orders as $order) {
-                    $month = $order->approved_at
-                        ->copy()
-                        ->utc()
-                        ->setTimezone(BusinessClock::timezoneName())
-                        ->format('Y-m');
-                    $totals->put(
-                        $month,
-                        (float) $totals->get($month, 0)
-                            + (float) $order->gateway_gross_amount
-                    );
-                }
-            }, 'id');
+            ->eachById(function ($order) use ($totals): void {
+                $month = $order->approved_at
+                    ->copy()
+                    ->utc()
+                    ->setTimezone(BusinessClock::timezoneName())
+                    ->format('Y-m');
+                $totals->put(
+                    $month,
+                    (float) $totals->get($month, 0)
+                        + (float) $order->gateway_gross_amount
+                );
+            }, 500, 'id');
 
         return $totals->sortKeys();
     }
